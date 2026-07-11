@@ -16,7 +16,10 @@ from metatomic.torch import (
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
-from metatrain.utils.data.atomic_basis_helpers import densify_atomic_basis_dataset_info
+from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_dataset_info,
+    sparsify_atomic_basis_target,
+)
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
 
@@ -252,6 +255,21 @@ class CompositionModel(ModelInterface[ModelHypers]):
             outputs=outputs,
             selected_atoms=selected_atoms,
         )
+
+        if not self.training:
+            # For atomic basis targets, sparsify to create blocks with "atom_type"
+            # in the key dimensions, and ensure properties are unpadded. In training
+            # mode, predictions stay dense: remove_additive subtracts them from
+            # transform-densified targets.
+            targets = self.dataset_info.targets
+            for k, v in pred.items():
+                if k in targets and targets[k].is_atomic_basis:
+                    pred[k] = sparsify_atomic_basis_target(
+                        systems,
+                        v,
+                        targets[k].layout,
+                    )
+
         return pred
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:

@@ -285,7 +285,7 @@ def prepare_atomic_basis_targets(
 # ===== Sparsification utilities (atom types back to keys)
 
 
-def compute_sparse_properties(layout: TensorMap) -> TensorMap:
+def _compute_sparse_properties(layout: TensorMap) -> TensorMap:
     """Compute the properties of the sparse tensor map that results from
     sparsifying a given dense tensor map.
 
@@ -457,7 +457,7 @@ def sparsify_atomic_basis_target(
     :return: the sparsified atomic basis target TensorMap
     """
     if sparse_properties is None:
-        sparse_properties = compute_sparse_properties(layout)
+        sparse_properties = _compute_sparse_properties(layout)
 
     if "atom" in tensor.sample_names:
         return _sparsify_per_atom_atomic_basis_target(
@@ -467,62 +467,6 @@ def sparsify_atomic_basis_target(
     raise NotImplementedError(
         "Currently only sparsification of per-atom atomic basis targets is implemented."
     )
-
-
-def align_predictions_to_target_layout(
-    systems: List[System],
-    predictions: Dict[str, TensorMap],
-    targets: Dict[str, TensorMap],
-    target_info_dict: Dict[str, TargetInfo],
-    sparse_properties: Optional[Dict[str, TensorMap]] = None,
-) -> Dict[str, TensorMap]:
-    """Sparsify predictions whose key schema is denser than their target's.
-
-    A model may predict a densified view of an atomic basis target (fewer key
-    dimensions, e.g. no ``atom_type``) while the dataset stores the target
-    natively sparse. This happens for the standalone ``composition``
-    architecture, which always fits and predicts dense weights (see
-    :class:`~metatrain.composition.CompositionModel`) even when the declared
-    target is genuinely sparse. Evaluation code compares predictions against
-    targets block-by-block, which requires matching key schemas, so sparsify
-    the prediction to match the target's key schema.
-
-    The properties used to sparsify are computed from each target's global
-    layout (``target_info_dict[name].layout``), not from the batch's own
-    target: a single batch may not contain every atom type present in the
-    full dataset, so using it as the reference layout could compute the
-    wrong property indices to select from the (globally-padded) dense
-    prediction.
-
-    :param systems: list of systems in the batch.
-    :param predictions: dictionary of prediction TensorMaps.
-    :param targets: dictionary of target TensorMaps.
-    :param target_info_dict: dictionary mapping target names to their global
-        :class:`~metatrain.utils.data.target_info.TargetInfo`.
-    :param sparse_properties: optional dictionary mapping target names to
-        pre-computed sparse properties (see
-        :func:`compute_sparse_properties`), to avoid recomputing them on
-        every batch.
-    :return: ``predictions``, with any densified entries sparsified to match
-        their target's key schema.
-    """
-    aligned = dict(predictions)
-    for name, target in targets.items():
-        prediction = aligned.get(name)
-        if prediction is None or target.keys.names == prediction.keys.names:
-            continue
-        if len(target.keys.names) > len(prediction.keys.names):
-            aligned[name] = sparsify_atomic_basis_target(
-                systems,
-                prediction,
-                target_info_dict[name].layout,
-                sparse_properties=(
-                    sparse_properties.get(name)
-                    if sparse_properties is not None
-                    else None
-                ),
-            )
-    return aligned
 
 
 # ===== dataloader transforms
@@ -616,10 +560,10 @@ def get_prepare_atomic_basis_targets_transform(
     sparse_properties: dict[str, TensorMap] = {}
     for name, info in target_info_dict.items():
         if info.is_atomic_basis:
-            sparse_properties[name] = compute_sparse_properties(info.layout)
+            sparse_properties[name] = _compute_sparse_properties(info.layout)
     for name, info in extra_data_info_dict.items():
         if info.is_atomic_basis:
-            sparse_properties[name] = compute_sparse_properties(info.layout)
+            sparse_properties[name] = _compute_sparse_properties(info.layout)
 
     def reverse_transform(
         systems: List[System],

@@ -473,11 +473,10 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 use_per_target_scales=True,
                 use_per_property_scales=True,
             )
-            self.add_additive_contributions(
-                return_dict, systems, outputs, selected_atoms
-            )
             # For atomic basis targets, sparsify to create blocks with "atom_type"
-            # in the key dimensions, and ensure properties are unpadded.
+            # in the key dimensions, and ensure properties are unpadded. This is
+            # done before adding the additive contributions, which are also
+            # sparsified (by the additive models themselves, in eval mode).
             targets = self.dataset_info.targets
             for k, v in return_dict.items():
                 if k in targets and targets[k].is_atomic_basis:
@@ -486,6 +485,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
                         v,
                         targets[k].layout,
                     )
+            self.add_additive_contributions(
+                return_dict, systems, outputs, selected_atoms
+            )
 
         return return_dict
 

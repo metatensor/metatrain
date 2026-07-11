@@ -4,7 +4,7 @@ import itertools
 import logging
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Union, cast
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import torch
@@ -23,10 +23,6 @@ from metatrain.utils.data import (
     load_indices,
     read_systems,
     unpack_batch,
-)
-from metatrain.utils.data.atomic_basis_helpers import (
-    align_predictions_to_target_layout,
-    compute_sparse_properties,
 )
 from metatrain.utils.data.readers import read_extra_data
 from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
@@ -236,15 +232,6 @@ def _eval_targets(
     else:
         logging.info("Skipping warm-up of the model.")
 
-    # The sparse properties used to align densified predictions to sparse
-    # atomic-basis targets only depend on each target's global layout, so
-    # compute them once instead of on every batch.
-    sparse_properties = {
-        name: compute_sparse_properties(info.layout)
-        for name, info in options.items()
-        if isinstance(info, TargetInfo) and info.is_atomic_basis
-    }
-
     total_time = 0.0
     timings_per_atom = []
 
@@ -266,14 +253,6 @@ def _eval_targets(
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         end_time = time.time()
-
-        batch_predictions = align_predictions_to_target_layout(
-            systems,
-            batch_predictions,
-            batch_targets,
-            cast(Dict[str, TargetInfo], options),
-            sparse_properties=sparse_properties,
-        )
 
         # Update metrics
         preds_per_atom = average_by_num_atoms(
