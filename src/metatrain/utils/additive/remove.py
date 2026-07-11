@@ -76,8 +76,8 @@ def remove_additive(
         if target_info_dict[key].sample_kind == "atom_pair"
     }
 
-    targets.update(
-        match_samples(atom_pair_contribs, targets, extra_data)
+    additive_contribution.update(
+        match_samples(atom_pair_contribs, targets, extra_data, which_samples="targets")
     )
 
     for target_key in additive_contribution.keys():
