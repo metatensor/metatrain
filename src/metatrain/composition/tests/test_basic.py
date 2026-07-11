@@ -64,9 +64,7 @@ class TestOutput(OutputTests, CompositionTests):
     supports_vector_outputs: bool = False
     supports_spherical_outputs: bool = True
     supports_spherical_rank2_outputs: bool = False
-    # The model fits atomic-basis targets, but always predicts their densified
-    # layout (no atom_type keys), which is not what this common test expects.
-    supports_spherical_atomic_basis_outputs: bool = False
+    supports_spherical_atomic_basis_outputs: bool = True
     supports_selected_atoms: bool = False
     supports_features: bool = False
     supports_last_layer_features: bool = False

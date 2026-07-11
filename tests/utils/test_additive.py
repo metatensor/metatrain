@@ -13,6 +13,7 @@ from metatrain.utils.additive import (
     remove_additive,
 )
 from metatrain.utils.data import Dataset, DatasetInfo
+from metatrain.utils.data.atomic_basis_helpers import densify_atomic_basis_target
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.readers.metatensor import _empty_tensor_map_like
 from metatrain.utils.data.target_info import (
@@ -476,6 +477,91 @@ def test_remove_additive():
     # In QM9 the composition contribution is very large: the standard deviation
     # of the energies is reduced by a factor of over 100 upon removing the composition
     assert std_after < 100.0 * std_before
+
+
+def test_remove_additive_additive_model_in_eval_mode():
+    """Tests that remove_additive subtracts in dense space even when the
+    additive model arrives in eval mode.
+
+    Additive models sparsify their atomic-basis predictions in eval mode,
+    while remove_additive subtracts them from transform-densified targets.
+    The additive model arrives in eval mode e.g. during validation loops, so
+    remove_additive must force train mode for the evaluation (and restore the
+    previous mode afterwards).
+    """
+    systems = [
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        )
+    ]
+    target_info = get_generic_target_info(
+        "spherical_atomic_basis",
+        {
+            "quantity": "",
+            "unit": "",
+            "type": {
+                "spherical": {
+                    "irreps": {
+                        1: [{"o3_lambda": 0, "o3_sigma": 1}],
+                        8: [{"o3_lambda": 0, "o3_sigma": 1}],
+                    }
+                }
+            },
+            "num_subtargets": 1,
+            "sample_kind": "atom",
+        },
+    )
+    composition_model = CompositionModel(
+        hypers={},
+        dataset_info=DatasetInfo(
+            length_unit="angstrom",
+            atomic_types=[1, 8],
+            targets={"spherical_atomic_basis": target_info},
+        ),
+    )
+
+    sparse_target = TensorMap(
+        keys=Labels(
+            names=["o3_lambda", "o3_sigma", "atom_type"],
+            values=torch.tensor([[0, 1, 1], [0, 1, 8]]),
+        ),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[1.0]], dtype=torch.float64).reshape(-1, 1, 1),
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[0, 0]])),
+                components=[Labels(names=["o3_mu"], values=torch.tensor([[0]]))],
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
+            ),
+            TensorBlock(
+                values=torch.tensor([[2.0]], dtype=torch.float64).reshape(-1, 1, 1),
+                samples=Labels(names=["system", "atom"], values=torch.tensor([[0, 1]])),
+                components=[Labels(names=["o3_mu"], values=torch.tensor([[0]]))],
+                properties=Labels(names=["n"], values=torch.tensor([[0]])),
+            ),
+        ],
+    )
+    densified_target = densify_atomic_basis_target(sparse_target, target_info.layout)
+
+    composition_model.eval()
+    new_targets = remove_additive(
+        systems,
+        {"spherical_atomic_basis": densified_target},
+        composition_model,
+        {"spherical_atomic_basis": target_info},
+    )
+
+    # The model was never fitted, so the subtracted contribution is zero and
+    # the targets must come back unchanged, in their dense layout.
+    mts.allclose_raise(
+        new_targets["spherical_atomic_basis"], densified_target, atol=0.0, rtol=0.0
+    )
+    # The model's previous mode is restored.
+    assert not composition_model.training
 
 
 def test_composition_model_missing_types(caplog):
@@ -1221,6 +1307,25 @@ def test_composition_spherical_atomic_basis(missing_type):
     torch.testing.assert_close(
         block.values,
         torch.tensor([1.25, 1.25, 1.5], dtype=torch.float64).reshape(-1, 1, 1),
+    )
+
+    # In eval mode, the model sparsifies its predictions back to the target's
+    # native atomic-basis layout (atom_type in the keys), using the global
+    # layout stored in the model.
+    composition_model.eval()
+    sparse_output = composition_model(
+        [systems[1]], {"spherical_atomic_basis": ModelOutput(sample_kind="atom")}
+    )
+    composition_model.train()
+    sparse = sparse_output["spherical_atomic_basis"]
+    assert sparse.keys.names == ["o3_lambda", "o3_sigma", "atom_type"]
+    torch.testing.assert_close(
+        sparse.block({"o3_lambda": 0, "o3_sigma": 1, "atom_type": 1}).values,
+        torch.tensor([1.25, 1.25], dtype=torch.float64).reshape(-1, 1, 1),
+    )
+    torch.testing.assert_close(
+        sparse.block({"o3_lambda": 0, "o3_sigma": 1, "atom_type": 8}).values,
+        torch.tensor([1.5], dtype=torch.float64).reshape(-1, 1, 1),
     )
 
     if missing_type:
