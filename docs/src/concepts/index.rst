@@ -8,6 +8,7 @@ such as output naming, auxiliary outputs, and wrapper models.
 .. toctree::
    :maxdepth: 1
 
+   dataset-formats
    output-naming
    fine-tuning
    loss-functions

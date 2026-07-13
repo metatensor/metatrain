@@ -35,6 +35,7 @@ class PETBackend(torch.nn.Module):
         super().__init__()
 
         # Cache frequently accessed hyperparameters
+        self.nl_is_strict = bool(hypers["long_range"]["enable"])
         self.cutoff = float(hypers["cutoff"])
         self.cutoff_function = hypers["cutoff_function"]
         self.cutoff_width = float(hypers["cutoff_width"])
@@ -302,6 +303,7 @@ class PETBackend(torch.nn.Module):
             self.num_neighbors_adaptive,
             self.adaptive_cutoff_method,
             cutoff_width_adaptive,
+            self.nl_is_strict,
         )
 
         batch_data: Dict[str, torch.Tensor] = {

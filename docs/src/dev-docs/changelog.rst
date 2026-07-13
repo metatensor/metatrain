@@ -38,6 +38,7 @@ Added
   by passing an output path ending in a path separator (e.g. ``-o predictions/``). The written
   directory can be read back directly as a ``systems: read_from:`` dataset, which is
   useful for very large evaluation runs.
+- MACE architecture now supports multi-headed MACE models through the ``mace_head_name`` hyperparameter.
 
 Changed
 #######
@@ -46,6 +47,7 @@ Changed
   in the dataset, instead of looking for the target name).
 - Avoid reindexing of spherical atomic basis targets during densification and
   padding of atomic types.
+- PET requests a non-strict neighbor list and filters out-of-cutoff pairs internally.
 
 Removed
 #######

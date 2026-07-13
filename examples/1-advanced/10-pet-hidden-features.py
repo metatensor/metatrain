@@ -43,7 +43,7 @@ The tutorial is structured as follows:
 
 import ase
 import torch
-from metatomic.torch import ModelOutput, NeighborListOptions, systems_to_torch
+from metatomic.torch import ModelOutput, systems_to_torch
 
 from metatrain.pet import PET
 from metatrain.utils.architectures import get_default_hypers
@@ -87,9 +87,9 @@ frames = [
 ]
 systems = systems_to_torch(frames)
 
-nl_options = NeighborListOptions(cutoff=4.5, full_list=True, strict=True)
 systems = [
-    get_system_with_neighbor_lists(system, [nl_options]).to(dtype) for system in systems
+    get_system_with_neighbor_lists(system, model.requested_neighbor_lists()).to(dtype)
+    for system in systems
 ]
 
 
@@ -102,12 +102,12 @@ systems = [
 # PET exposes three standard outputs: the backbone features (``"feature"``), the
 # last-layer features before the readout (``"mtt::aux::energy_last_layer_features"``),
 # and the predicted energy. These are the normal production outputs. Setting
-# ``per_atom=False`` aggregates atom features into a single per-structure vector.
+# ``sample_kind="system"`` aggregates atom features into a single per-structure vector.
 
 outputs = {
-    "feature": ModelOutput(per_atom=True),
-    "mtt::aux::energy_last_layer_features": ModelOutput(per_atom=True),
-    "energy": ModelOutput(per_atom=False),
+    "feature": ModelOutput(sample_kind="atom"),
+    "mtt::aux::energy_last_layer_features": ModelOutput(sample_kind="atom"),
+    "energy": ModelOutput(sample_kind="system"),
 }
 predictions = model(systems, outputs)
 
@@ -157,10 +157,10 @@ print("backbone samples:           ", backbone_block.samples.names)
 # default feedforward mode.
 
 outputs = {
-    "mtt::feature::node_backbone.0": ModelOutput(per_atom=True),
-    "mtt::feature::edge_backbone.0": ModelOutput(per_atom=True),
-    "mtt::feature::node_heads.energy.0": ModelOutput(per_atom=True),
-    "mtt::feature::edge_heads.energy.0": ModelOutput(per_atom=True),
+    "mtt::feature::node_backbone.0": ModelOutput(sample_kind="atom"),
+    "mtt::feature::edge_backbone.0": ModelOutput(sample_kind="atom"),
+    "mtt::feature::node_heads.energy.0": ModelOutput(sample_kind="atom"),
+    "mtt::feature::edge_heads.energy.0": ModelOutput(sample_kind="atom"),
 }
 predictions = model(systems, outputs)
 
@@ -204,10 +204,10 @@ print("edge_backbone.0  samples: ", edge_bb.samples.names)
 #   ``(n_edges, 1)``
 
 outputs = {
-    "mtt::feature::edge_distances": ModelOutput(per_atom=True),
-    "mtt::feature::edge_vectors": ModelOutput(per_atom=True),
-    "mtt::feature::element_indices_nodes": ModelOutput(per_atom=True),
-    "mtt::feature::element_indices_neighbors": ModelOutput(per_atom=True),
+    "mtt::feature::edge_distances": ModelOutput(sample_kind="atom"),
+    "mtt::feature::edge_vectors": ModelOutput(sample_kind="atom"),
+    "mtt::feature::element_indices_nodes": ModelOutput(sample_kind="atom"),
+    "mtt::feature::element_indices_neighbors": ModelOutput(sample_kind="atom"),
 }
 predictions = model(systems, outputs)
 
@@ -308,16 +308,16 @@ print_all_module_paths(model)
 
 outputs = {
     # Initial edge-type embedding (before the GNN)
-    "mtt::feature::edge_embedder": ModelOutput(per_atom=True),
+    "mtt::feature::edge_embedder": ModelOutput(sample_kind="atom"),
     # Edge embedding re-computed inside the first CartesianTransformer
-    "mtt::feature::gnn_layers.0.edge_embedder": ModelOutput(per_atom=True),
+    "mtt::feature::gnn_layers.0.edge_embedder": ModelOutput(sample_kind="atom"),
     # Node and edge output of the first TransformerLayer
-    "mtt::feature::gnn_layers.0.trans.layers.0_node": ModelOutput(per_atom=True),
-    "mtt::feature::gnn_layers.0.trans.layers.0_edge": ModelOutput(per_atom=True),
+    "mtt::feature::gnn_layers.0.trans.layers.0_node": ModelOutput(sample_kind="atom"),
+    "mtt::feature::gnn_layers.0.trans.layers.0_edge": ModelOutput(sample_kind="atom"),
     # MLP sub-module inside the same TransformerLayer (node-like)
-    "mtt::feature::gnn_layers.0.trans.layers.0.mlp": ModelOutput(per_atom=True),
+    "mtt::feature::gnn_layers.0.trans.layers.0.mlp": ModelOutput(sample_kind="atom"),
     # Full node output of the first CartesianTransformer
-    "mtt::feature::gnn_layers.0_node": ModelOutput(per_atom=True),
+    "mtt::feature::gnn_layers.0_node": ModelOutput(sample_kind="atom"),
 }
 predictions = model(systems, outputs)
 

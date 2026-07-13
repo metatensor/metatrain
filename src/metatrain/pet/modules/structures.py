@@ -180,6 +180,7 @@ def compute_batch_tensors(
     num_neighbors_adaptive: Optional[float] = None,
     adaptive_cutoff_method: str = "solver",
     cutoff_width_adaptive: float = 1.0,
+    nl_is_strict: bool = True,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -225,6 +226,9 @@ def compute_batch_tensors(
         root finder on the smoothed neighbor count.
     :param cutoff_width_adaptive: Width of the smooth cutoff taper used by the
         adaptive cutoff scheme when ``num_neighbors_adaptive`` is set.
+    :param nl_is_strict: Whether the neighbor list only contains pairs within the
+        cutoff. If ``False``, the extra pairs are filtered out here. Only used with a
+        fixed cutoff, since the adaptive cutoff filters the edges anyway.
     :return: A tuple containing the batch tensors.
         The batch consists of the following tensors:
         - `element_indices_nodes`: The atomic species of the central atoms
@@ -311,6 +315,15 @@ def compute_batch_tensors(
             cell_shifts = cell_shifts.index_select(0, keep)
             edge_distances = edge_distances.index_select(0, keep)
     else:
+        if not nl_is_strict:
+            with torch.profiler.record_function("PET::non_strict_nl_masking"):
+                keep = torch.nonzero(edge_distances <= cutoff).squeeze(-1)
+                centers = centers.index_select(0, keep)
+                neighbors = neighbors.index_select(0, keep)
+                edge_vectors = edge_vectors.index_select(0, keep)
+                cell_shifts = cell_shifts.index_select(0, keep)
+                edge_distances = edge_distances.index_select(0, keep)
+
         pair_cutoffs = cutoff * torch.ones(
             len(centers), device=positions.device, dtype=positions.dtype
         )
