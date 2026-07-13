@@ -61,8 +61,9 @@ def get_writer(
     For certain file suffixes, the systems will also be written (i.e ``xyz``).
 
     A path ending in a path separator (e.g. ``predictions/``) is treated as a
-    memory-mapped ``MemmapDataset`` directory rather than a single file. Since nothing exists on disk yet when a writer is
-    selected, the trailing separator is the write-side equivalent of that check.
+    memory-mapped ``MemmapDataset`` directory rather than a single file. Since
+    nothing exists on disk yet when a writer is selected, the trailing separator
+    is the write-side equivalent of that check.
 
     The capabilities of the model are used to infer the type (physical quantity) of
     the predictions. In this way, for example, position gradients of energies can be
