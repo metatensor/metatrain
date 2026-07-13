@@ -15,8 +15,7 @@ options include ``architecture.training.finetune`` in the :ref:`architecture ref
 <available-architectures>`. The examples use the PET syntax.
 
 Once the options file is set up, start the run with ``mtt train options.yaml``. There is
-a complete example in the tutorial section:
-:ref:`sphx_glr_generated_examples_0-beginner_02-fine-tuning.py`.
+a complete example in the tutorial section: :ref:`finetuning-tutorial`.
 
 Choosing a strategy
 -------------------
@@ -312,9 +311,8 @@ With LAMMPS, use the ``variant`` keyword:
 
 Replace ``finetune`` with the part of the target name after ``energy/``.
 
-For more details, see the :ref:`fine-tuning tutorial
-<sphx_glr_generated_examples_0-beginner_02-fine-tuning.py>`, the `metatomic ASE
-documentation`_, and the `metatomic LAMMPS documentation`_.
+For more details, see the :ref:`fine-tuning tutorial <finetuning-tutorial>`, the
+`metatomic ASE documentation`_, and the `metatomic LAMMPS documentation`_.
 
 .. _metatomic ASE documentation: https://docs.metatensor.org/metatomic/latest/engines/ase.html#metatomic_ase.MetatomicCalculator
 .. _metatomic LAMMPS documentation: https://docs.metatensor.org/metatomic/latest/engines/lammps.html

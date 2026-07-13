@@ -87,5 +87,5 @@ Multi-GPU fine-tuning
 
 You can use multi-GPU for fine-tuning too, by writing ``distributed: True`` in the
 ``.yaml`` input. For information about fine-tuning, please refer to the
-:ref:`sphx_glr_generated_examples_0-beginner_02-fine-tuning.py` example.
+:ref:`finetuning-tutorial` example.
 """
