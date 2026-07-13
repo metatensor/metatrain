@@ -62,8 +62,8 @@ correlations up to roughly 10 Å.
 
 **Q: In what format should I provide my data?**
 
-**A:** You can find everything on how to prepare your data in
-:ref:`sphx_glr_generated_examples_0-beginner_01-data_preparation.py`.
+**A:** See :ref:`dataset-formats` for an overview of the supported formats and
+:ref:`data-preparation-tutorial` for a hands-on tutorial on preparing your data.
 
 **Q: How small should my errors be before I can use my model to run Molecular Dynamics simulations?**
 

@@ -89,10 +89,11 @@ class PET(ModelInterface[ModelHypers]):
         self.featurizer_type = self.hypers["featurizer_type"]
 
         self.atomic_types = dataset_info.atomic_types
+        nl_is_strict = bool(self.hypers["long_range"]["enable"])
         self.requested_nl = NeighborListOptions(
             cutoff=self.cutoff,
             full_list=True,
-            strict=True,
+            strict=nl_is_strict,
         )
         if self.featurizer_type not in AVAILABLE_FEATURIZERS:
             raise ValueError(

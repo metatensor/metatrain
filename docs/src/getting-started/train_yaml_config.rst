@@ -171,6 +171,10 @@ As an example, the simple configuration that we saw previously is equivalent to:
             length_unit: null
         ... # Rest of training set specification
 
+Besides ASE-readable files, ``read_from`` also accepts a ``.zip`` file or a
+directory of memory-mapped arrays, which are better suited for large datasets,
+see :ref:`dataset-formats`.
+
 Targets
 -------
 
