@@ -35,6 +35,12 @@ Added
   ``system_conditioning`` model hyperparameter, with per-system ``charge`` and
   ``spin_multiplicity`` provided as ``extra_data``.
 - MACE architecture now supports multi-headed MACE models through the ``mace_head_name`` hyperparameter.
+- ``composition`` is now a standalone architecture: it can be trained, exported, and run
+  for inference on its own (``architecture: {name: composition}``), in addition to being
+  used as an additive baseline inside the other architectures.
+- The ``atomic_baseline`` hyperparameter now also accepts a path to a pretrained
+  composition checkpoint, which is loaded and reused as the additive baseline instead of
+  being refitted from the training data.
 
 Changed
 #######
@@ -44,6 +50,8 @@ Changed
 - Avoid reindexing of spherical atomic basis targets during densification and
   padding of atomic types.
 - PET requests a non-strict neighbor list and filters out-of-cutoff pairs internally.
+- The composition model moved from ``metatrain.utils.additive.CompositionModel`` to
+  ``metatrain.composition.CompositionModel``.
 
 Removed
 #######
