@@ -2,6 +2,7 @@ import argparse
 import copy
 import itertools
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Union
@@ -100,7 +101,11 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
         type=str,
         required=False,
         default="output.xyz",
-        help="filename of the predictions (default: %(default)s)",
+        help=(
+            "filename of the predictions (default: %(default)s). A path ending in a "
+            "path separator (e.g. 'predictions/') writes a memmap dataset directory "
+            "instead of a single file."
+        ),
     )
     parser.add_argument(
         "-b",
@@ -316,13 +321,18 @@ def eval_model(
 
     :param model: Saved model to be evaluated.
     :param options: DictConfig to define a test dataset taken for the evaluation.
-    :param output: Path to save the predicted values.
+    :param output: Path to save the predicted values. A path ending in a path
+        separator (e.g. ``"predictions/"``) writes a memmap dataset directory instead
+        of a single file.
     :param batch_size: Batch size for evaluation.
     :param check_consistency: Whether to run consistency checks during model evaluation.
     :param append: If ``True``, open the output file in append mode.
     :param warm_up: Whether to do a warm-up of the model before evaluation.
     """
     logging.info("Setting up evaluation set.")
+    # a trailing path separator signals a memmap dataset directory; this has to be
+    # detected on the raw string, since Path() silently drops trailing separators
+    is_memmap_output = isinstance(output, str) and output.endswith(("/", os.sep))
     output = Path(output) if isinstance(output, str) else output
 
     options = validate_eval_options(OmegaConf.to_container(options))
@@ -333,6 +343,8 @@ def eval_model(
         extra_log_message = f" with index {i}" if len(options_list) > 1 else ""
         logging.info(f"Evaluating dataset{extra_log_message}")
         filename = f"{output.stem}{idx_suffix}{output.suffix}"
+        if is_memmap_output:
+            filename = filename + "/"
 
         # pick the right writer
         writer = get_writer(filename, capabilities=model.capabilities(), append=append)

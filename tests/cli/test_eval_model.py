@@ -223,7 +223,7 @@ def test_eval_no_targets(monkeypatch, tmp_path, model, options):
     assert Path("output.xyz").is_file()
 
 
-@pytest.mark.parametrize("suffix", [".zip", ".memmap"])
+@pytest.mark.parametrize("suffix", [".zip", "/"])
 def test_eval_no_targets_disallowed_for_dataset_writers(
     monkeypatch, tmp_path, model, options, suffix
 ):
@@ -243,7 +243,7 @@ def test_eval_no_targets_disallowed_for_dataset_writers(
         )
 
 
-@pytest.mark.parametrize("suffix", [".zip", ".mts", ".memmap"])
+@pytest.mark.parametrize("suffix", [".zip", ".mts", "/"])
 def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix, MODEL_PATH):
     """Test that eval via python API runs without an error raise."""
     monkeypatch.chdir(tmp_path)
@@ -305,7 +305,7 @@ def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix, MODEL_PATH):
     if suffix == ".mts":
         pred = metatensor_load("foo_energy.mts")
         assert pred.keys == Labels(["_"], torch.tensor([[0]]))
-    elif suffix == ".memmap":
+    elif suffix == "/":
         target_options = {
             "energy": {
                 "key": "energy",

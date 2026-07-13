@@ -217,7 +217,7 @@ def test_write_xyz_cell(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize(
     "filename",
-    ("test_output.xyz", "test_output.mts", "test_output.zip", "test_output.memmap"),
+    ("test_output.xyz", "test_output.mts", "test_output.zip", "test_output/"),
 )
 @pytest.mark.parametrize("fileformat", (None, "same_as_filename"))
 @pytest.mark.parametrize("cell", (None, torch.eye(3)))
@@ -226,13 +226,17 @@ def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
 
     systems, capabilities, predictions = systems_capabilities_predictions(cell=cell)
 
-    if fileformat == "same_as_filename" or fileformat is None:
-        fileformat = "." + filename.split(".")[1]
-
-    try:
+    if filename.endswith("/"):
+        # memmap datasets are dispatched via a trailing path separator, not a
+        # fileformat/extension
         writer = get_writer(filename, capabilities=capabilities)
-    except KeyError:
-        raise ValueError(f"fileformat '{fileformat}' is not supported")
+    else:
+        if fileformat == "same_as_filename" or fileformat is None:
+            fileformat = "." + filename.split(".")[1]
+        try:
+            writer = get_writer(filename, capabilities=capabilities)
+        except KeyError:
+            raise ValueError(f"fileformat '{fileformat}' is not supported")
 
     writer.write(systems, predictions)
     writer.finish()
@@ -255,8 +259,8 @@ def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
         if cell is not None:
             assert tensormap.block().gradient("strain").values.shape == (2, 3, 3, 1)
 
-    elif filename.endswith(".memmap"):
-        directory = Path(filename).with_suffix("")
+    elif filename.endswith("/"):
+        directory = Path(filename)
         ns = int(np.load(directory / "ns.npy"))
         na = np.load(directory / "na.npy")
         assert ns == len(systems)
@@ -297,6 +301,30 @@ def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
 def test_write_predictions_unknown_fileformat():
     with pytest.raises(ValueError, match="fileformat '.bar' is not supported"):
         get_writer("foo.bar", capabilities=None)
+
+
+def test_write_predictions_no_extension_and_no_trailing_slash_errors():
+    """A bare path with neither a recognized extension nor a trailing path separator
+    must fail clearly, not silently guess it's a memmap directory."""
+    with pytest.raises(ValueError, match="trailing path separator"):
+        get_writer("predictions", capabilities=None)
+
+
+def test_get_writer_trailing_slash_selects_memmap_writer(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    writer = get_writer("predictions/", capabilities=None)
+    assert isinstance(writer, MemmapWriter)
+    assert writer.directory == Path("predictions")
+
+
+@pytest.mark.parametrize("suffix", (".zip", ".mts", ".xyz"))
+def test_get_writer_ambiguous_extension_and_trailing_slash_errors(suffix):
+    """A path with both a recognized extension and a trailing separator (e.g.
+    'predictions.zip/') must fail loudly rather than silently picking one
+    interpretation, since it's ambiguous whether a file or a memmap directory
+    was intended."""
+    with pytest.raises(ValueError, match="is ambiguous"):
+        get_writer(f"predictions{suffix}/", capabilities=None)
 
 
 def test_write_disk_dataset_non_contiguous(monkeypatch, tmp_path):
@@ -435,7 +463,7 @@ def test_memmap_writer_streams_to_disk(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
     systems, capabilities, predictions = systems_capabilities_predictions()
-    filename = "test_streaming.memmap"
+    filename = "test_streaming/"
 
     writer = MemmapWriter(filename, capabilities=capabilities)
 
@@ -452,7 +480,7 @@ def test_memmap_writer_streams_to_disk(monkeypatch, tmp_path):
     writer.finish()
 
     # verify all 4 structures (2 batches x 2 systems) present with correct offsets
-    directory = Path(filename).with_suffix("")
+    directory = Path(filename)
     ns = int(np.load(directory / "ns.npy"))
     na = np.load(directory / "na.npy")
     assert ns == 4
@@ -466,7 +494,7 @@ def test_memmap_writer_streams_to_disk(monkeypatch, tmp_path):
 def test_memmap_writer_append_not_supported(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(ValueError, match="Appending is not supported"):
-        MemmapWriter("test.memmap", append=True)
+        MemmapWriter("test/", append=True)
 
 
 def test_memmap_writer_moves_aside_existing_directory(monkeypatch, tmp_path):
@@ -480,7 +508,7 @@ def test_memmap_writer_moves_aside_existing_directory(monkeypatch, tmp_path):
     sentinel.write_text("do not delete me")
 
     systems, capabilities, predictions = systems_capabilities_predictions()
-    writer = MemmapWriter("test_preexisting.memmap", capabilities=capabilities)
+    writer = MemmapWriter("test_preexisting/", capabilities=capabilities)
     writer.write(systems, predictions)
     writer.finish()
 
@@ -503,7 +531,7 @@ def test_memmap_writer_moves_aside_multiple_existing_directories(monkeypatch, tm
     systems, capabilities, predictions = systems_capabilities_predictions()
 
     for _ in range(3):
-        writer = MemmapWriter("test_repeat.memmap", capabilities=capabilities)
+        writer = MemmapWriter("test_repeat/", capabilities=capabilities)
         writer.write(systems, predictions)
         writer.finish()
 
@@ -530,7 +558,7 @@ def test_memmap_writer_stress_sign_left_handed_cell(monkeypatch, tmp_path):
 
     systems, capabilities, predictions = systems_capabilities_predictions(cell=cell)
 
-    filename = "test_left_handed.memmap"
+    filename = "test_left_handed/"
     writer = MemmapWriter(filename, capabilities=capabilities)
     writer.write(systems, predictions)
     writer.finish()
@@ -547,7 +575,7 @@ def test_memmap_writer_stress_sign_left_handed_cell(monkeypatch, tmp_path):
             "virial": False,
         }
     }
-    dataset = MemmapDataset(Path(filename).with_suffix(""), target_options)
+    dataset = MemmapDataset(Path(filename), target_options)
 
     expected_strain = predictions["energy"].block().gradient("strain").values
     for i in range(len(systems)):

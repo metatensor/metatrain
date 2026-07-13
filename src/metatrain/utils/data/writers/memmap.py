@@ -29,8 +29,8 @@ class MemmapWriter(Writer):
     until ``finish()``, where the small ``ns.npy``/``na.npy`` index files (which
     require the final structure/atom counts) are written and all files are closed.
 
-    :param path: Path to the output "file"; the resulting directory is this path with
-        its suffix stripped (e.g. ``predictions.memmap`` -> ``predictions/``). If the
+    :param path: Directory path to write into (e.g. ``predictions/``), used as-is
+        (unlike the other writers, no filename manipulation is performed). If the
         directory already exists, it is moved aside to a numbered backup (e.g.
         ``predictions.bak0/``) rather than deleted, so a stale or unrelated directory
         is never silently destroyed.
@@ -48,7 +48,7 @@ class MemmapWriter(Writer):
             raise ValueError("Appending is not supported for the memmap writer.")
         super().__init__(filename=path, capabilities=capabilities, append=append)
 
-        self.directory = Path(path).with_suffix("")
+        self.directory = Path(path)
         if self.directory.exists():
             backup = self.directory
             i = 0
