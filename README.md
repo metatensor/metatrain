@@ -34,7 +34,6 @@ model:
 
 | Name                                          | Description                                                                                                                          |
 |-----------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| [Composition][arch-composition]               | Per-species linear fit to training targets                                                                                           |
 | [PET][arch-pet]                               | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
 | [SOAP-BPNN][arch-soap_bpnn]                   | A Behler-Parrinello neural network with SOAP features                                                                                |
 | [MACE][arch-mace]                             | A higher order equivariant message passing neural network.                                                                           |
@@ -43,6 +42,13 @@ model:
 | [FlashMD][arch-flashmd]                       | An architecture for the direct prediction of molecular dynamics                                                                      |
 | [DPA3][arch-dpa3]                             | An invariant graph neural network based on line graph series representations                                                         |
 | [Symplectic FlashMD][arch-flashmd_symplectic] | A symplectic variant of FlashMD for the direct prediction of molecular dynamics.                                                     |
+
+It also contains architectures meant to simplify tasks or augment the capabilities of the models:
+
+| Name                                          | Description                                                                                                                          |
+|-----------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| [Composition][arch-composition]         | Per-species linear fit to training targets                                                                                           |
+| [LLPR][arch-llpr]                             | Cheap uncertainty quantification via the last-layer prediction rigidity (LLPR) approach                                              |
 
 <!-- marker-arch-links -->
 
@@ -57,6 +63,7 @@ on a PR, since the docs use this README file directly.-->
 [arch-phace]: https://docs.metatensor.org/metatrain/latest/architectures/generated/phace.html
 [arch-soap_bpnn]: https://docs.metatensor.org/metatrain/latest/architectures/generated/soap_bpnn.html
 [arch-flashmd_symplectic]: https://docs.metatensor.org/metatrain/latest/architectures/generated/flashmd_symplectic.html
+[arch-llpr]: https://docs.metatensor.org/metatrain/latest/architectures/generated/llpr.html
 
 <!-- marker-documentation -->
 
