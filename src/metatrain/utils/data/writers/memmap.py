@@ -1,5 +1,3 @@
-import logging
-import shutil
 from pathlib import Path
 from typing import BinaryIO, Dict, List, Optional, Union
 
@@ -30,10 +28,13 @@ class MemmapWriter(Writer):
     require the final structure/atom counts) are written and all files are closed.
 
     :param path: Directory path to write into (e.g. ``predictions/``), used as-is
-        (unlike the other writers, no filename manipulation is performed). If the
-        directory already exists, it is moved aside to a numbered backup (e.g.
-        ``predictions.bak0/``) rather than deleted, so a stale or unrelated directory
-        is never silently destroyed.
+        (unlike the other writers, no filename manipulation is performed). The
+        directory is created if it does not exist yet. If it already exists and
+        already contains any file, a :py:class:`FileExistsError` is raised
+        immediately rather than writing into (or overwriting) a possibly unrelated
+        directory: this check happens up front, before any (potentially very long)
+        evaluation runs, instead of lazily discovering a conflict only when the
+        colliding file would have been written.
     :param capabilities: Model capabilities (unused, but matches base signature).
     :param append: Not supported for memmap datasets.
     """
@@ -49,18 +50,13 @@ class MemmapWriter(Writer):
         super().__init__(filename=path, capabilities=capabilities, append=append)
 
         self.directory = Path(path)
-        if self.directory.exists():
-            backup = self.directory
-            i = 0
-            while backup.exists():
-                backup = self.directory.with_name(f"{self.directory.name}.bak{i}")
-                i += 1
-            logging.warning(
-                f"'{self.directory}' already exists; moving it to '{backup}' "
-                "before writing the new memmap dataset."
+        if self.directory.exists() and any(self.directory.iterdir()):
+            raise FileExistsError(
+                f"'{self.directory}' already exists and is not empty. Refusing to "
+                "write a memmap dataset into a non-empty directory; remove its "
+                "contents first, or point to a different directory."
             )
-            shutil.move(str(self.directory), str(backup))
-        self.directory.mkdir(parents=True)
+        self.directory.mkdir(parents=True, exist_ok=True)
 
         self._atom_counts: List[int] = []
         self._files: Dict[str, BinaryIO] = {}

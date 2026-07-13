@@ -497,47 +497,40 @@ def test_memmap_writer_append_not_supported(monkeypatch, tmp_path):
         MemmapWriter("test/", append=True)
 
 
-def test_memmap_writer_moves_aside_existing_directory(monkeypatch, tmp_path):
-    """A pre-existing directory at the target path must be preserved (renamed to a
-    backup), never deleted outright."""
+def test_memmap_writer_reuses_empty_existing_directory(monkeypatch, tmp_path):
+    """A pre-existing but empty directory is reused as-is."""
     monkeypatch.chdir(tmp_path)
 
     directory = Path("test_preexisting")
     directory.mkdir()
-    sentinel = directory / "unrelated_file.txt"
-    sentinel.write_text("do not delete me")
 
     systems, capabilities, predictions = systems_capabilities_predictions()
     writer = MemmapWriter("test_preexisting/", capabilities=capabilities)
     writer.write(systems, predictions)
     writer.finish()
 
-    # the original directory (and its unrelated content) must still exist, just moved
-    backup = Path("test_preexisting.bak0")
-    assert backup.is_dir()
-    assert (backup / "unrelated_file.txt").read_text() == "do not delete me"
-
-    # the fresh directory must contain the newly written memmap dataset
     assert directory.is_dir()
     assert (directory / "ns.npy").is_file()
-    assert not (directory / "unrelated_file.txt").exists()
 
 
-def test_memmap_writer_moves_aside_multiple_existing_directories(monkeypatch, tmp_path):
-    """Repeated writes to the same path must keep incrementing the backup index
-    instead of overwriting earlier backups."""
+def test_memmap_writer_errors_on_non_empty_directory(monkeypatch, tmp_path):
+    """Construction must raise immediately (before any writing happens) if the
+    target directory already exists and contains anything at all, rather than
+    silently overwriting or discovering a conflict only partway through a
+    potentially very long evaluation run."""
     monkeypatch.chdir(tmp_path)
 
-    systems, capabilities, predictions = systems_capabilities_predictions()
+    directory = Path("test_conflict")
+    directory.mkdir()
+    sentinel = directory / "unrelated_file.txt"
+    sentinel.write_text("do not delete me")
 
-    for _ in range(3):
-        writer = MemmapWriter("test_repeat/", capabilities=capabilities)
-        writer.write(systems, predictions)
-        writer.finish()
+    _, capabilities, _ = systems_capabilities_predictions()
+    with pytest.raises(FileExistsError, match="not empty"):
+        MemmapWriter("test_conflict/", capabilities=capabilities)
 
-    assert Path("test_repeat").is_dir()
-    assert Path("test_repeat.bak0").is_dir()
-    assert Path("test_repeat.bak1").is_dir()
+    # the pre-existing content must not have been touched
+    assert sentinel.read_text() == "do not delete me"
 
 
 def test_memmap_writer_stress_sign_left_handed_cell(monkeypatch, tmp_path):
