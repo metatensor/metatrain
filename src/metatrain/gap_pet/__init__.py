@@ -1,6 +1,5 @@
-from metatrain.pet.trainer import Trainer
-
 from .model import GapPET
+from .trainer import Trainer
 
 
 __model__ = GapPET

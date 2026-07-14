@@ -27,11 +27,11 @@ from metatomic.torch import ModelOutput, System, systems_to_torch
 
 from metatrain.gap_pet.documentation import ModelHypers
 from metatrain.gap_pet.model import (
-    HOMO_PER_ATOM_OUTPUT_NAME,
-    LUMO_PER_ATOM_OUTPUT_NAME,
     GapPET,
     _scatter_logsumexp,
     _scatter_softmax_pool,
+    homo_per_atom_output_name,
+    lumo_per_atom_output_name,
 )
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
@@ -202,8 +202,7 @@ def test_force_finite_difference():
 
     diff = (analytical_grad - fd_grad).abs().max().item()
     assert diff < 1e-4, (
-        f"Autograd gradient disagrees with finite difference: max abs diff "
-        f"= {diff:.2e}"
+        f"Autograd gradient disagrees with finite difference: max abs diff = {diff:.2e}"
     )
 
 
@@ -222,15 +221,15 @@ def test_per_atom_outputs_pool_to_gap():
 
     outputs = {
         TARGET_NAME: ModelOutput(per_atom=False),
-        HOMO_PER_ATOM_OUTPUT_NAME: ModelOutput(per_atom=True),
-        LUMO_PER_ATOM_OUTPUT_NAME: ModelOutput(per_atom=True),
+        homo_per_atom_output_name(TARGET_NAME): ModelOutput(per_atom=True),
+        lumo_per_atom_output_name(TARGET_NAME): ModelOutput(per_atom=True),
     }
     with torch.no_grad():
         out = model(systems, outputs)
 
     n_atoms = systems[0].positions.shape[0]
-    h_homo_block = out[HOMO_PER_ATOM_OUTPUT_NAME].block()
-    h_lumo_block = out[LUMO_PER_ATOM_OUTPUT_NAME].block()
+    h_homo_block = out[homo_per_atom_output_name(TARGET_NAME)].block()
+    h_lumo_block = out[lumo_per_atom_output_name(TARGET_NAME)].block()
 
     assert h_homo_block.values.shape == (n_atoms, 1)
     assert h_lumo_block.values.shape == (n_atoms, 1)
@@ -265,23 +264,31 @@ def test_alpha_limits():
     system_indices = torch.zeros(values.shape[0], dtype=torch.int64)
 
     # Smooth max should approach +max as alpha -> +inf.
-    pooled_max = _scatter_logsumexp(values, torch.tensor(1000.0, dtype=DTYPE), system_indices, 1)
-    assert torch.isclose(
-        pooled_max, values.max().reshape(1), atol=1e-2
-    ), f"Smooth max with alpha=1000 should approach {values.max()}, got {pooled_max.item()}"
+    pooled_max = _scatter_logsumexp(
+        values, torch.tensor(1000.0, dtype=DTYPE), system_indices, 1
+    )
+    assert torch.isclose(pooled_max, values.max().reshape(1), atol=1e-2), (
+        f"Smooth max with alpha=1000 should approach {values.max()}, got {pooled_max.item()}"
+    )
 
     # Smooth min should approach min as alpha -> -inf.
-    pooled_min = _scatter_logsumexp(values, torch.tensor(-1000.0, dtype=DTYPE), system_indices, 1)
-    assert torch.isclose(
-        pooled_min, values.min().reshape(1), atol=1e-2
-    ), f"Smooth min with alpha=-1000 should approach {values.min()}, got {pooled_min.item()}"
+    pooled_min = _scatter_logsumexp(
+        values, torch.tensor(-1000.0, dtype=DTYPE), system_indices, 1
+    )
+    assert torch.isclose(pooled_min, values.min().reshape(1), atol=1e-2), (
+        f"Smooth min with alpha=-1000 should approach {values.min()}, got {pooled_min.item()}"
+    )
 
     # At a finite alpha, the LSE-based smooth pool over-shoots the hard
     # extremum by at most log(N)/|alpha|: pool_max >= max, pool_min <= min,
     # with equality only as |alpha| -> infinity.
     slack = math.log(values.numel()) / 20.0
-    pool_default_max = _scatter_logsumexp(values, torch.tensor(20.0, dtype=DTYPE), system_indices, 1).item()
-    pool_default_min = _scatter_logsumexp(values, torch.tensor(-20.0, dtype=DTYPE), system_indices, 1).item()
+    pool_default_max = _scatter_logsumexp(
+        values, torch.tensor(20.0, dtype=DTYPE), system_indices, 1
+    ).item()
+    pool_default_min = _scatter_logsumexp(
+        values, torch.tensor(-20.0, dtype=DTYPE), system_indices, 1
+    ).item()
     assert values.max().item() <= pool_default_max <= values.max().item() + slack + 1e-9
     assert values.min().item() - slack - 1e-9 <= pool_default_min <= values.min().item()
 
@@ -434,15 +441,15 @@ def test_softmax_per_atom_outputs_pool_to_gap():
 
     outputs = {
         TARGET_NAME: ModelOutput(per_atom=False),
-        HOMO_PER_ATOM_OUTPUT_NAME: ModelOutput(per_atom=True),
-        LUMO_PER_ATOM_OUTPUT_NAME: ModelOutput(per_atom=True),
+        homo_per_atom_output_name(TARGET_NAME): ModelOutput(per_atom=True),
+        lumo_per_atom_output_name(TARGET_NAME): ModelOutput(per_atom=True),
     }
     with torch.no_grad():
         out = model(systems, outputs)
 
     n_atoms = systems[0].positions.shape[0]
-    h_homo = out[HOMO_PER_ATOM_OUTPUT_NAME].block().values.squeeze(-1)
-    h_lumo = out[LUMO_PER_ATOM_OUTPUT_NAME].block().values.squeeze(-1)
+    h_homo = out[homo_per_atom_output_name(TARGET_NAME)].block().values.squeeze(-1)
+    h_lumo = out[lumo_per_atom_output_name(TARGET_NAME)].block().values.squeeze(-1)
     system_indices = torch.zeros(n_atoms, dtype=torch.int64)
     e_homo = _scatter_softmax_pool(h_homo, model.alpha_homo, system_indices, 1)
     e_lumo = _scatter_softmax_pool(h_lumo, model.alpha_lumo, system_indices, 1)
@@ -462,5 +469,3 @@ def test_unknown_pooling_type_raises():
     """An unrecognised pooling type must fail loudly at construction time."""
     with pytest.raises(ValueError, match="Unknown pooling type"):
         _make_model([1, 8], pooling={"type": "not_a_pool"})
-
-
