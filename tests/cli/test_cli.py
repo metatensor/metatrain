@@ -28,7 +28,7 @@ def test_wrong_module():
         subprocess.check_call(["mtt", "foo"])
 
 
-@pytest.mark.parametrize("module", tuple(["eval", "export", "train"]))
+@pytest.mark.parametrize("module", tuple(["eval", "export", "show", "train"]))
 def test_available_modules(module):
     """Test available modules."""
     subprocess.check_call(["mtt", module, "--help"])
@@ -113,7 +113,12 @@ def get_completion_suggestions(partial_word: str) -> List[str]:
 
 @pytest.mark.parametrize(
     "partial_word, expected_completion",
-    [(" ", ["--debug", "--help", "--version", "-h", "eval", "export", "train"])],
+    [
+        (
+            " ",
+            ["--debug", "--help", "--version", "-h", "eval", "export", "show", "train"],
+        )
+    ],
 )
 @pytest.mark.skipif(
     sys.platform == "win32", reason="bash shell completion not supported on Windows"
