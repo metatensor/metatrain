@@ -66,8 +66,7 @@ build-backend = "setuptools.build_meta"
 [project.optional-dependencies]
 soap-bpnn = [
     "torch-spex>=0.1,<0.2",
-    'sphericart-torch < 2.0.3',
-    'sphericart-torch == 1.0.8 ; platform_system == "Windows"', # for some reason sphericart-torch 1.0.9 can't load on windows
+    'sphericart-torch >=2.0.3',
     "wigners",
 ]
 pet = []
