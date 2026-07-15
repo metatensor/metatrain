@@ -139,6 +139,7 @@ def resolve_model_path(
 
     :param path: local or remote path to a model
     :param hf_token: HuggingFace API token to download models
+    :return: the local path to the model
     """
     path = str(path)
     url = urlparse(path)
