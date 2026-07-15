@@ -1201,3 +1201,95 @@ def test_load_indices_file_not_found(tmp_path):
     """Missing file raises ValueError."""
     with pytest.raises(ValueError, match="not found"):
         load_indices("nonexistent.txt")
+
+
+# ============================================================
+# MemmapDataset FlashMD momenta and masses tests
+# ============================================================
+
+
+def test_memmap_momenta_attached(tmp_path):
+    """Momenta need to be attached and can be loaded."""
+    target_options, _ = _write_minimal_memmap(tmp_path, ns=1)
+    # FlashMD stores the current momenta of every atom (1 atom per system here)
+    np.array([[1.0, 2.0, 3.0]], dtype="float32").tofile(tmp_path / "momenta.bin")
+
+    dataset = MemmapDataset(tmp_path, target_options)
+
+    sample = dataset[0]  # used to raise ValueError
+
+    assert sample.system.known_data() == ["momentum"], (
+        f"momenta must be registered exactly once, got {sample.system.known_data()}"
+    )
+    values = sample.system.get_data("momentum").block().values
+    assert values.squeeze(-1).tolist() == [[1.0, 2.0, 3.0]]
+
+
+def test_memmap_momenta_attached_in_batch(tmp_path):
+    """
+    Every system in a collated batch must carry its own momenta exactly once,
+    with local (0-based) atom labels and its own slice of ``momenta.bin``.
+    """
+    # 2 systems: system 0 has 2 atoms, system 1 has 3 atoms
+    ns = 2
+    na = np.array([0, 2, 5], dtype=np.int64)  # cumulative atom counts
+    np.save(tmp_path / "ns.npy", ns)
+    np.save(tmp_path / "na.npy", na)
+    np.zeros((5, 3), dtype="float32").tofile(tmp_path / "x.bin")
+    np.array([1, 1, 6, 6, 8], dtype="int32").tofile(tmp_path / "a.bin")
+    np.zeros((ns, 3, 3), dtype="float32").tofile(tmp_path / "c.bin")
+    # per-atom momenta; the x component encodes the global atom index 0..4
+    momenta = np.zeros((5, 3), dtype="float32")
+    momenta[:, 0] = np.arange(5)
+    momenta.tofile(tmp_path / "momenta.bin")
+    # per-system energy target
+    np.array([1.0, 2.0], dtype="float32").reshape(ns, 1).tofile(tmp_path / "e.bin")
+
+    target_options = {
+        "energy": {
+            "key": "e",
+            "sample_kind": "system",
+            "num_subtargets": 1,
+            "type": "scalar",
+            "quantity": "energy",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+
+    dataset = MemmapDataset(tmp_path, target_options)
+    collate_fn = CollateFn(list(target_options.keys()))
+
+    systems, _, _ = unpack_batch(collate_fn([dataset[0], dataset[1]]))
+
+    assert len(systems) == 2
+    # system 0 owns atoms 0-1, system 1 owns atoms 2-4; labels stay local
+    expected = [([0, 1], [0.0, 1.0]), ([0, 1, 2], [2.0, 3.0, 4.0])]
+    for system, (atom_labels, x_components) in zip(systems, expected, strict=True):
+        assert system.known_data() == ["momentum"], (
+            f"momenta must be registered exactly once, got {system.known_data()}"
+        )
+        block = system.get_data("momentum").block()
+        assert block.samples.values[:, 1].tolist() == atom_labels
+        assert block.values.squeeze(-1)[:, 0].tolist() == x_components
+
+
+def test_memmap_masses_attached(tmp_path):
+    """
+    Masses must be attached with local (0-based) atom labels and the system's own
+    slice of ``masses.bin``.
+    """
+    target_options, _ = _write_minimal_memmap(tmp_path, ns=2)
+    # FlashMD stores the mass of every atom (1 atom per system here)
+    np.array([1.0, 12.0], dtype="float32").tofile(tmp_path / "masses.bin")
+
+    dataset = MemmapDataset(tmp_path, target_options)
+
+    system = dataset[1].system
+
+    assert system.known_data() == ["mass"]
+    block = system.get_data("mass").block()
+    # the atom label is local (0), not the global offset (1)
+    assert block.samples.values.tolist() == [[1, 0]]
+    assert block.values.squeeze(-1).tolist() == [12.0]

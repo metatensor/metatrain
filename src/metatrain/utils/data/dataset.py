@@ -1249,12 +1249,15 @@ class MemmapDataset(TorchDataset):
                             samples=Labels(
                                 names=["system", "atom"],
                                 values=torch.tensor(
-                                    [[i, j] for j in range(self.na[i], self.na[i + 1])],
+                                    [
+                                        [i, j]
+                                        for j in range(self.na[i + 1] - self.na[i])
+                                    ],
                                     dtype=torch.int32,
                                 ),
                             ),
                             components=[Labels.range("xyz", 3)],
-                            properties=Labels.single(),
+                            properties=Labels.range("momentum", 1),
                         )
                     ],
                 ),
@@ -1270,7 +1273,10 @@ class MemmapDataset(TorchDataset):
                             samples=Labels(
                                 names=["system", "atom"],
                                 values=torch.tensor(
-                                    [[i, j] for j in range(self.na[i], self.na[i + 1])],
+                                    [
+                                        [i, j]
+                                        for j in range(self.na[i + 1] - self.na[i])
+                                    ],
                                     dtype=torch.int32,
                                 ),
                             ),
@@ -1383,35 +1389,6 @@ class MemmapDataset(TorchDataset):
                 blocks=[target_block],
             )
             target_dict[target_key] = target_tensormap
-
-        momenta = getattr(self, "momenta", None)
-        if momenta is not None:
-            momenta = torch.tensor(
-                momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
-            )
-            system.add_data(
-                "momentum",
-                TensorMap(
-                    keys=Labels.single(),
-                    blocks=[
-                        TensorBlock(
-                            values=momenta.unsqueeze(-1),
-                            samples=Labels(
-                                names=["system", "atom"],
-                                values=torch.tensor(
-                                    [
-                                        [i, j]
-                                        for j in range(self.na[i + 1] - self.na[i])
-                                    ],
-                                    dtype=torch.int32,
-                                ),
-                            ),
-                            components=[Labels.range("xyz", 3)],
-                            properties=Labels.range("momentum", 1),
-                        ),
-                    ],
-                ),
-            )
 
         # Build extra_data TensorMaps returned in the sample and forwarded to
         # the `extra` argument of CollateFn callables
