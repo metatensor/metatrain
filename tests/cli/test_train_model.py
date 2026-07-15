@@ -46,22 +46,22 @@ from ..conftest import (
 from .dump_spherical_targets import dump_spherical_targets
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def options():
     return OmegaConf.load(OPTIONS_PATH)
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def options_pet():
     return OmegaConf.load(OPTIONS_PET_PATH)
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def options_extra():
     return OmegaConf.load(OPTIONS_EXTRA_DATA_PATH)
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def options_spherical():
     return OmegaConf.load(OPTIONS_SPHERICAL_PATH)
 
