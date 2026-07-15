@@ -37,6 +37,24 @@ of the current directory. If no checkpoint is found, the training will start
 from scratch.
 
 
+Inspecting a model
+------------------
+
+The ``show`` command prints a summary of a saved model without need to write any Python
+code. This shows quick info about targets and atomic types the model supports, the
+attached metadata and, for checkpoints, the architecture and training state.
+
+.. code-block:: bash
+
+    mtt show model.ckpt
+    mtt show model.pt
+
+As for the other sub-commands, a URL can be provided instead of a local file path to
+show a remote model.
+
+This is useful, for example, to find the target names of a pretrained model before
+fine-tuning it.
+
 Exporting models
 ----------------
 

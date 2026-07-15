@@ -131,6 +131,31 @@ def download_model_from_hf(
     )
 
 
+def resolve_model_path(
+    path: Union[str, Path],
+    hf_token: Optional[str] = None,
+) -> str:
+    """Resolve the path to a model, downloading remote models to a local file.
+
+    :param path: local or remote path to a model
+    :param hf_token: HuggingFace API token to download models
+    """
+    path = str(path)
+    url = urlparse(path)
+
+    # On Windows, drive letters (e.g. "D") are parsed as single-character URL schemes
+    # by urlparse. Only treat as a URL if the scheme is at least 2 characters long.
+    if url.scheme and len(url.scheme) > 1:
+        if url.netloc == "huggingface.co":
+            path = _hf_hub_download_url(url=url.geturl(), hf_token=hf_token)
+        else:
+            # Avoid caching generic URLs due to lack of a model hash for proper cache
+            # invalidation
+            path, _ = urlretrieve(url=url.geturl())
+
+    return path
+
+
 def load_model(
     path: Union[str, Path],
     extensions_directory: Optional[Union[str, Path]] = None,
@@ -166,18 +191,7 @@ def load_model(
             f"path '{path}' seems to be a YAML option file and not a model"
         )
 
-    path = str(path)
-    url = urlparse(path)
-
-    # On Windows, drive letters (e.g. "D") are parsed as single-character URL schemes
-    # by urlparse. Only treat as a URL if the scheme is at least 2 characters long.
-    if url.scheme and len(url.scheme) > 1:
-        if url.netloc == "huggingface.co":
-            path = _hf_hub_download_url(url=url.geturl(), hf_token=hf_token)
-        else:
-            # Avoid caching generic URLs due to lack of a model hash for proper cache
-            # invalidation
-            path, _ = urlretrieve(url=url.geturl())
+    path = resolve_model_path(path, hf_token=hf_token)
 
     if is_exported_file(path):
         return load_atomistic_model(path, extensions_directory=extensions_directory)
