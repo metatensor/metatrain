@@ -14,8 +14,8 @@ dependencies = [
     "numpy",
     "metatensor-learn >=0.5.0,<0.6",
     "metatensor-operations >=0.5.0,<0.6",
-    "metatensor-torch >=0.10.0,<0.11",
-    "metatomic-torch >=0.1.15,<0.2",
+    "metatensor-torch >=0.10.0,<0.10.1",
+    "metatomic-torch >=0.1.15,<0.1.16",
     "metatomic-ase >=0.1.1,<0.2",
     "jsonschema",
     "pydantic >= 2.12", # Because of passing arguments to validator functions
@@ -23,7 +23,7 @@ dependencies = [
     "omegaconf >= 2.3.0",
     "python-hostlist",
     "tqdm",
-    "vesin >= 0.5.2", # Because of https://github.com/Luthaf/vesin/pull/119,
+    "vesin >= 0.5.2, <0.6", # Because of https://github.com/Luthaf/vesin/pull/119,
 ]
 
 keywords = ["machine learning", "molecular modeling"]
@@ -66,6 +66,7 @@ build-backend = "setuptools.build_meta"
 [project.optional-dependencies]
 soap-bpnn = [
     "torch-spex>=0.1,<0.2",
+    'sphericart-torch < 2.0.3',
     'sphericart-torch == 1.0.8 ; platform_system == "Windows"', # for some reason sphericart-torch 1.0.9 can't load on windows
     "wigners",
 ]

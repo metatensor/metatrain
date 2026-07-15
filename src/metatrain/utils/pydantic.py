@@ -1,6 +1,6 @@
 import inspect
 import logging
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal, Union, cast
 
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError, create_model
 from typing_extensions import NotRequired
@@ -107,6 +107,7 @@ def validate(
     """
 
     if inspect.isclass(model_cls) and issubclass(model_cls, BaseModel):
+        model_cls = cast(type[BaseModel], model_cls)
         try:
             validated = model_cls.model_validate(data, **kwargs)
         except ValidationError as e:
