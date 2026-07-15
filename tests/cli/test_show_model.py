@@ -1,3 +1,4 @@
+import logging
 import subprocess
 
 import pytest
@@ -8,6 +9,7 @@ from metatrain.cli.show import (
     _describe_target,
     _format_atomic_types,
     _target_type,
+    show_model,
 )
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -16,14 +18,14 @@ from metatrain.utils.data.target_info import (
 
 
 @pytest.mark.parametrize("path_format", ["checkpoint", "checkpoint_url", "exported"])
-def test_show_cli(monkeypatch, tmp_path, capfd, path_format, MODEL_PATH_PET):
-    """Test that the show cli prints the model summary"""
+def test_show(monkeypatch, tmp_path, caplog, path_format, MODEL_PATH_PET):
+    """Test that show_model logs the model summary"""
     monkeypatch.chdir(tmp_path)
 
     if path_format == "checkpoint":
         path = str(MODEL_PATH_PET.with_suffix(".ckpt"))
     elif path_format == "checkpoint_url":
-        path = MODEL_PATH_PET.with_suffix(".ckpt").as_uri()
+        path = f"file:{MODEL_PATH_PET.with_suffix('.ckpt')}"
     else:
         path = str(MODEL_PATH_PET)
 
@@ -42,11 +44,21 @@ def test_show_cli(monkeypatch, tmp_path, capfd, path_format, MODEL_PATH_PET):
             "auxiliary outputs:",
         ]
 
-    subprocess.check_call(["mtt", "show", path])
+    caplog.set_level(logging.INFO)
+    show_model(path)
+
+    for snippet in expected + ["energy:", "unit: eV", "atomic types:"]:
+        assert snippet in caplog.text
+
+
+def test_show_cli(monkeypatch, tmp_path, capfd, MODEL_PATH_PET):
+    """Test that the show cli runs and prints the summary"""
+    monkeypatch.chdir(tmp_path)
+
+    subprocess.check_call(["mtt", "show", str(MODEL_PATH_PET.with_suffix(".ckpt"))])
 
     stdout = capfd.readouterr().out
-    for snippet in expected + ["energy:", "unit: eV", "atomic types:"]:
-        assert snippet in stdout
+    assert "architecture: pet" in stdout
 
 
 @pytest.mark.parametrize(
