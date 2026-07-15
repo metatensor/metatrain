@@ -34,6 +34,10 @@ Added
 - Optional per-system charge and spin-multiplicity conditioning for PET. Enabled via the
   ``system_conditioning`` model hyperparameter, with per-system ``charge`` and
   ``spin_multiplicity`` provided as ``extra_data``.
+- ``mtt eval`` can now write predictions in the memory-mapped ``MemmapDataset`` layout
+  by passing an output path ending in a path separator (e.g. ``-o predictions/``). The written
+  directory can be read back directly as a ``systems: read_from:`` dataset, which is
+  useful for very large evaluation runs.
 - MACE architecture now supports multi-headed MACE models through the ``mace_head_name`` hyperparameter.
 - ``composition`` is now a standalone architecture: it can be trained, exported, and run
   for inference on its own (``architecture: {name: composition}``), in addition to being
