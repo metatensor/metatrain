@@ -28,7 +28,7 @@ class InputTests(ArchitectureTests):
 
             from typing_extensions import TypedDict
 
-            from metatrain.utils.additive import FixedCompositionWeights
+            from metatrain.composition.documentation import FixedCompositionWeights
 
 
             class TrainerHypers(TypedDict):
@@ -81,7 +81,7 @@ class InputTests(ArchitectureTests):
 
             from typing_extensions import TypedDict
 
-            from metatrain.utils.additive import FixedCompositionWeights
+            from metatrain.composition.documentation import FixedCompositionWeights
 
 
             class TrainerHypers(TypedDict):

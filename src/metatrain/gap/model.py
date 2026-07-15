@@ -16,8 +16,9 @@ from metatomic.torch import (
 )
 from skmatter._selection import _FPS as _FPS_skmatter
 
+from metatrain.composition import CompositionModel
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.additive import ZBL
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.metadata import merge_metadata
 
@@ -142,9 +143,8 @@ class GAP(ModelInterface[ModelHypers]):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel(
-            hypers={},
-            dataset_info=dataset_info,
+        composition_model = CompositionModel.from_valid_targets(
+            dataset_info, dataset_info.atomic_types
         )
         additive_models = [composition_model]
         if self.hypers["zbl"]:
