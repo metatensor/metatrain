@@ -4,9 +4,8 @@ import multiprocessing
 import os
 import warnings
 import zipfile
-import zlib
 from pathlib import Path
-from typing import IO, Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch
@@ -77,31 +76,21 @@ def _parse_disk_dataset_member_name(name: str) -> Optional[Tuple[int, str]]:
     return None
 
 
-if hasattr(os, "pread"):
+class _LazyZipFile(zipfile.ZipFile):
+    """Read-mode ``ZipFile`` that skips central-directory parsing.
 
-    def _read_at(handle: IO[bytes], n: int, offset: int) -> bytes:
-        """Read ``n`` bytes at ``offset`` without moving the shared position,
-        so concurrent reads from one process cannot interleave.
+    Parsing the central directory materializes one ``ZipInfo`` object per
+    member, which does not scale to zips with millions of members (about
+    10 GB of RAM and 80 s for 13 million members), repeated in every
+    dataloader worker. :py:class:`DiskDataset` instead indexes the member
+    locations once, at construction, and opens members here by passing
+    reconstructed ``ZipInfo`` objects to ``open()`` (public API). The
+    inherited ``open()`` still validates the local header signature,
+    cross-checks the member name, and verifies CRC-32 while reading.
+    """
 
-        :param handle: Open binary file handle.
-        :param n: Number of bytes to read.
-        :param offset: Absolute offset to read at.
-        :return: The bytes read.
-        """
-        return os.pread(handle.fileno(), n, offset)
-
-else:  # pragma: no cover (Windows: os.pread is Unix-only)
-
-    def _read_at(handle: IO[bytes], n: int, offset: int) -> bytes:
-        """Windows fallback (no ``os.pread``): plain seek and read.
-
-        :param handle: Open binary file handle.
-        :param n: Number of bytes to read.
-        :param offset: Absolute offset to read at.
-        :return: The bytes read.
-        """
-        handle.seek(offset)
-        return handle.read(n)
+    def _RealGetContents(self) -> None:
+        self.start_dir = 0
 
 
 def _format_member_names(names: List[str], limit: int = 10) -> str:
@@ -963,7 +952,7 @@ class DiskDataset(torch.utils.data.Dataset):
             )
 
         # Do not open file in the main process and start sub-processes with None
-        self.zip_file: Optional[IO[bytes]] = None
+        self.zip_file: Optional[_LazyZipFile] = None
         self._zip_file_pid: Optional[int] = None
 
     def _open_zip_once(self) -> None:
@@ -971,21 +960,20 @@ class DiskDataset(torch.utils.data.Dataset):
         if self._zip_file_pid != pid:
             if self.zip_file is not None:
                 self.zip_file.close()
-            # A plain handle, not a zipfile.ZipFile: members are read via
-            # the offsets indexed at construction, so per-process opens are
-            # O(1) in memory and time.
-            self.zip_file = open(self.zip_file_path, "rb")
+            # _LazyZipFile skips the central-directory parse: members are
+            # read via the offsets indexed at construction, so per-process
+            # opens are O(1) in memory and time.
+            self.zip_file = _LazyZipFile(self.zip_file_path, "r")
             self._zip_file_pid = pid
 
     def _read_member(self, index: int, field_name: str) -> io.BytesIO:
         """Read one zip member by its indexed offset, bypassing the central
         directory.
 
-        Members are STORED (validated at construction), so the bytes are
-        read directly at the indexed offset and verified against the member's
-        CRC-32 from the central directory. :func:`_read_at` does not touch
-        the handle's shared position, so concurrent reads from one process
-        are safe.
+        The member's ``ZipInfo`` is reconstructed from the locations indexed
+        at construction (member names are deterministic in the DiskDataset
+        format) and passed to ``ZipFile.open()``, which validates the local
+        header and verifies the CRC-32 from the central directory.
 
         :param index: Positional dataset index (row in the member index).
         :param field_name: Field to read ("system" or a target/extra field).
@@ -999,22 +987,20 @@ class DiskDataset(torch.utils.data.Dataset):
         offset, size, crc = (
             int(v) for v in self._member_locs[index, self._member_cols[field_name]]
         )
+        name = (
+            f"{index}/system.mta"
+            if field_name == "system"
+            else f"{index}/{field_name}.mts"
+        )
+        zinfo = zipfile.ZipInfo(name)
+        zinfo.header_offset = offset
+        zinfo.compress_type = zipfile.ZIP_STORED  # validated at construction
+        zinfo.compress_size = size
+        zinfo.file_size = size
+        zinfo.CRC = crc
         assert self.zip_file is not None
-        header = _read_at(self.zip_file, 30, offset)
-        if len(header) != 30 or header[:4] != b"PK\x03\x04":
-            raise zipfile.BadZipFile(
-                f"Bad local file header at offset {offset} in "
-                f"'{self.zip_file_path}': the file is corrupted"
-            )
-        name_len = int.from_bytes(header[26:28], "little")
-        extra_len = int.from_bytes(header[28:30], "little")
-        data = _read_at(self.zip_file, size, offset + 30 + name_len + extra_len)
-        if len(data) != size or zlib.crc32(data) != crc:
-            raise zipfile.BadZipFile(
-                f"Bad CRC-32 for member '{index}/{field_name}' in "
-                f"'{self.zip_file_path}': the file is corrupted"
-            )
-        return io.BytesIO(data)
+        with self.zip_file.open(zinfo) as member:
+            return io.BytesIO(member.read())
 
     def __len__(self) -> int:
         return self._len
