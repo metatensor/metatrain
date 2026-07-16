@@ -1,3 +1,4 @@
+import copy
 import random
 
 import numpy as np
@@ -183,7 +184,7 @@ def test_train_max_atoms_per_batch():
     targets, target_info_dict = read_targets(OmegaConf.create(conf))
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 1
     hypers["training"]["scheduler_patience"] = 1
     hypers["training"]["fixed_composition_weights"] = {}
