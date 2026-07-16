@@ -2,6 +2,7 @@
 # that they get asked for a review whenever the code for this architecture
 # is modified.
 
+**/composition           @ppegolo
 **/soap_bpnn            @frostedoyster
 **/pet                  @abmazitov @frostedoyster @sofiia-chorna
 **/gap                  @DavideTisi

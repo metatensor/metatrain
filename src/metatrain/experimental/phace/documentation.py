@@ -62,7 +62,7 @@ from typing import Literal, Optional
 
 from typing_extensions import TypedDict
 
-from metatrain.utils.additive import FixedCompositionWeights
+from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
 from metatrain.utils.scaler import FixedScalerWeights
@@ -252,17 +252,22 @@ class TrainerHypers(TypedDict):
     See also :ref:`scale-targets`.
     """
 
-    atomic_baseline: FixedCompositionWeights = {}
+    atomic_baseline: FixedCompositionWeights | str = {}
     """The baselines for each target.
 
     By default, ``metatrain`` will fit a linear model (:class:`CompositionModel
-    <metatrain.utils.additive.composition.CompositionModel>`) to compute the
-    least squares baseline for each atomic species for each target.
+    <metatrain.composition.CompositionModel>`) to compute the least squares
+    baseline for each atomic species for each target.
 
-    However, this hyperparameter allows you to provide your own baselines.
-    The value of the hyperparameter should be a dictionary where the keys are the
-    target names, and the values are either (1) a single baseline to be used for
-    all atomic types, or (2) a dictionary mapping atomic types to their baselines.
+    However, this hyperparameter allows you to provide your own baselines,
+    either as a dictionary or as a path to a pre-trained composition model
+    checkpoint. The value of the hyperparameter should either be:
+
+    - a dictionary where the keys are the target names, and the values are
+      either (1) a single baseline to be used for all atomic types, or
+      (2) a dictionary mapping atomic types to their baselines.
+    - a string path to a ``.ckpt`` file from a pre-trained composition model.
+
     For example:
 
     - ``atomic_baseline: {"energy": {1: -0.5, 6: -10.0}}`` will fix the energy
@@ -273,6 +278,8 @@ class TrainerHypers(TypedDict):
       all atomic types to -5.0.
     - ``atomic_baseline: {"mtt:dos": 0.0}`` sets the baseline for the "mtt:dos"
       target to 0.0, effectively disabling the atomic baseline for that target.
+    - ``atomic_baseline: "/path/to/model.ckpt"`` loads a pre-trained
+      composition model checkpoint, overriding the default least-squares fit.
 
     This atomic baseline is substracted from the targets during training, which
     avoids the main model needing to learn atomic contributions, and likely makes

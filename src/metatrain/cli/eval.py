@@ -2,6 +2,7 @@ import argparse
 import copy
 import itertools
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Union
@@ -28,6 +29,7 @@ from metatrain.utils.data.readers import read_extra_data
 from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.data.writers import (
     DiskDatasetWriter,
+    MemmapWriter,
     Writer,
     get_writer,
 )
@@ -99,7 +101,11 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
         type=str,
         required=False,
         default="output.xyz",
-        help="filename of the predictions (default: %(default)s)",
+        help=(
+            "filename of the predictions (default: %(default)s). A path ending in a "
+            "path separator (e.g. 'predictions/') writes a memmap dataset directory "
+            "instead of a single file."
+        ),
     )
     parser.add_argument(
         "-b",
@@ -315,13 +321,18 @@ def eval_model(
 
     :param model: Saved model to be evaluated.
     :param options: DictConfig to define a test dataset taken for the evaluation.
-    :param output: Path to save the predicted values.
+    :param output: Path to save the predicted values. A path ending in a path
+        separator (e.g. ``"predictions/"``) writes a memmap dataset directory instead
+        of a single file.
     :param batch_size: Batch size for evaluation.
     :param check_consistency: Whether to run consistency checks during model evaluation.
     :param append: If ``True``, open the output file in append mode.
     :param warm_up: Whether to do a warm-up of the model before evaluation.
     """
     logging.info("Setting up evaluation set.")
+    # a trailing path separator signals a memmap dataset directory; this has to be
+    # detected on the raw string, since Path() silently drops trailing separators
+    is_memmap_output = isinstance(output, str) and output.endswith(("/", os.sep))
     output = Path(output) if isinstance(output, str) else output
 
     options = validate_eval_options(OmegaConf.to_container(options))
@@ -332,6 +343,8 @@ def eval_model(
         extra_log_message = f" with index {i}" if len(options_list) > 1 else ""
         logging.info(f"Evaluating dataset{extra_log_message}")
         filename = f"{output.stem}{idx_suffix}{output.suffix}"
+        if is_memmap_output:
+            filename = filename + "/"
 
         # pick the right writer
         writer = get_writer(filename, capabilities=model.capabilities(), append=append)
@@ -340,10 +353,10 @@ def eval_model(
         if hasattr(options, "targets"):
             eval_dataset, eval_info_dict, _ = get_dataset(options)
         else:
-            if isinstance(writer, DiskDatasetWriter):
+            if isinstance(writer, (DiskDatasetWriter, MemmapWriter)):
                 raise ValueError(
-                    "Writing to DiskDataset is not allowed without explicitly"
-                    " defining targets in the input file."
+                    "Writing to DiskDataset or MemmapDataset is not allowed without"
+                    " explicitly defining targets in the input file."
                 )
             eval_systems = read_systems(
                 filename=options["systems"]["read_from"],

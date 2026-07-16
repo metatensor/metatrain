@@ -353,7 +353,13 @@ class TargetInfo:
         self.is_scalar = state["is_scalar"]
         self.is_cartesian = state["is_cartesian"]
         self.is_spherical = state["is_spherical"]
-        self.is_atomic_basis = state.get("is_atomic_basis", False)
+        # Recompute if missing (states pickled before the flag existed), mirroring
+        # the logic of _check_layout.
+        self.is_atomic_basis = state.get(
+            "is_atomic_basis",
+            self.is_spherical
+            and any(name.endswith("atom_type") for name in self.layout.keys.names),
+        )
 
         self.quantity = state["quantity"]
         self.unit = state["unit"]

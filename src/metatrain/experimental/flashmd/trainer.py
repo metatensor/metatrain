@@ -9,6 +9,7 @@ import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
+from metatrain.composition import train_or_load_composition_model
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.augmentation import RotationalAugmenter
@@ -181,14 +182,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
-        logging.info("Calculating composition weights")
-
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
-            is_distributed,
-            self.hypers["atomic_baseline"],
+        train_or_load_composition_model(
+            composition_model=model.additive_models[0],
+            atomic_baseline=self.hypers["atomic_baseline"],
+            train_datasets=train_datasets,
+            other_additive_models=list(model.additive_models[1:]),
+            batch_size=self.hypers["batch_size"],
+            is_distributed=is_distributed,
+            checkpoint_dir=checkpoint_dir,
         )
 
         if self.hypers["scale_targets"]:

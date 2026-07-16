@@ -15,6 +15,7 @@ from metatomic.torch import (
     System,
 )
 
+from metatrain.composition import CompositionModel
 from metatrain.experimental.phace.documentation import ModelHypers
 from metatrain.experimental.phace.modules.base_model import (
     BaseModel,
@@ -24,7 +25,7 @@ from metatrain.experimental.phace.modules.base_model import (
 from metatrain.experimental.phace.modules.cg_coefficients import ClebschGordanReal
 from metatrain.experimental.phace.utils import systems_to_batch
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.additive import ZBL
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
     sparsify_atomic_basis_target,
@@ -126,17 +127,8 @@ class PhACE(ModelInterface[ModelHypers]):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel(
-            hypers={},
-            dataset_info=DatasetInfo(
-                length_unit=train_dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in train_dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
+        composition_model = CompositionModel.from_valid_targets(
+            dataset_info, self.atomic_types
         )
         additive_models = [composition_model]
         if self.hypers["zbl"]:
@@ -198,11 +190,11 @@ class PhACE(ModelInterface[ModelHypers]):
         # restart the composition and scaler models
         self.additive_models[0].restart(
             dataset_info=DatasetInfo(
-                length_unit=train_dataset_info.length_unit,
+                length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
                 targets={
                     target_name: target_info
-                    for target_name, target_info in train_dataset_info.targets.items()
+                    for target_name, target_info in dataset_info.targets.items()
                     if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
@@ -479,6 +471,20 @@ class PhACE(ModelInterface[ModelHypers]):
                 use_per_target_scales=True,
                 use_per_property_scales=True,
             )
+
+            # For atomic basis targets, sparsify to create blocks with "atom_type"
+            # in the key dimensions, and ensure properties are unpadded. This is
+            # done before adding the additive contributions, which are also
+            # sparsified (by the additive models themselves, in eval mode).
+            targets = self.dataset_info.targets
+            for k, v in return_dict.items():
+                if k in targets and targets[k].is_atomic_basis:
+                    return_dict[k] = sparsify_atomic_basis_target(
+                        systems,
+                        v,
+                        targets[k].layout,
+                    )
+
             for additive_model in self.additive_models:
                 outputs_for_additive_model: Dict[str, ModelOutput] = {}
                 for name, output in outputs.items():
@@ -515,17 +521,6 @@ class PhACE(ModelInterface[ModelHypers]):
                         else:
                             output_blocks.append(b.copy(deep=False))
                     return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
-
-            # For atomic basis targets, sparsify to create blocks with "atom_type"
-            # in the key dimensions, and ensure properties are unpadded.
-            targets = self.dataset_info.targets
-            for k, v in return_dict.items():
-                if k in targets and targets[k].is_atomic_basis:
-                    return_dict[k] = sparsify_atomic_basis_target(
-                        systems,
-                        v,
-                        targets[k].layout,
-                    )
 
         return return_dict
 

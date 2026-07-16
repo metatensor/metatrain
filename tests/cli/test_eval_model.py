@@ -14,6 +14,7 @@ from omegaconf import OmegaConf
 from metatrain.cli.eval import eval_model
 from metatrain.soap_bpnn import __model__
 from metatrain.utils.data import DatasetInfo, DiskDataset
+from metatrain.utils.data.dataset import MemmapDataset
 from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.data.writers import DiskDatasetWriter
@@ -222,7 +223,27 @@ def test_eval_no_targets(monkeypatch, tmp_path, model, options):
     assert Path("output.xyz").is_file()
 
 
-@pytest.mark.parametrize("suffix", [".zip", ".mts"])
+@pytest.mark.parametrize("suffix", [".zip", "/"])
+def test_eval_no_targets_disallowed_for_dataset_writers(
+    monkeypatch, tmp_path, model, options, suffix
+):
+    """DiskDataset/MemmapDataset outputs require explicit targets in the input."""
+    monkeypatch.chdir(tmp_path)
+
+    shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
+
+    options.pop("targets")
+
+    with pytest.raises(ValueError, match="not allowed without explicitly"):
+        eval_model(
+            model=model,
+            options=options,
+            output=f"output{suffix}",
+            check_consistency=True,
+        )
+
+
+@pytest.mark.parametrize("suffix", [".zip", ".mts", "/"])
 def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix, MODEL_PATH):
     """Test that eval via python API runs without an error raise."""
     monkeypatch.chdir(tmp_path)
@@ -284,6 +305,22 @@ def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix, MODEL_PATH):
     if suffix == ".mts":
         pred = metatensor_load("foo_energy.mts")
         assert pred.keys == Labels(["_"], torch.tensor([[0]]))
+    elif suffix == "/":
+        target_options = {
+            "energy": {
+                "key": "energy",
+                "quantity": "energy",
+                "sample_kind": "system",
+                "type": "scalar",
+                "num_subtargets": 1,
+                "forces": False,
+                "stress": False,
+                "virial": False,
+            }
+        }
+        pred = MemmapDataset("foo", target_options)
+        assert len(pred) == 100
+        assert pred[0].energy.keys == Labels(["_"], torch.tensor([[0]]))
     else:
         pred = DiskDataset("foo.zip")
         assert pred[0]["energy"].keys == Labels(["_"], torch.tensor([[0]]))
