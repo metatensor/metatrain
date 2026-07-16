@@ -79,7 +79,7 @@ from typing import Literal, Optional
 
 from typing_extensions import TypedDict
 
-from metatrain.utils.additive import FixedCompositionWeights
+from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
 
@@ -262,7 +262,7 @@ class TrainerHypers(TypedDict):
 
     This is passed to the ``fixed_weights`` argument of
     :meth:`CompositionModel.train_model
-    <metatrain.utils.additive.composition.CompositionModel.train_model>`,
+    <metatrain.composition.CompositionModel.train_model>`,
     see its documentation to understand exactly what to pass here.
     """
     per_structure_targets: list[str] = []

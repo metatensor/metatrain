@@ -131,11 +131,30 @@ tests:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
     SLURM_NTASKS: 1
-    SLURM_TIMELIMIT: '00:08:00'
+    SLURM_TIMELIMIT: '00:10:00'
     GIT_STRATEGY: fetch
     # Pre run all trainings to avoid issues with multiple processes
     # in CSCS
     MTT_TESTS_PRERUN_TRAININGS: '1'
+
+composition-tests:
+  stage: test
+  # Trigger tests as soon as base image is ready
+  needs:
+    - build base
+  extends: .container-runner-daint-gh200
+  image: $BASE_IMAGE
+  timeout: 24h
+  script:
+    - rm -rf /tmp/tox/
+    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    - tox -e composition-tests --workdir /tmp/tox/ --list-dependencies
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 1
+    SLURM_TIMELIMIT: '00:04:00'
+    GIT_STRATEGY: fetch
 
 gap-tests:
   stage: test

@@ -17,10 +17,10 @@ from metatomic.torch import (
 )
 from torch.profiler import record_function
 
+from metatrain.composition import CompositionModel
 from metatrain.pet.modules.transformer import CartesianTransformer
 from metatrain.pet.modules.utilities import cutoff_func_cosine as cutoff_func
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.finetuning import apply_finetuning_strategy
@@ -186,17 +186,8 @@ class FlashMD(ModelInterface[ModelHypers]):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel(
-            hypers={},
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
+        composition_model = CompositionModel.from_valid_targets(
+            dataset_info, self.atomic_types
         )
         position_additive = PositionAdditive(
             hypers={"also_momenta": self.hypers["predict_momenta_as_difference"]},
