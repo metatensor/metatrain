@@ -757,6 +757,21 @@ class DiskDataset(torch.utils.data.Dataset):
     def __len__(self) -> int:
         return self._len
 
+    def get_num_atoms(self, index: int) -> int:
+        """Return the number of atoms in structure ``index``.
+
+        Only reads the ``system.mta`` entry, skipping target files, so this is
+        much cheaper than a full ``__getitem__`` when only the atom count is
+        needed (e.g. for ``max_atoms_per_batch`` packing).
+
+        :param index: The structure index.
+        :return: The number of atoms in structure ``index``.
+        """
+        self._open_zip_once()
+        assert self.zip_file is not None
+        with self.zip_file.open(f"{index}/system.mta", "r") as file:
+            return len(load_system(file))
+
     def __getitem__(self, index: int) -> Any:
         self._open_zip_once()
         assert self.zip_file is not None

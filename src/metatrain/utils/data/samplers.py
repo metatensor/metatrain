@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 def _get_num_atoms(dataset: torch.utils.data.Dataset, i: int) -> int:
     """Return atom count for sample ``i``, resolving ``Subset`` wrappers.
 
+    Datasets that expose a fast ``get_num_atoms(i)`` (e.g. ``MemmapDataset``) are
+    queried directly. Any other dataset is assumed to yield samples with a
+    ``system`` field (e.g. ``metatensor.learn.data.Dataset``, ``DiskDataset``),
+    and the atom count is read off that ``System`` via ``len()``.
+
     :param dataset: The dataset to query.
     :param i: The sample index.
     :return: The number of atoms in sample ``i``.
@@ -32,10 +37,13 @@ def _get_num_atoms(dataset: torch.utils.data.Dataset, i: int) -> int:
         return _get_num_atoms(dataset.dataset, dataset.indices[i])
     if hasattr(dataset, "get_num_atoms"):
         return dataset.get_num_atoms(i)
+    system = getattr(dataset[i], "system", None)
+    if system is not None:
+        return len(system)
     raise TypeError(
         f"Dataset of type {type(dataset).__name__} does not support "
-        "get_num_atoms(). Only MemmapDataset (and Subsets thereof) is "
-        "currently supported with max_atoms_per_batch."
+        "get_num_atoms() and its samples do not expose a 'system' field. "
+        "max_atoms_per_batch requires one of the two."
     )
 
 
@@ -176,8 +184,10 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
     ``__iter__`` materialises each batch as a Python ``list[int]`` on demand,
     so workers only ever see short-lived lists.
 
-    :param dataset: The dataset to sample from. Must support ``get_num_atoms(i)``
-        (currently only ``MemmapDataset`` and ``Subset`` wrappers thereof).
+    :param dataset: The dataset to sample from. Either supports ``get_num_atoms(i)``
+        directly (e.g. ``MemmapDataset``) or yields samples with a ``system`` field
+        (e.g. ``metatensor.learn.data.Dataset``, ``DiskDataset``); ``Subset``
+        wrappers of either are also supported.
     :param max_atoms: Maximum total number of atoms across all structures in a batch.
     :param num_replicas: Number of distributed processes (world size).
     :param rank: Rank of the current process.
