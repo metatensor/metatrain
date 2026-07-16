@@ -1666,10 +1666,29 @@ def test_regression_validation_batch_size_constraint_removed():
 
     This test verifies that the specific validation constraint from issue #711
     was removed, while preserving training dataset constraints.
-    """
-    # Check that validation constraint was removed but training constraint remains
 
+    The dataloader-building logic used to be duplicated inline in each trainer;
+    it has since been centralized in ``metatrain.utils.data.dataloaders``
+    (``build_train_dataloaders`` / ``build_val_dataloaders``), so this test
+    checks that shared module directly, plus that the trainers below opt into
+    it without requesting the (opt-in) validation-side size constraint.
+    """
     repo_root = Path(__file__).resolve().parents[2]
+
+    # The training-dataset constraint is enforced unconditionally by
+    # build_train_dataloaders; the validation-dataset constraint is only
+    # enforced when a caller explicitly opts in via `enforce_min_size=True`.
+    dataloaders_file = repo_root / "src/metatrain/utils/data/dataloaders.py"
+    content = dataloaders_file.read_text()
+    assert "A training dataset has fewer samples" in content, (
+        "Training batch size constraint was incorrectly removed from "
+        "build_train_dataloaders"
+    )
+    assert "enforce_min_size" in content, (
+        "build_val_dataloaders should still gate its validation-dataset size "
+        "constraint behind an opt-in flag"
+    )
+
     trainer_files = [
         repo_root / "src/metatrain/pet/trainer.py",
         repo_root / "src/metatrain/soap_bpnn/trainer.py",
@@ -1677,67 +1696,25 @@ def test_regression_validation_batch_size_constraint_removed():
     ]
 
     for trainer_file in trainer_files:
-        if os.path.exists(trainer_file):
-            with open(trainer_file, "r") as f:
-                content = f.read()
-
-            # Verify validation constraint was removed
-            # (Look for validation-specific patterns)
-            validation_section_start = content.find(
-                "# Create dataloader for the validation datasets:"
-            )
-            validation_section_end = content.find(
-                "# Create dataloader for the test datasets:"
-            )
-            if validation_section_end == -1:
-                # Look for other section markers
-                validation_section_end = content.find(
-                    "val_dataloaders.append(", validation_section_start
-                )
-                if validation_section_end != -1:
-                    # Find the end of the validation section
-                    validation_section_end = (
-                        content.find(")", validation_section_end) + 1
-                    )
-
-            if validation_section_start != -1 and validation_section_end != -1:
-                validation_section = content[
-                    validation_section_start:validation_section_end
-                ]
-
-                # Verify no batch size constraint in validation section
-                assert "fewer samples" not in validation_section, (
-                    f"Validation batch size constraint was not removed from "
-                    f"{trainer_file}"
-                )
-                assert (
-                    "batch_size" not in validation_section
-                    or "len(" not in validation_section
-                ), (
-                    f"Validation batch size constraint logic still present in "
-                    f"{trainer_file}"
-                )
-
-            # Verify training constraint still exists (this should remain)
-            training_section_start = content.find(
-                "# Create dataloader for the training datasets:"
-            )
-            if training_section_start != -1:
-                training_section_end = content.find(
-                    "# Create dataloader for the validation datasets:",
-                    training_section_start,
-                )
-                if training_section_end != -1:
-                    training_section = content[
-                        training_section_start:training_section_end
-                    ]
-                    # Training constraint should still be there
-                    assert "training dataset has fewer samples" in training_section, (
-                        f"Training batch size constraint was incorrectly removed from "
-                        f"{trainer_file}"
-                    )
-        else:
+        if not trainer_file.exists():
             raise ValueError(f"Trainer file {trainer_file} does not exist.")
+
+        content = trainer_file.read_text()
+
+        assert "build_train_dataloaders(" in content, (
+            f"{trainer_file} should build its training dataloaders via "
+            "build_train_dataloaders()"
+        )
+        assert "build_val_dataloaders(" in content, (
+            f"{trainer_file} should build its validation dataloaders via "
+            "build_val_dataloaders()"
+        )
+        # These architectures should not opt into the validation-side size
+        # constraint (that's the constraint issue #711 removed).
+        assert "enforce_min_size" not in content, (
+            f"Validation batch size constraint was incorrectly reintroduced in "
+            f"{trainer_file}"
+        )
 
 
 # ============================================================================
