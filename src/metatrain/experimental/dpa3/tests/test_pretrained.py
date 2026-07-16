@@ -142,7 +142,7 @@ def test_pretrained_forward_matches():
         get_system_with_neighbor_lists(s, base.requested_neighbor_lists())
 
     output_request = {
-        "mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)
+        "mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind="system")
     }
     base_out = base(systems, output_request)
     pretrained_out = pretrained(systems, output_request)
@@ -180,7 +180,7 @@ def test_pretrained_checkpoint_roundtrip():
         get_system_with_neighbor_lists(s, pretrained.requested_neighbor_lists())
 
     output_request = {
-        "mtt::U0": ModelOutput(quantity="energy", unit="", per_atom=False)
+        "mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind="system")
     }
     orig_out = pretrained(systems, output_request)
     reloaded_out = reloaded(systems, output_request)

@@ -4,6 +4,7 @@ import contextlib
 import csv
 import logging
 import sys
+import warnings
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 
@@ -346,9 +347,12 @@ def _get_digits(value: float) -> Tuple[int, int]:
     :return: A tuple with the total number of characters and the number of digits
         after the decimal point.
     """
-
     # Get order of magnitude of the value:
-    order = int(np.floor(np.log10(value)))
+    if value != 0:
+        order = int(np.floor(np.log10(value)))
+    else:
+        # Avoid log10(0) error
+        order = 0
 
     # Get the number of digits before the decimal point:
     if order < 0:
@@ -415,6 +419,8 @@ def setup_logging(
         # set the level for root logger
         logging.basicConfig(format=format, handlers=handlers, level=level, style="{")
         logging.captureWarnings(True)
+        # Deprecation warnings don't show up by default, make them show up
+        warnings.simplefilter("default", DeprecationWarning)
 
         if log_file:
             abs_path = str(Path(log_file).absolute().resolve())

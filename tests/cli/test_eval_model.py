@@ -1,6 +1,7 @@
 import logging
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -31,7 +32,8 @@ def options():
     return OmegaConf.load(EVAL_OPTIONS_PATH)
 
 
-def test_eval_cli(monkeypatch, tmp_path, MODEL_PATH):
+@pytest.mark.parametrize("warm_up", [True, False])
+def test_eval_cli(monkeypatch, tmp_path, MODEL_PATH, warm_up):
     """Test succesful run of the eval script via the CLI with default arguments"""
     monkeypatch.chdir(tmp_path)
     shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
@@ -42,14 +44,41 @@ def test_eval_cli(monkeypatch, tmp_path, MODEL_PATH):
         str(MODEL_PATH),
         str(EVAL_OPTIONS_PATH),
         "-e",
-        str(RESOURCES_PATH / "extensions"),
+        str(MODEL_PATH.parent / "extensions"),
         "--check-consistency",
     ]
+    if not warm_up:
+        command.append("--no-warm-up")
 
-    output = subprocess.check_output(command, stderr=subprocess.STDOUT)
+    result = subprocess.run(
+        command,
+        stderr=subprocess.STDOUT,
+        stdout=subprocess.PIPE,
+    )
 
-    assert "100%|██████████" in output.decode()
-    assert b"energy RMSE" in output
+    if result.returncode != 0:
+        print(
+            f"Eval logs:\n{result.stdout.decode()}",
+            file=sys.stderr,
+        )
+        raise RuntimeError(
+            "Failed to evaluate model via CLI. Logs should be printed above."
+        )
+
+    log_text = result.stdout.decode()
+
+    assert "100%|██████████" in log_text
+    assert "energy RMSE" in log_text
+
+    # Check that the warm-up flag is correctly used
+    warm_up_str = "Warming up the model with 10 batches..."
+    no_warm_up_str = "Skipping warm-up of the model."
+    if warm_up:
+        assert warm_up_str in log_text
+        assert no_warm_up_str not in log_text
+    else:
+        assert warm_up_str not in log_text
+        assert no_warm_up_str in log_text
 
     assert Path("output.xyz").is_file()
 
@@ -258,3 +287,41 @@ def test_eval_disk_dataset(monkeypatch, tmp_path, caplog, suffix, MODEL_PATH):
     else:
         pred = DiskDataset("foo.zip")
         assert pred[0]["energy"].keys == Labels(["_"], torch.tensor([[0]]))
+
+
+@pytest.mark.parametrize("indices_mode", ["list", "file"])
+def test_eval_indices(monkeypatch, tmp_path, caplog, options, MODEL_PATH, indices_mode):
+    """Checks that the indices option is correctly used to evaluate only a subset"""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.INFO)
+
+    shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
+
+    options = options.copy()
+    if indices_mode == "file":
+        with open("indices.txt", "w") as f:
+            f.write("0\n")
+        options["indices"] = "indices.txt"
+    else:
+        options["indices"] = [0]
+
+    model = torch.jit.load(MODEL_PATH)
+
+    eval_model(
+        model=model,
+        options=options,
+        output="foo.xyz",
+        check_consistency=True,
+    )
+
+    # Test target predictions
+    log = "".join([rec.message for rec in caplog.records])
+    assert "energy RMSE (per atom)" in log
+    assert "energy MAE (per atom)" in log
+    assert "dataset with index" not in log
+    assert "Evaluation time" in log
+    assert "ms per atom" in log
+
+    # Test file is written predictions
+    frames = read("foo.xyz", ":")
+    assert len(frames) == 1

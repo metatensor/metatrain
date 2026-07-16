@@ -16,7 +16,7 @@ metatrain is based on the :ref:`PET architecture <arch-pet>`.
 Additional outputs
 ------------------
 
-- ``features``: the internal FlashMD features, before the different heads for each
+- ``feature``: the internal FlashMD features, before the different heads for each
   target.
 - :ref:`mtt-aux-target-last-layer-features`: The features for a given target, taken
   before the last linear layer of the corresponding head.
@@ -49,8 +49,8 @@ from typing import Literal, Optional
 
 from typing_extensions import TypedDict
 
-from metatrain.pet.modules.finetuning import FinetuneHypers, NoFinetuneHypers
 from metatrain.utils.additive import FixedCompositionWeights
+from metatrain.utils.finetuning import FinetuneHypers, NoFinetuneHypers
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.long_range import LongRangeHypers
 from metatrain.utils.loss import LossSpecification

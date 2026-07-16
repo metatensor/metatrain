@@ -23,7 +23,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Install Zsh
       if: startsWith(matrix.os, 'ubuntu')
@@ -38,9 +38,8 @@ jobs:
         python-version:
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@v8.2.0
       with:
-        version: "0.9.0"
         python-version: ${{ matrix.python-version }}
         enable-cache: true
         activate-environment: true
@@ -55,13 +54,13 @@ jobs:
       env:
         # Use the CPU only version of torch when building/running the code
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
-        # Temporary workaround: avoid the deprecated hf_xet.download_files() path 
+        # Temporary workaround: avoid the deprecated hf_xet.download_files() path
         # until huggingface_hub switches to the new Xet API.
         HF_HUB_DISABLE_XET: 1
         HUGGINGFACE_TOKEN_METATRAIN: ${{ secrets.HUGGINGFACE_TOKEN }}
 
     - name: upload to codecov.io
-      uses: codecov/codecov-action@v6
+      uses: codecov/codecov-action@v7
       with:
         # https://github.com/codecov/codecov-action/issues/1842
         fail_ci_if_error: false

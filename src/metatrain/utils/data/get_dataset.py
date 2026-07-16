@@ -32,15 +32,20 @@ def get_dataset(
     if options["systems"]["read_from"].endswith(".zip"):  # disk dataset
         dataset = DiskDataset(
             options["systems"]["read_from"],
-            fields=[*options["targets"], *options.get("extra_data", {})],
+            fields={**options["targets"], **options.get("extra_data", {})},
         )
         target_info_dictionary = dataset.get_target_info(options["targets"])
         extra_data_info_dictionary = dataset.get_target_info(
             options.get("extra_data", {}), is_extra_data=True
         )
     elif Path(options["systems"]["read_from"]).is_dir():  # memmap dataset
-        dataset = MemmapDataset(options["systems"]["read_from"], options["targets"])
+        dataset = MemmapDataset(
+            options["systems"]["read_from"],
+            options["targets"],
+            extra_data_options=options.get("extra_data"),
+        )
         target_info_dictionary = dataset.get_target_info()
+        extra_data_info_dictionary = dataset.get_extra_data_info()
     else:
         systems = read_systems(
             filename=options["systems"]["read_from"],

@@ -119,8 +119,8 @@ from typing import Literal, Optional
 
 from typing_extensions import NotRequired, TypedDict
 
-from metatrain.pet.modules.finetuning import FullFinetuneHypers
 from metatrain.utils.additive import FixedCompositionWeights
+from metatrain.utils.finetuning import FullFinetuneHypers
 from metatrain.utils.loss import LossSpecification
 from metatrain.utils.scaler import FixedScalerWeights
 
@@ -133,6 +133,15 @@ class ModelHypers(TypedDict):
     <https://github.com/ACEsuit/mace-foundations>`_. If not provided, a new MACE model
     will be initialized from scratch using the rest of hyperparameters of the
     architecture.
+    """
+    mace_head_name: Optional[str] = None
+    """Name of the head of the MACE model to use.
+
+    If the pretrained MACE model has `multiple heads
+    <https://huggingface.co/mace-foundations/mace-mh-1>`_, this hyperparameter specifies
+    which head is used in the training and export of the model. If the MACE model has
+    only one head, this hyperparameter is ignored. For the multi-head case, if not
+    provided, an error will be raised.
     """
     mace_head_target: str = "energy"
     """Target to which the MACE head is related.

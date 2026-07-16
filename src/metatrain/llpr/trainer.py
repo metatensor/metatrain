@@ -362,7 +362,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model_unwrapped = model.module if is_distributed else model
         for key, value in model_unwrapped.dataset_info.targets.items():
             requested_outputs[key] = model_unwrapped.capabilities.outputs[key]
-            requested_outputs[key].per_atom = value.per_atom
+            requested_outputs[key].sample_kind = value.sample_kind
             if key == "energy":
                 ensemble_name = "energy_ensemble"
             else:
@@ -370,7 +370,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             requested_outputs[ensemble_name] = model_unwrapped.capabilities.outputs[
                 ensemble_name
             ]
-            requested_outputs[ensemble_name].per_atom = value.per_atom
+            requested_outputs[ensemble_name].sample_kind = value.sample_kind
 
         assert self.hypers["num_epochs"] is not None
         epoch = start_epoch

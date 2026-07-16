@@ -21,7 +21,9 @@ from metatrain.utils.data import (
     DatasetInfo,
     unpack_batch,
 )
-from metatrain.utils.data.target_info import is_auxiliary_output
+from metatrain.utils.data.target_info import (
+    is_auxiliary_output,
+)
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.neighbor_lists import (
@@ -128,10 +130,21 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     f"{old_capabilities.outputs[target_name].unit}"
                 )
 
+        # Build the LLPR capabilities from the wrapped model's *native* outputs rather
+        # than from its export-time capabilities. The latter additionally contain the
+        # new-name aliases that metatomic injects for deprecated output names (e.g.
+        # `non_conservative_force` for `non_conservative_forces`), while the wrapped
+        # model's `forward` only responds to the native names. Building on the native
+        # names keeps this wrapper transparent: it requests from and returns to the
+        # wrapped model under the names the model actually understands, and metatomic's
+        # `AtomisticModel` re-adds the new-name aliases (and bridges engine requests to
+        # them) when this wrapper is itself exported.
+        backbone_outputs = self.model.supported_outputs()
+
         # update capabilities: now we have additional outputs for the uncertainty
         additional_capabilities = {}
         self.outputs_list = []
-        for name, output in old_capabilities.outputs.items():
+        for name, output in backbone_outputs.items():
             if is_auxiliary_output(name):
                 continue  # auxiliary output
             self.outputs_list.append(name)
@@ -139,11 +152,12 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             additional_capabilities[uncertainty_name] = ModelOutput(
                 quantity=output.quantity,
                 unit=output.unit,
-                per_atom=output.per_atom,
+                sample_kind=output.sample_kind,
                 description=output.description,
             )
+
         self.capabilities = ModelCapabilities(
-            outputs={**old_capabilities.outputs, **additional_capabilities},
+            outputs={**backbone_outputs, **additional_capabilities},
             atomic_types=old_capabilities.atomic_types,
             interaction_range=old_capabilities.interaction_range,
             length_unit=old_capabilities.length_unit,
@@ -196,7 +210,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             ensemble_outputs[ensemble_output_name] = ModelOutput(
                 quantity=old_capabilities.outputs[name].quantity,
                 unit=old_capabilities.outputs[name].unit,
-                per_atom=old_capabilities.outputs[name].per_atom,
+                sample_kind=old_capabilities.outputs[name].sample_kind,
                 description=f"ensemble of '{name}'",
             )
         self.capabilities = ModelCapabilities(
@@ -356,7 +370,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     .replace("_ensemble", "")
                 )
                 outputs_for_model[f"mtt::aux::{target_name}_last_layer_features"] = (
-                    ModelOutput(per_atom=output.per_atom)
+                    ModelOutput(sample_kind=output.sample_kind)
                 )
                 # for both uncertainties and ensembles, we need the original output,
                 # so we request it as well
@@ -621,7 +635,11 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 )
                 systems = [system.to(device=device, dtype=dtype) for system in systems]
                 outputs_for_targets = {
-                    name: ModelOutput(per_atom="atom" in target.block(0).samples.names)
+                    name: ModelOutput(
+                        sample_kind="atom"
+                        if "atom" in target.block(0).samples.names
+                        else "system"
+                    )
                     for name, target in targets.items()
                 }
                 outputs_for_features = {
@@ -637,7 +655,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     ]
                     # TODO: interface ll_feat calculation with the loss function,
                     # paying attention to normalization w.r.t. n_atoms
-                    if not outputs_for_targets[name].per_atom:
+                    if outputs_for_targets[name].sample_kind == "system":
                         ll_feats = (
                             ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(1)
                         )
@@ -689,12 +707,12 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 # Try with an increasingly high regularization parameter until
                 # the matrix is invertible
                 is_not_pd = True
-                regularizer = 1e-20
-                while is_not_pd and regularizer < 1e16:
+                r = 1e-20
+                while is_not_pd and r < 1e16:
                     try:
                         cholesky[:] = torch.linalg.cholesky(
                             0.5 * (covariance + covariance.T)
-                            + regularizer
+                            + r
                             * torch.eye(
                                 self.ll_feat_size,
                                 device=covariance.device,
@@ -703,7 +721,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                         ).to(cholesky.dtype)
                         is_not_pd = False
                     except RuntimeError:
-                        regularizer *= 10.0
+                        r *= 10.0
                 if is_not_pd:
                     raise RuntimeError(
                         "Could not compute Cholesky decomposition. Something went "
@@ -711,8 +729,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     )
                 else:
                     logging.info(
-                        f"Used regularization parameter of {regularizer:.1e} to "
-                        "compute the Cholesky decomposition"
+                        f"Used regularization parameter of {r:.1e} to "
+                        f"compute the Cholesky decomposition for `{name}`"
                     )
 
     def calibrate(
@@ -777,10 +795,16 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
                 requested_outputs = {}
                 for name in targets:
-                    per_atom = "atom" in targets[name].block(0).samples.names
-                    requested_outputs[name] = ModelOutput(per_atom=per_atom)
+                    sample_kind = (
+                        "atom"
+                        if "atom" in targets[name].block(0).samples.names
+                        else "system"
+                    )
+                    requested_outputs[name] = ModelOutput(sample_kind=sample_kind)
                     uncertainty_name = _get_uncertainty_name(name)
-                    requested_outputs[uncertainty_name] = ModelOutput(per_atom=per_atom)
+                    requested_outputs[uncertainty_name] = ModelOutput(
+                        sample_kind=sample_kind
+                    )
 
                 outputs = self.forward(systems, requested_outputs)
 
@@ -877,7 +901,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             new_outputs[ensemble_name] = ModelOutput(
                 quantity=old_outputs[name].quantity,
                 unit=old_outputs[name].unit,
-                per_atom=old_outputs[name].per_atom,
+                sample_kind=old_outputs[name].sample_kind,
                 description=f"ensemble of {name}",
             )
         self.capabilities = ModelCapabilities(

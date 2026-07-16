@@ -2,7 +2,7 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
@@ -28,6 +28,7 @@ from metatrain.utils.distributed.distributed_data_parallel import (
 )
 from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
 from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.finetuning import apply_finetuning_strategy
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator, LossSpecification
@@ -38,12 +39,12 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
+from metatrain.utils.system_data import get_system_data_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import PET
-from .modules.finetuning import apply_finetuning_strategy
 
 
 def get_scheduler(
@@ -236,24 +237,49 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.scaler.to(device)
         model.scaler.scales_to(device=device, dtype=torch.float64)
 
-        # Create collate functions:
+        # Create collate functions
+
+        conditioning_keys = list(model.requested_inputs().keys())
+        if conditioning_keys:
+            splits = [("training", train_datasets), ("validation", val_datasets)]
+            for split, datasets in splits:
+                if len(datasets[0]) == 0:
+                    continue
+
+                fields = datasets[0][0]._asdict()
+                missing_keys = [key for key in conditioning_keys if key not in fields]
+                if missing_keys:
+                    logging.warning(
+                        f"System conditioning is enabled but {missing_keys} are not in "
+                        f"the {split} data and will fall back to defaults."
+                    )
+
+        conditioning_callables = (
+            [get_system_data_transform(conditioning_keys)] if conditioning_keys else []
+        )
+
+        target_keys = list(train_targets.keys())
+        # Shared callables that run after `atomic_basis_transform` (and after
+        # rotational augmentation in training).
+        base_callables: List[Callable[..., Any]] = [
+            get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+            *conditioning_callables,
+            get_remove_additive_transform(additive_models, train_targets),
+            get_remove_scale_transform(scaler),
+        ]
         collate_fn_train = CollateFn(
-            target_keys=list(train_targets.keys()),
+            target_keys=target_keys,
             callables=[
                 atomic_basis_transform,
                 rotational_augmenter.apply_random_augmentations,
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
+                *base_callables,
             ],
         )
         collate_fn_val = CollateFn(
-            target_keys=list(train_targets.keys()),
+            target_keys=target_keys,
             callables=[  # no augmentation for validation
                 atomic_basis_transform,
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
+                *base_callables,
             ],
         )
 

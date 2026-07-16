@@ -45,7 +45,7 @@ class FlashMDTests(ArchitectureTests):
                     "rank": 1,
                 }
             },
-            "per_atom": True,
+            "sample_kind": "atom",
             "num_subtargets": 1,
         }
 
@@ -60,13 +60,13 @@ class FlashMDTests(ArchitectureTests):
                     "rank": 1,
                 }
             },
-            "per_atom": True,
+            "sample_kind": "atom",
             "num_subtargets": 1,
         }
 
         return {
-            "positions": positions_target,
-            "momenta": momenta_target,
+            "position": positions_target,
+            "momentum": momenta_target,
         }
 
 

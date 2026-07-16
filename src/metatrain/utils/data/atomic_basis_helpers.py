@@ -12,60 +12,26 @@ from .target_info import TargetInfo
 # ===== General utilities
 
 
-def reindex_to_batch_index(
-    tensor: TensorMap,
-    system_ids: torch.tensor,
-) -> TensorMap:
-    """
-    Reindex the system ids in the samples of the blocks of the tensor to have batch ids.
-
-    :param tensor: the input TensorMap with system ids in the samples to reindex.
-    :param system_ids: Tensor containing the actual system ids for each sample in the
-        input ``tensor``.
-
-    :return: the output TensorMap with batch ids in the samples instead of system ids.
-    """
-    id_mapping = torch.ones(system_ids.max().item() + 1, dtype=int) * -1
-    for new_id, old_id in enumerate(system_ids):
-        id_mapping[old_id] = new_id
-
-    blocks = []
-    for block in tensor:
-        system_ids = block.samples.values[:, 0]
-        batch_id = id_mapping[system_ids]
-        block = TensorBlock(
-            samples=Labels(
-                block.samples.names,
-                torch.hstack(
-                    [
-                        batch_id.reshape(-1, 1),
-                        block.samples.values[:, 1:],
-                    ]
-                ),
-            ),
-            components=block.components,
-            properties=block.properties,
-            values=block.values,
-        )
-        blocks.append(block)
-    return TensorMap(tensor.keys, blocks)
-
-
 def get_per_atom_sample_labels(
     systems: List[System],
+    system_ids: torch.Tensor,
 ) -> Labels:
     """
-    Builds the atom sample labels for the input ``systems``, assuming the systems have a
-    batch index (0, ..., n_batch - 1).
+    Builds the atom sample labels for the input ``systems``, labelling each system's
+    atoms with the corresponding entry of ``system_ids`` (rather than assuming the
+    systems have a local batch index 0, ..., n_batch - 1), so the result can be matched
+    directly against a target's own, native "system" sample values.
 
     :param systems: List of systems to build the per-atom sample labels for.
+    :param system_ids: the "system" label value for each system, in the same order as
+        ``systems``.
     :return: The per-atom sample labels.
     """
     system_indices = torch.concatenate(
         [
             torch.full(
                 (len(system),),
-                i_system,
+                int(system_ids[i_system]),
                 device=systems[0].device,
             )
             for i_system, system in enumerate(systems)
@@ -129,7 +95,7 @@ def _densify_per_atom_atomic_basis_target(
                 properties=existing_block.properties,
             )
         else:
-            block = layout_block.copy()
+            block = layout_block.copy(deep=False)
             assert len(block.samples) == 0
         blocks.append(block)
 
@@ -236,8 +202,9 @@ def densify_atomic_basis_target(
 def _pad_samples_per_atom_atomic_basis_target(
     systems: List[System],
     tensor: TensorMap,
+    system_ids: torch.Tensor,
 ) -> TensorMap:
-    sample_labels = get_per_atom_sample_labels(systems)
+    sample_labels = get_per_atom_sample_labels(systems, system_ids)
     new_blocks = []
     for block in tensor:
         new_vals = torch.full(
@@ -261,6 +228,7 @@ def _pad_samples_per_atom_atomic_basis_target(
 def pad_samples_atomic_basis_target(
     systems: List[System],
     tensor: TensorMap,
+    system_ids: torch.Tensor,
 ) -> TensorMap:
     """
     Pad the samples of the atomic basis target to have the same number of samples for
@@ -268,12 +236,14 @@ def pad_samples_atomic_basis_target(
 
     :param systems: List of systems in the batch
     :param tensor: the atomic basis target TensorMap to pad.
+    :param system_ids: the "system" label value for each system, in the same order as
+        ``systems``, matching the tensor's own native "system" sample values.
 
     :return: the padded atomic basis target TensorMap
     """
 
     if "atom" in tensor.sample_names:
-        return _pad_samples_per_atom_atomic_basis_target(systems, tensor)
+        return _pad_samples_per_atom_atomic_basis_target(systems, tensor, system_ids)
     raise NotImplementedError(
         "Currently only padding of per-atom atomic basis targets is implemented."
     )
@@ -287,8 +257,8 @@ def prepare_atomic_basis_targets(
     fill_value: float = torch.nan,
 ) -> TensorMap:
     """
-    Prepare the atomic basis targets for batching by reindexing to batch ids, densifying
-    (moving "atom_type" key dimensions to the samples) and padding the samples.
+    Prepare the atomic basis targets for batching by densifying (moving "atom_type" key
+    dimensions to the samples) and padding the samples.
 
     :param systems: List of systems in the batch.
     :param system_ids: Tensor containing the system ids for each sample in the input
@@ -299,18 +269,15 @@ def prepare_atomic_basis_targets(
     :param fill_value: the value to use for filling in the padded values when densifying
         and padding. Default is NaN, but can be set to 0 if desired (e.g. for
         classification targets).
-    :return: the prepared atomic basis target TensorMap with batch ids, densified and
-        padded.
+    :return: the prepared atomic basis target TensorMap, densified and padded, keeping
+        the tensor's own native "system" ids.
     """
-
-    # Reindex to batch ids
-    tensor = reindex_to_batch_index(tensor, system_ids)
 
     # Densify: "atom type" key dimensions -> samples
     tensor = densify_atomic_basis_target(tensor, layout, fill_value)
 
-    # Pad samples
-    tensor = pad_samples_atomic_basis_target(systems, tensor)
+    # Pad samples, labelling them with the target's own native "system" ids
+    tensor = pad_samples_atomic_basis_target(systems, tensor, system_ids)
 
     return tensor
 
@@ -505,69 +472,13 @@ def sparsify_atomic_basis_target(
 # ===== dataloader transforms
 
 
-def get_reindex_to_batch_index_transform(
-    target_info_dict: dict[str, TargetInfo],
-    extra_data_info_dict: dict[str, TargetInfo],
-) -> Callable:
-    """
-    Get a function that reindexes the systems to have batch ids.
-
-    :param target_info_dict: Dictionary mapping target names to TargetInfo objects.
-    :param extra_data_info_dict: Dictionary mapping extra data names to TargetInfo
-        objects.
-
-    :return: A function that takes in systems, targets and extra data, and returns the
-        systems, targets and extra data with reindexed batch ids.
-    """
-
-    def transform(
-        systems: List[System],
-        targets: Dict[str, TensorMap],
-        extra: Dict[str, TensorMap],
-    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
-        """
-        Transform function that reindexes the systems to have batch ids, modifying
-        in-place. Only applied to atomic basis targets and extra data.
-
-        :param systems: List of systems.
-        :param targets: Dictionary containing the targets corresponding to the systems.
-        :param extra: Dictionary containing any extra data.
-        :return: The systems, targets and extra data with reindexed system ids.
-        """
-        assert "mtt::aux::system_index" in extra
-        for name, tensor in targets.items():
-            if name in target_info_dict and target_info_dict[name].is_atomic_basis:
-                targets[name] = reindex_to_batch_index(
-                    tensor,
-                    extra["mtt::aux::system_index"][0]
-                    .values[:, 0]
-                    .to(dtype=torch.int64),
-                )
-
-        for name, tensor in extra.items():
-            if (
-                name in extra_data_info_dict
-                and extra_data_info_dict[name].is_atomic_basis
-            ):
-                extra[name] = reindex_to_batch_index(
-                    tensor,
-                    extra["mtt::aux::system_index"][0]
-                    .values[:, 0]
-                    .to(dtype=torch.int64),
-                )
-
-        return systems, targets, extra
-
-    return transform
-
-
 def get_prepare_atomic_basis_targets_transform(
     target_info_dict: dict[str, TargetInfo],
     extra_data_info_dict: dict[str, TargetInfo],
 ) -> Tuple[Callable, Callable]:
     """
-    Get a function that prepares the atomic basis targets for batching by reindexing to
-    batch ids, densifying and padding.
+    Get a function that prepares the atomic basis targets for batching by densifying
+    and padding.
 
     :param target_info_dict: Dictionary mapping target names to TargetInfo objects.
     :param extra_data_info_dict: Dictionary mapping extra data names to TargetInfo
@@ -584,7 +495,8 @@ def get_prepare_atomic_basis_targets_transform(
     ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
         """
         Transform function that prepares the atomic basis targets for batching by
-        reindexing to batch ids, densifying and padding, modifying in-place.
+        densifying and padding, modifying in-place. Samples keep the tensor's own
+        native "system" ids throughout.
 
         :param systems: List of systems.
         :param targets: Dictionary containing the targets corresponding to the systems.

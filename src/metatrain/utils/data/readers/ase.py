@@ -61,10 +61,10 @@ def read_systems(filename: str) -> List[System]:
     ase_atoms = read(filename, ":")
     systems = systems_to_torch(ase_atoms, dtype=torch.float64)
 
-    # Add momenta (for FlashMD) if available
+    # Add momentum (for FlashMD) if available
     if "momenta" in ase_atoms[0].arrays:
         for system, atoms in zip(systems, ase_atoms, strict=False):
-            momenta = TensorMap(
+            momentum = TensorMap(
                 keys=Labels(["_"], torch.tensor([[0]])),
                 blocks=[
                     TensorBlock(
@@ -78,11 +78,11 @@ def read_systems(filename: str) -> List[System]:
                             ),
                         ),
                         components=[Labels(["xyz"], torch.arange(3).reshape(-1, 1))],
-                        properties=Labels("momenta", torch.tensor([[0]])),
+                        properties=Labels("momentum", torch.tensor([[0]])),
                     )
                 ],
             )
-            system.add_data("momenta", momenta)
+            system.add_data("momentum", momentum)
 
     return systems
 
@@ -375,7 +375,7 @@ def read_generic(
     components = target_info.layout.block().components
     properties = target_info.layout.block().properties
     shape_after_samples = target_info.layout.block().shape[1:]
-    per_atom = target_info.per_atom
+    per_atom = target_info.sample_kind == "atom"
     keys = target_info.layout.keys
 
     target_key = target["key"]

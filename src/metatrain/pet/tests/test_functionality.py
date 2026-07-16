@@ -41,7 +41,7 @@ def test_pet_padding():
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     lone_output = model([system], outputs)
 
     system_2 = System(
@@ -93,7 +93,7 @@ def test_empty_system():
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     energy = model([system], outputs)["energy"].block().values.squeeze(-1)
     assert torch.numel(energy) == 0
 
@@ -120,7 +120,7 @@ def test_isolated_atoms():
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     energy = model([system], outputs)["energy"].block().values.squeeze(-1)[0]
 
     assert torch.isfinite(energy)
@@ -148,7 +148,7 @@ def test_dissociated_atoms():
         pbc=torch.tensor([False, False, False]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"energy": ModelOutput(per_atom=False)}
+    outputs = {"energy": ModelOutput(sample_kind="system")}
     energy = model([system], outputs)["energy"].block().values.squeeze(-1)[0]
 
     assert torch.isfinite(energy)
@@ -176,8 +176,49 @@ def test_consistency():
     assert torch.allclose(attention_output_torch, attention_output_manual, atol=1e-6)
 
 
-@pytest.mark.parametrize("per_atom", [True, False])
-def test_nc_stress(per_atom):
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a CUDA device")
+def test_attention_above_cuda_grid_limit():
+    """Above 65535 nodes, SDPA's CUDA backward overflows the grid limit and crashes;
+    AttentionBlock must fall back to a for-loop over batch chunks of SDPA, warning
+    that this may reduce performance. Skipped without a GPU."""
+
+    device = "cuda"
+    # Just over the grid limit; tiny other dims keep it cheap.
+    batch = 65536
+    seq_length = 1
+    num_heads = 1
+    head_dim = 4
+    hidden_size = num_heads * head_dim
+
+    # Where the flash/mem-efficient kernel is used, the raw SDPA backward overflows
+    # the grid limit.
+    queries = torch.randn(
+        batch, num_heads, seq_length, head_dim, device=device, requires_grad=True
+    )
+    keys = torch.randn_like(queries)
+    values = torch.randn_like(queries)
+    out = torch.nn.functional.scaled_dot_product_attention(queries, keys, values)
+    try:
+        out.sum().backward()
+    except RuntimeError as error:
+        assert "65535" in str(error)
+
+    # AttentionBlock auto-falls back to a chunked for-loop over SDPA, warning about
+    # the reduced performance, and succeeds.
+    attention = AttentionBlock(hidden_size, num_heads, temperature=1.0).to(device)
+    inputs = torch.randn(
+        batch, seq_length, hidden_size, device=device, requires_grad=True
+    )
+    cutoff_factors = torch.rand(batch, seq_length, seq_length, device=device)
+    with pytest.warns(UserWarning, match="CUDA grid dimension"):
+        output = attention(inputs, cutoff_factors, use_manual_attention=False)
+    output.sum().backward()
+    assert inputs.grad is not None
+    assert inputs.grad.shape == inputs.shape
+
+
+@pytest.mark.parametrize("sample_kind", ["atom", "system"])
+def test_nc_stress(sample_kind):
     """Tests that the model can predict a symmetric rank-2 tensor as the NC stress."""
     # (note that no composition energies are supplied or calculated here)
 
@@ -192,7 +233,7 @@ def test_nc_stress(per_atom):
                     "unit": "",
                     "type": {"cartesian": {"rank": 2}},
                     "num_subtargets": 100,
-                    "per_atom": per_atom,
+                    "sample_kind": sample_kind,
                 },
             )
         },
@@ -207,7 +248,7 @@ def test_nc_stress(per_atom):
         pbc=torch.tensor([True, True, True]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"non_conservative_stress": ModelOutput(per_atom=per_atom)}
+    outputs = {"non_conservative_stress": ModelOutput(sample_kind=sample_kind)}
     stress = model([system], outputs)["non_conservative_stress"].block().values
     assert torch.allclose(stress, stress.transpose(1, 2))
 

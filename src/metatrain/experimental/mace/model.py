@@ -38,6 +38,7 @@ from .documentation import ModelHypers
 from .modules.finetuning import apply_finetuning_strategy
 from .modules.heads import MACEHeadWrapper, NonLinearHead
 from .modules.scale_shift import FakeScaleShift
+from .utils.mace_head import get_mace_head_index
 from .utils.mts import (
     e3nn_to_tensormap,
     get_e3nn_mts_layout,
@@ -50,7 +51,7 @@ from .utils.structures import create_batch
 class MetaMACE(ModelInterface[ModelHypers]):
     """Interface of MACE for metatrain."""
 
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -113,6 +114,10 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # Atomic baselines and scale extracted from the loaded MACE model (if any).
         self._loaded_atomic_baseline = None
         self._loaded_scale = 1.0
+        # Which internal MACE head to use at inference. Defaults to 0 so
+        # models built from hypers (single "default" head) always have it
+        # defined (required by create_batch and torchscript).
+        self.mace_head_index = 0
 
         if self.loaded_mace:
             # MACE model provided, load it in case it's a path or use it directly
@@ -126,6 +131,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 raise ValueError(
                     "The 'mace_model' hyper must be a path or a torch.nn.Module"
                 )
+            self.mace_head_index = get_mace_head_index(
+                self.mace_model, self.hypers["mace_head_name"]
+            )
 
             # If this is the first time we load this model,
             # extract atomic baselines and scales from the loaded model,
@@ -133,15 +141,26 @@ class MetaMACE(ModelInterface[ModelHypers]):
             # will be handled by metatrain's scaler and composition model.
             if not getattr(self.mace_model, "_metatrain_extracted_scaleshift", False):
                 if hasattr(self.mace_model, "atomic_energies_fn"):
-                    self._loaded_atomic_baseline = (
-                        self.mace_model.atomic_energies_fn.atomic_energies.clone()
-                    ).ravel()
+                    # Some single-head models store a 1D [n_species] tensor, while some
+                    # other single-head models (e.g. matpes-r2scan) and multi-head
+                    # models store 2D [n_heads, n_species]. Slice only the latter.
+                    atomic_energies = self.mace_model.atomic_energies_fn.atomic_energies
+                    if atomic_energies.ndim == 2:
+                        atomic_energies = atomic_energies[self.mace_head_index]
+                    self._loaded_atomic_baseline = atomic_energies.clone().ravel()
 
                     self.mace_model.atomic_energies_fn.atomic_energies[:] = 0.0
 
                 if hasattr(self.mace_model, "scale_shift"):
-                    self._loaded_scale = self.mace_model.scale_shift.scale.item()
-                    added_baseline = self.mace_model.scale_shift.shift.item()
+                    # scale/shift are 0-D scalars for single-head models and
+                    # 1D [n_heads] for multi-head models.
+                    scale = self.mace_model.scale_shift.scale
+                    shift = self.mace_model.scale_shift.shift
+                    if scale.ndim > 0:
+                        scale = scale[self.mace_head_index]
+                        shift = shift[self.mace_head_index]
+                    self._loaded_scale = scale.item()
+                    added_baseline = shift.item()
                     if self._loaded_atomic_baseline is not None:
                         self._loaded_atomic_baseline = (
                             self._loaded_atomic_baseline + added_baseline
@@ -254,7 +273,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             "mtt::aux::mace_features",
             {
                 "type": {"spherical": {"irreps": self.features_irreps}},
-                "per_atom": True,
+                "sample_kind": "atom",
                 "properties_name": "feature",
             },
         )
@@ -264,7 +283,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             k: ModelOutput(
                 quantity=targets[k].quantity if k in targets else "",
                 unit=targets[k].unit if k in targets else "",
-                per_atom=True,
+                sample_kind="atom",
             )
             for k in self.layouts
         }
@@ -347,6 +366,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+
         # --------------------------
         # Moving to device and dtype
         # --------------------------
@@ -370,6 +390,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             neighbor_list_options=self.requested_nl,
             atomic_types_to_species_index=self.atomic_types_to_species_index,
             n_types=len(self.atomic_types),
+            head_index=self.mace_head_index,
         )
 
         # Change coordinates to YZX
@@ -444,7 +465,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
             return_dict[output_name] = (
                 per_atom_output
-                if outputs[output_name].per_atom
+                if outputs[output_name].sample_kind == "atom"
                 else sum_over_atoms(per_atom_output)
             )
 
@@ -528,7 +549,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
                             )
                         )
                     else:
-                        output_blocks.append(b)
+                        output_blocks.append(b.copy(deep=False))
                 values[name] = TensorMap(values[name].keys, output_blocks)
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
@@ -684,7 +705,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             # Fake head that will not compute the target, but will help
             # us extract the last layer features from MACE internal head.
             self.heads[target_name] = MACEHeadWrapper(
-                self.mace_model.readouts, self.per_layer_irreps
+                self.mace_model.readouts, self.per_layer_irreps, self.mace_head_index
             )
         else:
             output_info = copy.deepcopy(target_info)
@@ -704,7 +725,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             f"{target_name}_last_layer_features",
             {
                 "type": {"spherical": {"irreps": llf_irreps}},
-                "per_atom": True,
+                "sample_kind": "atom",
                 "properties_name": "feature",
             },
         )
@@ -795,7 +816,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         else:
             # Get info about the mace head target
             mace_head_target = self.hypers["mace_head_target"]
-            per_atom = self.dataset_info.targets[mace_head_target].per_atom
+            per_atom = self.dataset_info.targets[mace_head_target].sample_kind == "atom"
 
             # Define scaling weights for the target
             weights = (

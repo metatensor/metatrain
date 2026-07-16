@@ -46,7 +46,7 @@ def test_forward():
                 quantity="length",
                 unit="angstrom",
             )
-            for name in ["positions", "momenta"]
+            for name in ["position", "momentum"]
         },
     )
 
@@ -97,16 +97,16 @@ def test_forward():
                 ),
             ],
         )
-        system.add_data("momenta", tmap)
+        system.add_data("momentum", tmap)
 
     outputs = {
-        "positions": ModelOutput(quantity="length", unit="angstrom", per_atom=True),
-        "momenta": ModelOutput(quantity="length", unit="angstrom", per_atom=True),
+        "position": ModelOutput(quantity="length", unit="angstrom", sample_kind="atom"),
+        "momentum": ModelOutput(quantity="length", unit="angstrom", sample_kind="atom"),
     }
     result_dict = model(systems, outputs)
 
     assert set(result_dict.keys()) == set(outputs.keys())
 
     # 2+3=5 atoms in total, both outputs are 3D vectors per atom
-    assert result_dict["positions"][0].values.shape == (5, 3, 1)
-    assert result_dict["momenta"][0].values.shape == (5, 3, 1)
+    assert result_dict["position"][0].values.shape == (5, 3, 1)
+    assert result_dict["momentum"][0].values.shape == (5, 3, 1)

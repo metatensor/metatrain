@@ -17,7 +17,7 @@ class PositionAdditiveHypers(TypedDict):
 class PositionAdditive(torch.nn.Module):
     """
     A simple additive model that adds the positions of the system to any outputs that
-    is either "positions" or one of its variants.
+    is either "position" or one of its variants.
 
     Optionally, it can also do the same with momenta.
     """
@@ -35,13 +35,15 @@ class PositionAdditive(torch.nn.Module):
 
         self.outputs = {}
         for key, value in dataset_info.targets.items():
-            if (key == "momenta" or key.startswith("momenta/")) and not self.do_momenta:
+            if (
+                key == "momentum" or key.startswith("momentum/")
+            ) and not self.do_momenta:
                 # skip momenta targets unless `also_momenta` is True
                 continue
             self.outputs[key] = ModelOutput(
                 quantity=value.quantity,
                 unit=value.unit,
-                per_atom=True,
+                sample_kind="atom",
                 description=value.description,
             )
 
@@ -55,13 +57,15 @@ class PositionAdditive(torch.nn.Module):
         self.dataset_info = self.dataset_info.union(dataset_info)
         self.outputs = {}
         for key, value in self.dataset_info.targets.items():
-            if (key == "momenta" or key.startswith("momenta/")) and not self.do_momenta:
+            if (
+                key == "momentum" or key.startswith("momentum/")
+            ) and not self.do_momenta:
                 # skip momenta targets unless `also_momenta` is True
                 continue
             self.outputs[key] = ModelOutput(
                 quantity=value.quantity,
                 unit=value.unit,
-                per_atom=True,
+                sample_kind="atom",
                 description=value.description,
             )
         return self
@@ -130,7 +134,7 @@ class PositionAdditive(torch.nn.Module):
                     samples=samples,
                     components=components,
                     properties=Labels(
-                        names=["positions"],
+                        names=["position"],
                         values=torch.zeros(
                             (1, 1), dtype=torch.int32, device=all_positions.device
                         ),
@@ -138,11 +142,11 @@ class PositionAdditive(torch.nn.Module):
                 )
             ],
         )
-        return_dict["positions"] = position_tensor_map
+        return_dict["position"] = position_tensor_map
 
         if self.do_momenta:
             all_momenta = torch.concatenate(
-                [system.get_data("momenta").block().values for system in systems]
+                [system.get_data("momentum").block().values for system in systems]
             )
             momenta_tensor_map = TensorMap(
                 keys=single_label,
@@ -152,7 +156,7 @@ class PositionAdditive(torch.nn.Module):
                         samples=samples,
                         components=components,
                         properties=Labels(
-                            names=["momenta"],
+                            names=["momentum"],
                             values=torch.zeros(
                                 (1, 1), dtype=torch.int32, device=all_positions.device
                             ),
@@ -160,7 +164,7 @@ class PositionAdditive(torch.nn.Module):
                     )
                 ],
             )
-            return_dict["momenta"] = momenta_tensor_map
+            return_dict["momentum"] = momenta_tensor_map
 
         if selected_atoms is not None:
             for key in list(return_dict.keys()):
@@ -177,8 +181,8 @@ class PositionAdditive(torch.nn.Module):
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
-        if target_name == "positions" or target_name.startswith("positions/"):
+        if target_name == "position" or target_name.startswith("position/"):
             return True
-        if target_name == "momenta" or target_name.startswith("momenta/"):
+        if target_name == "momentum" or target_name.startswith("momentum/"):
             return True
         return False

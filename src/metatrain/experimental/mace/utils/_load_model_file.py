@@ -19,6 +19,7 @@ def load_mace_model_file(
     mace_model_path: Path,
     mace_head_target: str,
     device: torch.device,
+    mace_head_name: str = "default",
 ) -> MetaMACE:
     """Set up a metatrain MACE model from a MACE model file.
 
@@ -35,6 +36,8 @@ def load_mace_model_file(
     :param mace_head_target: Target name for the predictions of
       the mace internal head.
     :param device: Device to set up the model on.
+    :param mace_head_name: Name of the internal MACE head to extract
+      (for multi-head foundation models). Defaults to ``"default"``.
 
     :return: The MACE model.
     """
@@ -75,7 +78,7 @@ def load_mace_model_file(
                     "unit": "",
                     "type": "scalar",
                     "num_subtargets": 1,
-                    "per_atom": False,
+                    "sample_kind": "system",
                 },
             )
         },
@@ -87,6 +90,7 @@ def load_mace_model_file(
     model_hypers = default_hypers["model"]
     model_hypers["mace_model"] = mace_model_path
     model_hypers["mace_head_target"] = mace_head_target
+    model_hypers["mace_head_name"] = mace_head_name
     model = MetaMACE(model_hypers, dataset_info)
 
     # Train for 0 epochs to set the composition and scaling weights

@@ -17,13 +17,13 @@ from metatomic.torch import (
 )
 from torch.profiler import record_function
 
-from metatrain.pet.modules.finetuning import apply_finetuning_strategy
 from metatrain.pet.modules.transformer import CartesianTransformer
 from metatrain.pet.modules.utilities import cutoff_func_cosine as cutoff_func
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.finetuning import apply_finetuning_strategy
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
@@ -46,7 +46,7 @@ class FlashMD(ModelInterface[ModelHypers]):
     For more information, you can refer to https://arxiv.org/abs/2505.19350.
     """
 
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 5
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -144,7 +144,7 @@ class FlashMD(ModelInterface[ModelHypers]):
 
         # the model is always capable of outputting the internal features
         self.outputs = {
-            "features": ModelOutput(per_atom=True, description="internal features")
+            "feature": ModelOutput(sample_kind="atom", description="internal features")
         }
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
@@ -292,6 +292,14 @@ class FlashMD(ModelInterface[ModelHypers]):
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
 
+    def requested_inputs(self) -> Dict[str, ModelOutput]:
+        return {
+            "momentum": ModelOutput(
+                quantity="momentum", unit="(eV*u)^(1/2)", sample_kind="atom"
+            ),
+            "mass": ModelOutput(quantity="mass", unit="u", sample_kind="atom"),
+        }
+
     def forward(
         self,
         systems: List[System],
@@ -352,7 +360,7 @@ class FlashMD(ModelInterface[ModelHypers]):
 
         **Stage 2: Intermediate Feature Output (Optional)**
 
-        If "features" is requested in the outputs, node and edge features from all
+        If "feature" is requested in the outputs, node and edge features from all
         layers are concatenated to produce intermediate representations. Edge features
         are summed over neighbors with cutoff weighting to obtain per-node
         contributions. This output can be used for transfer learning or analysis.
@@ -393,7 +401,7 @@ class FlashMD(ModelInterface[ModelHypers]):
             {output_name: ModelOutput(...)}. The model supports:
 
             - Target properties (energy, forces, stress, etc.)
-            - "features": intermediate representations from Stage 2
+            - "feature": intermediate representations from Stage 2
             - Auxiliary last layer features (e.g.,
               "mtt::aux::energy_last_layer_features")
 
@@ -406,6 +414,7 @@ class FlashMD(ModelInterface[ModelHypers]):
             predictions (depending on the ModelOutput configuration) with appropriate
             metatensor metadata (samples, components, properties).
         """
+
         device = systems[0].device
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
@@ -454,7 +463,7 @@ class FlashMD(ModelInterface[ModelHypers]):
                 element_indices_nodes=element_indices_nodes,
                 element_indices_neighbors=element_indices_neighbors,
                 edge_vectors=edge_vectors,
-                momenta=momenta,
+                momentum=momenta,
                 reverse_neighbor_index=reverse_neighbor_index,
                 padding_mask=padding_mask,
                 edge_distances=edge_distances,
@@ -480,7 +489,7 @@ class FlashMD(ModelInterface[ModelHypers]):
 
         # **Stage 2: Intermediate Feature Output (Optional)**
 
-        if "features" in outputs:
+        if "feature" in outputs:
             with record_function("FlashMD::_get_output_features"):
                 features_dict = self._get_output_features(
                     node_features_list,
@@ -588,7 +597,7 @@ class FlashMD(ModelInterface[ModelHypers]):
                                     )
                                 )
                             else:
-                                output_blocks.append(b)
+                                output_blocks.append(b.copy(deep=False))
                         return_dict[name] = TensorMap(
                             return_dict[name].keys, output_blocks
                         )
@@ -635,7 +644,7 @@ class FlashMD(ModelInterface[ModelHypers]):
         edge_features_list: List[torch.Tensor] = []
 
         input_node_embeddings = self.node_embedders[0](
-            inputs["element_indices_nodes"], inputs["momenta"]
+            inputs["element_indices_nodes"], inputs["momentum"]
         )
         input_edge_embeddings = self.edge_embedder(inputs["element_indices_neighbors"])
         for combination_norm, combination_mlp, gnn_layer in zip(
@@ -701,7 +710,7 @@ class FlashMD(ModelInterface[ModelHypers]):
             self.node_embedders, self.gnn_layers, strict=True
         ):
             input_node_embeddings = node_embedder(
-                inputs["element_indices_nodes"], inputs["momenta"]
+                inputs["element_indices_nodes"], inputs["momentum"]
             )
             output_node_embeddings, output_edge_embeddings = gnn_layer(
                 input_node_embeddings,
@@ -784,7 +793,7 @@ class FlashMD(ModelInterface[ModelHypers]):
         :param selected_atoms: Optional Labels specifying a subset of atoms to include.
         :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
         :param requested_outputs: Dictionary of requested outputs.
-        :return: Dictionary mapping "features" to a TensorMap of intermediate
+        :return: Dictionary mapping "feature" to a TensorMap of intermediate
             representations, either per-atom or summed over atoms.
         """
         features_dict: Dict[str, TensorMap] = {}
@@ -816,10 +825,10 @@ class FlashMD(ModelInterface[ModelHypers]):
                 axis="samples",
                 selection=selected_atoms,
             )
-        if requested_outputs["features"].per_atom:
-            features_dict["features"] = feature_tmap
+        if requested_outputs["feature"].sample_kind == "atom":
+            features_dict["feature"] = feature_tmap
         else:
-            features_dict["features"] = sum_over_atoms(feature_tmap)
+            features_dict["feature"] = sum_over_atoms(feature_tmap)
         return features_dict
 
     def _calculate_last_layer_features(
@@ -941,7 +950,7 @@ class FlashMD(ModelInterface[ModelHypers]):
                     selection=selected_atoms,
                 )
             last_layer_features_options = requested_outputs[output_name]
-            if last_layer_features_options.per_atom:
+            if last_layer_features_options.sample_kind == "atom":
                 last_layer_features_outputs[output_name] = last_layer_feature_tmap
             else:
                 last_layer_features_outputs[output_name] = sum_over_atoms(
@@ -1130,7 +1139,7 @@ class FlashMD(ModelInterface[ModelHypers]):
         # to get the final per-structure predictions for each requested output.
 
         for output_name, atomic_property in atomic_predictions_tmap_dict.items():
-            if outputs[output_name].per_atom:
+            if outputs[output_name].sample_kind == "atom":
                 atomic_predictions_tmap_dict[output_name] = atomic_property
             else:
                 atomic_predictions_tmap_dict[output_name] = sum_over_atoms(
@@ -1231,7 +1240,7 @@ class FlashMD(ModelInterface[ModelHypers]):
         self.outputs[target_name] = ModelOutput(
             quantity=target_info.quantity,
             unit=target_info.unit,
-            per_atom=True,
+            sample_kind="atom",
             description=target_info.description,
         )
 
@@ -1293,7 +1302,7 @@ class FlashMD(ModelInterface[ModelHypers]):
 
         ll_features_name = get_last_layer_features_name(target_name)
         self.outputs[ll_features_name] = ModelOutput(
-            per_atom=True, description=f"last-layer features for {target_name}"
+            sample_kind="atom", description=f"last-layer features for {target_name}"
         )
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [
@@ -1389,7 +1398,7 @@ def should_compute_last_layer_features(
 def verify_masses(systems: list[System], masses: torch.Tensor):
     """Attach masses to systems that don't have them yet."""
     for system_index, system in enumerate(systems):
-        if "masses" not in system.known_data():
+        if "mass" not in system.known_data():
             # obtain the masses from the atomic types
             values = masses[system.types].unsqueeze(-1)
 
@@ -1421,11 +1430,11 @@ def verify_masses(systems: list[System], masses: torch.Tensor):
                     )
                 ],
             )
-            system.add_data("masses", masses_map)
+            system.add_data("mass", masses_map)
         else:
             # verify that the masses are correct
             # (compare them to the ones stored in the model)
-            system_masses = system.get_data("masses").block(0).values.squeeze(-1)
+            system_masses = system.get_data("mass").block(0).values.squeeze(-1)
             expected_system_masses = masses[system.types]
             if not torch.allclose(system_masses, expected_system_masses):
                 # find which atom has the wrong mass
