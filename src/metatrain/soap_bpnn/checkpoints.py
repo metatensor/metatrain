@@ -376,3 +376,13 @@ def trainer_update_v9_v10(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     checkpoint["train_hypers"]["batch_atom_bounds"] = [None, None]
+
+
+def trainer_update_v10_v11(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 10 to version 11.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"]["max_atoms_per_batch"] = None
+    checkpoint["train_hypers"]["min_atoms_per_batch"] = 0

@@ -217,3 +217,13 @@ def trainer_update_v4_v5(checkpoint: dict) -> None:
             "config": {},
             "inherit_heads": {},
         }
+
+
+def trainer_update_v5_v6(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 5 to version 6.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"]["max_atoms_per_batch"] = None
+    checkpoint["train_hypers"]["min_atoms_per_batch"] = 0

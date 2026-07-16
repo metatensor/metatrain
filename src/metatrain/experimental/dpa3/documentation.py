@@ -230,6 +230,17 @@ class TrainerHypers(TypedDict):
     hyperparameter controls the tradeoff between training speed and memory usage. In
     general, larger batch sizes will lead to faster training, but might require more
     memory."""
+    max_atoms_per_batch: Optional[int] = None
+    """If set, use greedy atom-count packing instead of fixed ``batch_size``.
+    Structures are accumulated into each batch until adding another would exceed this
+    limit, producing variable numbers of structures per batch. Supported with any
+    dataset type. When set, ``batch_size`` is ignored for constructing training
+    and validation batches (it is still used internally for composition model and
+    scaler fitting)."""
+    min_atoms_per_batch: int = 0
+    """Minimum total number of atoms required to keep a batch when
+    ``max_atoms_per_batch`` is set. Batches whose total atom count falls below this
+    threshold are discarded during packing. Defaults to ``0`` (no minimum)."""
     num_epochs: int = 100
     """Number of epochs."""
     learning_rate: float = 0.001

@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Literal, Optional, Union, cast
 import torch
 from metatensor.torch import TensorBlock, TensorMap
 from torch.optim.lr_scheduler import LambdaLR
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DistributedSampler
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.augmentation import RotationalAugmenter
@@ -15,6 +15,8 @@ from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    build_train_dataloaders,
+    build_val_dataloaders,
     get_num_workers,
     unpack_batch,
     validate_num_workers,
@@ -76,7 +78,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 5
+    __checkpoint_version__ = 6
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -242,57 +244,35 @@ class Trainer(TrainerInterface[TrainerHypers]):
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
 
-        train_dataloaders = []
-        for train_dataset, train_sampler in zip(
-            train_datasets, train_samplers, strict=True
-        ):
-            if len(train_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A training dataset has fewer samples "
-                    f"({len(train_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
-            train_dataloaders.append(
-                DataLoader(
-                    dataset=train_dataset,
-                    batch_size=self.hypers["batch_size"],
-                    sampler=train_sampler,
-                    shuffle=(
-                        # the sampler takes care of this (if present)
-                        train_sampler is None
-                    ),
-                    drop_last=(
-                        # the sampler takes care of this (if present)
-                        train_sampler is None
-                    ),
-                    collate_fn=collate_fn_train,
-                    num_workers=num_workers,
-                )
-            )
+        max_atoms = self.hypers["max_atoms_per_batch"]
+
+        # Samplers that need set_epoch() called each epoch (may be DistributedSampler
+        # or MaxAtomDistributedBatchSampler depending on which path is taken below).
+        train_dataloaders, epoch_samplers = build_train_dataloaders(
+            train_datasets=train_datasets,
+            train_distributed_samplers=train_samplers,
+            collate_fn_train=collate_fn_train,
+            batch_size=self.hypers["batch_size"],
+            max_atoms_per_batch=max_atoms,
+            min_atoms_per_batch=self.hypers["min_atoms_per_batch"],
+            world_size=world_size,
+            rank=rank,
+            num_workers=num_workers,
+        )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
         # Create dataloader for the validation datasets:
-        val_dataloaders = []
-        for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
-            if len(val_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A validation dataset has fewer samples "
-                    f"({len(val_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
-            val_dataloaders.append(
-                DataLoader(
-                    dataset=val_dataset,
-                    batch_size=self.hypers["batch_size"],
-                    sampler=val_sampler,
-                    shuffle=False,
-                    drop_last=False,
-                    collate_fn=collate_fn_val,
-                    num_workers=num_workers,
-                )
-            )
+        val_dataloaders = build_val_dataloaders(
+            val_datasets=val_datasets,
+            val_distributed_samplers=val_samplers,
+            collate_fn_val=collate_fn_val,
+            batch_size=self.hypers["batch_size"],
+            max_atoms_per_batch=max_atoms,
+            world_size=world_size,
+            rank=rank,
+            num_workers=num_workers,
+            enforce_min_size=True,
+        )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         outputs_list = []
@@ -375,9 +355,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
         assert self.hypers["num_epochs"] is not None
         epoch = start_epoch
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
-            if is_distributed:
-                for train_sampler in train_samplers:
-                    train_sampler.set_epoch(epoch)
+            for sampler in epoch_samplers:
+                sampler.set_epoch(epoch)
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
 

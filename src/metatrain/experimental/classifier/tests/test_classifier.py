@@ -137,6 +137,67 @@ class TestCheckpoints(CheckpointTests, ClassifierTests):
         assert "Using best model from epoch None" in caplog.text
 
 
+class TestMaxAtomsPerBatch(ClassifierTests):
+    def test_train_max_atoms_per_batch(
+        self, dataset_targets, dataset_path, model_hypers, default_hypers
+    ):
+        """max_atoms_per_batch/min_atoms_per_batch pack batches by atom count
+        instead of a fixed batch_size, and training runs to completion."""
+        dataset, _, dataset_info = self.get_dataset(dataset_targets, dataset_path)
+
+        pet_hypers = copy.deepcopy(get_default_hypers("pet"))
+
+        pet_model_hypers = pet_hypers["model"]
+        pet_model_hypers["d_node"] = 8
+        pet_model_hypers["d_pet"] = 1
+        pet_model_hypers["d_head"] = 1
+        pet_model_hypers["d_feedforward"] = 1
+        pet_model_hypers["num_heads"] = 1
+        pet_model_hypers["num_attention_layers"] = 1
+        pet_model_hypers["num_gnn_layers"] = 1
+
+        pet_model = PET(pet_model_hypers, dataset_info)
+
+        pet_hypers["training"]["num_epochs"] = 1
+        loss_hypers = OmegaConf.create(
+            {k: init_with_defaults(LossSpecification) for k in dataset_targets}
+        )
+        pet_hypers["training"]["loss"] = OmegaConf.to_container(
+            loss_hypers, resolve=True
+        )
+
+        pet_trainer = PETTrainer(pet_hypers["training"])
+        pet_trainer.train(
+            pet_model,
+            dtype=pet_model.__supported_dtypes__[0],
+            devices=[torch.device("cpu")],
+            train_datasets=[dataset],
+            val_datasets=[dataset],
+            checkpoint_dir="",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pet_trainer.save_checkpoint(pet_model, f"{tmpdir}/pet_checkpoint.ckpt")
+
+            model = self.model_cls(model_hypers, dataset_info)
+
+            hypers = copy.deepcopy(default_hypers)
+            hypers["training"]["model_checkpoint"] = f"{tmpdir}/pet_checkpoint.ckpt"
+            hypers["training"]["num_epochs"] = 1
+            hypers["training"]["max_atoms_per_batch"] = 20
+            hypers["training"]["min_atoms_per_batch"] = 1
+
+            trainer = self.trainer_cls(hypers["training"])
+            trainer.train(
+                model,
+                dtype=model.__supported_dtypes__[0],
+                devices=[torch.device("cpu")],
+                train_datasets=[dataset],
+                val_datasets=[dataset],
+                checkpoint_dir="",
+            )
+
+
 def test_classifier_initialization():
     """Test that the Classifier model can be initialized."""
     hypers = {

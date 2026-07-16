@@ -142,3 +142,63 @@ def test_regression_train_spherical(device):
     torch.testing.assert_close(
         output["mtt::electron_density_basis"][1].values[2], expected_output
     )
+
+
+def test_train_max_atoms_per_batch():
+    """max_atoms_per_batch/min_atoms_per_batch pack batches by atom count instead
+    of a fixed batch_size, and training runs to completion."""
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
+
+    conf = {
+        "systems": {"read_from": SPHERICAL_DISK_DATASET_PATH},
+        "targets": {
+            "mtt::electron_density_basis": {
+                "quantity": "",
+                "unit": "",
+                "read_from": SPHERICAL_DISK_DATASET_PATH,
+                "type": {
+                    "spherical": {
+                        "irreps": [
+                            {"o3_lambda": 0, "o3_sigma": 1},
+                            {"o3_lambda": 1, "o3_sigma": 1},
+                            {"o3_lambda": 2, "o3_sigma": 1},
+                            {"o3_lambda": 3, "o3_sigma": 1},
+                        ]
+                    },
+                },
+                "sample_kind": "atom",
+                "num_subtargets": 1,  # dummy value
+            },
+        },
+    }
+
+    dataset, target_info_dict, _ = get_dataset(conf)
+
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
+    hypers["training"]["num_epochs"] = 1
+    hypers["training"]["num_workers"] = 0
+    hypers["training"]["batch_size"] = 1
+    hypers["training"]["max_atoms_per_batch"] = 20
+    hypers["training"]["min_atoms_per_batch"] = 1
+    loss_conf = {"mtt::electron_density_basis": init_with_defaults(LossSpecification)}
+    loss_conf = OmegaConf.create(loss_conf)
+    OmegaConf.resolve(loss_conf)
+    hypers["training"]["loss"] = loss_conf
+
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
+    )
+    model_hypers = copy.deepcopy(MODEL_HYPERS)
+    model = MetaMACE(model_hypers, dataset_info)
+
+    trainer = Trainer(hypers["training"])
+    trainer.train(
+        model=model,
+        dtype=torch.float32,
+        devices=[torch.device("cpu")],
+        train_datasets=[dataset],
+        val_datasets=[dataset],
+        checkpoint_dir=".",
+    )
