@@ -46,50 +46,6 @@ from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.units import get_gradient_units
 
 
-# The dataset-level informative files live under `metadata/`; currently only
-# the atom counts, more may be added in the future.
-ATOM_COUNTS_MEMBER = "metadata/atom_counts.npy"
-
-
-def _parse_disk_dataset_member_name(name: str) -> Optional[Tuple[int, str]]:
-    """Parse a DiskDataset zip member name into ``(entry_number, field_name)``.
-
-    Valid members are exactly ``<N>/system.mta`` and ``<N>/<field>.mts`` with
-    ``N`` an unpadded decimal number (``00/`` would silently alias ``0/``).
-
-    :param name: The zip member name.
-    :return: ``(entry, field)`` with ``field == "system"`` for the system
-        member, or ``None`` when the name is not valid DiskDataset content.
-    """
-    slash = name.find("/")
-    if slash <= 0:
-        return None
-    head = name[:slash]
-    if not head.isdigit() or (len(head) > 1 and head[0] == "0"):
-        return None
-    tail = name[slash + 1 :]
-    if "/" in tail:
-        return None
-    if tail == "system.mta":
-        return int(head), "system"
-    if tail.endswith(".mts") and len(tail) > len(".mts"):
-        return int(head), tail[: -len(".mts")]
-    return None
-
-
-def _format_member_names(names: List[str], limit: int = 10) -> str:
-    """Format a capped list of zip member names for messages.
-
-    :param names: The member names.
-    :param limit: Maximum number of names to spell out.
-    :return: The formatted list.
-    """
-    formatted = str(names[:limit])
-    if len(names) > limit:
-        formatted += f" (+{len(names) - limit} more)"
-    return formatted
-
-
 def _set(values: List[int]) -> List[int]:
     """This function just does `list(set(values))`.
 
@@ -712,6 +668,50 @@ def load_indices(indices_spec: Union[List[int], str]) -> List[int]:
         raise ValueError("Indices must be non-negative integers")
 
     return indices
+
+
+# The dataset-level informative files live under `metadata/`; currently only
+# the atom counts, more may be added in the future.
+ATOM_COUNTS_MEMBER = "metadata/atom_counts.npy"
+
+
+def _parse_disk_dataset_member_name(name: str) -> Optional[Tuple[int, str]]:
+    """Parse a DiskDataset zip member name into ``(entry_number, field_name)``.
+
+    Valid members are exactly ``<N>/system.mta`` and ``<N>/<field>.mts`` with
+    ``N`` an unpadded decimal number (``00/`` would silently alias ``0/``).
+
+    :param name: The zip member name.
+    :return: ``(entry, field)`` with ``field == "system"`` for the system
+        member, or ``None`` when the name is not valid DiskDataset content.
+    """
+    slash = name.find("/")
+    if slash <= 0:
+        return None
+    head = name[:slash]
+    if not head.isdigit() or (len(head) > 1 and head[0] == "0"):
+        return None
+    tail = name[slash + 1 :]
+    if "/" in tail:
+        return None
+    if tail == "system.mta":
+        return int(head), "system"
+    if tail.endswith(".mts") and len(tail) > len(".mts"):
+        return int(head), tail[: -len(".mts")]
+    return None
+
+
+def _format_member_names(names: List[str], limit: int = 10) -> str:
+    """Format a capped list of zip member names for messages.
+
+    :param names: The member names.
+    :param limit: Maximum number of names to spell out.
+    :return: The formatted list.
+    """
+    formatted = str(names[:limit])
+    if len(names) > limit:
+        formatted += f" (+{len(names) - limit} more)"
+    return formatted
 
 
 class _MemberScan(NamedTuple):
