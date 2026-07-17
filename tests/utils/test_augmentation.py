@@ -1,11 +1,8 @@
-import sys
-
 import metatensor.torch as mts
 import numpy as np
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from scipy.spatial.transform import Rotation
 
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import DatasetInfo, DiskDataset, TargetInfo
@@ -14,44 +11,21 @@ from metatrain.utils.data.target_info import get_generic_target_info
 from ..conftest import RESOURCES_PATH
 
 
-@pytest.fixture
-def layout_spherical():
-    return TensorMap(
-        keys=Labels(
-            names=["o3_lambda", "o3_sigma"],
-            values=torch.tensor([[0, 1], [2, 1]]),
-        ),
-        blocks=[
-            TensorBlock(
-                values=torch.empty(0, 1, 1),
-                samples=Labels(
-                    names=["system"],
-                    values=torch.empty((0, 1), dtype=torch.int32),
-                ),
-                components=[
-                    Labels(
-                        names=["o3_mu"],
-                        values=torch.arange(0, 1, dtype=torch.int32).reshape(-1, 1),
-                    ),
-                ],
-                properties=Labels.single(),
-            ),
-            TensorBlock(
-                values=torch.empty(0, 5, 1),
-                samples=Labels(
-                    names=["system"],
-                    values=torch.empty((0, 1), dtype=torch.int32),
-                ),
-                components=[
-                    Labels(
-                        names=["o3_mu"],
-                        values=torch.arange(-2, 3, dtype=torch.int32).reshape(-1, 1),
-                    ),
-                ],
-                properties=Labels.single(),
-            ),
-        ],
-    )
+# Hard-coded rotation matrix used to generate the rotated DFT dataset
+_R = np.array(
+    [
+        [0.22922512, -0.15149287, 0.96151222],
+        [0.66175278, -0.70015582, -0.26807664],
+        [0.71382008, 0.69773328, -0.06024247],
+    ]
+)
+
+
+def _transformation(batch_size: int) -> list:
+    # apply_augmentations expects List[torch.Tensor] where each matrix R satisfies
+    # positions_rotated = positions @ R.T, matching how the test datasets were built
+    t = torch.tensor(_R.T, dtype=torch.float64)
+    return [t] * batch_size
 
 
 @pytest.mark.parametrize("batch_size", [1, 2])
@@ -60,15 +34,6 @@ def test_rotation_per_structure_spherical(batch_size):
     targets computed from DFT"""
 
     target_name = "mtt::dipole_moment"
-
-    # Hard-coded rotation matrix
-    R = np.array(
-        [
-            [0.22922512, -0.15149287, 0.96151222],
-            [0.66175278, -0.70015582, -0.26807664],
-            [0.71382008, 0.69773328, -0.06024247],
-        ]
-    )
 
     # Load the target data
     dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
@@ -124,9 +89,8 @@ def test_rotation_per_structure_spherical(batch_size):
     _, RfX, _ = rotational_augmenter.apply_augmentations(
         X,
         {target_name: fX},
+        _transformation(batch_size),
         extra_data={},
-        rotations=[Rotation.from_matrix(R.T)] * batch_size,
-        inversions=[1] * batch_size,
     )
     RfX = RfX[target_name]
 
@@ -140,15 +104,6 @@ def test_rotation_per_atom_spherical(batch_size):
     consistent with targets computed from DFT"""
 
     target_name = "mtt::electron_density_basis_projs"
-
-    # Hard-coded rotation matrix used to generate the system for which DFT was run
-    R = np.array(
-        [
-            [0.22922512, -0.15149287, 0.96151222],
-            [0.66175278, -0.70015582, -0.26807664],
-            [0.71382008, 0.69773328, -0.06024247],
-        ]
-    )
 
     # Load the target data
     dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
@@ -207,9 +162,8 @@ def test_rotation_per_atom_spherical(batch_size):
     _, RfX, _ = rotational_augmenter.apply_augmentations(
         X,
         {target_name: fX},
+        _transformation(batch_size),
         extra_data={},
-        rotations=[Rotation.from_matrix(R.T)] * batch_size,
-        inversions=[1] * batch_size,
     )
     RfX = RfX[target_name]
 
@@ -219,19 +173,13 @@ def test_rotation_per_atom_spherical(batch_size):
 
 @pytest.mark.parametrize("batch_size", [1, 2])
 def test_rotation_per_atom_spherical_atomicbasis(batch_size):
-    """Tests that the rotational augmenter rotates a Hamiltonian
-    in the coupled basis (rank 1 tensors with an atomic basis)
-    consistent with targets computed from DFT"""
-    target_name = "mtt::hamiltonian_nodes"
+    """Tests that the rotational augmenter rotates a Hamiltonian in the coupled basis
+    (rank-1 tensors with an atomic basis) consistent with targets computed from DFT.
 
-    # Hard-coded rotation matrix used to generate the system for which DFT was run
-    R = np.array(
-        [
-            [0.22922512, -0.15149287, 0.96151222],
-            [0.66175278, -0.70015582, -0.26807664],
-            [0.71382008, 0.69773328, -0.06024247],
-        ]
-    )
+    Previously this raised ValueError; metatomic's apply_augmentations now handles
+    atomic basis targets via per-block row-index indexing.
+    """
+    target_name = "mtt::hamiltonian_nodes"
 
     # Load the target data
     dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
@@ -294,39 +242,28 @@ def test_rotation_per_atom_spherical_atomicbasis(batch_size):
 
     rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
 
-    with pytest.raises(
-        (ValueError, torch.jit.Error),
-        match="Rotational augmentation of atomic basis targets is not supported yet.",
-    ):
-        # Apply the augmentation to the target
-        _, RfX, _ = rotational_augmenter.apply_augmentations(
-            X,
-            {target_name: fX},
-            extra_data={},
-            rotations=[Rotation.from_matrix(R.T)] * batch_size,
-            inversions=[1] * batch_size,
-        )
-        RfX = RfX[target_name]
+    # Apply the augmentation to the target
+    _, RfX, _ = rotational_augmenter.apply_augmentations(
+        X,
+        {target_name: fX},
+        _transformation(batch_size),
+        extra_data={},
+    )
+    RfX = RfX[target_name]
 
-        # Check that the rotated target matches the reference
-        mts.allclose_raise(RfX, fRX, atol=1e-5)
+    # Check that the rotated target matches the reference
+    mts.allclose_raise(RfX, fRX, atol=1e-5)
 
 
 @pytest.mark.parametrize("batch_size", [1, 2])
 def test_rotation_per_atom_spherical_rank2(batch_size):
-    """Tests that the rotational augmenter rotates a Hamiltonian
-    in the uncoupled basis (rank 2 tensors with an atomic basis)
-    consistent with targets computed from DFT"""
-    target_name = "mtt::hamiltonian_nodes_uncoupled"
+    """Tests that the rotational augmenter rotates a Hamiltonian in the uncoupled basis
+    (rank-2 tensors with an atomic basis) consistent with targets computed from DFT.
 
-    # Hard-coded rotation matrix used to generate the system for which DFT was run
-    R = np.array(
-        [
-            [0.22922512, -0.15149287, 0.96151222],
-            [0.66175278, -0.70015582, -0.26807664],
-            [0.71382008, 0.69773328, -0.06024247],
-        ]
-    )
+    Previously this raised ValueError; metatomic's apply_augmentations now handles
+    atomic basis targets via per-block row-index indexing.
+    """
+    target_name = "mtt::hamiltonian_nodes_uncoupled"
 
     # Load the target data
     dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
@@ -389,35 +326,14 @@ def test_rotation_per_atom_spherical_rank2(batch_size):
 
     rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
 
-    with pytest.raises(
-        (ValueError, torch.jit.Error),
-        match="Rotational augmentation of atomic basis targets is not supported yet.",
-    ):
-        # Apply the augmentation to the target
-        _, RfX, _ = rotational_augmenter.apply_augmentations(
-            X,
-            {target_name: fX},
-            extra_data={},
-            rotations=[Rotation.from_matrix(R.T)] * batch_size,
-            inversions=[1] * batch_size,
-        )
-        RfX = RfX[target_name]
-
-        # Check that the rotated target matches the reference
-        mts.allclose_raise(RfX, fRX, atol=1e-5)
-
-
-def test_missing_library(monkeypatch, layout_spherical):
-    # Pretend 'spherical' is not installed
-    monkeypatch.setitem(sys.modules, "spherical", None)
-
-    target_info_dict = {
-        "foo": TargetInfo(layout=layout_spherical, quantity="energy", unit="")
-    }
-
-    msg = (
-        "To perform data augmentation on spherical targets, please "
-        "install the `spherical` package with `pip install spherical`."
+    # Apply the augmentation to the target
+    _, RfX, _ = rotational_augmenter.apply_augmentations(
+        X,
+        {target_name: fX},
+        _transformation(batch_size),
+        extra_data={},
     )
-    with pytest.raises(ImportError, match=msg):
-        RotationalAugmenter(target_info_dict)
+    RfX = RfX[target_name]
+
+    # Check that the rotated target matches the reference
+    mts.allclose_raise(RfX, fRX, atol=1e-5)

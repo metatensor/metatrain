@@ -15,8 +15,8 @@ dependencies = [
     "metatensor-learn >=0.5.0,<0.6",
     "metatensor-operations >=0.5.0,<0.6",
     "metatensor-torch >=0.10.0,<0.11",
-    "metatomic-torch >=0.1.15,<0.2",
-    "metatomic-ase >=0.1.1,<0.2",
+    "metatomic-torch >=0.1.16,<0.3",
+    "metatomic-ase >=0.1.1,<0.3",
     "jsonschema",
     "pydantic >= 2.12", # Because of passing arguments to validator functions
     "typing_extensions", # For python < 3.12 typing.TypedDict has limited functionality
