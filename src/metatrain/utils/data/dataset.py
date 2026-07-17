@@ -759,7 +759,7 @@ def _scan_members(zip_file: SmartZip, path: Union[str, Path]) -> _MemberScan:
             continue
         if info.compress_type != zipfile.ZIP_STORED:
             raise ValueError(
-                f"'{path}' is not a valid DiskDataset zip: member "
+                f"'{path}' is not a valid DiskDataset zip: file "
                 f"'{name}' is compressed. DiskDataset zips must be "
                 "uncompressed (STORED); re-create the zip without "
                 "compression, e.g. `zip -rX -Z store <dataset>.zip .` "
@@ -789,13 +789,13 @@ def _validate_format(scan: _MemberScan, path: Union[str, Path]) -> int:
     """
     if "system" not in scan.field_id_by_name:
         message = (
-            "Could not find any `<N>/system.mta` member in the zip file. "
+            "Could not find any `<N>/system.mta` file in the zip. "
             "The dataset format might be wrong, or the dataset might be "
             "empty. Empty disk datasets are not supported."
         )
         if scan.ignored_names:
             message += (
-                " The zip does contain members that are not part of the "
+                " The zip does contain files that are not part of the "
                 f"format: {_format_member_names(scan.ignored_names)}."
             )
             first_component = scan.ignored_names[0].split("/", 1)[0]
@@ -836,8 +836,8 @@ def _validate_format(scan: _MemberScan, path: Union[str, Path]) -> int:
         field_name = list(scan.field_id_by_name)[field_id]
         raise ValueError(
             f"This DiskDataset zip is not homogeneous: entry {entry} has no "
-            f"'{field_name}' member while other entries do "
-            f"({len(missing)} missing members in total). Every entry must "
+            f"'{field_name}' file while other entries do "
+            f"({len(missing)} missing files in total). Every entry must "
             "contain the same fields; re-write the dataset."
         )
     # With no member missing, a valid zip has exactly one member per
@@ -846,8 +846,8 @@ def _validate_format(scan: _MemberScan, path: Union[str, Path]) -> int:
     n_valid_members = int((scan.field_ids >= 0).sum())
     if n_valid_members != present.shape[0] * present.shape[1]:
         raise ValueError(
-            "This DiskDataset zip contains duplicated members or field "
-            "members for entries that have no `system.mta` (e.g. "
+            "This DiskDataset zip contains duplicated files or field "
+            "files for entries that have no `system.mta` (e.g. "
             "`7/energy.mts` without `7/system.mta`); re-write the dataset."
         )
     return n_samples
@@ -1004,7 +1004,7 @@ class DiskDataset(torch.utils.data.Dataset):
         if self._atom_counts is None:
             raise ValueError(
                 f"'{self.zip_file_path}' has no 'metadata/atom_counts.npy' "
-                "member, which is required for atom-count-based sampling "
+                "file, which is required for atom-count-based sampling "
                 "(e.g. `max_atoms_per_batch`). Re-write the dataset with the "
                 "current DiskDatasetWriter (which always includes it), append "
                 "to it with DiskDatasetWriter(..., append=True), or add "

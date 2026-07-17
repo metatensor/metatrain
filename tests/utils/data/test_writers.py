@@ -1083,7 +1083,7 @@ def test_disk_dataset_rejects_orphan_and_duplicate_members(monkeypatch, tmp_path
                 np.save(f, energy_buffer)
         with zf.open("7/energy.mts", "w") as f:  # no 7/system.mta
             np.save(f, energy_buffer)
-    with pytest.raises(ValueError, match="duplicated members or field members"):
+    with pytest.raises(ValueError, match="duplicated files or field files"):
         DiskDataset("test_orphan.zip", fields=[])
 
     with zipfile.ZipFile("test_dup_field.zip", "w") as zf:
@@ -1094,7 +1094,7 @@ def test_disk_dataset_rejects_orphan_and_duplicate_members(monkeypatch, tmp_path
             for _ in range(2):
                 with zf.open("0/energy.mts", "w") as f:
                     np.save(f, energy_buffer)
-    with pytest.raises(ValueError, match="duplicated members or field members"):
+    with pytest.raises(ValueError, match="duplicated files or field files"):
         DiskDataset("test_dup_field.zip", fields=[])
 
 
