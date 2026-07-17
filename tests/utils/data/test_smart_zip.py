@@ -18,7 +18,7 @@ def _make_zip(path, compression=zipfile.ZIP_STORED):
     with zipfile.ZipFile(path, "w", compression) as zf:
         for name, data in PAYLOADS.items():
             zf.writestr(name, data)
-        zf.mkdir("empty_dir")
+        zf.writestr("empty_dir/", b"")  # ZipFile.mkdir needs Python >= 3.11
     return path
 
 

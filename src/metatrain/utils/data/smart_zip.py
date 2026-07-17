@@ -105,7 +105,8 @@ class SmartZip:
     def namelist(self) -> Iterator[str]:
         """Yield the name of every member (directory entries excluded).
 
-        :return: Iterator over member names, in sorted order.
+        :yield: Member names, in sorted order.
+        :ytype: str
         """
         for name in self._names:
             yield name.decode("utf-8")
@@ -118,7 +119,8 @@ class SmartZip:
         fields the index stores: ``filename``, ``header_offset``,
         ``file_size``, ``CRC``, ``compress_type`` and ``compress_size``.
 
-        :return: Iterator over member infos, in sorted-name order.
+        :yield: Member infos, in sorted-name order.
+        :ytype: zipfile.ZipInfo
         """
         for row in range(len(self._names)):
             yield self._make_zipinfo(row)
@@ -146,12 +148,14 @@ class SmartZip:
         :return: The per-process zip handle.
         """
         pid = os.getpid()
-        if self._fp_pid != pid:
-            if self._fp is not None:
-                self._fp.close()
-            self._fp = _LazyZipFile(self.path, "r")
+        fp = self._fp
+        if fp is None or self._fp_pid != pid:
+            if fp is not None:
+                fp.close()
+            fp = _LazyZipFile(self.path, "r")
+            self._fp = fp
             self._fp_pid = pid
-        return self._fp
+        return fp
 
     def open(self, name: str, mode: str = "r") -> IO[bytes]:
         """Open the member ``name`` for reading, like ``ZipFile.open``.
@@ -187,8 +191,9 @@ class SmartZip:
         self.close()
 
     def __del__(self) -> None:
-        if getattr(self, "_fp", None) is not None:
-            self._fp.close()
+        fp = getattr(self, "_fp", None)
+        if fp is not None:
+            fp.close()
 
     def __getstate__(self) -> Dict[str, Any]:
         # the open handle is process-local and unpicklable; drop it and let
