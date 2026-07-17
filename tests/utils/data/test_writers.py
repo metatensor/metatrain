@@ -950,7 +950,8 @@ def test_disk_dataset_detects_corrupted_members(monkeypatch, tmp_path):
     writer.finish()
 
     dataset = DiskDataset("test_crc.zip", fields=[])
-    offset = int(dataset._member_locs[0, dataset._member_cols["system"], 0])
+    with zipfile.ZipFile("test_crc.zip") as zf:
+        offset = zf.getinfo("0/system.mta").header_offset
     with open("test_crc.zip", "r+b") as f:
         f.seek(offset + 200)  # inside the member's data
         byte = f.read(1)
