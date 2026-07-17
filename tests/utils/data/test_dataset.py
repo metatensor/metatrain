@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import System
 from omegaconf import OmegaConf
 
 from metatrain.utils.data import (
@@ -22,6 +23,7 @@ from metatrain.utils.data import (
     unpack_batch,
 )
 from metatrain.utils.data.dataset import MemmapDataset
+from metatrain.utils.data.writers import MemmapWriter
 
 
 RESOURCES_PATH = Path(__file__).parents[2] / "resources"
@@ -1208,11 +1210,99 @@ def test_load_indices_file_not_found(tmp_path):
 # ============================================================
 
 
+def _write_memmap_via_writer(
+    tmp_path, atoms_per_system, energy_values, momenta=None, masses=None
+):
+    """Write a MemmapDataset directory using the ``MemmapWriter``.
+
+    :param atoms_per_system: number of atoms per system.
+    :param energy_values: one energy value per system.
+    :param momenta: optional (n_atoms, 3) array/list of per-atom momenta.
+    :param masses: optional (n_atoms,) array/list of per-atom masses.
+    """
+    systems = [
+        System(
+            types=torch.ones(n, dtype=torch.int32),
+            positions=torch.zeros(n, 3),
+            cell=torch.zeros(3, 3),
+            pbc=torch.zeros(3, dtype=torch.bool),
+        )
+        for n in atoms_per_system
+    ]
+
+    n_systems = len(systems)
+    predictions = {
+        "e": TensorMap(
+            Labels.single(),
+            [
+                TensorBlock(
+                    values=torch.tensor(energy_values, dtype=torch.float64).reshape(
+                        n_systems, 1
+                    ),
+                    samples=Labels("system", torch.arange(n_systems).reshape(-1, 1)),
+                    components=[],
+                    properties=Labels.range("energy", 1),
+                )
+            ],
+        )
+    }
+
+    system_atom_labels = torch.tensor(
+        [[i, j] for i, n in enumerate(atoms_per_system) for j in range(n)]
+    )
+    if momenta is not None:
+        predictions["momenta"] = TensorMap(
+            Labels.single(),
+            [
+                TensorBlock(
+                    values=torch.tensor(momenta, dtype=torch.float64).unsqueeze(-1),
+                    samples=Labels(["system", "atom"], system_atom_labels),
+                    components=[Labels.range("xyz", 3)],
+                    properties=Labels.range("momentum", 1),
+                )
+            ],
+        )
+    if masses is not None:
+        predictions["masses"] = TensorMap(
+            Labels.single(),
+            [
+                TensorBlock(
+                    values=torch.tensor(masses, dtype=torch.float64).reshape(-1, 1),
+                    samples=Labels(["system", "atom"], system_atom_labels),
+                    components=[],
+                    properties=Labels.range("mass", 1),
+                )
+            ],
+        )
+
+    writer = MemmapWriter(tmp_path)
+    writer.write(systems, predictions)
+    writer.finish()
+
+    target_options = {
+        "energy": {
+            "key": "e",
+            "sample_kind": "system",
+            "num_subtargets": 1,
+            "type": "scalar",
+            "quantity": "energy",
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    return target_options
+
+
 def test_memmap_momenta_attached(tmp_path):
     """Momenta need to be attached and can be loaded."""
-    target_options, _ = _write_minimal_memmap(tmp_path, ns=1)
     # FlashMD stores the current momenta of every atom (1 atom per system here)
-    np.array([[1.0, 2.0, 3.0]], dtype="float32").tofile(tmp_path / "momenta.bin")
+    target_options = _write_memmap_via_writer(
+        tmp_path,
+        atoms_per_system=[1],
+        energy_values=[1.0],
+        momenta=[[1.0, 2.0, 3.0]],
+    )
 
     dataset = MemmapDataset(tmp_path, target_options)
 
@@ -1231,32 +1321,15 @@ def test_memmap_momenta_attached_in_batch(tmp_path):
     with local (0-based) atom labels and its own slice of ``momenta.bin``.
     """
     # 2 systems: system 0 has 2 atoms, system 1 has 3 atoms
-    ns = 2
-    na = np.array([0, 2, 5], dtype=np.int64)  # cumulative atom counts
-    np.save(tmp_path / "ns.npy", ns)
-    np.save(tmp_path / "na.npy", na)
-    np.zeros((5, 3), dtype="float32").tofile(tmp_path / "x.bin")
-    np.array([1, 1, 6, 6, 8], dtype="int32").tofile(tmp_path / "a.bin")
-    np.zeros((ns, 3, 3), dtype="float32").tofile(tmp_path / "c.bin")
     # per-atom momenta; the x component encodes the global atom index 0..4
-    momenta = np.zeros((5, 3), dtype="float32")
+    momenta = np.zeros((5, 3))
     momenta[:, 0] = np.arange(5)
-    momenta.tofile(tmp_path / "momenta.bin")
-    # per-system energy target
-    np.array([1.0, 2.0], dtype="float32").reshape(ns, 1).tofile(tmp_path / "e.bin")
-
-    target_options = {
-        "energy": {
-            "key": "e",
-            "sample_kind": "system",
-            "num_subtargets": 1,
-            "type": "scalar",
-            "quantity": "energy",
-            "forces": False,
-            "stress": False,
-            "virial": False,
-        }
-    }
+    target_options = _write_memmap_via_writer(
+        tmp_path,
+        atoms_per_system=[2, 3],
+        energy_values=[1.0, 2.0],
+        momenta=momenta,
+    )
 
     dataset = MemmapDataset(tmp_path, target_options)
     collate_fn = CollateFn(list(target_options.keys()))
@@ -1280,9 +1353,13 @@ def test_memmap_masses_attached(tmp_path):
     Masses must be attached with local (0-based) atom labels and the system's own
     slice of ``masses.bin``.
     """
-    target_options, _ = _write_minimal_memmap(tmp_path, ns=2)
     # FlashMD stores the mass of every atom (1 atom per system here)
-    np.array([1.0, 12.0], dtype="float32").tofile(tmp_path / "masses.bin")
+    target_options = _write_memmap_via_writer(
+        tmp_path,
+        atoms_per_system=[1, 1],
+        energy_values=[1.0, 2.0],
+        masses=[1.0, 12.0],
+    )
 
     dataset = MemmapDataset(tmp_path, target_options)
 
