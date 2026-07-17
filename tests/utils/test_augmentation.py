@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import System
 
 from metatrain.utils.augmentation import RotationalAugmenter
 from metatrain.utils.data import DatasetInfo, DiskDataset
@@ -194,12 +195,277 @@ def test_rotation_per_atom_spherical(batch_size):
     mts.allclose_raise(RfX, fRX, atol=1e-5)
 
 
+def test_distinct_transformations_per_system():
+    """Tests that each system's target rows are transformed by that system's own
+    matrix. metatomic's ``transform_tensor`` pairs ``system_ids[i]`` positionally
+    with ``transformations[i]``, so this only holds if the ids recovered from the
+    tensor come out in the same order as the ``systems`` list. Every other test
+    applies the same matrix to all systems and would not notice a mix-up.
+    """
+    target_name = "mtt::electron_density_basis_projs"
+
+    # Absolute dataset ids, deliberately not 0, ..., n-1
+    system_ids = torch.tensor([3, 8])
+
+    dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
+    dataset_rotated = DiskDataset(RESOURCES_PATH / "spherical_targets_rotated.zip")
+
+    X = [dataset_unrotated[i]["system"].to(torch.float64) for i in range(2)]
+    fX = _relabel_system_samples(
+        mts.join([dataset_unrotated[i][target_name] for i in range(2)], axis="samples"),
+        system_ids,
+    )
+    # system 0 is left alone while system 1 is rotated, so the expected result
+    # mixes the unrotated and the DFT-rotated references
+    expected = _relabel_system_samples(
+        mts.join(
+            [dataset_unrotated[0][target_name], dataset_rotated[1][target_name]],
+            axis="samples",
+        ),
+        system_ids,
+    )
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 8],
+        targets={
+            target_name: get_generic_target_info(
+                target_name,
+                {
+                    "quantity": "spherical",
+                    "unit": "",
+                    "type": {
+                        "spherical": {
+                            "irreps": [
+                                {"o3_lambda": 0, "o3_sigma": 1},
+                                {"o3_lambda": 1, "o3_sigma": 1},
+                                {"o3_lambda": 2, "o3_sigma": 1},
+                                {"o3_lambda": 3, "o3_sigma": 1},
+                            ]
+                        }
+                    },
+                    "sample_kind": "atom",
+                    "num_subtargets": 1,
+                },
+            )
+        },
+    )
+    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+
+    transformations = [
+        torch.eye(3, dtype=torch.float64),
+        torch.tensor(_R.T, dtype=torch.float64),
+    ]
+    _, RfX, _ = rotational_augmenter.apply_augmentations(
+        X, {target_name: fX}, transformations, extra_data={}
+    )
+
+    mts.allclose_raise(RfX[target_name], expected, atol=1e-5)
+
+
+def test_apply_random_augmentations():
+    """Tests the entry point the trainers actually use. Random O(3) transformations
+    (inversions included) must preserve target metadata, leave invariant
+    (``o3_lambda=0``) blocks untouched, and preserve the norm of every equivariant
+    row, whatever the draw."""
+    target_name = "mtt::electron_density_basis_projs"
+    batch_size = 2
+    torch.manual_seed(42)
+
+    dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
+    X = [dataset_unrotated[i]["system"].to(torch.float64) for i in range(batch_size)]
+    fX = mts.join(
+        [dataset_unrotated[i][target_name] for i in range(batch_size)],
+        axis="samples",
+    )
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 8],
+        targets={
+            target_name: get_generic_target_info(
+                target_name,
+                {
+                    "quantity": "spherical",
+                    "unit": "",
+                    "type": {
+                        "spherical": {
+                            "irreps": [
+                                {"o3_lambda": 0, "o3_sigma": 1},
+                                {"o3_lambda": 1, "o3_sigma": 1},
+                                {"o3_lambda": 2, "o3_sigma": 1},
+                                {"o3_lambda": 3, "o3_sigma": 1},
+                            ]
+                        }
+                    },
+                    "sample_kind": "atom",
+                    "num_subtargets": 1,
+                },
+            )
+        },
+    )
+    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+
+    new_systems, new_targets, _ = rotational_augmenter.apply_random_augmentations(
+        X, {target_name: fX}
+    )
+    RfX = new_targets[target_name]
+
+    # any O(3) transformation preserves atomic distances from the origin
+    for system, new_system in zip(X, new_systems, strict=True):
+        torch.testing.assert_close(
+            torch.linalg.norm(new_system.positions, dim=1),
+            torch.linalg.norm(system.positions, dim=1),
+        )
+
+    assert RfX.keys == fX.keys
+    for key, block in fX.items():
+        new_block = RfX.block(key)
+        assert new_block.samples == block.samples
+        if int(key["o3_lambda"]) == 0:
+            # invariant blocks must come back bit-compatible
+            torch.testing.assert_close(new_block.values, block.values)
+        else:
+            # equivariant rows keep their norm under any Wigner rotation
+            torch.testing.assert_close(
+                torch.linalg.norm(new_block.values, dim=1),
+                torch.linalg.norm(block.values, dim=1),
+            )
+
+
+def test_inversion_parity():
+    """Tests that a pure inversion flips a polar vector (``o3_sigma=1``) but leaves
+    a pseudovector (``o3_sigma=-1``) unchanged: spherical blocks pick up
+    ``sigma * (-1)**lambda`` under improper transformations. Proper rotations
+    cannot distinguish the two, so this is the only check of the parity factor."""
+    target_name = "mtt::vectors"
+
+    system = System(
+        positions=torch.tensor([[0.1, 0.2, 0.3], [1.0, 0.0, 0.0]], dtype=torch.float64),
+        types=torch.tensor([1, 8]),
+        cell=torch.zeros((3, 3), dtype=torch.float64),
+        pbc=torch.tensor([False, False, False]),
+    )
+
+    vector_values = torch.tensor([[[0.5], [1.0], [-2.0]]], dtype=torch.float64)
+    pseudo_values = torch.tensor([[[1.5], [-0.5], [0.25]]], dtype=torch.float64)
+
+    def _spherical_block(values: torch.Tensor) -> TensorBlock:
+        return TensorBlock(
+            values=values,
+            samples=Labels(["system"], torch.tensor([[0]])),
+            components=[Labels(["o3_mu"], torch.tensor([[-1], [0], [1]]))],
+            properties=Labels(["properties"], torch.tensor([[0]])),
+        )
+
+    target = TensorMap(
+        keys=Labels(["o3_lambda", "o3_sigma"], torch.tensor([[1, 1], [1, -1]])),
+        blocks=[_spherical_block(vector_values), _spherical_block(pseudo_values)],
+    )
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 8],
+        targets={
+            target_name: get_generic_target_info(
+                target_name,
+                {
+                    "quantity": "spherical",
+                    "unit": "",
+                    "type": {
+                        "spherical": {
+                            "irreps": [
+                                {"o3_lambda": 1, "o3_sigma": 1},
+                                {"o3_lambda": 1, "o3_sigma": -1},
+                            ]
+                        }
+                    },
+                    "sample_kind": "system",
+                    "num_subtargets": 1,
+                },
+            )
+        },
+    )
+    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+
+    inversion = -torch.eye(3, dtype=torch.float64)
+    new_systems, new_targets, _ = rotational_augmenter.apply_augmentations(
+        [system], {target_name: target}, [inversion], extra_data={}
+    )
+
+    torch.testing.assert_close(new_systems[0].positions, -system.positions)
+    out = new_targets[target_name]
+    torch.testing.assert_close(
+        out.block({"o3_lambda": 1, "o3_sigma": 1}).values, -vector_values
+    )
+    torch.testing.assert_close(
+        out.block({"o3_lambda": 1, "o3_sigma": -1}).values, pseudo_values
+    )
+
+
+def test_cartesian_rank3():
+    """Tests that Cartesian targets of rank > 2 are accepted and rotated one axis
+    at a time (the old hand-rolled implementation rejected them; the delegated
+    transformation supports arbitrary rank)."""
+    target_name = "mtt::rank3"
+
+    system = System(
+        positions=torch.tensor([[0.1, 0.2, 0.3], [1.0, 0.0, 0.0]], dtype=torch.float64),
+        types=torch.tensor([1, 8]),
+        cell=torch.zeros((3, 3), dtype=torch.float64),
+        pbc=torch.tensor([False, False, False]),
+    )
+
+    values = torch.arange(27, dtype=torch.float64).reshape(1, 3, 3, 3, 1)
+    target = TensorMap(
+        keys=Labels(["_"], torch.tensor([[0]])),
+        blocks=[
+            TensorBlock(
+                values=values,
+                samples=Labels(["system"], torch.tensor([[0]])),
+                components=[
+                    Labels(["xyz_1"], torch.arange(3).reshape(-1, 1)),
+                    Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
+                    Labels(["xyz_3"], torch.arange(3).reshape(-1, 1)),
+                ],
+                properties=Labels(["properties"], torch.tensor([[0]])),
+            )
+        ],
+    )
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 8],
+        targets={
+            target_name: get_generic_target_info(
+                target_name,
+                {
+                    "quantity": "",
+                    "unit": "",
+                    "type": {"cartesian": {"rank": 3}},
+                    "sample_kind": "system",
+                    "num_subtargets": 1,
+                },
+            )
+        },
+    )
+    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+
+    matrix = torch.tensor(_R, dtype=torch.float64)
+    _, new_targets, _ = rotational_augmenter.apply_augmentations(
+        [system], {target_name: target}, [matrix], extra_data={}
+    )
+
+    expected = torch.einsum("ai,bj,ck,sijkp->sabcp", matrix, matrix, matrix, values)
+    torch.testing.assert_close(new_targets[target_name].block().values, expected)
+
+
 @pytest.mark.parametrize("batch_size", [1, 2])
 def test_rotation_per_atom_spherical_atomicbasis(batch_size):
     """Tests that the rotational augmenter rotates a Hamiltonian in the coupled basis
     (rank-1 tensors with an atomic basis) consistent with targets computed from DFT.
 
-    Previously this raised ValueError; metatomic's apply_augmentations now handles
+    Previously this raised ValueError; metatomic's transform_tensor now handles
     atomic basis targets via per-block row-index indexing.
     """
     target_name = "mtt::hamiltonian_nodes"
@@ -386,7 +652,7 @@ def test_rotation_per_atom_spherical_rank2(batch_size):
     """Tests that the rotational augmenter rotates a Hamiltonian in the uncoupled basis
     (rank-2 tensors with an atomic basis) consistent with targets computed from DFT.
 
-    Previously this raised ValueError; metatomic's apply_augmentations now handles
+    Previously this raised ValueError; metatomic's transform_tensor now handles
     atomic basis targets via per-block row-index indexing.
     """
     target_name = "mtt::hamiltonian_nodes_uncoupled"
