@@ -815,7 +815,7 @@ def test_disk_dataset_warns_once_about_ignored_members(monkeypatch, tmp_path):
         zf.writestr("0/notes.txt", "hello")
         zf.writestr("0/sub/system.mta", "x")  # nested: not an entry member
 
-    with pytest.warns(UserWarning, match=r"Ignoring 3 zip member.*readme\.txt"):
+    with pytest.warns(UserWarning, match=r"Skipping 3 file.*readme\.txt"):
         dataset = DiskDataset("test_junk.zip", fields=[])
     assert len(dataset) == 1
     assert len(dataset[0].system) == 2
@@ -825,7 +825,7 @@ def test_disk_dataset_warns_once_about_ignored_members(monkeypatch, tmp_path):
     writer = DiskDatasetWriter("test_junk.zip", append=True)
     writer.write([_make_system(3)], {})
     writer.finish()
-    with pytest.warns(UserWarning, match="Ignoring 3 zip member"):
+    with pytest.warns(UserWarning, match="Skipping 3 file"):
         dataset = DiskDataset("test_junk.zip", fields=[])
     assert dataset.get_all_atom_counts().tolist() == [2, 3]
 
@@ -866,7 +866,7 @@ def test_disk_dataset_tolerates_macos_junk(monkeypatch, tmp_path):
         zf.writestr(".DS_Store", "junk")
         zf.writestr("0/.DS_Store", "junk")
 
-    with pytest.warns(UserWarning, match="Ignoring 3 zip member"):
+    with pytest.warns(UserWarning, match="Skipping 3 file"):
         dataset = DiskDataset("test_macos.zip", fields=[])
     assert len(dataset) == 1
     assert len(dataset[0].system) == 2
@@ -875,7 +875,7 @@ def test_disk_dataset_tolerates_macos_junk(monkeypatch, tmp_path):
     writer = DiskDatasetWriter("test_macos.zip", append=True)
     writer.write([_make_system(3)], {})
     writer.finish()
-    with pytest.warns(UserWarning, match="Ignoring 3 zip member"):
+    with pytest.warns(UserWarning, match="Skipping 3 file"):
         dataset = DiskDataset("test_macos.zip", fields=[])
     assert dataset.get_all_atom_counts().tolist() == [2, 3]
 
@@ -1117,7 +1117,7 @@ def test_disk_dataset_metadata_folder(monkeypatch, tmp_path):
             mta.save(f, _make_system(3))
         with zf.open("_atom_counts.npy", "w") as f:
             np.save(f, np.array([3], dtype=np.int64))
-    with pytest.warns(UserWarning, match=r"Ignoring 1 zip member.*_atom_counts"):
+    with pytest.warns(UserWarning, match=r"Skipping 1 file.*_atom_counts"):
         dataset = DiskDataset("test_toplevel.zip", fields=[])
     with pytest.raises(ValueError, match="has no 'metadata/atom_counts.npy'"):
         dataset.get_all_atom_counts()

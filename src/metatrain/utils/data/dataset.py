@@ -949,13 +949,16 @@ class DiskDataset(torch.utils.data.Dataset):
             "Sample", [fields_map.get(field, field) for field in self._fields_to_read]
         )
 
-        # The dataset is valid: report ignored members, once.
+        # The dataset is valid: report skipped files, once.
         # DiskDatasetWriter output never triggers this.
         if scan.ignored_names:
             warnings.warn(
-                f"Ignoring {len(scan.ignored_names)} zip member(s) of "
-                f"'{path}' that are not part of the DiskDataset format: "
-                f"{_format_member_names(scan.ignored_names)}.",
+                f"Skipping {len(scan.ignored_names)} file(s) in '{path}' "
+                "that are not part of the DiskDataset format: "
+                f"{_format_member_names(scan.ignored_names)}. This is fine "
+                "if they are extra files stored alongside the dataset; if "
+                "they were meant to be read as data, name them "
+                "`<N>/system.mta` or `<N>/<target>.mts`.",
                 stacklevel=2,
             )
 
