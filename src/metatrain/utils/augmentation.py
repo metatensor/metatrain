@@ -103,13 +103,11 @@ class RotationalAugmenter:
             for system, transformation in zip(systems, transformations, strict=True)
         ]
 
-        # The "system" sample label is the absolute dataset index of each system
-        # (see ``dataset.py``), not its position in ``systems``, so it must be
-        # recovered from the batch itself rather than assumed to be range(N).
-        system_ids = _batch_system_ids(targets, extra_data, len(systems))
-
+        n_systems = len(systems)
         new_targets = {
-            name: transform_tensor(tmap, systems, transformations, system_ids)
+            name: transform_tensor(
+                tmap, systems, transformations, _tensor_system_ids(tmap, n_systems)
+            )
             for name, tmap in targets.items()
         }
 
@@ -121,35 +119,42 @@ class RotationalAugmenter:
                     new_extra_data[name] = tmap
                 else:
                     new_extra_data[name] = transform_tensor(
-                        tmap, systems, transformations, system_ids
+                        tmap,
+                        systems,
+                        transformations,
+                        _tensor_system_ids(tmap, n_systems),
                     )
 
         return new_systems, new_targets, new_extra_data
 
 
-def _batch_system_ids(
-    targets: Dict[str, TensorMap],
-    extra_data: Optional[Dict[str, TensorMap]],
-    n_systems: int,
-) -> Optional[torch.Tensor]:
+def _tensor_system_ids(tensor: TensorMap, n_systems: int) -> Optional[torch.Tensor]:
     """Recover the "system" label value assigned to each of the ``n_systems``
-    systems in this batch, in the same order as the ``systems`` list.
+    systems in this batch, in the same order as the ``systems`` list, as used by
+    this specific tensor.
 
-    Every non-mask target/extra-data tensor covers all systems in the batch, so the
-    first one found with a "system" samples column is used; its distinct values, in
-    order of first appearance, give the per-system labels.
+    The "system" sample label is normally the absolute dataset index of each system
+    (see ``dataset.py``), but some collate transforms (e.g. atomic-basis target
+    preparation) reindex it to a batch-local ``0..n_systems-1`` before augmentation
+    runs. Different tensors in the same batch can therefore use different "system"
+    numbering, so the mapping must be recovered independently for each tensor rather
+    than shared across the whole batch.
+
+    :param tensor: the tensor to recover the per-system "system" label values from.
+    :param n_systems: the number of systems in the batch.
+    :return: a tensor of ``n_systems`` "system" label values, in the same order as the
+        ``systems`` list, or ``None`` if no block of ``tensor`` has a "system" samples
+        column with exactly ``n_systems`` distinct values.
     """
-    for tensormap_dict in (targets, extra_data or {}):
-        for tmap in tensormap_dict.values():
-            for block in tmap.blocks():
-                if "system" not in block.samples.names:
-                    continue
-                column = block.samples.column("system")
-                seen: Dict[int, None] = {}
-                for value in column.tolist():
-                    seen.setdefault(value, None)
-                if len(seen) == n_systems:
-                    return torch.tensor(list(seen.keys()), dtype=torch.int32)
+    for block in tensor.blocks():
+        if "system" not in block.samples.names:
+            continue
+        column = block.samples.column("system")
+        seen: Dict[int, None] = {}
+        for value in column.tolist():
+            seen.setdefault(value, None)
+        if len(seen) == n_systems:
+            return torch.tensor(list(seen.keys()), dtype=torch.int32)
     return None
 
 
@@ -159,7 +164,15 @@ def _max_angular_momentum(
 ) -> int:
     """Largest angular momentum among all spherical targets/extra data, so the
     Wigner-D cache built for each transformation covers every ``ell`` it will be
-    asked to rotate."""
+    asked to rotate.
+
+    :param target_info_dict: A dictionary mapping target names to their corresponding
+        :class:`TargetInfo` objects.
+    :param extra_data_info_dict: A dictionary mapping extra data names to their
+        corresponding :class:`TargetInfo` objects.
+    :return: The largest angular momentum ``ell`` found among all spherical
+        targets/extra data.
+    """
     max_ell = 0
     for info_dict in (target_info_dict, extra_data_info_dict):
         for name, info in info_dict.items():
