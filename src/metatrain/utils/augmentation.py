@@ -28,14 +28,6 @@ class RotationalAugmenter:
         target_info_dict: Dict[str, TargetInfo],
         extra_data_info_dict: Optional[Dict[str, TargetInfo]] = None,
     ):
-        for target_info in target_info_dict.values():
-            if target_info.is_cartesian:
-                if len(target_info.layout.block(0).components) > 2:
-                    raise ValueError(
-                        "RotationalAugmenter only supports Cartesian targets "
-                        "with `rank<=2`."
-                    )
-
         if extra_data_info_dict is None:
             extra_data_info_dict = {}
         self._max_angular_momentum = _max_angular_momentum(
@@ -104,12 +96,13 @@ class RotationalAugmenter:
         ]
 
         n_systems = len(systems)
-        new_targets = {
-            name: transform_tensor(
+
+        def _transform(tmap: TensorMap) -> TensorMap:
+            return transform_tensor(
                 tmap, systems, transformations, _tensor_system_ids(tmap, n_systems)
             )
-            for name, tmap in targets.items()
-        }
+
+        new_targets = {name: _transform(tmap) for name, tmap in targets.items()}
 
         new_extra_data: Dict[str, TensorMap] = {}
         if extra_data is not None:
@@ -118,12 +111,7 @@ class RotationalAugmenter:
                     # loss masks are not physical quantities and must not be rotated
                     new_extra_data[name] = tmap
                 else:
-                    new_extra_data[name] = transform_tensor(
-                        tmap,
-                        systems,
-                        transformations,
-                        _tensor_system_ids(tmap, n_systems),
-                    )
+                    new_extra_data[name] = _transform(tmap)
 
         return new_systems, new_targets, new_extra_data
 
@@ -150,9 +138,8 @@ def _tensor_system_ids(tensor: TensorMap, n_systems: int) -> Optional[torch.Tens
         if "system" not in block.samples.names:
             continue
         column = block.samples.column("system")
-        seen: Dict[int, None] = {}
-        for value in column.tolist():
-            seen.setdefault(value, None)
+        # order-preserving dedup: the first-appearance order must match `systems`
+        seen = dict.fromkeys(column.tolist())
         if len(seen) == n_systems:
             return torch.tensor(list(seen.keys()), dtype=torch.int32)
     return None
