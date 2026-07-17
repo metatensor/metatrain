@@ -5,7 +5,7 @@ import os
 import warnings
 import zipfile
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch
@@ -714,6 +714,171 @@ def load_indices(indices_spec: Union[List[int], str]) -> List[int]:
     return indices
 
 
+class _MemberScan(NamedTuple):
+    """Classification of a DiskDataset zip's members, one row per member."""
+
+    entries: np.ndarray
+    """Entry number of each member, ``-1`` for non-format members."""
+    field_ids: np.ndarray
+    """Field id of each member, ``-1`` for non-format members."""
+    field_id_by_name: Dict[str, int]
+    """Field name to field id, in order of first appearance."""
+    ignored_names: List[str]
+    """Members that are not part of the DiskDataset format."""
+    has_atom_counts: bool
+    """Whether the zip contains the ``metadata/atom_counts.npy`` member."""
+
+
+def _scan_members(zip_file: SmartZip, path: Union[str, Path]) -> _MemberScan:
+    """Classify every member of a DiskDataset zip into ``(entry, field)``.
+
+    The entry members ``<N>/system.mta`` and ``<N>/<field>.mts`` must be
+    STORED (uncompressed); any other file is collected as ignored, for
+    :py:func:`_validate_format` to report. A zip of a dataset folder made
+    with standard tools (from inside the folder, without compression)
+    therefore classifies like DiskDatasetWriter output.
+
+    :param zip_file: The indexed zip.
+    :param path: The zip's path, for error messages.
+    :return: The classification.
+    """
+    n_members = len(zip_file)
+    entries = np.full(n_members, -1, dtype=np.int64)
+    field_ids = np.full(n_members, -1, dtype=np.int64)
+    field_id_by_name: Dict[str, int] = {}
+    ignored_names: List[str] = []
+    has_atom_counts = False
+    for i, info in enumerate(zip_file.infoiter()):
+        name = info.filename
+        if name == ATOM_COUNTS_MEMBER:
+            has_atom_counts = True
+            continue
+        parsed = _parse_disk_dataset_member_name(name)
+        if parsed is None:
+            ignored_names.append(name)
+            continue
+        if info.compress_type != zipfile.ZIP_STORED:
+            raise ValueError(
+                f"'{path}' is not a valid DiskDataset zip: member "
+                f"'{name}' is compressed. DiskDataset zips must be "
+                "uncompressed (STORED); re-create the zip without "
+                "compression, e.g. `zip -rX -Z store <dataset>.zip .` "
+                "from inside the dataset folder."
+            )
+        entry, field = parsed
+        entries[i] = entry
+        field_ids[i] = field_id_by_name.setdefault(field, len(field_id_by_name))
+    return _MemberScan(
+        entries, field_ids, field_id_by_name, ignored_names, has_atom_counts
+    )
+
+
+def _validate_format(scan: _MemberScan, path: Union[str, Path]) -> int:
+    """Reject zips that cannot be read reliably, with actionable messages.
+
+    Checks, in order: at least one system member; a dense ``0..N-1`` entry
+    range (duplicated or missing entry numbers would be read positionally
+    and silently alias other samples); the same fields in every entry (a
+    missing member would otherwise only surface when that sample happens to
+    be read); no duplicated or orphaned members. A zip can violate several
+    at once: the first failing check is the one reported.
+
+    :param scan: The member classification from :py:func:`_scan_members`.
+    :param path: The zip's path, for error messages.
+    :return: The number of samples in the dataset.
+    """
+    if "system" not in scan.field_id_by_name:
+        message = (
+            "Could not find any `<N>/system.mta` member in the zip file. "
+            "The dataset format might be wrong, or the dataset might be "
+            "empty. Empty disk datasets are not supported."
+        )
+        if scan.ignored_names:
+            message += (
+                " The zip does contain members that are not part of the "
+                f"format: {_format_member_names(scan.ignored_names)}."
+            )
+            first_component = scan.ignored_names[0].split("/", 1)[0]
+            if all(n.startswith(f"{first_component}/") for n in scan.ignored_names):
+                message += (
+                    " They all share the prefix "
+                    f"'{first_component}/'; if you zipped a dataset "
+                    "folder from outside, re-create the zip from inside "
+                    f"it: `cd {first_component} && zip -rX -Z store "
+                    "../<dataset>.zip .`"
+                )
+        raise ValueError(message)
+
+    # Entries are read positionally as "0/", "1/", ...: require exactly
+    # the dense range, and fail loudly on duplicated entry names (e.g.
+    # produced by appending with an older, buggy DiskDatasetWriter that
+    # restarted indexing at 0 -- reading those would silently return
+    # the last-written copy) or on gaps.
+    system_id = scan.field_id_by_name["system"]
+    entry_numbers = scan.entries[scan.field_ids == system_id]
+    if not np.array_equal(np.sort(entry_numbers), np.arange(len(entry_numbers))):
+        raise ValueError(
+            "This DiskDataset zip file does not contain a dense range of "
+            "entries `0/`, `1/`, ...: it has gaps or duplicated entry "
+            "numbers and cannot be read reliably; re-write the dataset."
+        )
+    n_samples = len(entry_numbers)
+
+    # Every entry must carry the same fields ("homogeneous" format).
+    present = np.zeros((n_samples, len(scan.field_id_by_name)), dtype=bool)
+    for field_id in scan.field_id_by_name.values():
+        # entries are the dense range 0..N-1, so they index rows directly
+        mask = (scan.field_ids == field_id) & (scan.entries < n_samples)
+        present[scan.entries[mask], field_id] = True
+    missing = np.argwhere(~present)
+    if len(missing):
+        entry, field_id = (int(v) for v in missing[0])
+        field_name = list(scan.field_id_by_name)[field_id]
+        raise ValueError(
+            f"This DiskDataset zip is not homogeneous: entry {entry} has no "
+            f"'{field_name}' member while other entries do "
+            f"({len(missing)} missing members in total). Every entry must "
+            "contain the same fields; re-write the dataset."
+        )
+    # With no member missing, a valid zip has exactly one member per
+    # (entry, field) cell. A surplus means field members for entries
+    # without a system, or duplicated names; both are out of spec.
+    n_valid_members = int((scan.field_ids >= 0).sum())
+    if n_valid_members != present.shape[0] * present.shape[1]:
+        raise ValueError(
+            "This DiskDataset zip contains duplicated members or field "
+            "members for entries that have no `system.mta` (e.g. "
+            "`7/energy.mts` without `7/system.mta`); re-write the dataset."
+        )
+    return n_samples
+
+
+def _load_atom_counts(zip_file: SmartZip, n_samples: int) -> Optional[np.ndarray]:
+    """Load the per-sample atom counts written by DiskDatasetWriter.
+
+    Lets ``get_num_atoms()``/``get_all_atom_counts()`` answer without
+    opening and deserializing every system, which is what makes DiskDataset
+    usable with
+    :class:`~metatrain.utils.data.samplers.MaxAtomDistributedBatchSampler`.
+
+    :param zip_file: The indexed zip; must contain ``metadata/atom_counts.npy``.
+    :param n_samples: The number of samples in the dataset.
+    :return: Atom counts for all samples, or ``None`` (with a warning) when
+        the stored counts are stale.
+    """
+    with zip_file.open(ATOM_COUNTS_MEMBER) as f:
+        atom_counts = np.load(f)
+    if len(atom_counts) >= n_samples:
+        return atom_counts[:n_samples].astype(np.int64, copy=False)
+    warnings.warn(
+        f"Ignoring '{ATOM_COUNTS_MEMBER}' in this DiskDataset: "
+        f"it has {len(atom_counts)} entries, fewer than the "
+        f"{n_samples} samples found. It is likely stale.",
+        stacklevel=2,
+    )
+    return None
+
+
 class DiskDataset(torch.utils.data.Dataset):
     """
     A class representing a dataset stored on disk.
@@ -747,102 +912,20 @@ class DiskDataset(torch.utils.data.Dataset):
         if isinstance(fields, dict):
             fields = {options.get("key", key): key for key, options in fields.items()}
 
-        self._field_names = ["system"]
         # SmartZip parses the zip's central directory once, into compact
         # numpy arrays of member locations, and reads members from those
         # (opening a zipfile.ZipFile per dataloader worker instead does not
-        # scale to zips with millions of members). The loop below only
-        # validates the DiskDataset format on top of it.
-        #
-        # The entry members `<N>/system.mta` and `<N>/<field>.mts` must be
-        # STORED (uncompressed) and are validated strictly; any other file is
-        # ignored with a single warning below. A zip of a dataset folder made
-        # with standard tools (from inside the folder, without compression)
-        # therefore works like DiskDatasetWriter output. Directory entries
-        # are skipped silently.
+        # scale to zips with millions of members). The scan and validation
+        # only check the DiskDataset format on top of it.
         self._zip = SmartZip(path)
-        n_members = len(self._zip)
-        member_entries = np.full(n_members, -1, dtype=np.int64)
-        member_field_ids = np.full(n_members, -1, dtype=np.int64)
-        field_ids: Dict[str, int] = {}
-        ignored_names: List[str] = []
-        has_atom_counts = False
-        for i, info in enumerate(self._zip.infoiter()):
-            name = info.filename
-            if name == ATOM_COUNTS_MEMBER:
-                has_atom_counts = True
-                continue
-            parsed = _parse_disk_dataset_member_name(name)
-            if parsed is None:
-                ignored_names.append(name)
-                continue
-            if info.compress_type != zipfile.ZIP_STORED:
-                raise ValueError(
-                    f"'{path}' is not a valid DiskDataset zip: member "
-                    f"'{name}' is compressed. DiskDataset zips must be "
-                    "uncompressed (STORED); re-create the zip without "
-                    "compression, e.g. `zip -rX -Z store <dataset>.zip .` "
-                    "from inside the dataset folder."
-                )
-            entry, field = parsed
-            member_entries[i] = entry
-            member_field_ids[i] = field_ids.setdefault(field, len(field_ids))
-        self._field_names += [f for f in field_ids if f != "system"]
-
-        if "system" not in field_ids:
-            message = (
-                "Could not find any `<N>/system.mta` member in the zip file. "
-                "The dataset format might be wrong, or the dataset might be "
-                "empty. Empty disk datasets are not supported."
-            )
-            if ignored_names:
-                message += (
-                    " The zip does contain members that are not part of the "
-                    f"format: {_format_member_names(ignored_names)}."
-                )
-                first_component = ignored_names[0].split("/", 1)[0]
-                if all(n.startswith(f"{first_component}/") for n in ignored_names):
-                    message += (
-                        " They all share the prefix "
-                        f"'{first_component}/'; if you zipped a dataset "
-                        "folder from outside, re-create the zip from inside "
-                        f"it: `cd {first_component} && zip -rX -Z store "
-                        "../<dataset>.zip .`"
-                    )
-            raise ValueError(message)
-        entry_numbers = member_entries[member_field_ids == field_ids["system"]]
-        # Entries are read positionally as "0/", "1/", ...: require exactly
-        # the dense range, and fail loudly on duplicated entry names (e.g.
-        # produced by appending with an older, buggy DiskDatasetWriter that
-        # restarted indexing at 0 -- reading those would silently return
-        # the last-written copy) or on gaps.
-        if not np.array_equal(np.sort(entry_numbers), np.arange(len(entry_numbers))):
-            raise ValueError(
-                "This DiskDataset zip file does not contain a dense range of "
-                "entries `0/`, `1/`, ...: it has gaps or duplicated entry "
-                "numbers and cannot be read reliably; re-write the dataset."
-            )
-        self._len = len(entry_numbers)
-
-        # Optional atom-count file (written by DiskDatasetWriter), keyed by
-        # sample index. Lets get_num_atoms()/get_all_atom_counts() below answer
-        # without opening/deserializing every system, which is what makes this
-        # dataset usable with MaxAtomDistributedBatchSampler.
-        self._atom_counts: Optional[np.ndarray] = None
-        if has_atom_counts:
-            with self._zip.open(ATOM_COUNTS_MEMBER) as f:
-                atom_counts = np.load(f)
-            if len(atom_counts) >= self._len:
-                self._atom_counts = atom_counts[: self._len].astype(
-                    np.int64, copy=False
-                )
-            else:
-                warnings.warn(
-                    f"Ignoring '{ATOM_COUNTS_MEMBER}' in this DiskDataset: "
-                    f"it has {len(atom_counts)} entries, fewer than the "
-                    f"{self._len} samples found. It is likely stale.",
-                    stacklevel=2,
-                )
+        scan = _scan_members(self._zip, path)
+        self._len = _validate_format(scan, path)
+        self._field_names = ["system"] + [
+            f for f in scan.field_id_by_name if f != "system"
+        ]
+        self._atom_counts: Optional[np.ndarray] = (
+            _load_atom_counts(self._zip, self._len) if scan.has_atom_counts else None
+        )
 
         # Determine which fields are going to be read
         if fields is None:
@@ -866,43 +949,13 @@ class DiskDataset(torch.utils.data.Dataset):
             "Sample", [fields_map.get(field, field) for field in self._fields_to_read]
         )
 
-        # Every entry must carry the same fields ("homogeneous" format): a
-        # missing member would otherwise only surface as a failure whenever
-        # that particular sample happens to be read.
-        present = np.zeros((self._len, len(self._field_names)), dtype=bool)
-        for col, field_name in enumerate(self._field_names):
-            # entries are the dense range 0..N-1, so they index rows directly
-            mask = (member_field_ids == field_ids[field_name]) & (
-                member_entries < self._len
-            )
-            present[member_entries[mask], col] = True
-        missing = np.argwhere(~present)
-        if len(missing):
-            entry, col = (int(v) for v in missing[0])
-            raise ValueError(
-                f"This DiskDataset zip is not homogeneous: entry {entry} has no "
-                f"'{self._field_names[col]}' member while other entries do "
-                f"({len(missing)} missing members in total). Every entry must "
-                "contain the same fields; re-write the dataset."
-            )
-        # With no member missing, a valid zip has exactly one member per
-        # (entry, field) cell. A surplus means field members for entries
-        # without a system, or duplicated names; both are out of spec.
-        n_valid_members = int((member_field_ids >= 0).sum())
-        if n_valid_members != present.shape[0] * present.shape[1]:
-            raise ValueError(
-                "This DiskDataset zip contains duplicated members or field "
-                "members for entries that have no `system.mta` (e.g. "
-                "`7/energy.mts` without `7/system.mta`); re-write the dataset."
-            )
-
         # The dataset is valid: report ignored members, once.
         # DiskDatasetWriter output never triggers this.
-        if ignored_names:
+        if scan.ignored_names:
             warnings.warn(
-                f"Ignoring {len(ignored_names)} zip member(s) of "
+                f"Ignoring {len(scan.ignored_names)} zip member(s) of "
                 f"'{path}' that are not part of the DiskDataset format: "
-                f"{_format_member_names(ignored_names)}.",
+                f"{_format_member_names(scan.ignored_names)}.",
                 stacklevel=2,
             )
 
