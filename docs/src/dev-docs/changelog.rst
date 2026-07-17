@@ -51,6 +51,8 @@ Added
 - The ``atomic_baseline`` hyperparameter now also accepts a path to a pretrained
   composition checkpoint, which is loaded and reused as the additive baseline instead of
   being refitted from the training data.
+- Rotational augmentation now supports atomic-basis targets and Cartesian targets of
+  rank > 2.
 
 Changed
 #######
@@ -66,6 +68,9 @@ Changed
 - PET requests a non-strict neighbor list and filters out-of-cutoff pairs internally.
 - The composition model moved from ``metatrain.utils.additive.CompositionModel`` to
   ``metatrain.composition.CompositionModel``.
+- O(3) data augmentation is delegated to the ``metatomic.torch.o3`` module, requiring
+  ``metatomic-torch >= 0.1.16``. Random transformations are now drawn from the torch
+  RNG instead of scipy/numpy, which changes fixed-seed training trajectories.
 
 Removed
 #######
