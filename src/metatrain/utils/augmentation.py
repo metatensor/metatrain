@@ -13,21 +13,31 @@ from metatomic.torch.o3 import (
 from .data import TargetInfo
 
 
-class RotationalAugmenter:
+class O3Augmenter:
     """
-    Applies random O(3) rotations to a set of systems and their targets.
+    Applies random O(3) transformations to a set of systems and their targets.
 
     :param target_info_dict: A dictionary mapping target names to their corresponding
         :class:`TargetInfo` objects.
     :param extra_data_info_dict: An optional dictionary mapping extra data names to
         their corresponding :class:`TargetInfo` objects.
+    :param group: which transformations :meth:`apply_random_augmentations` samples
+        from: ``"O3"`` (the default) draws uniform rotations and improper rotations,
+        while ``"inversions"`` draws only the identity and the inversion, for
+        architectures that are already rotation-equivariant by construction.
     """
 
     def __init__(
         self,
         target_info_dict: Dict[str, TargetInfo],
         extra_data_info_dict: Optional[Dict[str, TargetInfo]] = None,
+        group: str = "O3",
     ):
+        if group not in ("O3", "inversions"):
+            raise ValueError(
+                f"unknown transformation group '{group}', expected 'O3' or 'inversions'"
+            )
+        self._group = group
         if extra_data_info_dict is None:
             extra_data_info_dict = {}
         self._max_angular_momentum = _max_angular_momentum(
@@ -49,11 +59,18 @@ class RotationalAugmenter:
             objects to augment alongside targets.
         :return: A tuple of augmented systems, targets, and extra data.
         """
+        dtype = systems[0].positions.dtype
+        if self._group == "inversions":
+            signs = torch.randint(0, 2, (len(systems),)) * 2 - 1
+            matrices = [sign * torch.eye(3, dtype=dtype) for sign in signs]
+            return self.apply_augmentations(
+                systems, targets, matrices, extra_data=extra_data
+            )
         transformations = random_transformations(
             len(systems),
             self._max_angular_momentum,
             device=torch.device("cpu"),
-            dtype=systems[0].positions.dtype,
+            dtype=dtype,
             include_inversions=True,
         )
         return self._apply(systems, targets, transformations, extra_data=extra_data)

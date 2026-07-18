@@ -5,7 +5,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
-from metatrain.utils.augmentation import RotationalAugmenter
+from metatrain.utils.augmentation import O3Augmenter
 from metatrain.utils.data import DatasetInfo, DiskDataset
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
@@ -84,7 +84,7 @@ def test_rotation_per_structure_spherical(batch_size):
         axis="samples",
     )
 
-    # Init the RotationalAugmenter
+    # Init the O3Augmenter
     dataset_info = DatasetInfo(
         length_unit="angstrom",
         atomic_types=[1, 8],
@@ -107,7 +107,7 @@ def test_rotation_per_structure_spherical(batch_size):
             )
         },
     )
-    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+    rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
     # Apply the augmentation to the target
     _, RfX, _ = rotational_augmenter.apply_augmentations(
@@ -154,7 +154,7 @@ def test_rotation_per_atom_spherical(batch_size):
         axis="samples",
     )
 
-    # Init the RotationalAugmenter
+    # Init the O3Augmenter
     dataset_info = DatasetInfo(
         length_unit="angstrom",
         atomic_types=[1, 8],
@@ -180,7 +180,7 @@ def test_rotation_per_atom_spherical(batch_size):
             )
         },
     )
-    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+    rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
     # Apply the augmentation to the target
     _, RfX, _ = rotational_augmenter.apply_augmentations(
@@ -250,7 +250,7 @@ def test_distinct_transformations_per_system():
             )
         },
     )
-    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+    rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
     transformations = [
         torch.eye(3, dtype=torch.float64),
@@ -304,7 +304,7 @@ def test_apply_random_augmentations():
             )
         },
     )
-    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+    rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
     new_systems, new_targets, _ = rotational_augmenter.apply_random_augmentations(
         X, {target_name: fX}
@@ -386,7 +386,7 @@ def test_inversion_parity():
             )
         },
     )
-    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+    rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
     inversion = -torch.eye(3, dtype=torch.float64)
     new_systems, new_targets, _ = rotational_augmenter.apply_augmentations(
@@ -449,7 +449,7 @@ def test_cartesian_rank3():
             )
         },
     )
-    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+    rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
     matrix = torch.tensor(_R, dtype=torch.float64)
     _, new_targets, _ = rotational_augmenter.apply_augmentations(
@@ -529,7 +529,7 @@ def test_rotation_per_atom_spherical_atomicbasis(batch_size):
         },
     )
 
-    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+    rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
     # Apply the augmentation to the target
     _, RfX, _ = rotational_augmenter.apply_augmentations(
@@ -549,7 +549,7 @@ def test_rotation_after_atomic_basis_prepare_transform():
     "prepare" transform used to reindex targets to a batch-local 0, ..., n-1 numbering
     before augmentation ran, while everything else kept the absolute dataset "system"
     ids untouched. When a batch was drawn from a dataset larger than the batch (so
-    absolute ids != local positions), this mismatch made ``RotationalAugmenter`` raise
+    absolute ids != local positions), this mismatch made ``O3Augmenter`` raise
     a ``ValueError``.
 
     This reproduces the exact PET/phace collate order (atomic-basis "prepare"
@@ -631,7 +631,7 @@ def test_rotation_after_atomic_basis_prepare_transform():
     atomic_basis_transform, atomic_basis_reverse_transform = (
         get_prepare_atomic_basis_targets_transform(dataset_info.targets, {})
     )
-    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+    rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
     # Mirror the PET/phace CollateFn order: prepare atomic-basis targets first, then
     # augment, then reverse the preparation.
@@ -716,7 +716,7 @@ def test_rotation_per_atom_spherical_rank2(batch_size):
         },
     )
 
-    rotational_augmenter = RotationalAugmenter(dataset_info.targets, {})
+    rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
     # Apply the augmentation to the target
     _, RfX, _ = rotational_augmenter.apply_augmentations(

@@ -1,12 +1,7 @@
-import random
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 import torch
-from metatensor.torch import TensorMap
 from metatomic.torch import NeighborListOptions, System
-
-from metatrain.utils.augmentation import RotationalAugmenter
-from metatrain.utils.data import TargetInfo
 
 
 def systems_to_batch(
@@ -108,77 +103,3 @@ def systems_to_batch(
         "structure_offsets": structure_offsets,
     }
     return batch_dict
-
-
-def get_random_inversion() -> int:
-    """Randomly chooses an inversion factor (-1 or 1)."""
-    return random.choice([1, -1])
-
-
-class InversionAugmenter:
-    """
-    Applies random inversions to a set of systems and their targets.
-
-    This is a thin wrapper around :class:`RotationalAugmenter`, restricted to the
-    O(3) transformations ``i * identity`` with ``i = +-1``.
-
-    :param target_info_dict: A dictionary mapping target names to their corresponding
-        :class:`TargetInfo` objects.
-    :param extra_data_info_dict: An optional dictionary mapping extra data names to
-        their corresponding :class:`TargetInfo` objects.
-    """
-
-    def __init__(
-        self,
-        target_info_dict: Dict[str, TargetInfo],
-        extra_data_info_dict: Optional[Dict[str, TargetInfo]] = None,
-    ):
-        self._augmenter = RotationalAugmenter(target_info_dict, extra_data_info_dict)
-
-    def apply_random_augmentations(
-        self,
-        systems: List[System],
-        targets: Dict[str, TensorMap],
-        extra_data: Optional[Dict[str, TensorMap]] = None,
-    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
-        """
-        Applies random inversions to systems, targets, and optional extra data.
-
-        :param systems: A list of :class:`System` objects.
-        :param targets: A dictionary mapping target names to :class:`TensorMap` objects.
-        :param extra_data: An optional dictionary of additional :class:`TensorMap`
-            objects to augment alongside targets.
-        :return: A tuple of augmented systems, targets, and extra data.
-        """
-        inversions = [get_random_inversion() for _ in range(len(systems))]
-        return self.apply_augmentations(systems, targets, inversions, extra_data)
-
-    def apply_augmentations(
-        self,
-        systems: List[System],
-        targets: Dict[str, TensorMap],
-        inversions: List[int],
-        extra_data: Optional[Dict[str, TensorMap]] = None,
-    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
-        """
-        Applies the given inversions to systems, targets, and optional extra data.
-
-        :param systems: A list of :class:`System` objects.
-        :param targets: A dictionary mapping target names to :class:`TensorMap` objects.
-        :param inversions: A list of integers (1 or -1), one per system.
-        :param extra_data: An optional dictionary of additional :class:`TensorMap`
-            objects to augment alongside targets.
-        :return: A tuple of augmented systems, targets, and extra data.
-        """
-        if len(inversions) != len(systems):
-            raise ValueError(
-                "The number of inversions must match the number of systems."
-            )
-        if any(i not in [1, -1] for i in inversions):
-            raise ValueError("Inversions must be either 1 or -1.")
-
-        dtype = systems[0].positions.dtype
-        transformations = [i * torch.eye(3, dtype=dtype) for i in inversions]
-        return self._augmenter.apply_augmentations(
-            systems, targets, transformations, extra_data=extra_data
-        )

@@ -10,7 +10,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
-from metatrain.utils.augmentation import RotationalAugmenter
+from metatrain.utils.augmentation import O3Augmenter
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
@@ -188,7 +188,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Re-create the dataloaders to make them shuffle and augment the data
         train_targets = model.dataset_info.targets
         extra_data_info = model.dataset_info.extra_data
-        rotational_augmenter = RotationalAugmenter(
+        rotational_augmenter = O3Augmenter(
             target_info_dict=train_targets, extra_data_info_dict=extra_data_info
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)

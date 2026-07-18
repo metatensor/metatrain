@@ -71,8 +71,9 @@ Changed
 - O(3) data augmentation is delegated to the ``metatomic.torch.o3`` module, requiring
   ``metatomic-torch >= 0.1.16``. Random transformations are now drawn from the torch
   RNG instead of scipy/numpy, which changes fixed-seed training trajectories.
-- The PhACE ``InversionAugmenter`` now delegates to the shared ``RotationalAugmenter``
-  instead of carrying its own copy of the augmentation machinery.
+- ``RotationalAugmenter`` is now ``O3Augmenter``, with a ``group`` option selecting
+  the transformations to sample (``"O3"`` or ``"inversions"``). The PhACE
+  ``InversionAugmenter`` was removed in its favor.
 
 Removed
 #######
