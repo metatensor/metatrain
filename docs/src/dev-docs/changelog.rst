@@ -78,6 +78,9 @@ Changed
 Removed
 #######
 
+- The ``spherical`` package is no longer a test dependency: the Wigner matrices used
+  in the equivariance test helpers now come from ``metatomic.torch.o3``.
+
 Version 2026.3.1 - 2026-07-01
 -----------------------------
 
