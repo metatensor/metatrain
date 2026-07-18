@@ -1,9 +1,9 @@
 import metatensor.torch as mts
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
+from metatrain.scaler.checkpoints import update_per_property_scales
 from metatrain.utils.data.target_info import TargetInfo
 from metatrain.utils.omegaconf import DEPRECATED_METATOMIC_TARGET_NAMES
-from metatrain.utils.scaler.checkpoints import update_per_property_scales
 
 
 def _rename_column_in_labels(labels: Labels, old_name: str, new_name: str) -> Labels:

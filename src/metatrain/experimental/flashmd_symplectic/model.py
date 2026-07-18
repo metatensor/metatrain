@@ -22,6 +22,7 @@ from metatrain.experimental.flashmd.modules.encoder import NodeEncoder
 from metatrain.experimental.flashmd.modules.structures import systems_to_batch
 from metatrain.pet.modules.transformer import CartesianTransformer
 from metatrain.pet.modules.utilities import cutoff_func_bump as cutoff_func
+from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
@@ -29,7 +30,6 @@ from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.finetuning import apply_finetuning_strategy
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints

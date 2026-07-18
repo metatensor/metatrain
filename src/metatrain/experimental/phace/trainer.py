@@ -14,6 +14,7 @@ from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 from torch.utils.data import DistributedSampler
 
 from metatrain.composition import train_or_load_composition_model
+from metatrain.scaler import train_or_load_scaler
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.augmentation import O3Augmenter
@@ -226,14 +227,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
 
         if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets,
-                model.additive_models,
-                self.hypers["batch_size"],
-                is_distributed,
-                self.hypers["fixed_scaling_weights"],
-                initial_transforms=[atomic_basis_transform],
+            train_or_load_scaler(
+                scaler=model.scaler,
+                fixed_weights=self.hypers["fixed_scaling_weights"],
+                train_datasets=train_datasets,
+                additive_models=model.additive_models,
+                batch_size=self.hypers["batch_size"],
+                is_distributed=is_distributed,
+                checkpoint_dir=checkpoint_dir,
                 per_structure_targets=self.hypers["per_structure_targets"],
             )
 

@@ -11,7 +11,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
 
-FixedScalerWeights = dict[str, Union[float, dict[int, float]]]
+FixedScalerWeights = Dict[str, Union[float, Dict[int, float]]]
 
 
 class BaseScaler(torch.nn.Module):

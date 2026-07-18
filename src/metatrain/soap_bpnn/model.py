@@ -17,6 +17,7 @@ from metatomic.torch import (
 )
 
 from metatrain.composition import CompositionModel
+from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL
 from metatrain.utils.data import TargetInfo
@@ -28,7 +29,6 @@ from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints

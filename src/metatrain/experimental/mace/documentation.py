@@ -120,9 +120,9 @@ from typing import Literal, Optional
 from typing_extensions import NotRequired, TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
+from metatrain.scaler.documentation import FixedScalerWeights
 from metatrain.utils.finetuning import FullFinetuneHypers
 from metatrain.utils.loss import LossSpecification
-from metatrain.utils.scaler import FixedScalerWeights
 
 
 class ModelHypers(TypedDict):
@@ -396,12 +396,15 @@ class TrainerHypers(TypedDict):
         indicated in ``mace_head_target``. If you want to override them, you need
         to set explicitly the baselines for that target in this hyperparameter.
     """
-    fixed_scaling_weights: FixedScalerWeights = {}
+    fixed_scaling_weights: FixedScalerWeights | str = {}
     """Weights for target scaling.
 
     This is passed to the ``fixed_weights`` argument of :meth:`Scaler.train_model
     <metatrain.utils.scaler.scaler.Scaler.train_model>`, see its documentation to
     understand exactly what to pass here.
+
+    Apart from those options, one can pass a path to a model checkpoint, if that
+    is the checkpoint of a Scaler model, the pre-trained scaler will be loaded.
 
     .. note::
         If a MACE model is loaded through the ``mace_model`` hyperparameter, the
