@@ -31,7 +31,7 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for the scaler trainer."""
 
-    fixed_weights: FixedScalerWeights
+    fixed_weights: FixedScalerWeights = {}
     """Weights for target scaling.
 
     This is passed to the ``fixed_weights`` argument of
