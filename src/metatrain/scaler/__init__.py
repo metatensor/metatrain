@@ -53,7 +53,7 @@ def train_or_load_scaler(
     :param per_structure_targets: Target names that should be treated as
         per-structure quantities and therefore not divided by the number of atoms.
     :param trainer_hypers: Additional hyperparameters for the trainer.
-    :param checkpoint_dir: Directory to save the composition model checkpoint
+    :param checkpoint_dir: Directory to save the scaler checkpoint
     """
     if isinstance(fixed_weights, str):
         logging.info(f"Loading scaler from {fixed_weights}")
@@ -73,7 +73,7 @@ def train_or_load_scaler(
         current_targets = scaler.dataset_info.targets
         if set(loaded_targets) != set(current_targets):
             raise ValueError(
-                "Composition checkpoint targets "
+                "Scaler checkpoint targets "
                 f"({sorted(loaded_targets)}) do not match the current model's "
                 f"targets ({sorted(current_targets)})."
             )

@@ -317,7 +317,7 @@ class TrainerHypers(TypedDict):
     """Weights for target scaling.
 
     This is passed to the ``fixed_weights`` argument of
-    :meth:`Scaler.train_model <metatrain.utils.scaler.scaler.Scaler.train_model>`,
+    :meth:`Scaler.train_model <metatrain.scaler.Scaler.train_model>`,
     see its documentation to understand exactly what to pass here.
 
     Apart from those options, one can pass a path to a model checkpoint, if that

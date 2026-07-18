@@ -77,7 +77,7 @@ Changed
   ``InversionAugmenter`` was removed in its favor.
 - The scaler model moved from ``metatrain.utils.scaler.Scaler`` to
   ``metatrain.scaler.Scaler``.
-- ``Scaler``'s forward method does no longer apply scales. Instead it returns the scales for
+- ``Scaler``'s forward method no longer applies scales. Instead it returns the scales for
   each target. To apply scales use ``Scaler.apply_scales``. This is because the previous
   behavior was not compatible with the forward method of ``ModelInterface``.
 

@@ -276,8 +276,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         dtype = datasets[0][0]["system"].positions.dtype
         if dtype != torch.float64:
             raise ValueError(
-                "The composition model only supports float64 during training. "
-                f"Got dtype: {dtype}."
+                f"The scaler only supports float64 during training. Got dtype: {dtype}."
             )
 
         # Build the dataloaders
@@ -338,7 +337,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         hypers: TrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
-        raise ValueError("Composition model does not allow restarting training")
+        raise ValueError(" Scaler does not allow restarting training")
 
     @staticmethod
     def upgrade_checkpoint(checkpoint: Dict) -> Dict:
