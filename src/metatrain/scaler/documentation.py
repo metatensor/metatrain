@@ -6,7 +6,7 @@ The scaler is a simple model that computes per-target and per-property scaling f
 It is meant to be used as a preprocessing step for other architectures, so that targets
 are standardized before being fed to the main model.
 
-See :ref:`the scaler documentation <scaler>` for more details.
+See :ref:`scale-targets` for more details.
 """
 
 from typing import Dict, Optional, Union
