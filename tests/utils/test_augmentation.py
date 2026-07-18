@@ -24,6 +24,28 @@ _R = np.array(
     ]
 )
 
+# Irreps of the spherical targets in the test datasets
+_ELECTRON_DENSITY_IRREPS = [
+    {"o3_lambda": 0, "o3_sigma": 1},
+    {"o3_lambda": 1, "o3_sigma": 1},
+    {"o3_lambda": 2, "o3_sigma": 1},
+    {"o3_lambda": 3, "o3_sigma": 1},
+]
+
+# Per-atom-type irreps of the atomic-basis Hamiltonian targets in the test datasets
+_HAMILTONIAN_IRREPS = {
+    1: [  # H
+        {"o3_lambda": 0, "o3_sigma": 1, "num": 3},
+        {"o3_lambda": 1, "o3_sigma": 1, "num": 1},
+    ],
+    8: [  # O
+        {"o3_lambda": 0, "o3_sigma": 1, "num": 5},
+        {"o3_lambda": 1, "o3_sigma": 1, "num": 3},
+        {"o3_lambda": 2, "o3_sigma": 1, "num": 2},
+        {"o3_lambda": 3, "o3_sigma": 1, "num": 1},
+    ],
+}
+
 
 def _transformation(batch_size: int) -> list:
     # apply_augmentations expects List[torch.Tensor] where each matrix R satisfies
@@ -52,60 +74,55 @@ def _relabel_system_samples(tensor: TensorMap, system_ids: torch.Tensor) -> Tens
     return TensorMap(tensor.keys, blocks)
 
 
-@pytest.mark.parametrize("batch_size", [1, 2])
-def test_rotation_per_structure_spherical(batch_size):
-    """Tests that the rotational augmenter rotates a dipole moment consistent with
-    targets computed from DFT"""
-
-    target_name = "mtt::dipole_moment"
-
-    # Load the target data
-    dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
-    dataset_rotated = DiskDataset(RESOURCES_PATH / "spherical_targets_rotated.zip")
-    X = [
-        sample["system"].to(torch.float64)
-        for i, sample in enumerate(dataset_unrotated)
-        if i < batch_size
-    ]
-    fX = mts.join(
-        [
-            sample[target_name]
-            for i, sample in enumerate(dataset_unrotated)
-            if i < batch_size
-        ],
-        axis="samples",
-    )
-    fRX = mts.join(
-        [
-            sample[target_name]
-            for i, sample in enumerate(dataset_rotated)
-            if i < batch_size
-        ],
-        axis="samples",
-    )
-
-    # Init the O3Augmenter
-    dataset_info = DatasetInfo(
+def _dataset_info(target_name: str, target_type: dict, sample_kind: str) -> DatasetInfo:
+    """Build a single-target ``DatasetInfo`` matching the test datasets."""
+    return DatasetInfo(
         length_unit="angstrom",
         atomic_types=[1, 8],
         targets={
             target_name: get_generic_target_info(
                 target_name,
                 {
-                    "quantity": "spherical",
+                    "quantity": "",
                     "unit": "",
-                    "type": {
-                        "spherical": {
-                            "irreps": [
-                                {"o3_lambda": 1, "o3_sigma": 1},  # dipole
-                            ]
-                        }
-                    },
-                    "sample_kind": "system",
+                    "type": target_type,
+                    "sample_kind": sample_kind,
                     "num_subtargets": 1,
                 },
             )
         },
+    )
+
+
+def _load_systems_and_targets(
+    target_name: str, batch_size: int
+) -> tuple[list[System], TensorMap, TensorMap]:
+    """Load the first ``batch_size`` systems together with their unrotated and
+    DFT-rotated ``target_name`` references, joined along samples."""
+    dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
+    dataset_rotated = DiskDataset(RESOURCES_PATH / "spherical_targets_rotated.zip")
+    X = [dataset_unrotated[i]["system"].to(torch.float64) for i in range(batch_size)]
+    fX = mts.join(
+        [dataset_unrotated[i][target_name] for i in range(batch_size)], axis="samples"
+    )
+    fRX = mts.join(
+        [dataset_rotated[i][target_name] for i in range(batch_size)], axis="samples"
+    )
+    return X, fX, fRX
+
+
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_rotation_per_structure_spherical(batch_size):
+    """Tests that the rotational augmenter rotates a dipole moment consistent with
+    targets computed from DFT"""
+
+    target_name = "mtt::dipole_moment"
+    X, fX, fRX = _load_systems_and_targets(target_name, batch_size)
+
+    dataset_info = _dataset_info(
+        target_name,
+        {"spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}},
+        "system",
     )
     rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
@@ -128,57 +145,10 @@ def test_rotation_per_atom_spherical(batch_size):
     consistent with targets computed from DFT"""
 
     target_name = "mtt::electron_density_basis_projs"
+    X, fX, fRX = _load_systems_and_targets(target_name, batch_size)
 
-    # Load the target data
-    dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
-    dataset_rotated = DiskDataset(RESOURCES_PATH / "spherical_targets_rotated.zip")
-    X = [
-        sample["system"].to(torch.float64)
-        for i, sample in enumerate(dataset_unrotated)
-        if i < batch_size
-    ]
-    fX = mts.join(
-        [
-            sample[target_name]
-            for i, sample in enumerate(dataset_unrotated)
-            if i < batch_size
-        ],
-        axis="samples",
-    )
-    fRX = mts.join(
-        [
-            sample[target_name]
-            for i, sample in enumerate(dataset_rotated)
-            if i < batch_size
-        ],
-        axis="samples",
-    )
-
-    # Init the O3Augmenter
-    dataset_info = DatasetInfo(
-        length_unit="angstrom",
-        atomic_types=[1, 8],
-        targets={
-            target_name: get_generic_target_info(
-                target_name,
-                {
-                    "quantity": "spherical",
-                    "unit": "",
-                    "type": {
-                        "spherical": {
-                            "irreps": [
-                                {"o3_lambda": 0, "o3_sigma": 1},
-                                {"o3_lambda": 1, "o3_sigma": 1},
-                                {"o3_lambda": 2, "o3_sigma": 1},
-                                {"o3_lambda": 3, "o3_sigma": 1},
-                            ]
-                        }
-                    },
-                    "sample_kind": "atom",
-                    "num_subtargets": 1,
-                },
-            )
-        },
+    dataset_info = _dataset_info(
+        target_name, {"spherical": {"irreps": _ELECTRON_DENSITY_IRREPS}}, "atom"
     )
     rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
@@ -207,16 +177,13 @@ def test_distinct_transformations_per_system():
     # Absolute dataset ids, deliberately not 0, ..., n-1
     system_ids = torch.tensor([3, 8])
 
-    dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
-    dataset_rotated = DiskDataset(RESOURCES_PATH / "spherical_targets_rotated.zip")
+    X, fX, _ = _load_systems_and_targets(target_name, 2)
+    fX = _relabel_system_samples(fX, system_ids)
 
-    X = [dataset_unrotated[i]["system"].to(torch.float64) for i in range(2)]
-    fX = _relabel_system_samples(
-        mts.join([dataset_unrotated[i][target_name] for i in range(2)], axis="samples"),
-        system_ids,
-    )
     # system 0 is left alone while system 1 is rotated, so the expected result
     # mixes the unrotated and the DFT-rotated references
+    dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
+    dataset_rotated = DiskDataset(RESOURCES_PATH / "spherical_targets_rotated.zip")
     expected = _relabel_system_samples(
         mts.join(
             [dataset_unrotated[0][target_name], dataset_rotated[1][target_name]],
@@ -225,30 +192,8 @@ def test_distinct_transformations_per_system():
         system_ids,
     )
 
-    dataset_info = DatasetInfo(
-        length_unit="angstrom",
-        atomic_types=[1, 8],
-        targets={
-            target_name: get_generic_target_info(
-                target_name,
-                {
-                    "quantity": "spherical",
-                    "unit": "",
-                    "type": {
-                        "spherical": {
-                            "irreps": [
-                                {"o3_lambda": 0, "o3_sigma": 1},
-                                {"o3_lambda": 1, "o3_sigma": 1},
-                                {"o3_lambda": 2, "o3_sigma": 1},
-                                {"o3_lambda": 3, "o3_sigma": 1},
-                            ]
-                        }
-                    },
-                    "sample_kind": "atom",
-                    "num_subtargets": 1,
-                },
-            )
-        },
+    dataset_info = _dataset_info(
+        target_name, {"spherical": {"irreps": _ELECTRON_DENSITY_IRREPS}}, "atom"
     )
     rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
@@ -272,37 +217,10 @@ def test_apply_random_augmentations():
     batch_size = 2
     torch.manual_seed(42)
 
-    dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
-    X = [dataset_unrotated[i]["system"].to(torch.float64) for i in range(batch_size)]
-    fX = mts.join(
-        [dataset_unrotated[i][target_name] for i in range(batch_size)],
-        axis="samples",
-    )
+    X, fX, _ = _load_systems_and_targets(target_name, batch_size)
 
-    dataset_info = DatasetInfo(
-        length_unit="angstrom",
-        atomic_types=[1, 8],
-        targets={
-            target_name: get_generic_target_info(
-                target_name,
-                {
-                    "quantity": "spherical",
-                    "unit": "",
-                    "type": {
-                        "spherical": {
-                            "irreps": [
-                                {"o3_lambda": 0, "o3_sigma": 1},
-                                {"o3_lambda": 1, "o3_sigma": 1},
-                                {"o3_lambda": 2, "o3_sigma": 1},
-                                {"o3_lambda": 3, "o3_sigma": 1},
-                            ]
-                        }
-                    },
-                    "sample_kind": "atom",
-                    "num_subtargets": 1,
-                },
-            )
-        },
+    dataset_info = _dataset_info(
+        target_name, {"spherical": {"irreps": _ELECTRON_DENSITY_IRREPS}}, "atom"
     )
     rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
@@ -363,28 +281,17 @@ def test_inversion_parity():
         blocks=[_spherical_block(vector_values), _spherical_block(pseudo_values)],
     )
 
-    dataset_info = DatasetInfo(
-        length_unit="angstrom",
-        atomic_types=[1, 8],
-        targets={
-            target_name: get_generic_target_info(
-                target_name,
-                {
-                    "quantity": "spherical",
-                    "unit": "",
-                    "type": {
-                        "spherical": {
-                            "irreps": [
-                                {"o3_lambda": 1, "o3_sigma": 1},
-                                {"o3_lambda": 1, "o3_sigma": -1},
-                            ]
-                        }
-                    },
-                    "sample_kind": "system",
-                    "num_subtargets": 1,
-                },
-            )
+    dataset_info = _dataset_info(
+        target_name,
+        {
+            "spherical": {
+                "irreps": [
+                    {"o3_lambda": 1, "o3_sigma": 1},
+                    {"o3_lambda": 1, "o3_sigma": -1},
+                ]
+            }
         },
+        "system",
     )
     rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
@@ -433,22 +340,7 @@ def test_cartesian_rank3():
         ],
     )
 
-    dataset_info = DatasetInfo(
-        length_unit="angstrom",
-        atomic_types=[1, 8],
-        targets={
-            target_name: get_generic_target_info(
-                target_name,
-                {
-                    "quantity": "",
-                    "unit": "",
-                    "type": {"cartesian": {"rank": 3}},
-                    "sample_kind": "system",
-                    "num_subtargets": 1,
-                },
-            )
-        },
-    )
+    dataset_info = _dataset_info(target_name, {"cartesian": {"rank": 3}}, "system")
     rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
     matrix = torch.tensor(_R, dtype=torch.float64)
@@ -469,66 +361,13 @@ def test_rotation_per_atom_spherical_atomicbasis(batch_size):
     atomic basis targets via per-block row-index indexing.
     """
     target_name = "mtt::hamiltonian_nodes"
+    X, fX, fRX = _load_systems_and_targets(target_name, batch_size)
 
-    # Load the target data
-    dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
-    dataset_rotated = DiskDataset(RESOURCES_PATH / "spherical_targets_rotated.zip")
-
-    X = [
-        sample["system"].to(torch.float64)
-        for i, sample in enumerate(dataset_unrotated)
-        if i < batch_size
-    ]
-    fX = mts.join(
-        [
-            sample[target_name]
-            for i, sample in enumerate(dataset_unrotated)
-            if i < batch_size
-        ],
-        axis="samples",
+    dataset_info = _dataset_info(
+        target_name,
+        {"spherical": {"product": "coupled", "irreps": _HAMILTONIAN_IRREPS}},
+        "atom",
     )
-    fRX = mts.join(
-        [
-            sample[target_name]
-            for i, sample in enumerate(dataset_rotated)
-            if i < batch_size
-        ],
-        axis="samples",
-    )
-
-    dataset_info = DatasetInfo(
-        length_unit="angstrom",
-        atomic_types=[1, 8],
-        targets={
-            target_name: get_generic_target_info(
-                target_name,
-                {
-                    "quantity": "spherical",
-                    "unit": "",
-                    "type": {
-                        "spherical": {
-                            "product": "coupled",
-                            "irreps": {
-                                1: [  # H
-                                    {"o3_lambda": 0, "o3_sigma": 1, "num": 3},
-                                    {"o3_lambda": 1, "o3_sigma": 1, "num": 1},
-                                ],
-                                8: [  # O
-                                    {"o3_lambda": 0, "o3_sigma": 1, "num": 5},
-                                    {"o3_lambda": 1, "o3_sigma": 1, "num": 3},
-                                    {"o3_lambda": 2, "o3_sigma": 1, "num": 2},
-                                    {"o3_lambda": 3, "o3_sigma": 1, "num": 1},
-                                ],
-                            },
-                        }
-                    },
-                    "sample_kind": "atom",
-                    "num_subtargets": 1,
-                },
-            )
-        },
-    )
-
     rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
     # Apply the augmentation to the target
@@ -564,24 +403,9 @@ def test_rotation_after_atomic_basis_prepare_transform():
     # catch any code that (still) assumes local batch numbering.
     system_ids = torch.tensor([3, 8])
 
-    dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
-    dataset_rotated = DiskDataset(RESOURCES_PATH / "spherical_targets_rotated.zip")
-
-    X = [dataset_unrotated[i]["system"].to(torch.float64) for i in range(batch_size)]
-    fX = _relabel_system_samples(
-        mts.join(
-            [dataset_unrotated[i][target_name] for i in range(batch_size)],
-            axis="samples",
-        ),
-        system_ids,
-    )
-    fRX = _relabel_system_samples(
-        mts.join(
-            [dataset_rotated[i][target_name] for i in range(batch_size)],
-            axis="samples",
-        ),
-        system_ids,
-    )
+    X, fX, fRX = _load_systems_and_targets(target_name, batch_size)
+    fX = _relabel_system_samples(fX, system_ids)
+    fRX = _relabel_system_samples(fRX, system_ids)
 
     system_index_extra = TensorMap(
         keys=Labels(names=["_"], values=torch.tensor([[0]])),
@@ -595,37 +419,10 @@ def test_rotation_after_atomic_basis_prepare_transform():
         ],
     )
 
-    dataset_info = DatasetInfo(
-        length_unit="angstrom",
-        atomic_types=[1, 8],
-        targets={
-            target_name: get_generic_target_info(
-                target_name,
-                {
-                    "quantity": "spherical",
-                    "unit": "",
-                    "type": {
-                        "spherical": {
-                            "product": "coupled",
-                            "irreps": {
-                                1: [  # H
-                                    {"o3_lambda": 0, "o3_sigma": 1, "num": 3},
-                                    {"o3_lambda": 1, "o3_sigma": 1, "num": 1},
-                                ],
-                                8: [  # O
-                                    {"o3_lambda": 0, "o3_sigma": 1, "num": 5},
-                                    {"o3_lambda": 1, "o3_sigma": 1, "num": 3},
-                                    {"o3_lambda": 2, "o3_sigma": 1, "num": 2},
-                                    {"o3_lambda": 3, "o3_sigma": 1, "num": 1},
-                                ],
-                            },
-                        }
-                    },
-                    "sample_kind": "atom",
-                    "num_subtargets": 1,
-                },
-            )
-        },
+    dataset_info = _dataset_info(
+        target_name,
+        {"spherical": {"product": "coupled", "irreps": _HAMILTONIAN_IRREPS}},
+        "atom",
     )
 
     atomic_basis_transform, atomic_basis_reverse_transform = (
@@ -656,66 +453,13 @@ def test_rotation_per_atom_spherical_rank2(batch_size):
     atomic basis targets via per-block row-index indexing.
     """
     target_name = "mtt::hamiltonian_nodes_uncoupled"
+    X, fX, fRX = _load_systems_and_targets(target_name, batch_size)
 
-    # Load the target data
-    dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
-    dataset_rotated = DiskDataset(RESOURCES_PATH / "spherical_targets_rotated.zip")
-
-    X = [
-        sample["system"].to(torch.float64)
-        for i, sample in enumerate(dataset_unrotated)
-        if i < batch_size
-    ]
-    fX = mts.join(
-        [
-            sample[target_name]
-            for i, sample in enumerate(dataset_unrotated)
-            if i < batch_size
-        ],
-        axis="samples",
+    dataset_info = _dataset_info(
+        target_name,
+        {"spherical": {"product": "cartesian", "irreps": _HAMILTONIAN_IRREPS}},
+        "atom",
     )
-    fRX = mts.join(
-        [
-            sample[target_name]
-            for i, sample in enumerate(dataset_rotated)
-            if i < batch_size
-        ],
-        axis="samples",
-    )
-
-    dataset_info = DatasetInfo(
-        length_unit="angstrom",
-        atomic_types=[1, 8],
-        targets={
-            target_name: get_generic_target_info(
-                target_name,
-                {
-                    "quantity": "spherical",
-                    "unit": "",
-                    "type": {
-                        "spherical": {
-                            "product": "cartesian",
-                            "irreps": {
-                                1: [  # H
-                                    {"o3_lambda": 0, "o3_sigma": 1, "num": 3},
-                                    {"o3_lambda": 1, "o3_sigma": 1, "num": 1},
-                                ],
-                                8: [  # O
-                                    {"o3_lambda": 0, "o3_sigma": 1, "num": 5},
-                                    {"o3_lambda": 1, "o3_sigma": 1, "num": 3},
-                                    {"o3_lambda": 2, "o3_sigma": 1, "num": 2},
-                                    {"o3_lambda": 3, "o3_sigma": 1, "num": 1},
-                                ],
-                            },
-                        }
-                    },
-                    "sample_kind": "atom",
-                    "num_subtargets": 1,
-                },
-            )
-        },
-    )
-
     rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
     # Apply the augmentation to the target
