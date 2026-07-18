@@ -1000,6 +1000,6 @@ class OutputTests(ArchitectureTests):
             * (-1) ** o3_lambda
             * (-1 if o3_sigma == -1 else 1),
             inverted_output["spherical_target"].block().values,
-            atol=1e-5,
-            rtol=1e-5,
+            atol=self.equivariance_error_tolerance,
+            rtol=self.equivariance_error_tolerance,
         )

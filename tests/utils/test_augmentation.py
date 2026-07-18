@@ -4,6 +4,11 @@ import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
+from metatomic.torch.o3 import (
+    random_transformations,
+    transform_system,
+    transform_tensor,
+)
 
 from metatrain.utils.augmentation import O3Augmenter
 from metatrain.utils.data import DatasetInfo, DiskDataset
@@ -139,6 +144,47 @@ def test_rotation_per_structure_spherical(batch_size):
     mts.allclose_raise(RfX, fRX, atol=1e-5)
 
 
+def test_apply_augmentations_extra_data():
+    """Tests that spherical extra data is rotated exactly like a target, while extra
+    data whose name ends in ``_mask`` is passed through untouched (loss masks are not
+    physical quantities and must not be rotated)."""
+    target_name = "mtt::dipole_moment"
+    batch_size = 2
+    X, fX, fRX = _load_systems_and_targets(target_name, batch_size)
+
+    target_type = {"spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}}
+    target_info = _dataset_info(target_name, target_type, "system")
+    extra_name = "mtt::dipole_extra"
+    extra_info = _dataset_info(extra_name, target_type, "system")
+    rotational_augmenter = O3Augmenter(target_info.targets, extra_info.targets)
+
+    mask = TensorMap(
+        keys=Labels(["_"], torch.tensor([[0]])),
+        blocks=[
+            TensorBlock(
+                values=torch.tensor([[1.0], [0.0]], dtype=torch.float64),
+                samples=Labels(["system"], torch.tensor([[0], [1]])),
+                components=[],
+                properties=Labels(["_"], torch.tensor([[0]])),
+            )
+        ],
+    )
+
+    _, _, new_extra_data = rotational_augmenter.apply_augmentations(
+        X,
+        {target_name: fX},
+        _transformation(batch_size),
+        extra_data={extra_name: fX, "mtt::dipole_moment_mask": mask},
+    )
+
+    # the spherical extra entry rotates to the DFT-rotated reference, just like a target
+    mts.allclose_raise(new_extra_data[extra_name], fRX, atol=1e-5)
+    # the mask comes back bit-for-bit unchanged
+    torch.testing.assert_close(
+        new_extra_data["mtt::dipole_moment_mask"].block().values, mask.block().values
+    )
+
+
 @pytest.mark.parametrize("batch_size", [1, 2])
 def test_rotation_per_atom_spherical(batch_size):
     """Tests that the rotational augmenter rotates electron density projections
@@ -209,13 +255,14 @@ def test_distinct_transformations_per_system():
 
 
 def test_apply_random_augmentations():
-    """Tests the entry point the trainers actually use. Random O(3) transformations
-    (inversions included) must preserve target metadata, leave invariant
-    (``o3_lambda=0``) blocks untouched, and preserve the norm of every equivariant
-    row, whatever the draw."""
+    """Tests the entry point the trainers actually use. Seeding ``torch`` and
+    replaying the same ``random_transformations`` draw must reproduce exactly what
+    ``apply_random_augmentations`` does: the augmented systems and targets equal
+    ``transform_system``/``transform_tensor`` under the reconstructed transformations,
+    and the augmented targets keep their metadata and leave invariant
+    (``o3_lambda=0``) blocks untouched."""
     target_name = "mtt::electron_density_basis_projs"
     batch_size = 2
-    torch.manual_seed(42)
 
     X, fX, _ = _load_systems_and_targets(target_name, batch_size)
 
@@ -224,17 +271,30 @@ def test_apply_random_augmentations():
     )
     rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
+    # reconstruct the exact draw (max ell is 3 for this target), then reseed so the
+    # augmenter draws the same transformations from the same generator state
+    torch.manual_seed(42)
+    transformations = random_transformations(
+        len(X),
+        3,
+        device=torch.device("cpu"),
+        dtype=torch.float64,
+        include_inversions=True,
+    )
+    torch.manual_seed(42)
     new_systems, new_targets, _ = rotational_augmenter.apply_random_augmentations(
         X, {target_name: fX}
     )
     RfX = new_targets[target_name]
 
-    # any O(3) transformation preserves atomic distances from the origin
-    for system, new_system in zip(X, new_systems, strict=True):
+    # the augmented systems/targets match the reconstructed transformations exactly
+    for system, new_system, transformation in zip(
+        X, new_systems, transformations, strict=True
+    ):
         torch.testing.assert_close(
-            torch.linalg.norm(new_system.positions, dim=1),
-            torch.linalg.norm(system.positions, dim=1),
+            new_system.positions, transform_system(system, transformation).positions
         )
+    mts.allclose_raise(RfX, transform_tensor(fX, X, transformations))
 
     assert RfX.keys == fX.keys
     for key, block in fX.items():
@@ -243,12 +303,6 @@ def test_apply_random_augmentations():
         if int(key["o3_lambda"]) == 0:
             # invariant blocks must come back bit-compatible
             torch.testing.assert_close(new_block.values, block.values)
-        else:
-            # equivariant rows keep their norm under any Wigner rotation
-            torch.testing.assert_close(
-                torch.linalg.norm(new_block.values, dim=1),
-                torch.linalg.norm(block.values, dim=1),
-            )
 
 
 def test_inversion_parity():
@@ -308,6 +362,82 @@ def test_inversion_parity():
     torch.testing.assert_close(
         out.block({"o3_lambda": 1, "o3_sigma": -1}).values, pseudo_values
     )
+
+
+def test_apply_random_inversions():
+    """Tests that ``group="inversions"`` draws only the identity and the inversion:
+    each system's positions come back either exactly unchanged or exactly negated,
+    its polar vector (``o3_sigma=1``) target rows flip with the positions, and its
+    pseudovector (``o3_sigma=-1``) rows stay put (``sigma * (-1)**lambda`` is +1 for
+    a pseudovector under inversion). Seed 0 gives a batch exercising both signs."""
+    target_name = "mtt::vectors"
+    batch_size = 4
+
+    positions = torch.tensor([[0.1, 0.2, 0.3], [1.0, 0.0, -0.5]], dtype=torch.float64)
+    systems = [
+        System(
+            positions=positions,
+            types=torch.tensor([1, 8]),
+            cell=torch.zeros((3, 3), dtype=torch.float64),
+            pbc=torch.tensor([False, False, False]),
+        )
+        for _ in range(batch_size)
+    ]
+
+    torch.manual_seed(0)
+    vector_values = torch.randn(batch_size, 3, 1, dtype=torch.float64)
+    pseudo_values = torch.randn(batch_size, 3, 1, dtype=torch.float64)
+
+    def _spherical_block(values: torch.Tensor) -> TensorBlock:
+        return TensorBlock(
+            values=values.clone(),
+            samples=Labels(["system"], torch.arange(batch_size).reshape(-1, 1)),
+            components=[Labels(["o3_mu"], torch.tensor([[-1], [0], [1]]))],
+            properties=Labels(["properties"], torch.tensor([[0]])),
+        )
+
+    target = TensorMap(
+        keys=Labels(["o3_lambda", "o3_sigma"], torch.tensor([[1, 1], [1, -1]])),
+        blocks=[_spherical_block(vector_values), _spherical_block(pseudo_values)],
+    )
+
+    dataset_info = _dataset_info(
+        target_name,
+        {
+            "spherical": {
+                "irreps": [
+                    {"o3_lambda": 1, "o3_sigma": 1},
+                    {"o3_lambda": 1, "o3_sigma": -1},
+                ]
+            }
+        },
+        "system",
+    )
+    rotational_augmenter = O3Augmenter(dataset_info.targets, {}, group="inversions")
+
+    # reconstruct the +-1 signs the augmenter draws, and check the seed hits both
+    torch.manual_seed(0)
+    signs = torch.randint(0, 2, (batch_size,)) * 2 - 1
+    assert (signs == 1).any() and (signs == -1).any()
+
+    torch.manual_seed(0)
+    new_systems, new_targets, _ = rotational_augmenter.apply_random_augmentations(
+        systems, {target_name: target}
+    )
+    out = new_targets[target_name]
+    out_vector = out.block({"o3_lambda": 1, "o3_sigma": 1}).values
+    out_pseudo = out.block({"o3_lambda": 1, "o3_sigma": -1}).values
+    for i, sign in enumerate(signs.tolist()):
+        torch.testing.assert_close(new_systems[i].positions, sign * positions)
+        torch.testing.assert_close(out_vector[i], sign * vector_values[i])
+        torch.testing.assert_close(out_pseudo[i], pseudo_values[i])
+
+
+def test_unknown_group_raises():
+    """Tests that constructing an augmenter with an unknown transformation group is
+    rejected rather than silently ignored."""
+    with pytest.raises(ValueError, match="unknown transformation group"):
+        O3Augmenter({}, {}, group="bogus")
 
 
 def test_cartesian_rank3():
