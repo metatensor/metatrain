@@ -29,6 +29,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hooks import setup_post_hooks
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
@@ -263,10 +264,15 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # the model during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
+        post_hooks, model_outs = setup_post_hooks(
+            self.hypers["post_hooks"], train_dataset_info
+        )
+        self.post_hooks = torch.nn.ModuleList(post_hooks)
+
         # Create heads for each target, store the layout for each of them.
         self.heads = torch.nn.ModuleDict()
         self.layouts: Dict[str, TensorMap] = {}
-        for target_name, target_info in train_dataset_info.targets.items():
+        for target_name, target_info in model_outs.items():
             self._add_output(target_name, target_info)
 
         self.layouts["mtt::aux::mace_features"] = get_e3nn_mts_layout(
@@ -279,13 +285,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
         )
 
         targets = dataset_info.targets
+        all_names = set([*train_dataset_info.targets, *model_outs, *self.layouts])
         self.outputs = {
             k: ModelOutput(
                 quantity=targets[k].quantity if k in targets else "",
                 unit=targets[k].unit if k in targets else "",
                 sample_kind="atom",
             )
-            for k in self.layouts
+            for k in all_names
         }
 
         # ---------------------------
@@ -357,6 +364,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+
+        # ----------------------------
+        # Add outputs needed by hooks
+        # ----------------------------
+        # TODO: In reality, we would have to check if the hook's output is requested
+        for hook in self.post_hooks:
+            requested_inputs = hook.requested_inputs()
+            outputs.update(requested_inputs)
 
         # --------------------------
         # Moving to device and dtype
@@ -459,6 +474,13 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 if outputs[output_name].sample_kind == "atom"
                 else sum_over_atoms(per_atom_output)
             )
+
+        # -----------------------------------
+        #            Apply hooks
+        # -----------------------------------
+
+        for hook in self.post_hooks:
+            return_dict.update(hook(systems, return_dict))
 
         # -----------------------------------------
         #   Undo data preprocessing (eval only)
