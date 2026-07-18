@@ -44,7 +44,7 @@ from typing import Literal, Optional
 from typing_extensions import TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
-from metatrain.scaler.scaler import FixedScalerWeights
+from metatrain.scaler.documentation import FixedScalerWeights
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.long_range import LongRangeHypers
 from metatrain.utils.loss import LossSpecification

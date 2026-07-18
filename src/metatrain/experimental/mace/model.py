@@ -466,7 +466,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         # At evaluation, we also introduce the scaler and additive contributions
         if not self.training:
-            return_dict = self.scaler(
+            return_dict = self.scaler.apply_scales(
                 systems,
                 return_dict,
                 selected_atoms=selected_atoms,
