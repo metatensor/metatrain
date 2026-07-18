@@ -8,7 +8,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
-from metatrain.utils.augmentation import RotationalAugmenter
+from metatrain.utils.augmentation import O3Augmenter
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems
 from metatrain.utils.data.target_info import (
@@ -1770,7 +1770,7 @@ def test_scaler_rotation_invariance():
 
     for _ in range(num_checks):
         # Create the dataset for the rotated systems and train the scaler
-        rotational_augmenter = RotationalAugmenter(
+        rotational_augmenter = O3Augmenter(
             dataset_info.targets, extra_data_info_dict={}
         )
         systems_rotated = []
@@ -2057,9 +2057,7 @@ def test_scaler_spherical_per_atom_rank_2_rotation_invariance():
     scaler = Scaler(hypers={}, dataset_info=dataset_info).to(torch.float64)
     scaler.train_model(dataset, additive_models=[], batch_size=1, is_distributed=False)
 
-    rotational_augmenter = RotationalAugmenter(
-        dataset_info.targets, extra_data_info_dict={}
-    )
+    rotational_augmenter = O3Augmenter(dataset_info.targets, extra_data_info_dict={})
 
     for _ in range(num_checks):
         systems_rot, targets_rot = [], []
