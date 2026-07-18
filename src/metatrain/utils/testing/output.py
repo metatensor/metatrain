@@ -2,10 +2,10 @@ import copy
 from typing import Literal, Optional
 
 import metatensor.torch as mts
-import numpy as np
 import pytest
 import torch
 from metatomic.torch import ModelOutput, System, systems_to_torch
+from metatomic.torch.o3 import random_transformations, transform_system
 
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.readers import (
@@ -19,11 +19,6 @@ from metatrain.utils.neighbor_lists import (
 )
 
 from .architectures import ArchitectureTests
-from .equivariance import (
-    get_random_rotation,
-    rotate_spherical_tensor,
-    rotate_system,
-)
 
 
 class OutputTests(ArchitectureTests):
@@ -901,8 +896,15 @@ class OutputTests(ArchitectureTests):
 
         system = read(dataset_path)
         original_system = systems_to_torch(system)
-        rotation = get_random_rotation()
-        rotated_system = rotate_system(original_system, rotation)
+        target_layout = dataset_info_spherical.targets["spherical_target"].layout
+        ell = (len(target_layout.block(0).components[0]) - 1) // 2
+        transformation = random_transformations(
+            1,
+            ell,
+            device=original_system.positions.device,
+            dtype=original_system.positions.dtype,
+        )[0]
+        rotated_system = transform_system(original_system, transformation)
 
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         original_system = get_system_with_neighbor_lists(
@@ -923,12 +925,13 @@ class OutputTests(ArchitectureTests):
             {"spherical_target": model.outputs["spherical_target"]},
         )
 
-        np.testing.assert_allclose(
-            rotate_spherical_tensor(
-                original_output["spherical_target"].block().values.detach().numpy(),
-                rotation,
-            ),
-            rotated_output["spherical_target"].block().values.detach().numpy(),
+        original_values = original_output["spherical_target"].block().values.detach()
+        expected_values = (
+            original_values.swapaxes(-1, -2) @ transformation.wigner_D_matrix(ell).T
+        ).swapaxes(-1, -2)
+        torch.testing.assert_close(
+            rotated_output["spherical_target"].block().values.detach(),
+            expected_values,
             atol=self.equivariance_error_tolerance,
             rtol=self.equivariance_error_tolerance,
         )
@@ -997,6 +1000,6 @@ class OutputTests(ArchitectureTests):
             * (-1) ** o3_lambda
             * (-1 if o3_sigma == -1 else 1),
             inverted_output["spherical_target"].block().values,
-            atol=1e-5,
-            rtol=1e-5,
+            atol=self.equivariance_error_tolerance,
+            rtol=self.equivariance_error_tolerance,
         )

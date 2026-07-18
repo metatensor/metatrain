@@ -51,6 +51,8 @@ Added
 - The ``atomic_baseline`` hyperparameter now also accepts a path to a pretrained
   composition checkpoint, which is loaded and reused as the additive baseline instead of
   being refitted from the training data.
+- Rotational augmentation now supports atomic-basis targets and Cartesian targets of
+  rank > 2.
 
 Changed
 #######
@@ -66,9 +68,19 @@ Changed
 - PET requests a non-strict neighbor list and filters out-of-cutoff pairs internally.
 - The composition model moved from ``metatrain.utils.additive.CompositionModel`` to
   ``metatrain.composition.CompositionModel``.
+- O(3) data augmentation is delegated to the ``metatomic.torch.o3`` module, requiring
+  ``metatomic-torch >= 0.1.16``. Random transformations are now drawn from the torch
+  RNG instead of scipy/numpy, which changes fixed-seed training trajectories.
+- ``RotationalAugmenter`` is now ``O3Augmenter``, with a ``group`` option selecting
+  the transformations to sample (``"O3"`` or ``"inversions"``). The PhACE
+  ``InversionAugmenter`` was removed in its favor.
 
 Removed
 #######
+
+- The ``spherical`` package is no longer a test dependency, and the
+  ``utils.testing.equivariance`` helpers are gone: the equivariance test suite now
+  rotates systems and reference outputs with ``metatomic.torch.o3`` directly.
 
 Version 2026.3.1 - 2026-07-01
 -----------------------------
