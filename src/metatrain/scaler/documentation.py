@@ -35,15 +35,15 @@ class TrainerHypers(TypedDict):
     """Weights for target scaling.
 
     This is passed to the ``fixed_weights`` argument of
-    :meth:`Scaler.train_model <metatrain.utils.scaler.scaler.Scaler.train_model>`,
+    :meth:`Scaler.train_model <metatrain.scaler.Scaler.train_model>`,
     see its documentation to understand exactly what to pass here.
     """
     batch_size: Optional[int] = None
-    """Number of structures to accumulate at a time when building the
-    least-squares problem. This only affects memory usage, not the fitted
-    weights, since the composition model is a deterministic fit rather than
-    an iterative optimization. Defaults to the size of the smallest training
-    dataset."""
+    """Number of structures to accumulate at a time.
+    This only affects memory usage, not the resulting scales, since the
+    scaler is a deterministic modelrather than an iterative optimization.
+    Defaults to the size of the smallest training dataset.
+    """
     per_structure_targets: list[str] = []
     """Target names that should be treated as
     per-structure quantities and therefore not divided by the number of atoms.

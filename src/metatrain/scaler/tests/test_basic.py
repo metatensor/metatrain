@@ -44,7 +44,7 @@ class TestExported(ExportedTests, ScalerTests):
 
 
 class TestCheckpoints(CheckpointTests, ScalerTests):
-    # The composition trainer does not support restarting training, so its
+    # The scaler does not support restarting training, so its
     # checkpoints cannot be loaded in the "restart" context.
     incompatible_trainer_checkpoints = [
         "checkpoints/model-v1_trainer-v1.ckpt.gz",
