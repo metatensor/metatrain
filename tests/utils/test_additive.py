@@ -1,3 +1,4 @@
+import warnings
 from pathlib import Path
 
 import metatensor.torch as mts
@@ -2393,4 +2394,106 @@ def test_composition_spherical_atomic_basis_rank_2_rotation_invariance(missing_t
         weights_orig.block(pp_key).values,
         weights_rot.block(pp_key).values,
         equal_nan=True,
+    )
+
+
+class _EnergyStubModel(torch.nn.Module):
+    """Minimal additive-model stub whose output has no gradients.
+
+    evaluate_model only adds strain/position gradients via autograd for
+    models whose output has ``quantity == "energy"``.  By reporting
+    ``quantity == ""`` this stub's output arrives in remove_additive
+    without any strain gradient, which is the exact scenario where the
+    zero-placeholder fix must fire.
+    """
+
+    @property
+    def outputs(self):
+        return {"energy": ModelOutput(quantity="", unit="eV", per_atom=False)}
+
+    def supported_outputs(self):
+        return {"energy": ModelOutput(quantity="", unit="eV", per_atom=False)}
+
+    def forward(self, systems, outputs):
+        n_systems = len(systems)
+        block = TensorBlock(
+            values=torch.zeros(n_systems, 1, dtype=torch.float64),
+            samples=Labels(
+                ["system"], torch.arange(n_systems, dtype=torch.int32).reshape(-1, 1)
+            ),
+            components=[],
+            properties=Labels(["energy"], torch.tensor([[0]])),
+        )
+        return {"energy": TensorMap(Labels(["_"], torch.tensor([[0]])), [block])}
+
+
+def test_remove_additive_missing_gradient():
+    """Test that remove_additive handles the case where the additive model does
+    not output a gradient (e.g. 'strain') that is present in the target block.
+
+    This mirrors the failure reported when training on a mixed stress/no-stress
+    dataset: the combined target_info requests strain gradients, but the additive
+    model's output block lacks 'strain'.  Without the fix, _add_block_block
+    crashes because block_1 (target) has 'strain' while block_2 (additive) does
+    not.  The fix inserts a zero-valued placeholder gradient and emits a warning.
+
+    The stub model below has quantity="" so that evaluate_model does not inject
+    strain via autograd — guaranteeing the additive block has no strain gradient.
+    """
+    systems = [
+        System(
+            positions=torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64),
+            types=torch.tensor([8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+
+    # Target block with the real 3×3 virial/stress structure, mirroring what
+    # a mixed-dataset batch produces for systems that have stress data.
+    xyz_1 = Labels("xyz_1", torch.arange(3, dtype=torch.int32).reshape(-1, 1))
+    xyz_2 = Labels("xyz_2", torch.arange(3, dtype=torch.int32).reshape(-1, 1))
+    block = TensorBlock(
+        values=torch.tensor([[1.0]], dtype=torch.float64),
+        samples=Labels(["system"], torch.tensor([[0]])),
+        components=[],
+        properties=Labels(["energy"], torch.tensor([[0]])),
+    )
+    block.add_gradient(
+        "strain",
+        TensorBlock(
+            values=torch.ones(1, 3, 3, 1, dtype=torch.float64) * 0.5,
+            samples=Labels(["sample"], torch.tensor([[0]])),
+            components=[xyz_1, xyz_2],
+            properties=Labels(["energy"], torch.tensor([[0]])),
+        ),
+    )
+    targets = {"energy": TensorMap(Labels(["_"], torch.tensor([[0]])), [block])}
+
+    target_info_with_strain = get_energy_target_info(
+        "energy", {"unit": "eV"}, add_strain_gradients=True
+    )
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+
+        new_targets = remove_additive(
+            systems,
+            targets,
+            _EnergyStubModel(),
+            {"energy": target_info_with_strain},
+        )
+
+        assert any(
+            "Gradient 'strain' is missing in the additive" in str(warn.message)
+            for warn in w
+        ), "Expected a warning about the missing 'strain' gradient"
+
+    # 'strain' must survive in the result with unchanged values — subtracting
+    # a zero placeholder has no effect on the target gradient.
+    new_block = new_targets["energy"].block()
+    assert "strain" in new_block.gradients_list()
+    torch.testing.assert_close(
+        new_block.gradient("strain").values,
+        torch.ones(1, 3, 3, 1, dtype=torch.float64) * 0.5,
     )
