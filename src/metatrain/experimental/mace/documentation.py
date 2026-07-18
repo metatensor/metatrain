@@ -121,6 +121,7 @@ from typing_extensions import NotRequired, TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.pet.modules.finetuning import FullFinetuneHypers
+from metatrain.utils.hooks import PostHooksHypers
 from metatrain.utils.loss import LossSpecification
 from metatrain.utils.scaler import FixedScalerWeights
 
@@ -294,6 +295,9 @@ class ModelHypers(TypedDict):
     """
     use_agnostic_product: bool = False
     """Use element agnostic product"""
+
+    post_hooks: PostHooksHypers = {}
+    """Post-processing hooks to apply to the outputs of the model."""
 
 
 class TrainerHypers(TypedDict):
