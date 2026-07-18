@@ -358,7 +358,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # not per-property. This transformation only applies to targets with
                 # per-property scales (i.e. multiple blocks or multiple properties), and
                 # leaves the others unchanged.
-                predictions = (model.module if is_distributed else model).scaler(
+                predictions = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(
                     systems,
                     predictions,
                     remove=False,
@@ -381,10 +383,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
                     scaled_predictions = (
                         model.module if is_distributed else model
-                    ).scaler(systems, predictions)
-                    scaled_targets = (model.module if is_distributed else model).scaler(
-                        systems, targets
-                    )
+                    ).scaler.apply_scales(systems, predictions)
+                    scaled_targets = (
+                        model.module if is_distributed else model
+                    ).scaler.apply_scales(systems, targets)
                     train_rmse_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )
@@ -443,7 +445,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # not per-property. This transformation only applies to targets with
                 # per-property scales (i.e. multiple blocks or multiple properties), and
                 # leaves the others unchanged.
-                predictions = (model.module if is_distributed else model).scaler(
+                predictions = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(
                     systems,
                     predictions,
                     remove=False,
@@ -461,12 +465,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # Reapply scales and accumulate quantities for computing val
                 # metrics. This is done for every epoch as validation metrics are
                 # needed for model selection
-                scaled_predictions = (model.module if is_distributed else model).scaler(
-                    systems, predictions
-                )
-                scaled_targets = (model.module if is_distributed else model).scaler(
-                    systems, targets
-                )
+                scaled_predictions = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(systems, predictions)
+                scaled_targets = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(systems, targets)
 
                 val_rmse_calculator.update(
                     scaled_predictions, scaled_targets, extra_data

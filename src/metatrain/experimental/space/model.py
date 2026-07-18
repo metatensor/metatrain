@@ -487,7 +487,7 @@ class SPACE(ModelInterface[ModelHypers]):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(
+            return_dict = self.scaler.apply_scales(
                 systems,
                 return_dict,
                 selected_atoms=selected_atoms,
