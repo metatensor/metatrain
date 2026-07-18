@@ -2,7 +2,7 @@ import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from metatrain.utils.scaler.checkpoints import update_per_property_scales
+from metatrain.scaler.checkpoints import update_per_property_scales
 
 
 ###########################

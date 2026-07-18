@@ -65,6 +65,7 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 composition = []
+scaler = []
 soap-bpnn = [
     "torch-spex>=0.1,<0.2",
     'sphericart-torch >=2.0.3',

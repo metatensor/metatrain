@@ -74,9 +74,9 @@ from typing_extensions import NotRequired, TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.pet.modules.finetuning import FinetuneHypers, NoFinetuneHypers
+from metatrain.scaler.documentation import FixedScalerWeights
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
-from metatrain.utils.scaler import FixedScalerWeights
 
 
 class RadialBasisHypers(TypedDict):
@@ -363,8 +363,16 @@ class TrainerHypers(TypedDict):
         to set explicitly the baselines for that target in this hyperparameter.
     """
 
-    fixed_scaling_weights: FixedScalerWeights = {}
-    """Fixed scaling weights for the model."""
+    fixed_scaling_weights: FixedScalerWeights | str = {}
+    """Weights for target scaling.
+
+    This is passed to the ``fixed_weights`` argument of
+    :meth:`Scaler.train_model <metatrain.utils.scaler.scaler.Scaler.train_model>`,
+    see its documentation to understand exactly what to pass here.
+
+    Apart from those options, one can pass a path to a model checkpoint, if that
+    is the checkpoint of a Scaler model, the pre-trained scaler will be loaded.
+    """
 
     num_workers: Optional[int] = None
     """Number of workers for data loading."""

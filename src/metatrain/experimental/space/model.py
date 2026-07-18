@@ -26,6 +26,7 @@ from metatrain.experimental.space.modules.cg_coefficients import ClebschGordanRe
 from metatrain.experimental.space.modules.finetuning import apply_finetuning_strategy
 from metatrain.experimental.space.utils import systems_to_batch
 from metatrain.pet.modules.finetuning import compute_stale_targets
+from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
@@ -36,7 +37,6 @@ from metatrain.utils.data.atomic_basis_helpers import (
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
 
 from . import checkpoints
 

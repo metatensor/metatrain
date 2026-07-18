@@ -24,13 +24,13 @@ from metatrain.pet.modules.finetuning import (
 )
 from metatrain.pet.modules.transformer import CartesianTransformer
 from metatrain.pet.modules.utilities import cutoff_func_cosine as cutoff_func
+from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
