@@ -1,4 +1,5 @@
 r"""
+.. _finetuning-tutorial:
 
 Fine-tuning a pre-trained model
 ===============================
