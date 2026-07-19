@@ -84,7 +84,7 @@ phace = [
 llpr = []
 classifier = []
 mace = [
-    "mace-torch >=0.3.14, <0.3.15",
+    "mace-torch >=0.3.14",
     "e3nn"
 ]
 flashmd = []
