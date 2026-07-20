@@ -267,6 +267,18 @@ def _eval_targets(
         targ_per_atom = average_by_num_atoms(
             batch_targets, systems, per_structure_keys=[]
         )
+        # For metrics, filter out the targets that have sample_kind "atom_pair"
+        # for now.
+        preds_per_atom = {
+            k: v
+            for k, v in preds_per_atom.items()
+            if options[k].sample_kind != "atom_pair"
+        }
+        targ_per_atom = {
+            k: v
+            for k, v in targ_per_atom.items()
+            if options[k].sample_kind != "atom_pair"
+        }
         rmse_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
         mae_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
 
@@ -329,6 +341,7 @@ def eval_model(
     :param append: If ``True``, open the output file in append mode.
     :param warm_up: Whether to do a warm-up of the model before evaluation.
     """
+    model.eval()
     logging.info("Setting up evaluation set.")
     # a trailing path separator signals a memmap dataset directory; this has to be
     # detected on the raw string, since Path() silently drops trailing separators
