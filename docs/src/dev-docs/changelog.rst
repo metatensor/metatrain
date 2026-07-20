@@ -27,9 +27,15 @@ Unreleased
 Fixed
 #####
 
+- ``DiskDatasetWriter`` in append mode now continues the entry numbering of the
+  existing zip instead of restarting from zero.
+
 Added
 #####
 
+- ``max_atoms_per_batch`` now works with ``DiskDataset``: ``DiskDatasetWriter``
+  stores the number of atoms of every structure in a ``metadata/atom_counts.npy``
+  file, which the sampler reads without opening every entry in the zip.
 - Possibility to avoid warm-up in ``mtt eval`` with the ``--no-warm-up`` flag.
 - Optional per-system charge and spin-multiplicity conditioning for PET. Enabled via the
   ``system_conditioning`` model hyperparameter, with per-system ``charge`` and
@@ -45,10 +51,16 @@ Added
 - The ``atomic_baseline`` hyperparameter now also accepts a path to a pretrained
   composition checkpoint, which is loaded and reused as the additive baseline instead of
   being refitted from the training data.
+- Rotational augmentation now supports atomic-basis targets and Cartesian targets of
+  rank > 2.
 
 Changed
 #######
 
+- ``DiskDataset`` reading now scales to zips with millions of files: the archive is
+  indexed once at construction and dataloader workers read from the index, instead of
+  each re-parsing the whole zip (which could take minutes and tens of GB of RAM). The
+  format is also validated at construction, with clear error messages for invalid zips.
 - The ``DiskDataset`` now uses the ``key`` option of targets (i.e. it looks for that key
   in the dataset, instead of looking for the target name).
 - Avoid reindexing of spherical atomic basis targets during densification and
@@ -56,9 +68,19 @@ Changed
 - PET requests a non-strict neighbor list and filters out-of-cutoff pairs internally.
 - The composition model moved from ``metatrain.utils.additive.CompositionModel`` to
   ``metatrain.composition.CompositionModel``.
+- O(3) data augmentation is delegated to the ``metatomic.torch.o3`` module, requiring
+  ``metatomic-torch >= 0.1.16``. Random transformations are now drawn from the torch
+  RNG instead of scipy/numpy, which changes fixed-seed training trajectories.
+- ``RotationalAugmenter`` is now ``O3Augmenter``, with a ``group`` option selecting
+  the transformations to sample (``"O3"`` or ``"inversions"``). The PhACE
+  ``InversionAugmenter`` was removed in its favor.
 
 Removed
 #######
+
+- The ``spherical`` package is no longer a test dependency, and the
+  ``utils.testing.equivariance`` helpers are gone: the equivariance test suite now
+  rotates systems and reference outputs with ``metatomic.torch.o3`` directly.
 
 Version 2026.3.1 - 2026-07-01
 -----------------------------

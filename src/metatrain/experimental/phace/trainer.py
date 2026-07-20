@@ -16,6 +16,7 @@ from torch.utils.data import DistributedSampler
 from metatrain.composition import train_or_load_composition_model
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
+from metatrain.utils.augmentation import O3Augmenter
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
@@ -45,7 +46,7 @@ from metatrain.utils.transfer import batch_to
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import PhACE
-from .utils import InversionAugmenter, systems_to_batch
+from .utils import systems_to_batch
 
 
 def _get_requested_outputs(targets, target_info_dict):
@@ -200,8 +201,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
         extra_data_info = dataset_info.extra_data
-        inversion_augmenter = InversionAugmenter(
-            target_info_dict=train_targets, extra_data_info_dict=extra_data_info
+        # PhACE is rotation-equivariant by construction, so only inversions are
+        # worth augmenting with
+        inversion_augmenter = O3Augmenter(
+            target_info_dict=train_targets,
+            extra_data_info_dict=extra_data_info,
+            group="inversions",
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         atomic_basis_transform, atomic_basis_reverse_transform = (

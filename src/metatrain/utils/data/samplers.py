@@ -185,9 +185,10 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
     so workers only ever see short-lived lists.
 
     :param dataset: The dataset to sample from. Either supports ``get_num_atoms(i)``
-        directly (e.g. ``MemmapDataset``) or yields samples with a ``system`` field
-        (e.g. ``metatensor.learn.data.Dataset``, ``DiskDataset``); ``Subset``
-        wrappers of either are also supported.
+        directly (e.g. ``MemmapDataset``, or ``DiskDataset`` with a
+        ``metadata/atom_counts.npy`` file) or yields samples with a ``system`` field
+        (e.g. ``metatensor.learn.data.Dataset``); ``Subset`` wrappers of either are
+        also supported.
     :param max_atoms: Maximum total number of atoms across all structures in a batch.
     :param num_replicas: Number of distributed processes (world size).
     :param rank: Rank of the current process.
