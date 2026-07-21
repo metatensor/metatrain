@@ -12,6 +12,42 @@ from .precomputations import Precomputer
 from .tensor_product import couple_features_all, uncouple_features_all
 
 
+def _make_k_max_l(
+    n_max: List[int], n_channels: int, force_rectangular: bool
+) -> List[int]:
+    """Number of feature channels to carry at each angular order ``l``.
+
+    Features are stored in groups rather than one block per ``l``: the group at ``l``
+    takes the channel slice ``k_max_l[l + 1]:k_max_l[l]`` and carries every order from
+    0 up to ``l`` (see ``split_up_features``). So ``k_max_l = [256, 128, 64]`` means
+    128 channels in group 0 (order 0 only), 64 in group 1 (orders 0-1), and 64 in
+    group 2 (orders 0-2).
+
+    Each group is held in the compact basis, which only exists at even orders, so an
+    odd ``l`` is rounded up to ``l + 1`` and the missing top order is zero-filled (see
+    ``padded_l_list``). Group 1 above therefore sits in the same 3x3 container as
+    group 2, and costs the same tensor product, while carrying one order less.
+
+    Pairing each odd ``l`` with ``l + 1`` empties those groups: ``[256, 128, 64]``
+    becomes ``[256, 64, 64]``, group 1 is now 0 channels wide, and its 64 channels
+    move down into group 0, which grows from 128 to 192. ``k_max_l[0]`` never changes,
+    so no channel is lost; the moved ones simply stop carrying an order-1 part they
+    were paying a padded container for. The last ``l`` has no ``l + 1`` to pair with
+    and is left alone.
+
+    At the default ``max_eigenvalue=25`` nothing changes, since ``n_max`` is
+    ``[2, 1, 1]`` and ``k_max_l[1] == k_max_l[2]`` already.
+    """
+    if force_rectangular:
+        # Nothing ragged left: every group but the last is already zero width.
+        return [n_channels * n_max[0]] * len(n_max)
+
+    k_max_l = [n_channels * n_max_l for n_max_l in n_max]
+    for l in range(1, len(k_max_l) - 1, 2):  # noqa: E741
+        k_max_l[l] = k_max_l[l + 1]
+    return k_max_l
+
+
 class BaseModel(torch.nn.Module):
     """Core PhACE GNN model operating on raw tensor data (no metatensor wrapping)."""
 
@@ -40,13 +76,11 @@ class BaseModel(torch.nn.Module):
         n_max = self.precomputer.n_max_l
         self.l_max = len(n_max) - 1
         n_channels = hypers["num_element_channels"]
-        if hypers["force_rectangular"]:
-            self.k_max_l = [n_channels * n_max[0]] * (self.l_max + 1)
-        else:
-            self.k_max_l = [
-                n_channels * n_max[l]
-                for l in range(self.l_max + 1)  # noqa: E741
-            ]
+        self.k_max_l = _make_k_max_l(
+            n_max=n_max,
+            n_channels=n_channels,
+            force_rectangular=hypers["force_rectangular"],
+        )
 
         # CG transformation matrices between coupled (spherical) and uncoupled basis.
         cg_calculator = get_cg_coefficients(2 * ((self.l_max + 1) // 2))
