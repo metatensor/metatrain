@@ -77,7 +77,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
 
     def __init__(self, hypers: Dict[str, Any]) -> None:
         super().__init__(hypers)
@@ -292,8 +292,6 @@ class Trainer(TrainerInterface):
             batch_size=self.hypers["batch_size"],
             max_atoms_per_batch=max_atoms,
             min_atoms_per_batch=self.hypers["min_atoms_per_batch"],
-            world_size=world_size,
-            rank=rank,
             num_workers=num_workers,
         )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
@@ -305,8 +303,6 @@ class Trainer(TrainerInterface):
             collate_fn_val=collate_fn_val,
             batch_size=self.hypers["batch_size"],
             max_atoms_per_batch=max_atoms,
-            world_size=world_size,
-            rank=rank,
             num_workers=num_workers,
         )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)

@@ -126,8 +126,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
             batch_size=self.hypers["batch_size"],
             max_atoms_per_batch=max_atoms,
             min_atoms_per_batch=self.hypers["min_atoms_per_batch"],
-            world_size=1,
-            rank=0,
             num_workers=0,
         )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
@@ -139,10 +137,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             collate_fn_val=collate_fn,
             batch_size=self.hypers["batch_size"],
             max_atoms_per_batch=max_atoms,
-            world_size=1,
-            rank=0,
             num_workers=0,
-            enforce_min_size=True,
         )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 

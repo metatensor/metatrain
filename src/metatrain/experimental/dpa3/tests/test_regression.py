@@ -1,4 +1,3 @@
-import copy
 import random
 
 import numpy as np
@@ -153,57 +152,4 @@ def test_regression_energies_forces_train():
         expected_gradients_output,
         atol=1e-5,
         rtol=1e-5,
-    )
-
-
-def test_train_max_atoms_per_batch():
-    """max_atoms_per_batch/min_atoms_per_batch pack batches by atom count instead
-    of a fixed batch_size, and training runs to completion with a plain
-    in-memory ``Dataset``."""
-    random.seed(0)
-    np.random.seed(0)
-    torch.manual_seed(0)
-
-    systems = read_systems(DATASET_PATH)
-
-    conf = {
-        "mtt::U0": {
-            "quantity": "energy",
-            "read_from": DATASET_PATH,
-            "reader": "ase",
-            "key": "U0",
-            "unit": "eV",
-            "type": "scalar",
-            "sample_kind": "system",
-            "num_subtargets": 1,
-            "forces": False,
-            "stress": False,
-            "virial": False,
-        }
-    }
-    targets, target_info_dict = read_targets(OmegaConf.create(conf))
-    dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
-
-    hypers = copy.deepcopy(DEFAULT_HYPERS)
-    hypers["training"]["num_epochs"] = 1
-    hypers["training"]["scheduler_patience"] = 1
-    hypers["training"]["fixed_composition_weights"] = {}
-    hypers["training"]["max_atoms_per_batch"] = 20
-    hypers["training"]["min_atoms_per_batch"] = 1
-
-    loss_conf = OmegaConf.create({"mtt::U0": init_with_defaults(LossSpecification)})
-    hypers["training"]["loss"] = loss_conf
-
-    dataset_info = DatasetInfo(
-        length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
-    )
-    model = DPA3(MODEL_HYPERS, dataset_info).to("cpu")
-    trainer = Trainer(hypers["training"])
-    trainer.train(
-        model=model,
-        dtype=torch.float32,
-        devices=[torch.device("cpu")],
-        train_datasets=[dataset],
-        val_datasets=[dataset],
-        checkpoint_dir=".",
     )

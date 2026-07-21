@@ -176,13 +176,7 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
 
     Batches are stored in CSR (compressed-sparse-row) form — two int64 numpy
     arrays, ``_batch_indices`` (flat indices of every kept structure) and
-    ``_batch_offsets`` (per-batch start offsets). This avoids the per-batch
-    Python-object overhead of a list-of-lists, and — more importantly —
-    removes the long-lived Python objects that would otherwise be refcount-
-    touched by ``DataLoader`` worker forks (each touch dirties a page and
-    triggers copy-on-write, exhausting ``/dev/shm`` for large datasets).
-    ``__iter__`` materialises each batch as a Python ``list[int]`` on demand,
-    so workers only ever see short-lived lists.
+    ``_batch_offsets`` (per-batch start offsets).
 
     :param dataset: The dataset to sample from. Either supports ``get_num_atoms(i)``
         directly (e.g. ``MemmapDataset``, or ``DiskDataset`` with a
@@ -211,6 +205,15 @@ class MaxAtomDistributedBatchSampler(torch.utils.data.Sampler):
         drop_last: bool = False,
         min_atoms: int = 0,
     ) -> None:
+        if max_atoms <= 0:
+            raise ValueError(f"max_atoms must be positive, got {max_atoms}")
+        if min_atoms < 0:
+            raise ValueError(f"min_atoms must be non-negative, got {min_atoms}")
+        if min_atoms > max_atoms:
+            raise ValueError(
+                f"min_atoms ({min_atoms}) must not exceed max_atoms ({max_atoms})"
+            )
+
         self.dataset = dataset
         self.max_atoms = max_atoms
         self.min_atoms = min_atoms

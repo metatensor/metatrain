@@ -520,12 +520,9 @@ def trainer_update_v11_v12(checkpoint: dict) -> None:
     """
     Update trainer checkpoint from version 11 to version 12.
 
-    Previously added a ``batch_atom_bounds`` default; the field has since been
-    removed from the trainer schema, so this migration is now a no-op kept only
-    to preserve checkpoint version numbering.
-
     :param checkpoint: The checkpoint to update.
     """
+    checkpoint["train_hypers"]["batch_atom_bounds"] = [None, None]
 
 
 def trainer_update_v12_v13(checkpoint: dict) -> None:
@@ -543,9 +540,19 @@ def trainer_update_v13_v14(checkpoint: dict) -> None:
     Update trainer checkpoint from version 13 to version 14.
 
     The ``batch_atom_bounds`` field has been removed from the PET trainer
-    schema (max-atom packing is now done by the sampler). Drop it from old
-    checkpoints if present.
+    schema (max-atom packing is now done by the sampler). ``batch_atom_bounds``
+    was already inert whenever ``max_atoms_per_batch`` was set (packing
+    disabled the post-hoc filter), so its bounds are only translated into the
+    equivalent ``max_atoms_per_batch`` / ``min_atoms_per_batch`` sampler
+    settings when they were the mechanism actually in effect; otherwise the
+    field is simply dropped.
 
     :param checkpoint: The checkpoint to update.
     """
-    checkpoint["train_hypers"].pop("batch_atom_bounds", None)
+    train_hypers = checkpoint["train_hypers"]
+    min_bound, max_bound = train_hypers.pop("batch_atom_bounds", [None, None])
+    if train_hypers.get("max_atoms_per_batch") is None:
+        if max_bound is not None:
+            train_hypers["max_atoms_per_batch"] = max_bound
+        if min_bound is not None:
+            train_hypers["min_atoms_per_batch"] = min_bound

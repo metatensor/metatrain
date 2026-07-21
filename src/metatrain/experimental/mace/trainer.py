@@ -28,7 +28,6 @@ from metatrain.utils.data import (
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
 )
-from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
@@ -136,7 +135,7 @@ def get_optimizer_and_scheduler(
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
     __hypers_cls__ = TrainerHypers
 
     def __init__(self, hypers: TrainerHypers) -> None:
@@ -308,7 +307,6 @@ class Trainer(TrainerInterface):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
-            batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
 
         # Create dataloader for the training datasets:
@@ -333,8 +331,6 @@ class Trainer(TrainerInterface):
             batch_size=self.hypers["batch_size"],
             max_atoms_per_batch=max_atoms,
             min_atoms_per_batch=self.hypers["min_atoms_per_batch"],
-            world_size=world_size,
-            rank=rank,
             num_workers=num_workers,
         )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
@@ -346,8 +342,6 @@ class Trainer(TrainerInterface):
             collate_fn_val=collate_fn,
             batch_size=self.hypers["batch_size"],
             max_atoms_per_batch=max_atoms,
-            world_size=world_size,
-            rank=rank,
             num_workers=num_workers,
         )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
@@ -412,10 +406,6 @@ class Trainer(TrainerInterface):
 
             train_loss = 0.0
             for batch in train_dataloader:
-                # Skip None batches (those outside batch_atom_bounds)
-                if should_skip_batch(batch, is_distributed, device):
-                    continue
-
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = unpack_batch(batch)
@@ -530,10 +520,6 @@ class Trainer(TrainerInterface):
             ):  # keep gradients on if any of the targets require them
                 val_loss = 0.0
                 for batch in val_dataloader:
-                    # Skip None batches (those outside batch_atom_bounds)
-                    if should_skip_batch(batch, is_distributed, device):
-                        continue
-
                     systems, targets, extra_data = unpack_batch(batch)
                     systems, targets, extra_data = batch_to(
                         systems, targets, extra_data, dtype=dtype, device=device

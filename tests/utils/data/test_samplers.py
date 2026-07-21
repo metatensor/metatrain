@@ -20,21 +20,9 @@ from metatrain.utils.data.samplers import (
 from metatrain.utils.data.writers import DiskDatasetWriter
 
 
-# ---------------------------------------------------------------------------
-# Test-only list-of-lists adapter
-# ---------------------------------------------------------------------------
-# The sampler stores batches as CSR arrays (a flat ``indices`` array plus an
-# ``offsets`` array) rather than a Python list-of-lists. The CSR layout avoids
-# the long-lived Python objects that would otherwise be refcount-touched by
-# fork-mode ``DataLoader`` workers and trigger copy-on-write of every batch
-# page (exhausting ``/dev/shm`` on large datasets). These tests were written
-# before that refactor and assert on list-of-list shapes (``sum(batches, [])``,
-# ``sorted(map(sorted, batches))``, ...), so this helper materialises the CSR
-# result into the historical format. Production code should call
-# ``_pack_batches_csr`` directly.
-
-
-def _greedy_pack(indices, atom_counts, max_atoms, min_atoms=0):
+def _pack(indices, atom_counts, max_atoms, min_atoms=0):
+    """Call ``_pack_batches_csr`` and unpack its CSR result into a list of lists,
+    for readability in the assertions below."""
     flat_indices, offsets = _pack_batches_csr(
         indices, atom_counts, max_atoms, min_atoms
     )
@@ -82,7 +70,7 @@ def test_greedy_pack_basic():
     """All batches respect the max_atoms limit."""
     indices = list(range(10))
     atom_counts = [3] * 10  # 10 structures, 3 atoms each
-    batches = _greedy_pack(indices, atom_counts, max_atoms=9)
+    batches = _pack(indices, atom_counts, max_atoms=9)
     # Each batch can hold at most 3 structures (3*3=9)
     for batch in batches:
         assert sum(atom_counts[i] for i in batch) <= 9
@@ -93,7 +81,7 @@ def test_greedy_pack_basic():
 def test_greedy_pack_all_fit_one_batch():
     indices = list(range(4))
     atom_counts = [2, 2, 2, 2]
-    batches = _greedy_pack(indices, atom_counts, max_atoms=8)
+    batches = _pack(indices, atom_counts, max_atoms=8)
     assert len(batches) == 1
     assert sorted(batches[0]) == [0, 1, 2, 3]
 
@@ -104,7 +92,7 @@ def test_greedy_pack_min_atoms_drops_small_batches():
     # batches [3], [1], [3], [1], [3]. min_atoms=2 drops the two size-1 batches.
     indices = [0, 1, 2, 3, 4]
     atom_counts = [3, 1, 3, 1, 3]
-    batches = _greedy_pack(indices, atom_counts, max_atoms=3, min_atoms=2)
+    batches = _pack(indices, atom_counts, max_atoms=3, min_atoms=2)
     assert len(batches) == 3
     for batch in batches:
         assert sum(atom_counts[i] for i in batch) >= 2
@@ -127,8 +115,8 @@ def test_greedy_pack_min_atoms_zero_unchanged():
     """min_atoms=0 (default) keeps all batches, including the final partial one."""
     indices = list(range(5))
     atom_counts = [3, 3, 3, 3, 1]  # last batch has only 1 atom
-    batches_default = _greedy_pack(indices, atom_counts, max_atoms=3)
-    batches_explicit = _greedy_pack(indices, atom_counts, max_atoms=3, min_atoms=0)
+    batches_default = _pack(indices, atom_counts, max_atoms=3)
+    batches_explicit = _pack(indices, atom_counts, max_atoms=3, min_atoms=0)
     assert batches_default == batches_explicit
     # The last singleton batch is kept
     assert len(batches_default) == 5
@@ -139,7 +127,7 @@ def test_greedy_pack_oversized_structure_skipped(caplog):
     indices = [0, 1, 2]
     atom_counts = [3, 100, 3]  # index 1 is too big
     with caplog.at_level(logging.WARNING, logger="metatrain.utils.data.samplers"):
-        batches = _greedy_pack(indices, atom_counts, max_atoms=9)
+        batches = _pack(indices, atom_counts, max_atoms=9)
     assert "Structure 1" in caplog.text
     all_indices = sorted(sum(batches, []))
     assert all_indices == [0, 2]
@@ -149,7 +137,7 @@ def test_greedy_pack_variable_sizes():
     """Greedy packing fills batches as tightly as possible."""
     indices = [0, 1, 2, 3]
     atom_counts = [5, 3, 4, 2]
-    batches = _greedy_pack(indices, atom_counts, max_atoms=8)
+    batches = _pack(indices, atom_counts, max_atoms=8)
     for batch in batches:
         assert sum(atom_counts[i] for i in batch) <= 8
     assert sorted(sum(batches, [])) == [0, 1, 2, 3]
