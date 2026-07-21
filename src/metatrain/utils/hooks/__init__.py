@@ -1,8 +1,10 @@
+from typing import cast
+
 import torch
 
 from metatrain.utils.data import DatasetInfo, TargetInfo
 
-from .global_multipole import GlobalMultipole
+from .global_multipole import GlobalMultipole, HookHypers
 
 
 KNOWN_POST_HOOKS = {
@@ -43,7 +45,7 @@ def setup_post_hooks(
                 "inputs": {},
             }
         else:
-            san_hook_hypers = hook_hypers
+            san_hook_hypers = cast(dict[str, dict[str, str] | str], hook_hypers)
 
         hook_outputs: str | dict = san_hook_hypers["outputs"]
         if isinstance(hook_outputs, str):
@@ -56,7 +58,7 @@ def setup_post_hooks(
 
         # Get hook and add it to the list of hooks.
         hook_class = KNOWN_POST_HOOKS[hook_name]
-        hook = hook_class(san_hook_hypers, dataset_info)
+        hook = hook_class(cast(HookHypers, san_hook_hypers), dataset_info)
         post_hooks.append(hook)
 
         # Add the inputs that the hook requests to the model outputs.
