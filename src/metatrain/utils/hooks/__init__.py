@@ -4,16 +4,18 @@ import torch
 
 from metatrain.utils.data import DatasetInfo, TargetInfo
 
-from .global_multipole import GlobalMultipole, HookHypers
+from .global_multipole import GlobalMultipole
+from .minmax_gap import MinMaxGap
 
 
 KNOWN_POST_HOOKS = {
     "global_multipoles": GlobalMultipole,
+    "minmax_gap": MinMaxGap,
 }
 
 
 # For documentation purposes
-PostHooksHypers = dict[str, dict[str, str] | str]
+PostHooksHypers = dict[str, dict | str]
 
 
 # To help models work with hooks.
@@ -58,7 +60,7 @@ def setup_post_hooks(
 
         # Get hook and add it to the list of hooks.
         hook_class = KNOWN_POST_HOOKS[hook_name]
-        hook = hook_class(cast(HookHypers, san_hook_hypers), dataset_info)
+        hook = hook_class(san_hook_hypers, dataset_info)
         post_hooks.append(hook)
 
         # Add the inputs that the hook requests to the model outputs.
