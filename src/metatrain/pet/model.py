@@ -25,6 +25,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hooks import setup_post_hooks
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
@@ -130,15 +131,37 @@ class PET(ModelInterface[ModelHypers]):
         # during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
+        post_hooks, model_outs = setup_post_hooks(
+            self.hypers["post_hooks"], train_dataset_info
+        )
+        self.post_hooks = torch.nn.ModuleList(post_hooks)
+
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
         self.key_labels: Dict[str, Labels] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
         self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
-        for target_name, target_info in train_dataset_info.targets.items():
+        for target_name, target_info in model_outs.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
+
+        # Register outputs that are produced only by post-processing hooks (i.e.
+        # those removed from ``model_outs`` because PET itself does not predict
+        # them directly).
+        targets = dataset_info.targets
+        for target_name in train_dataset_info.targets:
+            if target_name not in model_outs:
+                self.outputs[target_name] = ModelOutput(
+                    quantity=targets[target_name].quantity
+                    if target_name in targets
+                    else "",
+                    unit=targets[target_name].unit if target_name in targets else "",
+                    sample_kind="atom",
+                    description=targets[target_name].description
+                    if target_name in targets
+                    else "",
+                )
 
         # long-range module
         if self.hypers["long_range"]["enable"]:
@@ -384,6 +407,14 @@ class PET(ModelInterface[ModelHypers]):
             predictions (depending on the ModelOutput configuration) with appropriate
             metatensor metadata (samples, components, properties).
         """
+        # ----------------------------
+        # Add outputs needed by hooks
+        # ----------------------------
+        # TODO: In reality, we would have to check if the hook's output is requested
+        for hook in self.post_hooks:
+            requested_inputs = hook.requested_inputs()
+            outputs.update(requested_inputs)
+
         device = systems[0].device
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
@@ -581,6 +612,12 @@ class PET(ModelInterface[ModelHypers]):
                 h.remove()
         # ===== END DIAGNOSTIC-RELATED BLOCK
 
+        # -----------------------------------
+        #            Apply hooks
+        # -----------------------------------
+        for hook in self.post_hooks:
+            return_dict.update(hook(systems, return_dict))
+
         # **Post-processing (Evaluation Only)**
         with torch.profiler.record_function("PET::post-processing"):
             if not self.training:
@@ -598,7 +635,10 @@ class PET(ModelInterface[ModelHypers]):
                 # done before adding the additive contributions, which are also
                 # sparsified (by the additive models themselves, in eval mode).
                 for k in atomic_predictions_dict.keys():
-                    if self.dataset_info.targets[k].is_atomic_basis:
+                    if (
+                        k in self.dataset_info.targets
+                        and self.dataset_info.targets[k].is_atomic_basis
+                    ):
                         return_dict[k] = sparsify_atomic_basis_target(
                             systems,
                             return_dict[k],
@@ -1034,7 +1074,7 @@ class PET(ModelInterface[ModelHypers]):
         :param target_info: TargetInfo object containing details about the target.
         """
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
-        self.output_shapes[target_name] = {}
+        self.output_shapes[target_name] = torch.jit.annotate(Dict[str, List[int]], {})
         for key, block in target_info.layout.items():
             dict_key = target_name
             for n, k in zip(key.names, key.values, strict=True):
@@ -1055,7 +1095,7 @@ class PET(ModelInterface[ModelHypers]):
 
         # Register last-layer parameters, in the same order as they are returned as
         # last-layer features in the model (the modules live on ``self.backend``).
-        self.last_layer_parameter_names[target_name] = []
+        self.last_layer_parameter_names[target_name] = torch.jit.annotate(List[str], [])
         for layer_index in range(self.num_readout_layers):
             for key in self.output_shapes[target_name].keys():
                 self.last_layer_parameter_names[target_name].append(
