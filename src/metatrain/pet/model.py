@@ -21,6 +21,8 @@ from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.finetuning import apply_finetuning_strategy
+from metatrain.utils.hooks import setup_post_hooks
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
@@ -162,6 +164,11 @@ class PET(ModelInterface):
             "features": ModelOutput(unit="", per_atom=True)
         }  # the model is always capable of outputting the internal features
 
+        post_hooks, model_outs = setup_post_hooks(
+            self.hypers["post_hooks"], dataset_info
+        )
+        self.post_hooks = torch.nn.ModuleList(post_hooks)
+
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
         self.key_labels: Dict[str, Labels] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
@@ -177,6 +184,23 @@ class PET(ModelInterface):
         )
         for i, species in enumerate(self.atomic_types):
             self.species_to_species_index[species] = i
+
+        # Register outputs that are produced only by post-processing hooks (i.e.
+        # those removed from ``model_outs`` because PET itself does not predict
+        # them directly).
+        targets = dataset_info.targets
+        for target_name in dataset_info.targets:
+            if target_name not in model_outs:
+                self.outputs[target_name] = ModelOutput(
+                    quantity=targets[target_name].quantity
+                    if target_name in targets
+                    else "",
+                    unit=targets[target_name].unit if target_name in targets else "",
+                    sample_kind="atom",
+                    description=targets[target_name].description
+                    if target_name in targets
+                    else "",
+                )
 
         # long-range module
         if self.hypers["long_range"]["enable"]:
@@ -411,6 +435,14 @@ class PET(ModelInterface):
             predictions (depending on the ModelOutput configuration) with appropriate
             metatensor metadata (samples, components, properties).
         """
+        # ----------------------------
+        # Add outputs needed by hooks
+        # ----------------------------
+        # TODO: In reality, we would have to check if the hook's output is requested
+        for hook in self.post_hooks:
+            requested_inputs = hook.requested_inputs()
+            outputs.update(requested_inputs)
+
         device = systems[0].device
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
@@ -528,6 +560,12 @@ class PET(ModelInterface):
 
         for k, v in atomic_predictions_dict.items():
             return_dict[k] = v
+
+        # -----------------------------------
+        #            Apply hooks
+        # -----------------------------------
+        for hook in self.post_hooks:
+            return_dict.update(hook(systems, return_dict))
 
         # **Post-processing (Evaluation Only)**
 
@@ -1217,7 +1255,7 @@ class PET(ModelInterface):
         :param target_info: TargetInfo object containing details about the target.
         """
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
-        self.output_shapes[target_name] = {}
+        self.output_shapes[target_name] = torch.jit.annotate(Dict[str, List[int]], {})
         for key, block in target_info.layout.items():
             dict_key = target_name
             for n, k in zip(key.names, key.values, strict=True):
