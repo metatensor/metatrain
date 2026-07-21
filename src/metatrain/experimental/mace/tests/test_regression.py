@@ -142,4 +142,3 @@ def test_regression_train_spherical(device):
     torch.testing.assert_close(
         output["mtt::electron_density_basis"][1].values[2], expected_output
     )
-
