@@ -282,8 +282,8 @@ class MinMaxGap(torch.nn.Module):
                         names=["system"],
                         values=torch.arange(num_systems, dtype=torch.int32, device=device).reshape(-1, 1),
                     ),
-                    components=layout.components,
-                    properties=layout.properties,
+                    components=layout_block.components,
+                    properties=layout_block.properties,
                 )
             )
 
