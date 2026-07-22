@@ -142,3 +142,22 @@ def trainer_update_v4_v5(checkpoint: dict) -> None:
             checkpoint["train_hypers"]["calibration_method"] = "absolute_residuals"
         else:
             checkpoint["train_hypers"]["calibration_method"] = "squared_residuals"
+
+
+def trainer_update_v5_v6(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 5 to version 6.
+
+    The ``batch_atom_bounds`` field has been removed from the trainer schema
+    (max-atom packing is now done by the sampler, via ``max_atoms_per_batch``
+    and ``min_atoms_per_batch``). ``batch_atom_bounds`` bounds are translated
+    into the equivalent sampler settings; if it was unset, the new sampler
+    settings default to no packing.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    if "train_hypers" in checkpoint:
+        train_hypers = checkpoint["train_hypers"]
+        min_bound, max_bound = train_hypers.pop("batch_atom_bounds", [None, None])
+        train_hypers["max_atoms_per_batch"] = max_bound
+        train_hypers["min_atoms_per_batch"] = min_bound if min_bound is not None else 0

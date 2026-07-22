@@ -3,6 +3,7 @@
 Trainer hyperparameters
 -------------------------
 
+{% if trainer_hypers %}
 The parameters that go under the ``architecture.trainer`` section of the config file
 are the following:
 
@@ -14,3 +15,7 @@ are the following:
         .. autoattribute:: {{trainer_hypers_path}}.{{hyper}}
 
     {% endfor %}
+{% else %}
+This architecture has no trainer hyperparameters: there is nothing to set under
+the ``architecture.trainer`` section of the config file.
+{% endif %}

@@ -23,6 +23,7 @@ from omegaconf import OmegaConf
 import metatrain.soap_bpnn
 from metatrain import RANDOM_SEED
 from metatrain.cli.train import _process_restart_from, train_model
+from metatrain.utils.data import build_train_dataloaders, build_val_dataloaders
 from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
@@ -46,22 +47,22 @@ from ..conftest import (
 from .dump_spherical_targets import dump_spherical_targets
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def options():
     return OmegaConf.load(OPTIONS_PATH)
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def options_pet():
     return OmegaConf.load(OPTIONS_PET_PATH)
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def options_extra():
     return OmegaConf.load(OPTIONS_EXTRA_DATA_PATH)
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def options_spherical():
     return OmegaConf.load(OPTIONS_SPHERICAL_PATH)
 
@@ -1661,83 +1662,61 @@ def test_small_validation_set_with_large_batch_size(
         train_model(options)
 
 
-def test_regression_validation_batch_size_constraint_removed():
-    """Test that demonstrates the validation batch size constraint was removed.
+def test_build_dataloaders_min_size_constraints():
+    """Regression test for issue #711.
 
-    This test verifies that the specific validation constraint from issue #711
-    was removed, while preserving training dataset constraints.
+    The training-dataset size constraint is enforced unconditionally by
+    ``build_train_dataloaders``. The corresponding validation-dataset never had
+    a real technical reason to enforce it: an undersized ``DataLoader`` just
+    yields one smaller batch, so ``build_val_dataloaders`` never raises.
     """
-    # Check that validation constraint was removed but training constraint remains
+    small_dataset = list(range(3))
+    batch_size = 8
 
-    repo_root = Path(__file__).resolve().parents[2]
-    trainer_files = [
-        repo_root / "src/metatrain/pet/trainer.py",
-        repo_root / "src/metatrain/soap_bpnn/trainer.py",
-        repo_root / "src/metatrain/experimental/flashmd/trainer.py",
-    ]
+    with pytest.raises(ValueError, match="training dataset has fewer samples"):
+        build_train_dataloaders(
+            train_datasets=[small_dataset],
+            train_distributed_samplers=[None],
+            collate_fn_train=None,
+            batch_size=batch_size,
+            max_atoms_per_batch=None,
+            min_atoms_per_batch=0,
+            num_workers=0,
+        )
 
-    for trainer_file in trainer_files:
-        if os.path.exists(trainer_file):
-            with open(trainer_file, "r") as f:
-                content = f.read()
+    # The same undersized dataset does not raise on the validation side...
+    dataloaders = build_val_dataloaders(
+        val_datasets=[small_dataset],
+        val_distributed_samplers=[None],
+        collate_fn_val=lambda batch: batch,
+        batch_size=batch_size,
+        max_atoms_per_batch=None,
+        num_workers=0,
+    )
+    assert len(dataloaders) == 1
 
-            # Verify validation constraint was removed
-            # (Look for validation-specific patterns)
-            validation_section_start = content.find(
-                "# Create dataloader for the validation datasets:"
-            )
-            validation_section_end = content.find(
-                "# Create dataloader for the test datasets:"
-            )
-            if validation_section_end == -1:
-                # Look for other section markers
-                validation_section_end = content.find(
-                    "val_dataloaders.append(", validation_section_start
-                )
-                if validation_section_end != -1:
-                    # Find the end of the validation section
-                    validation_section_end = (
-                        content.find(")", validation_section_end) + 1
-                    )
+    # ...and iterating it actually yields the (smaller) batch, rather than
+    # silently dropping it.
+    batches = list(dataloaders[0])
+    assert len(batches) == 1
+    assert len(batches[0]) == len(small_dataset)
 
-            if validation_section_start != -1 and validation_section_end != -1:
-                validation_section = content[
-                    validation_section_start:validation_section_end
-                ]
 
-                # Verify no batch size constraint in validation section
-                assert "fewer samples" not in validation_section, (
-                    f"Validation batch size constraint was not removed from "
-                    f"{trainer_file}"
-                )
-                assert (
-                    "batch_size" not in validation_section
-                    or "len(" not in validation_section
-                ), (
-                    f"Validation batch size constraint logic still present in "
-                    f"{trainer_file}"
-                )
+def test_soap_bpnn_trains_with_undersized_validation_set(
+    options, monkeypatch, tmp_path
+):
+    """End-to-end regression test for issue #711 on the SOAP-BPNN trainer:
+    training must complete even when the validation set is smaller than the
+    batch size. PET's equivalent is covered by
+    ``test_small_validation_set_with_large_batch_size``.
+    """
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
-            # Verify training constraint still exists (this should remain)
-            training_section_start = content.find(
-                "# Create dataloader for the training datasets:"
-            )
-            if training_section_start != -1:
-                training_section_end = content.find(
-                    "# Create dataloader for the validation datasets:",
-                    training_section_start,
-                )
-                if training_section_end != -1:
-                    training_section = content[
-                        training_section_start:training_section_end
-                    ]
-                    # Training constraint should still be there
-                    assert "training dataset has fewer samples" in training_section, (
-                        f"Training batch size constraint was incorrectly removed from "
-                        f"{trainer_file}"
-                    )
-        else:
-            raise ValueError(f"Trainer file {trainer_file} does not exist.")
+    options["architecture"]["training"]["num_epochs"] = 1
+    options["validation_set"] = 0.01  # ~1 sample, far below batch_size
+
+    train_model(options)
 
 
 # ============================================================================

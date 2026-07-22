@@ -17,6 +17,7 @@ from metatomic.torch import (
 )
 from torch.profiler import record_function
 
+from metatrain.composition import CompositionModel
 from metatrain.experimental.flashmd.modules.encoder import NodeEncoder
 from metatrain.experimental.flashmd.modules.structures import systems_to_batch
 from metatrain.pet.modules.finetuning import (
@@ -26,7 +27,6 @@ from metatrain.pet.modules.finetuning import (
 from metatrain.pet.modules.transformer import CartesianTransformer
 from metatrain.pet.modules.utilities import cutoff_func_bump as cutoff_func
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.dtype import dtype_to_str
@@ -192,17 +192,8 @@ class FlashMDSymplectic(ModelInterface):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel(
-            hypers={},
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
+        composition_model = CompositionModel.from_valid_targets(
+            dataset_info, self.atomic_types
         )
         additive_models = [composition_model]
         self.additive_models = torch.nn.ModuleList(additive_models)

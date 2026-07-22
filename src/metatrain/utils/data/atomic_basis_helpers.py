@@ -505,7 +505,13 @@ def get_prepare_atomic_basis_targets_transform(
         """
         for name, tensor in targets.items():
             if name in target_info_dict and target_info_dict[name].is_atomic_basis:
-                assert "mtt::aux::system_index" in extra
+                if "mtt::aux::system_index" not in extra:
+                    raise ValueError(
+                        "Atomic-basis targets require the "
+                        "'mtt::aux::system_index' extra data, which is "
+                        "currently only provided by datasets read from disk "
+                        "(DiskDataset)."
+                    )
                 system_ids = (
                     extra["mtt::aux::system_index"][0]
                     .values[:, 0]
@@ -525,7 +531,13 @@ def get_prepare_atomic_basis_targets_transform(
                 name in extra_data_info_dict
                 and extra_data_info_dict[name].is_atomic_basis
             ):
-                assert "mtt::aux::system_index" in extra
+                if "mtt::aux::system_index" not in extra:
+                    raise ValueError(
+                        "Atomic-basis targets require the "
+                        "'mtt::aux::system_index' extra data, which is "
+                        "currently only provided by datasets read from disk "
+                        "(DiskDataset)."
+                    )
                 system_ids = (
                     extra["mtt::aux::system_index"][0]
                     .values[:, 0]
