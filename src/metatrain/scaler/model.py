@@ -54,9 +54,11 @@ class Scaler(ModelInterface[ModelHypers]):
 
         self.atomic_types = sorted(dataset_info.atomic_types)
 
+        # Skip atom-pair targets
         self.target_infos = {
             target_name: target_info
             for target_name, target_info in dataset_info.targets.items()
+            if target_info.sample_kind != "atom_pair"
         }
 
         # Initialize the scaler model
@@ -131,6 +133,8 @@ class Scaler(ModelInterface[ModelHypers]):
         self.target_infos = {
             target_name: merged_info.targets[target_name]
             for target_name in merged_info.targets
+            if target_name not in self.dataset_info.targets
+            and dense_new_targets[target_name].sample_kind != "atom_pair"
         }
 
         # register new outputs
@@ -472,6 +476,8 @@ class Scaler(ModelInterface[ModelHypers]):
         # Reload the scales of the (old) targets, which are not stored in the model
         # state_dict, from the buffers
         for k in self.dataset_info.targets:
+            if k not in self.target_infos:
+                continue
             buffer = self.__getattr__(k + "_scaler_buffer")
             weights = mts.load_buffer(buffer.to(device="cpu"))
             self.model.scales[k] = weights.to(device=buffer.device)
