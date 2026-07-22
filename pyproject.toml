@@ -76,7 +76,7 @@ gap = [
     "skmatter",
     "scipy",
 ]
-phace = [
+space = [
     "physical_basis",
     "wigners",
     "opt-einsum",

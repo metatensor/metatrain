@@ -16,8 +16,8 @@ from metatrain.utils.testing import (
 )
 
 
-class PhACETests(ArchitectureTests):
-    architecture = "experimental.phace"
+class SPACETests(ArchitectureTests):
+    architecture = "experimental.space"
 
     @pytest.fixture(params=[0, 1, 2])
     def o3_lambda(self, request: pytest.FixtureRequest) -> int:
@@ -31,7 +31,7 @@ class PhACETests(ArchitectureTests):
         return hypers
 
 
-class TestOutput(OutputTests, PhACETests):
+class TestOutput(OutputTests, SPACETests):
     is_equivariant_reflections = False
     equivariance_error_tolerance = 1e-4  # due to many layers in the default hypers
     supports_spherical_rank2_outputs = False
@@ -41,7 +41,7 @@ class TestOutput(OutputTests, PhACETests):
         return 256
 
 
-class TestTorchscript(TorchscriptTests, PhACETests):
+class TestTorchscript(TorchscriptTests, SPACETests):
     float_hypers = [
         "cutoff",
         "cutoff_width",
@@ -148,7 +148,7 @@ class TestTorchscript(TorchscriptTests, PhACETests):
         pass
 
 
-class TestCheckpoints(CheckpointTests, PhACETests):
+class TestCheckpoints(CheckpointTests, SPACETests):
     @pytest.fixture
     def minimal_model_hypers(self):
         hypers = get_default_hypers(self.architecture)["model"]

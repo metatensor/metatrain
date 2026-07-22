@@ -1,7 +1,7 @@
 seed: 42
 
 architecture:
-  name: experimental.phace
+  name: experimental.space
   model:
     num_tensor_products: 4
     num_gnn_layers: 3

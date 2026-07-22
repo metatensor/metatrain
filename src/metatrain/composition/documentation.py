@@ -4,7 +4,7 @@ Composition
 
 The composition model computes per-species contributions to invariant targets by solving
 a deterministic least-squares problem. It is typically used as an additive baseline
-within other architectures (e.g. PET, SOAP-BPNN, PhACE) to capture compositional offsets
+within other architectures (e.g. PET, SOAP-BPNN, SPACE) to capture compositional offsets
 before training the main model, but it can also be trained on its own. The main use case
 for standalone training is to produce a checkpoint that initializes the composition
 baseline of another architecture, avoiding a re-fit of the weights.

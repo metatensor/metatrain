@@ -20,7 +20,7 @@ jobs:
           - llpr
           - mace
           - pet
-          - phace
+          - space
           - soap-bpnn
           - composition
           - dpa3

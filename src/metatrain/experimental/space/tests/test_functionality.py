@@ -4,8 +4,8 @@ import pytest
 import torch
 from metatomic.torch import ModelOutput, System
 
-from metatrain.experimental.phace import PhACE
-from metatrain.experimental.phace.modules.base_model import _make_k_max_l
+from metatrain.experimental.space import SPACE
+from metatrain.experimental.space.modules.base_model import _make_k_max_l
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -29,7 +29,7 @@ def _make_hypers() -> dict:
     return hypers
 
 
-def _make_system(model: PhACE) -> System:
+def _make_system(model: SPACE) -> System:
     system = System(
         types=torch.tensor([6, 6]),
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]]),
@@ -90,7 +90,7 @@ def test_cartesian_rank1():
             )
         },
     )
-    model = PhACE(hypers, dataset_info)
+    model = SPACE(hypers, dataset_info)
     system = _make_system(model)
     output = model([system], {"dipole": ModelOutput(sample_kind="system")})
     values = output["dipole"].block().values
@@ -118,7 +118,7 @@ def test_nc_stress(sample_kind):
             )
         },
     )
-    model = PhACE(hypers, dataset_info)
+    model = SPACE(hypers, dataset_info)
     system = _make_system(model)
     outputs = {"non_conservative_stress": ModelOutput(sample_kind=sample_kind)}
     stress = model([system], outputs)["non_conservative_stress"].block().values
@@ -156,7 +156,7 @@ def test_multiple_targets():
         atomic_types=[6],
         targets=targets,
     )
-    model = PhACE(hypers, dataset_info)
+    model = SPACE(hypers, dataset_info)
     system = _make_system(model)
     outputs = {
         "energy": ModelOutput(quantity="energy", unit="eV", sample_kind="system"),

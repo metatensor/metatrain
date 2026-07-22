@@ -45,7 +45,7 @@ from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
 from .documentation import TrainerHypers
-from .model import PhACE
+from .model import SPACE
 from .modules.finetuning import apply_finetuning_strategy
 from .utils import systems_to_batch
 
@@ -72,7 +72,7 @@ def _disable_fx_duck_shape():
         torch.fx.experimental._config.use_duck_shape = init_duck_shape
 
 
-def compile_model(model: PhACE, loader: torch.utils.data.DataLoader):
+def compile_model(model: SPACE, loader: torch.utils.data.DataLoader):
     # inspired by the NequIP codebase
     parameter_tensor = next(iter(model.parameters()))
     dtype = parameter_tensor.dtype
@@ -156,14 +156,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
     def train(
         self,
-        model: PhACE,
+        model: SPACE,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ) -> None:
-        assert dtype in PhACE.__supported_dtypes__
+        assert dtype in SPACE.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 
@@ -171,7 +171,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    "If you want to run distributed training with PhACE, please "
+                    "If you want to run distributed training with SPACE, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
@@ -227,7 +227,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of the PhACE are always in float64 (to avoid
+        # The additive models of the SPACE are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
@@ -237,7 +237,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
         extra_data_info = dataset_info.extra_data
-        # PhACE is rotation-equivariant by construction, so only inversions are
+        # SPACE is rotation-equivariant by construction, so only inversions are
         # worth augmenting with
         inversion_augmenter = O3Augmenter(
             target_info_dict=train_targets,

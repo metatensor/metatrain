@@ -521,7 +521,7 @@ def test_rotation_after_atomic_basis_prepare_transform():
     absolute ids != local positions), this mismatch made ``O3Augmenter`` raise
     a ``ValueError``.
 
-    This reproduces the exact PET/phace collate order (atomic-basis "prepare"
+    This reproduces the exact PET/space collate order (atomic-basis "prepare"
     transform, then augmentation, then the reverse transform) with non-trivial,
     non-contiguous absolute "system" ids, and checks the final result against the
     DFT-rotated reference.
@@ -560,7 +560,7 @@ def test_rotation_after_atomic_basis_prepare_transform():
     )
     rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
-    # Mirror the PET/phace CollateFn order: prepare atomic-basis targets first, then
+    # Mirror the PET/space CollateFn order: prepare atomic-basis targets first, then
     # augment, then reverse the preparation.
     _, prepared_targets, _ = atomic_basis_transform(
         X, {target_name: fX}, {"mtt::aux::system_index": system_index_extra}

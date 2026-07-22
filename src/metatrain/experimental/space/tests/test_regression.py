@@ -7,7 +7,7 @@ import torch
 from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
-from metatrain.experimental.phace import PhACE, Trainer
+from metatrain.experimental.space import SPACE, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo, get_dataset
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
@@ -46,7 +46,7 @@ def test_regression_init():
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
     )
-    model = PhACE(MODEL_HYPERS, dataset_info)
+    model = SPACE(MODEL_HYPERS, dataset_info)
 
     model.module = model.fake_gradient_model
     del model.gradient_model
@@ -134,7 +134,7 @@ def test_regression_train():
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
-    model = PhACE(MODEL_HYPERS, dataset_info)
+    model = SPACE(MODEL_HYPERS, dataset_info)
 
     hypers["training"]["num_epochs"] = 1
     trainer = Trainer(hypers["training"])
@@ -234,7 +234,7 @@ def test_regression_train_spherical(device):
     )
     model_hypers = copy.deepcopy(MODEL_HYPERS)
     model_hypers["radial_basis"]["max_eigenvalue"] = 50.0
-    model = PhACE(model_hypers, dataset_info)
+    model = SPACE(model_hypers, dataset_info)
     requested_neighbor_lists = get_requested_neighbor_lists(model)
 
     hypers["training"]["num_epochs"] = 1

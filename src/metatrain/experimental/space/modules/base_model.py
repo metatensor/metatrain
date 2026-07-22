@@ -49,7 +49,7 @@ def _make_k_max_l(
 
 
 class BaseModel(torch.nn.Module):
-    """Core PhACE GNN model operating on raw tensor data (no metatensor wrapping)."""
+    """Core SPACE GNN model operating on raw tensor data (no metatensor wrapping)."""
 
     def __init__(self, hypers, dataset_info) -> None:
         super().__init__()
@@ -366,7 +366,7 @@ class BaseModel(torch.nn.Module):
                 self.last_layers[target_name] = torch.nn.ModuleDict(rank2_layers)
             else:
                 raise NotImplementedError(
-                    "PhACE only supports Cartesian targets with rank=1 or rank=2."
+                    "SPACE only supports Cartesian targets with rank=1 or rank=2."
                 )
         else:  # spherical equivariant
             irreps = []

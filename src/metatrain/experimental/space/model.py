@@ -16,15 +16,15 @@ from metatomic.torch import (
 )
 
 from metatrain.composition import CompositionModel
-from metatrain.experimental.phace.documentation import ModelHypers
-from metatrain.experimental.phace.modules.base_model import (
+from metatrain.experimental.space.documentation import ModelHypers
+from metatrain.experimental.space.modules.base_model import (
     BaseModel,
     FakeGradientModel,
     GradientModel,
 )
-from metatrain.experimental.phace.modules.cg_coefficients import ClebschGordanReal
-from metatrain.experimental.phace.modules.finetuning import apply_finetuning_strategy
-from metatrain.experimental.phace.utils import systems_to_batch
+from metatrain.experimental.space.modules.cg_coefficients import ClebschGordanReal
+from metatrain.experimental.space.modules.finetuning import apply_finetuning_strategy
+from metatrain.experimental.space.utils import systems_to_batch
 from metatrain.pet.modules.finetuning import compute_stale_targets
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL
@@ -52,8 +52,8 @@ warnings.filterwarnings(
 )
 
 
-class PhACE(ModelInterface[ModelHypers]):
-    """PhACE model: metatomic-based wrapper around ``BaseModel``
+class SPACE(ModelInterface[ModelHypers]):
+    """SPACE model: metatomic-based wrapper around ``BaseModel``
     and/or ``GradientModel``."""
 
     __checkpoint_version__ = 3
@@ -164,7 +164,7 @@ class PhACE(ModelInterface[ModelHypers]):
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
-    def restart(self, dataset_info: DatasetInfo) -> "PhACE":
+    def restart(self, dataset_info: DatasetInfo) -> "SPACE":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -188,7 +188,7 @@ class PhACE(ModelInterface[ModelHypers]):
         if len(new_atomic_types) > 0:
             raise ValueError(
                 f"New atomic types found in the dataset: {new_atomic_types}. "
-                "The PhACE model does not support adding new atomic types."
+                "The SPACE model does not support adding new atomic types."
             )
 
         # Modified dataset_info with the targets as they will be seen by
@@ -550,7 +550,7 @@ class PhACE(ModelInterface[ModelHypers]):
         cls,
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
-    ) -> "PhACE":
+    ) -> "SPACE":
         if context == "restart":
             logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
@@ -647,7 +647,7 @@ class PhACE(ModelInterface[ModelHypers]):
 
         if target_info.is_spherical and len(target_info.layout.block(0).components) > 1:
             raise ValueError(
-                "PhACE does not support target spherical tensors with rank > 1."
+                "SPACE does not support target spherical tensors with rank > 1."
                 f"'{target_name}' has rank "
                 f"{len(target_info.layout.block(0).components)}."
             )
@@ -722,7 +722,7 @@ class PhACE(ModelInterface[ModelHypers]):
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {
-            "architecture_name": "experimental.phace",
+            "architecture_name": "experimental.space",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {

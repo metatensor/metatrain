@@ -57,6 +57,10 @@ Added
 Changed
 #######
 
+- The ``experimental.phace`` architecture was renamed to ``experimental.space``
+  ("Smooth Physical Architecture with Compact Equivariants"). The old name is gone:
+  the ``phace`` optional dependency is now ``space``, and existing checkpoints, which
+  record the old architecture name, will no longer load.
 - ``DiskDataset`` reading now scales to zips with millions of files: the archive is
   indexed once at construction and dataloader workers read from the index, instead of
   each re-parsing the whole zip (which could take minutes and tens of GB of RAM). The

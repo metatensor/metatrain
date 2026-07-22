@@ -5,8 +5,8 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from metatrain.experimental.phace import PhACE, Trainer
-from metatrain.experimental.phace.modules.finetuning import apply_finetuning_strategy
+from metatrain.experimental.space import SPACE, Trainer
+from metatrain.experimental.space.modules.finetuning import apply_finetuning_strategy
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
@@ -24,11 +24,11 @@ def _model():
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
-    return PhACE(MODEL_HYPERS, dataset_info)
+    return SPACE(MODEL_HYPERS, dataset_info)
 
 
 def test_lora_finetuning_default_modules():
-    """LoRA with an empty config must resolve to PhACE's own module names and
+    """LoRA with an empty config must resolve to SPACE's own module names and
     actually inject adapters; the shared PET defaults match nothing here."""
     model = _model()
 
@@ -72,7 +72,7 @@ def test_lora_finetuning_device(device):
 
 def test_heads_finetuning_default_modules():
     """``heads`` with an empty config must freeze the backbone but leave the
-    PhACE heads and last layers trainable."""
+    SPACE heads and last layers trainable."""
     model = _model()
 
     finetuning_strategy = {
@@ -133,7 +133,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
-    model = PhACE(MODEL_HYPERS, dataset_info)
+    model = SPACE(MODEL_HYPERS, dataset_info)
 
     conf = {
         "mtt::U0": {
@@ -179,7 +179,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     # Finetuning
     checkpoint = torch.load("tmp.ckpt", weights_only=False, map_location="cpu")
     model_finetune = model_from_checkpoint(checkpoint, context="finetune")
-    assert isinstance(model_finetune, PhACE)
+    assert isinstance(model_finetune, SPACE)
     model_finetune.restart(dataset_info)
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
@@ -209,7 +209,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     # Finetuning restart
     checkpoint = torch.load("finetuned.ckpt", weights_only=False, map_location="cpu")
     model_finetune_restart = model_from_checkpoint(checkpoint, context="restart")
-    assert isinstance(model_finetune_restart, PhACE)
+    assert isinstance(model_finetune_restart, SPACE)
     model_finetune_restart.restart(dataset_info)
 
     assert any("lora_" in name for name, _ in model_finetune_restart.named_parameters())
@@ -242,7 +242,7 @@ def _energy_conf(target_name):
 
 
 def _finetune_strategy(method, read_from=None, inherit_heads=None):
-    # an empty config is what exercises PhACE's own default module names
+    # an empty config is what exercises SPACE's own default module names
     return {
         "read_from": read_from,
         "method": method,
@@ -256,14 +256,14 @@ def _two_target_setup():
     dataset info of a run that only trains on ``"mtt::U0"``, leaving ``"energy"``
     stale.
 
-    PhACE's ``restart`` cannot grow a head for a target the model was not built
+    SPACE's ``restart`` cannot grow a head for a target the model was not built
     with, so both heads have to exist from the start -- unlike PET, where the
     equivalent setup adds the second target on restart."""
     targets = {
         name: get_energy_target_info(name, {"quantity": "energy", "unit": "eV"})
         for name in ("energy", "mtt::U0")
     }
-    model = PhACE(
+    model = SPACE(
         MODEL_HYPERS,
         DatasetInfo(length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets),
     )
@@ -377,7 +377,7 @@ def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path
         OmegaConf.resolve(loss_conf)
         return loss_conf
 
-    # Both heads have to exist up front: PhACE's ``restart`` cannot grow a head
+    # Both heads have to exist up front: SPACE's ``restart`` cannot grow a head
     # for a target the model was not built with, so ``inherit_heads`` can only
     # ever copy between targets that are already there.
     dataset_info = DatasetInfo(
@@ -391,7 +391,7 @@ def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path
     both_datasets = [_dataset("energy"), _dataset("mtt::U0")]
 
     # Pre-training on both targets.
-    model = PhACE(MODEL_HYPERS, dataset_info)
+    model = SPACE(MODEL_HYPERS, dataset_info)
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 1
     hypers["training"]["loss"] = _loss("energy", "mtt::U0")

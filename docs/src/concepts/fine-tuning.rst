@@ -11,7 +11,7 @@ Fine-tune a pre-trained model
   new tasks or datasets. Fine-tuning is a common technique used in machine learning,
   where a model is trained on a large dataset and then fine-tuned on a smaller dataset
   to improve its performance on specific tasks. So far the fine-tuning capabilities are
-  only available for the PET, FlashMD, FlashMDSymplectic and PhACE models.
+  only available for the PET, FlashMD, FlashMDSymplectic and SPACE models.
 
 There is a complete example in the tutorial section
 :ref:`sphx_glr_generated_examples_0-beginner_02-fine-tuning.py`.
