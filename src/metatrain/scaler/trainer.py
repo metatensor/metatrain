@@ -146,9 +146,23 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # Scaler.__init__), so incoming batches of (possibly sparse,
                 # atom_type-keyed) atomic-basis targets need to be densified the same
                 # way every other architecture densifies its own targets before
-                # training.
+                # training. Restricted to `model.target_infos`' keys (atom-pair
+                # targets are excluded there, see `Scaler.__init__`: padding them
+                # would require a neighbor list the scaler has no way to request, and
+                # their scales are never actually fit from this data anyway, see
+                # `BaseScaler.accumulate`) - but using the *layouts* from
+                # `model.dataset_info.targets`, not `model.target_infos`: the latter
+                # are already densified (atom_type keys moved to samples, see
+                # `Scaler.__init__`), whereas the densify transform below needs a
+                # layout matching the raw, not-yet-densified incoming batch data
+                # (atom_type still a key dimension).
                 atomic_basis_transform, _ = get_prepare_atomic_basis_targets_transform(
-                    model.dataset_info.targets, model.dataset_info.extra_data
+                    {
+                        k: v
+                        for k, v in model.dataset_info.targets.items()
+                        if k in model.target_infos
+                    },
+                    model.dataset_info.extra_data,
                 )
 
                 initial_transforms.append(atomic_basis_transform)
@@ -168,6 +182,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
+                # Drop atom-pair targets: excluded from `model.target_infos` (see
+                # `Scaler.__init__`), so never densified/padded above, and never
+                # actually scaled (see `BaseScaler.accumulate`).
+                targets = {k: v for k, v in targets.items() if k in model.target_infos}
                 if len(targets) == 0:
                     break
 
@@ -181,6 +199,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                             target_name: model.target_infos[target_name]
                             for target_name in targets
                         },
+                        extra_data=extra_data,
                     )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 model.model.accumulate(systems, targets, extra_data)
@@ -241,6 +260,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
+                targets = {k: v for k, v in targets.items() if k in model.target_infos}
                 if len(targets) == 0:
                     break
 
@@ -254,6 +274,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                             target_name: model.target_infos[target_name]
                             for target_name in targets
                         },
+                        extra_data=extra_data,
                     )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 model.model.accumulate_per_property(systems, targets, extra_data)
