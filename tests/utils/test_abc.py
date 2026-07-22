@@ -114,8 +114,8 @@ def test_model_interface():
         setattr(MyModel, attr, None)
 
 
-def test_model_interface_default_set_default_head():
-    """Architectures that do not override ``set_default_head`` should raise
+def test_model_interface_default_remove_output():
+    """Architectures that do not override ``remove_output`` should raise
     ``NotImplementedError``, since not every architecture supports it."""
     for attr in [
         "__checkpoint_version__",
@@ -128,4 +128,4 @@ def test_model_interface_default_set_default_head():
     model = MyModel({}, DatasetInfo("", [], {}), ModelMetadata())
 
     with pytest.raises(NotImplementedError, match="does not support"):
-        model.set_default_head("some_target")
+        model.remove_output("some_target")

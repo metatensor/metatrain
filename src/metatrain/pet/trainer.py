@@ -29,7 +29,6 @@ from metatrain.utils.distributed.distributed_data_parallel import (
 )
 from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
 from metatrain.utils.evaluate_model import evaluate_model
-from metatrain.utils.finetuning import apply_finetuning_strategy
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator, LossSpecification
@@ -46,6 +45,7 @@ from metatrain.utils.transfer import batch_to
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import PET
+from .modules.finetuning import apply_finetuning_strategy
 
 
 def get_scheduler(
@@ -82,7 +82,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 14
+    __checkpoint_version__ = 13
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -752,48 +752,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         if is_distributed:
             torch.distributed.destroy_process_group()
-
-    def apply_default_head(
-        self,
-        model: ModelInterface,
-        source_head_name: str,
-        dest_head_name: str = "energy",
-    ) -> None:
-        model.set_default_head(source_head_name, dest_head_name)
-
-        if self.best_model_state_dict is None:
-            return
-
-        # ``best_model_state_dict`` is a snapshot taken during training, before
-        # this copy happened, so it doesn't have ``dest_head_name``'s state
-        # yet. Rebuild it from a clone of the (now updated) live model, loading
-        # everything else from the snapshot, then redo the copy so
-        # ``dest_head_name`` reflects ``source_head_name``'s best-epoch
-        # weights rather than the final-epoch ones it was just seeded with.
-        best_model_state_dict = dict(self.best_model_state_dict)
-        best_model_state_dict.pop("finetune_config", None)
-
-        best_model = copy.deepcopy(model)
-        missing, unexpected = best_model.load_state_dict(
-            best_model_state_dict, strict=False
-        )
-        if unexpected:
-            raise RuntimeError(
-                "Unexpected keys found while reconciling the best-epoch "
-                f"checkpoint snapshot with 'default_head': {unexpected}. This "
-                "is an internal inconsistency; please report this issue."
-            )
-        unrelated_missing = [key for key in missing if dest_head_name not in key]
-        if unrelated_missing:
-            raise RuntimeError(
-                "Missing keys found while reconciling the best-epoch checkpoint "
-                f"snapshot with 'default_head' that do not belong to "
-                f"'{dest_head_name}': {unrelated_missing}. This is an internal "
-                "inconsistency; please report this issue."
-            )
-
-        best_model.set_default_head(source_head_name, dest_head_name)
-        self.best_model_state_dict = best_model.state_dict()
 
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()

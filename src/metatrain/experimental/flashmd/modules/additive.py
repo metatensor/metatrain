@@ -70,7 +70,7 @@ class PositionAdditive(torch.nn.Module):
             )
         return self
 
-    def _remove_output(self, target_name: str) -> None:
+    def remove_output(self, target_name: str) -> None:
         """
         Remove a previously registered output target.
 

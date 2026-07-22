@@ -533,12 +533,3 @@ def trainer_update_v12_v13(checkpoint: dict) -> None:
     """
     checkpoint["train_hypers"]["max_atoms_per_batch"] = None
     checkpoint["train_hypers"]["min_atoms_per_batch"] = 0
-
-
-def trainer_update_v13_v14(checkpoint: dict) -> None:
-    """
-    Update trainer checkpoint from version 13 to version 14.
-
-    :param checkpoint: The checkpoint to update.
-    """
-    checkpoint["train_hypers"]["finetune"]["default_head"] = None

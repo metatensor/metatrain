@@ -40,7 +40,6 @@ class NoFinetuneHypers(TypedDict):
     method: NotRequired[Any]
     config: NotRequired[Any]
     inherit_heads: NotRequired[Any]
-    default_head: NotRequired[Any]
 
 
 class FullFinetuneHypers(TypedDict):
@@ -60,11 +59,6 @@ class FullFinetuneHypers(TypedDict):
     in the model (values).
     This allows for copying weights from the corresponding
     source heads to the destination heads instead of random initialization."""
-    default_head: NotRequired[Optional[str]]
-    """Name of an existing target whose full state (heads, composition and scaler
-    weights) should be copied into the model's default ``"energy"`` target, once
-    training for this run has finished. ``None`` (the default) means no copy is
-    performed. Only supported by PET."""
 
 
 class LoRaFinetuneHypers(TypedDict):
@@ -84,11 +78,6 @@ class LoRaFinetuneHypers(TypedDict):
     in the model (values).
     This allows for copying weights from the corresponding
     source heads to the destination heads instead of random initialization."""
-    default_head: NotRequired[Optional[str]]
-    """Name of an existing target whose full state (heads, composition and scaler
-    weights) should be copied into the model's default ``"energy"`` target, once
-    training for this run has finished. ``None`` (the default) means no copy is
-    performed. Only supported by PET."""
 
 
 class HeadsFinetuneHypers(TypedDict):
@@ -109,11 +98,6 @@ class HeadsFinetuneHypers(TypedDict):
     in the model (values).
     This allows for copying weights from the corresponding
     source heads to the destination heads instead of random initialization."""
-    default_head: NotRequired[Optional[str]]
-    """Name of an existing target whose full state (heads, composition and scaler
-    weights) should be copied into the model's default ``"energy"`` target, once
-    training for this run has finished. ``None`` (the default) means no copy is
-    performed. Only supported by PET."""
 
 
 FinetuneHypers = FullFinetuneHypers | LoRaFinetuneHypers | HeadsFinetuneHypers
@@ -320,15 +304,15 @@ def apply_finetuning_strategy(
     stale_targets = getattr(model, "_stale_finetune_targets", None)
     if stale_targets:
         for target_name in stale_targets:
-            model._remove_output(target_name)
+            model.remove_output(target_name)
             if target_name in model.target_names:
                 model.target_names.remove(target_name)
             model.dataset_info.targets.pop(target_name, None)
             for additive_model in model.additive_models:
                 if target_name in additive_model.outputs:
-                    additive_model._remove_output(target_name)
+                    additive_model.remove_output(target_name)
             if target_name in model.scaler.outputs:
-                model.scaler._remove_output(target_name)
+                model.scaler.remove_output(target_name)
         model._stale_finetune_targets = []
 
     return model

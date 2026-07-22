@@ -24,11 +24,6 @@ from metatrain.utils.data.atomic_basis_helpers import (
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.finetuning import (
-    apply_finetuning_strategy,
-    compute_stale_targets,
-    copy_head_weights,
-)
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
@@ -44,6 +39,7 @@ from .modules.diagnostic import (
     prepare_diagnostic_handles,
     standardize_featurizer_input_tensor,
 )
+from .modules.finetuning import apply_finetuning_strategy, compute_stale_targets
 from .modules.structures import concatenate_structures, get_pair_sample_labels
 
 
@@ -270,42 +266,6 @@ class PET(ModelInterface[ModelHypers]):
         )
 
         return self
-
-    def set_default_head(
-        self, source_head_name: str, dest_head_name: str = "energy"
-    ) -> None:
-        if source_head_name not in self.dataset_info.targets:
-            raise ValueError(
-                f"Cannot set '{dest_head_name}' as a copy of "
-                f"'{source_head_name}': '{source_head_name}' is not a target "
-                "of this model."
-            )
-
-        if source_head_name == dest_head_name:
-            return
-
-        if dest_head_name in self.dataset_info.targets:
-            self._remove_output(dest_head_name)
-            if dest_head_name in self.target_names:
-                self.target_names.remove(dest_head_name)
-            self.dataset_info.targets.pop(dest_head_name, None)
-            for additive_model in self.additive_models:
-                if dest_head_name in additive_model.outputs:
-                    additive_model._remove_output(dest_head_name)
-            if dest_head_name in self.scaler.outputs:
-                self.scaler._remove_output(dest_head_name)
-
-        source_target_info = self.dataset_info.targets[source_head_name]
-        self.target_names.append(dest_head_name)
-        self._add_output(dest_head_name, source_target_info)
-        self.dataset_info.targets[dest_head_name] = source_target_info
-        copy_head_weights(self, source_head_name, dest_head_name)
-
-        for additive_model in self.additive_models:
-            if source_head_name in additive_model.outputs:
-                additive_model._copy_output(source_head_name, dest_head_name)
-        if source_head_name in self.scaler.outputs:
-            self.scaler._copy_output(source_head_name, dest_head_name)
 
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
@@ -1124,7 +1084,7 @@ class PET(ModelInterface[ModelHypers]):
             block.properties for block in target_info.layout.blocks()
         ]
 
-    def _remove_output(self, target_name: str) -> None:
+    def remove_output(self, target_name: str) -> None:
         """
         Remove a previously registered output target, mirroring ``_add_output``.
 

@@ -161,24 +161,20 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
             handle the new dataset.
         """
 
-    def set_default_head(
-        self, source_head_name: str, dest_head_name: str = "energy"
-    ) -> None:
+    def remove_output(self, target_name: str) -> None:
         """
-        Copy the full state (heads, composition and scaler weights) of an existing
-        target into ``dest_head_name``, so that engines (e.g. LAMMPS, ASE) that
-        look for a target literally named ``"energy"`` will use it. The source
-        target is left untouched in the model.
+        Remove a previously registered output target from the model.
+
+        Used to drop targets whose heads are no longer meaningful, e.g. after a
+        backbone-altering fine-tuning run (``full``/``lora``) makes them stale.
 
         Not every architecture supports this; the default implementation raises
         ``NotImplementedError``.
 
-        :param source_head_name: Name of the existing target to copy from.
-        :param dest_head_name: Name of the target to overwrite (or create) with
-            a copy of ``source_head_name``'s state. Defaults to ``"energy"``.
+        :param target_name: Name of the target to remove.
         """
         raise NotImplementedError(
-            f"{type(self).__name__} does not support setting a default head."
+            f"{type(self).__name__} does not support removing an output."
         )
 
     @classmethod
@@ -315,29 +311,6 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
         :param model: The model to save in the checkpoint.
         :param path: The path where to save the checkpoint.
         """
-
-    def apply_default_head(
-        self,
-        model: ModelInterface,
-        source_head_name: str,
-        dest_head_name: str = "energy",
-    ) -> None:
-        """
-        Apply :py:meth:`ModelInterface.set_default_head` to ``model``, keeping
-        any trainer-tracked snapshot of the model (e.g. a "best epoch" state
-        dict) consistent with the copy.
-
-        Not every architecture supports this; the default implementation raises
-        ``NotImplementedError``.
-
-        :param model: The model to apply the copy to.
-        :param source_head_name: Name of the existing target to copy from.
-        :param dest_head_name: Name of the target to overwrite (or create) with
-            a copy of ``source_head_name``'s state. Defaults to ``"energy"``.
-        """
-        raise NotImplementedError(
-            f"{type(self).__name__} does not support setting a default head."
-        )
 
     @classmethod
     @abstractmethod

@@ -3,9 +3,9 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatrain.experimental.flashmd_symplectic import FlashMDSymplectic
+from metatrain.pet.modules.finetuning import apply_finetuning_strategy
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import TargetInfo
-from metatrain.utils.finetuning import apply_finetuning_strategy
 
 from . import MODEL_HYPERS
 

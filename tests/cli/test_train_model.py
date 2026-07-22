@@ -26,7 +26,6 @@ from metatrain.cli.train import _process_restart_from, train_model
 from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
-from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.pydantic import MetatrainValidationError
 from metatrain.utils.testing._utils import WANDB_AVAILABLE
@@ -828,40 +827,6 @@ def test_transfer_learn_variant(
     train_model(options_pet_transfer_learn)
 
     assert f"Starting finetuning from '{ckpt_path}'" in caplog.text
-
-
-def test_transfer_learn_default_head(
-    options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
-):
-    """``default_head`` must be applied before training starts, so it survives
-    into the final exported checkpoint (which is loaded via
-    ``best_model_state_dict``) even though its destination ("energy") is stale
-    (dropped by the "full" finetuning method since it isn't part of this run's
-    training set)."""
-    monkeypatch.chdir(tmp_path)
-
-    ckpt_path = MODEL_PATH_PET.with_suffix(".ckpt")
-
-    options_pet_transfer_learn = copy.deepcopy(options_pet)
-    options_pet_transfer_learn["architecture"]["training"]["finetune"] = {
-        "method": "full",
-        "read_from": str(ckpt_path),
-        "config": {},
-        "inherit_heads": {},
-        "default_head": "mtt::energy",
-    }
-    options_pet_transfer_learn["training_set"]["targets"]["mtt::energy"] = (
-        options_pet_transfer_learn["training_set"]["targets"].pop("energy")
-    )
-    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
-
-    caplog.set_level(logging.INFO)
-    train_model(options_pet_transfer_learn)
-
-    checkpoint = torch.load("model.ckpt", weights_only=False)
-    model = model_from_checkpoint(checkpoint, context="export")
-    assert "energy" in model.supported_outputs()
-    assert "mtt::energy" in model.supported_outputs()
 
 
 def test_transfer_learn_inherit_heads(

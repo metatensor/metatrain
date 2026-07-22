@@ -19,6 +19,10 @@ from torch.profiler import record_function
 
 from metatrain.experimental.flashmd.modules.encoder import NodeEncoder
 from metatrain.experimental.flashmd.modules.structures import systems_to_batch
+from metatrain.pet.modules.finetuning import (
+    apply_finetuning_strategy,
+    compute_stale_targets,
+)
 from metatrain.pet.modules.transformer import CartesianTransformer
 from metatrain.pet.modules.utilities import cutoff_func_bump as cutoff_func
 from metatrain.utils.abc import ModelInterface
@@ -26,7 +30,6 @@ from metatrain.utils.additive import CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.finetuning import apply_finetuning_strategy, compute_stale_targets
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
@@ -1388,7 +1391,7 @@ class FlashMDSymplectic(ModelInterface):
             block.properties for block in target_info.layout.blocks()
         ]
 
-    def _remove_output(self, target_name: str) -> None:
+    def remove_output(self, target_name: str) -> None:
         """
         Remove a previously registered output target, mirroring ``_add_output``.
 
