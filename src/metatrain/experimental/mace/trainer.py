@@ -309,7 +309,6 @@ class Trainer(TrainerInterface):
             ],
         )
 
-        # Create dataloader for the training datasets:
         if self.hypers["num_workers"] is None:
             num_workers = get_num_workers()
             logging.info(
@@ -322,8 +321,7 @@ class Trainer(TrainerInterface):
 
         max_atoms = self.hypers["max_atoms_per_batch"]
 
-        # Samplers that need set_epoch() called each epoch (may be DistributedSampler
-        # or MaxAtomDistributedBatchSampler depending on which path is taken below).
+        # Create dataloader for the training datasets:
         train_dataloaders, epoch_samplers = build_train_dataloaders(
             train_datasets=train_datasets,
             train_distributed_samplers=train_samplers,
