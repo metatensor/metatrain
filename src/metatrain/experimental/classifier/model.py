@@ -121,9 +121,7 @@ class Classifier(ModelInterface[ModelHypers]):
         # Final classification layer
         self.linear = torch.nn.Linear(current_size, num_classes, bias=False)
 
-    def restart(
-        self, dataset_info: DatasetInfo, finetune_method: Optional[str] = None
-    ) -> "Classifier":
+    def restart(self, dataset_info: DatasetInfo) -> "Classifier":
         raise ValueError("Restarting from a Classifier model is not supported.")
 
     def forward(

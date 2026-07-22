@@ -239,9 +239,7 @@ class FlashMD(ModelInterface[ModelHypers]):
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
-    def restart(
-        self, dataset_info: DatasetInfo, finetune_method: Optional[str] = None
-    ) -> "FlashMD":
+    def restart(self, dataset_info: DatasetInfo) -> "FlashMD":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -256,7 +254,8 @@ class FlashMD(ModelInterface[ModelHypers]):
 
         # Targets that were present before this run but are not part of the current
         # run's dataset: with a backbone-altering finetuning method (full/lora), their
-        # heads are no longer meaningful and are dropped below.
+        # heads are no longer meaningful and are dropped once training starts, by
+        # ``apply_finetuning_strategy`` (which decides based on the method).
         stale_targets = compute_stale_targets(
             self.dataset_info.targets, dataset_info.targets
         )
@@ -299,12 +298,11 @@ class FlashMD(ModelInterface[ModelHypers]):
         )
         self.scaler = self.scaler.restart(dataset_info)
 
-        # Actual removal is deferred to ``apply_finetuning_strategy`` (called later,
-        # once training starts), since ``inherit_heads`` needs these stale targets'
-        # heads to still be around to copy weights from.
-        self._stale_finetune_targets = (
-            stale_targets if finetune_method in ("full", "lora") else []
-        )
+        # Actual removal (if any) is deferred to ``apply_finetuning_strategy``
+        # (called later, once training starts), since ``inherit_heads`` needs these
+        # stale targets' heads to still be around to copy weights from, and only
+        # backbone-altering methods (``full``/``lora``) actually drop them.
+        self._stale_finetune_targets = stale_targets
 
         return self
 

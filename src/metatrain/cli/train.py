@@ -668,9 +668,7 @@ def train_model(
                     f"The file {restart_from} does not contain a valid checkpoint for "
                     f"the '{architecture_name}' architecture"
                 ) from e
-            model = model.restart(
-                dataset_info, finetune_method=hypers["training"]["finetune"]["method"]
-            )
+            model = model.restart(dataset_info)
             trainer = Trainer(hypers["training"])
         else:
             logging.info("Starting training from scratch")

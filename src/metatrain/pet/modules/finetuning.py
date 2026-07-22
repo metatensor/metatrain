@@ -298,11 +298,12 @@ def apply_finetuning_strategy(
     # Targets not part of this run's dataset are dropped now that weight
     # inheritance (if any) has had a chance to copy from their heads: with
     # ``full``/``lora``, the backbone has changed, so these targets' heads are no
-    # longer meaningful. ``restart`` stashes the list on the model rather than
-    # removing right away, since it runs before this function (and before
-    # ``inherit_heads`` above needs the stale heads to still be present).
+    # longer meaningful. ``restart`` always stashes the list on the model rather
+    # than removing right away, since it runs before this function (and before
+    # ``inherit_heads`` above needs the stale heads to still be present); with
+    # ``heads`` the backbone is unchanged, so stale targets are left alone here.
     stale_targets = getattr(model, "_stale_finetune_targets", None)
-    if stale_targets:
+    if stale_targets and strategy["method"] in ("full", "lora"):
         for target_name in stale_targets:
             model.remove_output(target_name)
             if target_name in model.target_names:

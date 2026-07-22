@@ -429,9 +429,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
-    def restart(
-        self, dataset_info: DatasetInfo, finetune_method: Optional[str] = None
-    ) -> "SoapBpnn":
+    def restart(self, dataset_info: DatasetInfo) -> "SoapBpnn":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [

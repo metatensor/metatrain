@@ -183,7 +183,7 @@ def test_finetune_full_lora_prunes_stale_targets(method):
     model = FlashMD(MODEL_HYPERS, _get_dataset_info())
     new_dataset_info = _get_single_target_dataset_info("momentum")
 
-    model.restart(new_dataset_info, finetune_method=method)
+    model.restart(new_dataset_info)
     assert "position" in model.node_heads
 
     apply_finetuning_strategy(model, _finetuning_strategy(method))
@@ -204,7 +204,7 @@ def test_finetune_heads_keeps_stale_targets():
     model = FlashMD(MODEL_HYPERS, _get_dataset_info())
     new_dataset_info = _get_single_target_dataset_info("momentum")
 
-    model.restart(new_dataset_info, finetune_method="heads")
+    model.restart(new_dataset_info)
     apply_finetuning_strategy(model, _finetuning_strategy("heads"))
 
     assert "position" in model.dataset_info.targets
@@ -213,7 +213,7 @@ def test_finetune_heads_keeps_stale_targets():
     assert "momentum" in model.node_heads
 
 
-def test_restart_without_finetune_method_keeps_stale_targets():
+def test_plain_restart_keeps_stale_targets():
     """A plain restart (not part of a finetuning run) must not prune any target."""
     model = FlashMD(MODEL_HYPERS, _get_dataset_info())
     new_dataset_info = _get_single_target_dataset_info("momentum")
@@ -238,8 +238,8 @@ def _get_three_target_dataset_info():
 
 
 def test_restart_with_fewer_targets_does_not_crash():
-    """Continuing training (plain restart, no ``finetune_method``) from a model
-    that has 3 targets, specifying only 2 of them, must not raise -- the 3rd
+    """Continuing training (plain restart, not part of a finetuning run) from a
+    model that has 3 targets, specifying only 2 of them, must not raise -- the 3rd
     target's head is kept in the model, untouched, rather than being required to
     be part of every subsequent run."""
     model = FlashMD(MODEL_HYPERS, _get_three_target_dataset_info())

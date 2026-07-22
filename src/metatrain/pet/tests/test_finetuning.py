@@ -341,7 +341,7 @@ def test_finetune_full_lora_prunes_stale_targets(method):
     to copy weights from the stale target's head."""
     model, new_dataset_info = _two_target_setup()
 
-    model.restart(new_dataset_info, finetune_method=method)
+    model.restart(new_dataset_info)
     _assert_target_present(model, "energy")
 
     apply_finetuning_strategy(model, _finetuning_strategy(method))
@@ -355,7 +355,7 @@ def test_finetune_full_inherit_heads_then_prunes_source_target():
     target's head; the stale target is only removed afterwards."""
     model, new_dataset_info = _two_target_setup()
 
-    model.restart(new_dataset_info, finetune_method="full")
+    model.restart(new_dataset_info)
     apply_finetuning_strategy(
         model, _finetuning_strategy("full", inherit_heads={"mtt::U0": "energy"})
     )
@@ -369,14 +369,14 @@ def test_finetune_heads_keeps_stale_targets():
     of the current run's dataset must be kept."""
     model, new_dataset_info = _two_target_setup()
 
-    model.restart(new_dataset_info, finetune_method="heads")
+    model.restart(new_dataset_info)
     apply_finetuning_strategy(model, _finetuning_strategy("heads"))
 
     _assert_target_present(model, "energy")
     _assert_target_present(model, "mtt::U0")
 
 
-def test_restart_without_finetune_method_keeps_stale_targets():
+def test_plain_restart_keeps_stale_targets():
     """A plain restart (not part of a finetuning run) must not prune any target."""
     model, new_dataset_info = _two_target_setup()
 
@@ -474,7 +474,7 @@ def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path
 
     checkpoint = torch.load("pretrained.ckpt", weights_only=False, map_location="cpu")
     model_finetune = model_from_checkpoint(checkpoint, context="finetune")
-    model_finetune.restart(new_dataset_info, finetune_method="heads")
+    model_finetune.restart(new_dataset_info)
 
     loss_conf = OmegaConf.create({"mtt::U0": init_with_defaults(LossSpecification)})
     OmegaConf.resolve(loss_conf)
@@ -548,7 +548,7 @@ def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path
 
 
 def test_restart_with_fewer_targets_does_not_crash(monkeypatch, tmp_path):
-    """Continuing training (plain restart, no ``finetune_method``) from a
+    """Continuing training (plain restart, not part of a finetuning run) from a
     checkpoint that has 3 targets, specifying only 2 of them, must not raise --
     the 3rd target's head is kept in the model, untouched, rather than being
     required to be part of every subsequent run."""

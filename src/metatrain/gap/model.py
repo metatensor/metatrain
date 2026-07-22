@@ -167,9 +167,7 @@ class GAP(ModelInterface[ModelHypers]):
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
-    def restart(
-        self, dataset_info: DatasetInfo, finetune_method: Optional[str] = None
-    ) -> "GAP":
+    def restart(self, dataset_info: DatasetInfo) -> "GAP":
         raise NotImplementedError("GAP does not allow restarting training")
 
     @classmethod

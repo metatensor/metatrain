@@ -71,9 +71,7 @@ class MyModel(ModelInterface):
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         raise NotImplementedError()
 
-    def restart(
-        self, dataset_info: DatasetInfo, finetune_method: Optional[str] = None
-    ) -> ModelInterface:
+    def restart(self, dataset_info: DatasetInfo) -> ModelInterface:
         raise NotImplementedError()
 
     @classmethod

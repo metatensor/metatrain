@@ -135,9 +135,7 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def restart(
-        self, dataset_info: DatasetInfo, finetune_method: Optional[str] = None
-    ) -> "ModelInterface":
+    def restart(self, dataset_info: DatasetInfo) -> "ModelInterface":
         """
         Update a model to restart training, potentially with different dataset and/or
         targets.
@@ -148,14 +146,6 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
 
         :param dataset_info: Information about the new dataset, including the targets
             that will be used for training.
-        :param finetune_method: The fine-tuning method used for this run (e.g.
-            ``"full"``, ``"lora"``, ``"heads"``), or ``None`` when this is a plain
-            restart that is not part of a fine-tuning run. Architectures that support
-            fine-tuning methods which alter the backbone (``"full"``, ``"lora"``)
-            should drop targets/heads that are not part of the current run's dataset,
-            since those heads were fit against a feature space the backbone no longer
-            produces. With ``"heads"`` (or ``None``), existing targets/heads should be
-            left untouched.
 
         :return: The updated model, or a new instance of the model, that is able to
             handle the new dataset.
