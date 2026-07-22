@@ -92,6 +92,9 @@ class GlobalMultipole(torch.nn.Module):
         """
         Computes the global multipole from the local predictions.
         """
+        device = systems[0].positions.device
+        layout = self.out_target.layout.to(device)
+
         # Get the concatenated positions of all atoms in the systems,
         # and reorder the axes to match the spherical harmonics convention
         # (x, y, z) -> (y, z, x)
@@ -130,8 +133,8 @@ class GlobalMultipole(torch.nn.Module):
                 TensorBlock(
                     values=local_contribs[degree],
                     samples=input_tmap.block(0).samples,
-                    components=self.out_target.component_labels[i],
-                    properties=self.out_target.property_labels[i],
+                    components=layout.block(i).components,
+                    properties=layout.block(i).properties,
                 )
                 for i, degree in enumerate(self.degrees)
             ],
