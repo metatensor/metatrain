@@ -376,3 +376,21 @@ def trainer_update_v9_v10(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     checkpoint["train_hypers"]["batch_atom_bounds"] = [None, None]
+
+
+def trainer_update_v10_v11(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 10 to version 11.
+
+    The ``batch_atom_bounds`` field has been removed from the trainer schema
+    (max-atom packing is now done by the sampler, via ``max_atoms_per_batch``
+    and ``min_atoms_per_batch``). ``batch_atom_bounds`` bounds are translated
+    into the equivalent sampler settings; if it was unset, the new sampler
+    settings default to no packing.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    train_hypers = checkpoint["train_hypers"]
+    min_bound, max_bound = train_hypers.pop("batch_atom_bounds", [None, None])
+    train_hypers["max_atoms_per_batch"] = max_bound
+    train_hypers["min_atoms_per_batch"] = min_bound if min_bound is not None else 0

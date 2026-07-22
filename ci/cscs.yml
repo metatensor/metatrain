@@ -172,7 +172,7 @@ gap-tests:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
     SLURM_NTASKS: 1
-    SLURM_TIMELIMIT: '00:04:00'
+    SLURM_TIMELIMIT: '00:06:00'
     GIT_STRATEGY: fetch
 
 pet-tests:
@@ -191,7 +191,7 @@ pet-tests:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
     SLURM_NTASKS: 1
-    SLURM_TIMELIMIT: '00:08:00'
+    SLURM_TIMELIMIT: '00:10:00'
     GIT_STRATEGY: fetch
 
 llpr-tests:
@@ -268,7 +268,7 @@ flashmd-symplectic-tests:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
     SLURM_NTASKS: 1
-    SLURM_TIMELIMIT: '00:04:00'
+    SLURM_TIMELIMIT: '00:06:00'
     GIT_STRATEGY: fetch
 
 dpa3-tests:
@@ -344,5 +344,5 @@ flashmd-tests:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
     SLURM_NTASKS: 1
-    SLURM_TIMELIMIT: '00:06:00'
+    SLURM_TIMELIMIT: '00:07:00'
     GIT_STRATEGY: fetch

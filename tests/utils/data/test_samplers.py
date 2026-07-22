@@ -6,14 +6,30 @@ import numpy as np
 import pytest
 import torch
 import torch.utils.data
+from metatensor.learn.data import Dataset
+from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import ModelCapabilities, ModelOutput, System
 from torch.utils.data import DataLoader
 
-from metatrain.utils.data.dataset import MemmapDataset
+from metatrain.utils.data.dataset import DiskDataset, MemmapDataset
 from metatrain.utils.data.samplers import (
     MaxAtomBatchSampler,
     MaxAtomDistributedBatchSampler,
-    _greedy_pack,
+    _pack_batches_csr,
 )
+from metatrain.utils.data.writers import DiskDatasetWriter
+
+
+def _pack(indices, atom_counts, max_atoms, min_atoms=0):
+    """Call ``_pack_batches_csr`` and unpack its CSR result into a list of lists,
+    for readability in the assertions below."""
+    flat_indices, offsets = _pack_batches_csr(
+        indices, atom_counts, max_atoms, min_atoms
+    )
+    return [
+        flat_indices[offsets[i] : offsets[i + 1]].tolist()
+        for i in range(offsets.size - 1)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +70,7 @@ def test_greedy_pack_basic():
     """All batches respect the max_atoms limit."""
     indices = list(range(10))
     atom_counts = [3] * 10  # 10 structures, 3 atoms each
-    batches = _greedy_pack(indices, atom_counts, max_atoms=9)
+    batches = _pack(indices, atom_counts, max_atoms=9)
     # Each batch can hold at most 3 structures (3*3=9)
     for batch in batches:
         assert sum(atom_counts[i] for i in batch) <= 9
@@ -65,7 +81,7 @@ def test_greedy_pack_basic():
 def test_greedy_pack_all_fit_one_batch():
     indices = list(range(4))
     atom_counts = [2, 2, 2, 2]
-    batches = _greedy_pack(indices, atom_counts, max_atoms=8)
+    batches = _pack(indices, atom_counts, max_atoms=8)
     assert len(batches) == 1
     assert sorted(batches[0]) == [0, 1, 2, 3]
 
@@ -76,7 +92,7 @@ def test_greedy_pack_min_atoms_drops_small_batches():
     # batches [3], [1], [3], [1], [3]. min_atoms=2 drops the two size-1 batches.
     indices = [0, 1, 2, 3, 4]
     atom_counts = [3, 1, 3, 1, 3]
-    batches = _greedy_pack(indices, atom_counts, max_atoms=3, min_atoms=2)
+    batches = _pack(indices, atom_counts, max_atoms=3, min_atoms=2)
     assert len(batches) == 3
     for batch in batches:
         assert sum(atom_counts[i] for i in batch) >= 2
@@ -99,8 +115,8 @@ def test_greedy_pack_min_atoms_zero_unchanged():
     """min_atoms=0 (default) keeps all batches, including the final partial one."""
     indices = list(range(5))
     atom_counts = [3, 3, 3, 3, 1]  # last batch has only 1 atom
-    batches_default = _greedy_pack(indices, atom_counts, max_atoms=3)
-    batches_explicit = _greedy_pack(indices, atom_counts, max_atoms=3, min_atoms=0)
+    batches_default = _pack(indices, atom_counts, max_atoms=3)
+    batches_explicit = _pack(indices, atom_counts, max_atoms=3, min_atoms=0)
     assert batches_default == batches_explicit
     # The last singleton batch is kept
     assert len(batches_default) == 5
@@ -111,7 +127,7 @@ def test_greedy_pack_oversized_structure_skipped(caplog):
     indices = [0, 1, 2]
     atom_counts = [3, 100, 3]  # index 1 is too big
     with caplog.at_level(logging.WARNING, logger="metatrain.utils.data.samplers"):
-        batches = _greedy_pack(indices, atom_counts, max_atoms=9)
+        batches = _pack(indices, atom_counts, max_atoms=9)
     assert "Structure 1" in caplog.text
     all_indices = sorted(sum(batches, []))
     assert all_indices == [0, 2]
@@ -121,7 +137,7 @@ def test_greedy_pack_variable_sizes():
     """Greedy packing fills batches as tightly as possible."""
     indices = [0, 1, 2, 3]
     atom_counts = [5, 3, 4, 2]
-    batches = _greedy_pack(indices, atom_counts, max_atoms=8)
+    batches = _pack(indices, atom_counts, max_atoms=8)
     for batch in batches:
         assert sum(atom_counts[i] for i in batch) <= 8
     assert sorted(sum(batches, [])) == [0, 1, 2, 3]
@@ -195,6 +211,31 @@ def test_unsupported_dataset_raises():
     ds = _DatasetNoGetNumAtoms()
     with pytest.raises(TypeError, match="does not support get_num_atoms"):
         MaxAtomBatchSampler(ds, max_atoms=10)
+
+
+def test_in_memory_dataset_supported():
+    """A plain in-memory ``metatensor.learn.data.Dataset`` (no ``get_num_atoms``)
+    is packed correctly via its samples' ``system`` field.
+
+    Regression test: this used to raise
+    ``TypeError: ... does not support get_num_atoms()``.
+    """
+    atom_counts = [2, 4, 3, 1, 5]
+    systems = [
+        System(
+            positions=torch.zeros(n, 3),
+            types=torch.zeros(n, dtype=torch.int32),
+            cell=torch.zeros(3, 3),
+            pbc=torch.zeros(3, dtype=torch.bool),
+        )
+        for n in atom_counts
+    ]
+    ds = Dataset.from_dict({"system": systems})
+    sampler = MaxAtomBatchSampler(ds, max_atoms=5, shuffle=False)
+    all_indices = sorted(sum(list(sampler), []))
+    assert all_indices == list(range(5))
+    for batch in sampler:
+        assert sum(atom_counts[i] for i in batch) <= 5
 
 
 def test_subset_compatibility():
@@ -441,6 +482,55 @@ def test_padding_when_n_batches_not_divisible():
 # ---------------------------------------------------------------------------
 # Cross-validation: batch contents match a fixed batch_size DataLoader
 # ---------------------------------------------------------------------------
+
+
+def test_disk_dataset_supported(tmp_path, monkeypatch):
+    """A ``DiskDataset`` (no ``get_num_atoms`` before this fix) is packed correctly.
+
+    Exercises the ``DiskDataset.get_num_atoms`` fast path, which reads only the
+    ``system.mta`` entry rather than the full sample (including targets).
+    """
+    monkeypatch.chdir(tmp_path)
+
+    atom_counts = [2, 4, 3]
+    systems = [
+        System(
+            positions=torch.zeros(n, 3),
+            types=torch.zeros(n, dtype=torch.int32),
+            cell=torch.zeros(3, 3),
+            pbc=torch.zeros(3, dtype=torch.bool),
+        )
+        for n in atom_counts
+    ]
+    capabilities = ModelCapabilities(
+        length_unit="angstrom",
+        atomic_types=[0],
+        outputs={"energy": ModelOutput(quantity="energy", unit="eV")},
+        interaction_range=1.0,
+        dtype="float64",
+        supported_devices=["cpu"],
+    )
+    block = TensorBlock(
+        values=torch.zeros(1, 1),
+        samples=Labels(["system"], torch.tensor([[0]])),
+        components=[],
+        properties=Labels(["energy"], torch.tensor([[0]])),
+    )
+    predictions = {"energy": TensorMap(keys=Labels.single(), blocks=[block])}
+
+    writer = DiskDatasetWriter("test_disk_dataset.zip", capabilities=capabilities)
+    for system in systems:
+        writer.write([system], predictions)
+    writer.finish()
+
+    ds = DiskDataset("test_disk_dataset.zip")
+    assert [ds.get_num_atoms(i) for i in range(len(ds))] == atom_counts
+
+    sampler = MaxAtomBatchSampler(ds, max_atoms=5, shuffle=False)
+    all_indices = sorted(sum(list(sampler), []))
+    assert all_indices == list(range(3))
+    for batch in sampler:
+        assert sum(atom_counts[i] for i in batch) <= 5
 
 
 def test_max_atom_sampler_cross_validation_batch_contents(tmp_path):

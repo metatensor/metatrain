@@ -1,21 +1,21 @@
-Training with Batch Bounds
-==========================
+Training with atom-count-based batching
+========================================
 
-This section describes how to use batch bounds to control the number of atoms
-contained in each training batch. Batch bounds are useful when working with datasets
-that contain systems of highly variable sizes and when computational resources are
-limited.
+This section describes how to use ``max_atoms_per_batch`` (and the accompanying
+``min_atoms_per_batch``) to control the number of atoms contained in each training
+batch. This is useful when working with datasets that contain systems of highly
+variable sizes and when computational resources are limited.
 
 .. note::
 
-   Batch bounds limit the **total number of atoms across all systems in a batch**, not
-   the number of systems themselves.
+   ``max_atoms_per_batch``/``min_atoms_per_batch`` limit the **total number of atoms
+   across all systems in a batch**, not the number of systems themselves.
 
 
 Motivation and best practices
------------------------------
+------------------------------
 
-Using batch atom bounds can help address several practical challenges:
+Packing batches by atom count can help address several practical challenges:
 
 1. **Memory safety**
    Prevent out-of-memory errors by limiting the maximum number of atoms per batch.
@@ -24,26 +24,26 @@ Using batch atom bounds can help address several practical challenges:
    Avoid inefficient batches with too few atoms by enforcing a minimum atom count.
 
 3. **Training stability**
-   Create more consistent batch sizes when system sizes vary significantly.
+   Create more consistent computational load per batch when system sizes vary
+   significantly.
 
 Therefore:
 
 - If you're here for **training efficiency**, a good starting point is to identify the
   average system size (by inspecting your dataset), multiply it by the batch size you
-  want to set, and set the minimum and maximum bounds to 50% and 150% of that value,
-  respectively.
+  would otherwise use, and set ``max_atoms_per_batch`` to that value (``min_atoms_per_batch``
+  can usually be left at its default).
 
-- If you're here because you ran **out of memory**, you can ignore the minimum bound and
-  only set the maximum bound to a value that fits your hardware. For example, start with
-  a large threshold (e.g. ``[None, 1000]``) and lower the maximum bound until training
-  succeeds without running out of memory.
+- If you're here because you ran **out of memory**, start with a large
+  ``max_atoms_per_batch`` and lower it until training succeeds without running out of
+  memory.
 
 
-Setting batch bounds
---------------------
+Setting ``max_atoms_per_batch``
+--------------------------------
 
-Below is an example configuration using the SOAP-BPNN architecture with batch bounds
-enabled:
+Below is an example configuration using the SOAP-BPNN architecture with atom-count
+packing enabled:
 
 .. code-block:: yaml
 
@@ -54,10 +54,10 @@ enabled:
    architecture:
      name: soap_bpnn
      training:
-       batch_size: 5
        num_epochs: 10
        learning_rate: 0.01
-       batch_atom_bounds: [10, 100]  # minimum 10 atoms, maximum 100 atoms per batch
+       max_atoms_per_batch: 100
+       min_atoms_per_batch: 10
 
    training_set:
      systems: qm9_reduced_100.xyz
@@ -70,25 +70,24 @@ enabled:
    test_set: 0.0
 
 
-Understanding ``batch_atom_bounds``
------------------------------------
+Understanding ``max_atoms_per_batch``/``min_atoms_per_batch``
+-----------------------------------------------------------------
 
-The ``batch_atom_bounds`` option specifies a minimum and maximum number of atoms allowed
-per batch, according to the syntax ``batch_atom_bounds: [min_atoms, max_atoms]``.
-Batches with a total atom count outside these bounds are skipped during training.
+When ``max_atoms_per_batch`` is set, structures are greedily accumulated into a batch,
+in dataset order, until adding the next one would exceed ``max_atoms_per_batch``; the
+batch is then closed and a new one started. This produces a variable number of
+structures per batch, and ``batch_size`` is ignored when constructing training and
+validation batches (it is still used internally for composition model and scaler
+fitting).
 
-The following types of configurations are supported:
-
-- ``[10, None]``
-  Enforces a minimum number of atoms per batch.
-
-- ``[None, 100]``
-  Enforces a maximum number of atoms per batch.
-
-- ``[None, None]``
-  Disables batch bounds (default behavior).
+- A single structure whose own atom count exceeds ``max_atoms_per_batch`` cannot be
+  packed into any batch; it is skipped for the epoch, with a warning.
+- ``min_atoms_per_batch`` (default ``0``, i.e. no minimum) discards any packed batch
+  whose total atom count falls below it — this avoids spending a training step on an
+  unusually small, inefficient batch.
 
 .. note::
 
-   For example, with ``batch_size: 5``, if each system contains 20 atoms, the batch will
-   contain 100 atoms in total.
+   Unlike a fixed ``batch_size``, the number of *structures* per batch varies with
+   ``max_atoms_per_batch``: e.g. with ``max_atoms_per_batch: 100``, a batch could
+   contain five 20-atom structures or one single 95-atom structure.

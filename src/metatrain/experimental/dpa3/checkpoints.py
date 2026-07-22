@@ -13,3 +13,18 @@ def model_update_v1_v2(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     update_per_property_scales(checkpoint)
+
+
+###########################
+# TRAINER #################
+###########################
+
+
+def trainer_update_v1_v2(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 1 to version 2.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"]["max_atoms_per_batch"] = None
+    checkpoint["train_hypers"]["min_atoms_per_batch"] = 0

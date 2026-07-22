@@ -132,11 +132,19 @@ class TrainerHypers(TypedDict):
     grad_clip_norm: float = 1.0
     """Maximum gradient norm value, by default inf (no clipping)"""
 
-    batch_atom_bounds: list[Optional[int]] = [None, None]
-    """Bounds for the number of atoms per batch as [min, max]. Batches with atom
-    counts outside these bounds will be skipped during training. Use ``None`` for
-    either value to disable that bound. This is useful for preventing out-of-memory
-    errors and ensuring consistent computational load. Default: ``[None, None]``."""
+    max_atoms_per_batch: Optional[int] = None
+    """If set, use greedy atom-count packing instead of fixed ``batch_size`` for
+    the gradient-based ensemble training loop. Structures are accumulated into
+    each batch until adding another would exceed this limit, producing variable
+    numbers of structures per batch. Supported with any dataset type. When set,
+    ``batch_size`` is ignored for constructing the ensemble training and
+    validation batches (it is still used for the LLPR covariance/calibration
+    passes)."""
+
+    min_atoms_per_batch: int = 0
+    """Minimum total number of atoms required to keep a batch when
+    ``max_atoms_per_batch`` is set. Batches whose total atom count falls below this
+    threshold are discarded during packing. Defaults to ``0`` (no minimum)."""
 
     calibration_method: Literal["absolute_residuals", "squared_residuals", "crps"] = (
         "absolute_residuals"
