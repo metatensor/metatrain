@@ -271,6 +271,74 @@ def _pad_block(
     )
 
 
+def _pad_block(
+    block: TensorBlock,
+    axis: str,
+    padded_labels: Labels,
+    fill_value: float,
+) -> TensorBlock:
+    """
+    Takes a TensorBlock and pads it along the specified axis with zeros, using the
+    provided padded_labels to determine the metadata structure of the new block.
+
+    Any of the samples/properties that are already present in the block will be filled
+    with the original values, while the new samples/properties will be filled with
+    ``fill_value``.
+
+    :param block: The TensorBlock to pad.
+    :param axis: Either ``"samples"`` or ``"properties"``, specifying which axis to pad.
+    :param padded_labels: The target Labels defining the full (padded) extent of the
+        chosen axis.
+    :param fill_value: Value used to fill positions that have no corresponding entry in
+        the original block.
+    :return: A new TensorBlock padded to the requested shape along the chosen axis.
+    """
+    if axis == "samples":
+        samples = padded_labels
+        properties = block.properties
+
+        block_values = torch.full(
+            (len(samples), *[len(c) for c in block.components], len(properties)),
+            fill_value=fill_value,
+            dtype=block.values.dtype,
+        )
+        # Intersect first rather than assuming `block.samples` is a subset of
+        # `samples`: for atom-pair targets, the real data may contain pairs
+        # outside the model's own neighbor list (e.g. a different cutoff was
+        # used when the target data was generated), in which case those extra
+        # samples are simply dropped.
+        intersection = samples.intersection(block.samples)
+        idxs_padded = samples.select(intersection)
+        idxs_original = block.samples.select(intersection)
+        assert len(idxs_padded) == len(idxs_original)
+        if len(idxs_original) > 0:
+            block_values[idxs_padded] = block.values[idxs_original]
+
+    else:
+        assert axis == "properties"
+        samples = block.samples
+        properties = padded_labels
+
+        block_values = torch.full(
+            (len(samples), *[len(c) for c in block.components], len(properties)),
+            fill_value=fill_value,
+            dtype=block.values.dtype,
+        )
+        intersection = properties.intersection(block.properties)
+        idxs_padded = properties.select(intersection)
+        idxs_original = block.properties.select(intersection)
+        assert len(idxs_padded) == len(idxs_original)
+        if len(idxs_original) > 0:
+            block_values[..., idxs_padded] = block.values[..., idxs_original]
+
+    return TensorBlock(
+        samples=samples,
+        components=block.components,
+        properties=properties,
+        values=block_values,
+    )
+
+
 def _pad_samples_per_atom_atomic_basis_target(
     systems: List[System],
     tensor: TensorMap,
