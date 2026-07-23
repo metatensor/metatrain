@@ -10,6 +10,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DistributedSampler
 
 from metatrain.composition import train_or_load_composition_model
+from metatrain.pet.modules.finetuning import apply_finetuning_strategy
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.augmentation import O3Augmenter
@@ -28,7 +29,6 @@ from metatrain.utils.distributed.distributed_data_parallel import (
 )
 from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
 from metatrain.utils.evaluate_model import evaluate_model
-from metatrain.utils.finetuning import apply_finetuning_strategy
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator
@@ -159,7 +159,18 @@ class Trainer(TrainerInterface):
 
         # Apply fine-tuning strategy if provided
         if is_finetune:
-            model = apply_finetuning_strategy(model, self.hypers["finetune"])
+            # ``inherit_heads`` is a one-time weight-copy initialization step that
+            # must only run when finetuning first starts (a fresh ``Trainer``), not
+            # again when a restart resumes an already-started finetuning run (a
+            # restarted ``Trainer`` has its ``optimizer_state_dict`` restored by
+            # ``load_checkpoint``); otherwise it would clobber the head weights
+            # trained so far with a fresh copy from the (possibly since-changed, or
+            # already stale-pruned) source target.
+            model = apply_finetuning_strategy(
+                model,
+                self.hypers["finetune"],
+                apply_inherit_heads=self.optimizer_state_dict is None,
+            )
             method = self.hypers["finetune"]["method"]
             num_params = sum(p.numel() for p in model.parameters())
             num_trainable_params = sum(

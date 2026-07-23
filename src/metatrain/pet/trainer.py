@@ -30,7 +30,6 @@ from metatrain.utils.distributed.distributed_data_parallel import (
 )
 from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
 from metatrain.utils.evaluate_model import evaluate_model
-from metatrain.utils.finetuning import apply_finetuning_strategy
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator, LossSpecification
@@ -47,6 +46,7 @@ from metatrain.utils.transfer import batch_to
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import PET
+from .modules.finetuning import apply_finetuning_strategy
 
 
 def get_scheduler(
@@ -136,7 +136,19 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Apply fine-tuning strategy if provided
         if is_finetune:
             assert self.hypers["finetune"]["read_from"] is not None  # for mypy
-            model = apply_finetuning_strategy(model, self.hypers["finetune"])
+            # ``inherit_heads`` is a one-time weight-copy initialization step that
+            # must only run when finetuning first starts (a fresh ``Trainer``), not
+            # again when a restart resumes an already-started finetuning run (a
+            # restarted ``Trainer`` has its ``optimizer_state_dict`` restored by
+            # ``load_checkpoint``); otherwise it would clobber the head weights
+            # trained so far with a fresh copy from the (possibly since-changed, or
+            # already stale-pruned) source target.
+            is_fresh_finetune_start = self.optimizer_state_dict is None
+            model = apply_finetuning_strategy(
+                model,
+                self.hypers["finetune"],
+                apply_inherit_heads=is_fresh_finetune_start,
+            )
             method = self.hypers["finetune"]["method"]
             num_params = sum(p.numel() for p in model.parameters())
             num_trainable_params = sum(
@@ -149,7 +161,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 f"[{num_trainable_params / num_params:.2%} %]"
             )
             inherit_heads = self.hypers["finetune"]["inherit_heads"]
-            if inherit_heads:
+            if inherit_heads and is_fresh_finetune_start:
                 logging.info(
                     "Inheriting initial weights for heads and last layers for targets: "
                     f"from {list(inherit_heads.values())} to "
@@ -428,9 +440,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 if is_distributed:
                     # make sure all parameters contribute to the gradient calculation
-                    # to make torch DDP happy
-                    for param in model.parameters():
-                        train_loss_batch += 0.0 * param.sum()
+                    # to make torch DDP happy (e.g. when a target's head is kept in
+                    # the model but not part of the current run's targets)
+                    train_loss_batch += 0.0 * sum(
+                        p.sum() for p in model.parameters() if p.requires_grad
+                    )
 
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(

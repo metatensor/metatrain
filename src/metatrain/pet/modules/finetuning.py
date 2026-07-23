@@ -1,11 +1,13 @@
 # mypy: disable-error-code=misc
 # We ignore misc errors in this file because TypedDict
 # with default values is not allowed by mypy.
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
 from typing_extensions import Literal, NotRequired, TypedDict
+
+from metatrain.utils.data.target_info import TargetInfo
 
 
 class LoRaFinetuneConfig(TypedDict):
@@ -101,6 +103,64 @@ class HeadsFinetuneHypers(TypedDict):
 FinetuneHypers = FullFinetuneHypers | LoRaFinetuneHypers | HeadsFinetuneHypers
 
 
+def compute_stale_targets(
+    old_targets: Dict[str, TargetInfo], new_targets: Dict[str, TargetInfo]
+) -> List[str]:
+    """Determine which targets are made stale by a fine-tuning run.
+
+    A target is stale if it was already present in the model before this run
+    (``old_targets``) but is not part of the dataset the current run trains on
+    (``new_targets``). When fine-tuning changes the backbone (``full``/``lora``
+    methods), such targets' heads are no longer meaningful, since they were fit
+    against a feature space the backbone no longer produces.
+
+    :param old_targets: Targets already present in the model before this run.
+    :param new_targets: Targets that are part of the dataset for this run.
+    :return: Names of the stale targets.
+    """
+    return [key for key in old_targets if key not in new_targets]
+
+
+def copy_head_weights(
+    model: nn.Module, source_head_name: str, dest_head_name: str
+) -> None:
+    """Copy trainable head/last-layer parameter values between two targets.
+
+    Every parameter whose fully-qualified name contains ``source_head_name`` is
+    copied into the correspondingly-named parameter for ``dest_head_name``
+    (found by substituting the target name in the parameter's name). Both targets
+    must already exist in the model, with matching parameter shapes (i.e. the same
+    target layout) -- this only copies values, it does not create or resize
+    anything.
+
+    :param model: The model whose parameters to copy between.
+    :param source_head_name: Name of the target to copy weights from.
+    :param dest_head_name: Name of the target to copy weights into.
+    """
+    model_parameters = dict(model.named_parameters())
+    if not any(f".{source_head_name}." in name for name in model_parameters):
+        raise ValueError(
+            f"Weight copy was requested, but the source target name "
+            f"'{source_head_name}' was not found in the model. Please specify "
+            "the correct source target name."
+        )
+    if not any(f".{dest_head_name}." in name for name in model_parameters):
+        raise ValueError(
+            f"Weight copy was requested, but the destination target name "
+            f"'{dest_head_name}' was not found in the model. Please specify "
+            "the correct destination target name."
+        )
+    for name, param in model_parameters.items():
+        if f".{source_head_name}." in name:
+            corresponding_dest_name = name.replace(source_head_name, dest_head_name)
+            if corresponding_dest_name in model_parameters:
+                model_parameters[corresponding_dest_name].data.copy_(param.data)
+            else:
+                raise ValueError(
+                    f"Destination head '{dest_head_name}' not found in model."
+                )
+
+
 def _add_backend_prefix(model: nn.Module, module_names: list[str]) -> list[str]:
     """Prepend the ``backend.`` prefix to module names that do not already have it.
 
@@ -121,7 +181,9 @@ def _add_backend_prefix(model: nn.Module, module_names: list[str]) -> list[str]:
     ]
 
 
-def apply_finetuning_strategy(model: nn.Module, strategy: FinetuneHypers) -> nn.Module:
+def apply_finetuning_strategy(
+    model: nn.Module, strategy: FinetuneHypers, apply_inherit_heads: bool = True
+) -> nn.Module:
     """
     Apply the specified finetuning strategy to the model.
     This function modifies the model in place based on the provided strategy.
@@ -137,6 +199,15 @@ def apply_finetuning_strategy(model: nn.Module, strategy: FinetuneHypers) -> nn.
         which is a dictionary mapping the new trainable targets to the existing
         targets in the model. This allows for copying weights from the corresponding
         source heads to the destination heads instead of random initialization.
+    :param apply_inherit_heads: Whether to process the "inherit_heads" weight copy
+        (and the removal of targets left stale by a backbone-altering finetuning
+        run, see :func:`compute_stale_targets`). Both are one-time initialization
+        steps that must run exactly once, when finetuning actually starts. Callers
+        that re-apply an already-active strategy after reloading a checkpoint
+        (e.g. to restore the trainable/frozen parameter state) should pass
+        ``False``: by then, any inherited-from source target may already have been
+        pruned, so redoing the copy would fail (or silently clobber trained
+        weights if the source were still around).
     :return: The modified model with the finetuning strategy applied.
     """
 
@@ -220,32 +291,31 @@ def apply_finetuning_strategy(model: nn.Module, strategy: FinetuneHypers) -> nn.
     model.finetune_config = strategy
 
     inherit_heads_config = strategy["inherit_heads"]
-    if inherit_heads_config:
-        for dest_target_name, source_target_name in inherit_heads_config.items():
-            model_parameters = dict(model.named_parameters())
-            if not any(f".{source_target_name}." in name for name in model_parameters):
-                raise ValueError(
-                    f"Weight inheritance was selected in finetuning strategy, but "
-                    f"the source target name '{source_target_name}' was not found in "
-                    "the model. Please specify the correct source target name."
-                )
-            if not any(f".{dest_target_name}." in name for name in model_parameters):
-                raise ValueError(
-                    f"Weight inheritance was selected in finetuning strategy, but "
-                    f"the destination target name '{dest_target_name}' was not found "
-                    "in the model. Please specify the correct destination target name."
-                )
-            for name, param in model_parameters.items():
-                if f".{source_target_name}." in name:
-                    corresponding_dest_name = name.replace(
-                        source_target_name, dest_target_name
-                    )
-                    if corresponding_dest_name in model_parameters:
-                        model_parameters[corresponding_dest_name].data.copy_(param.data)
-                    else:
-                        raise ValueError(
-                            f"Destination head '{dest_target_name}' not found in model."
-                        )
+    if apply_inherit_heads and inherit_heads_config:
+        for dest_head_name, source_head_name in inherit_heads_config.items():
+            copy_head_weights(model, source_head_name, dest_head_name)
+
+    # Targets not part of this run's dataset are dropped now that weight
+    # inheritance (if any) has had a chance to copy from their heads: with
+    # ``full``/``lora``, the backbone has changed, so these targets' heads are no
+    # longer meaningful. ``restart`` always stashes the list on the model rather
+    # than removing right away, since it runs before this function (and before
+    # ``inherit_heads`` above needs the stale heads to still be present); with
+    # ``heads`` the backbone is unchanged, so stale targets are left alone here.
+    stale_targets = getattr(model, "_stale_finetune_targets", None)
+    if stale_targets and strategy["method"] in ("full", "lora"):
+        for target_name in stale_targets:
+            model.remove_output(target_name)
+            if target_name in model.target_names:
+                model.target_names.remove(target_name)
+            model.dataset_info.targets.pop(target_name, None)
+            for additive_model in model.additive_models:
+                if target_name in additive_model.outputs:
+                    additive_model.remove_output(target_name)
+            if target_name in model.scaler.outputs:
+                model.scaler.remove_output(target_name)
+        model._stale_finetune_targets = []
+
     return model
 
 

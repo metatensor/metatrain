@@ -145,11 +145,12 @@ from typing import Literal, Optional
 from typing_extensions import TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
-from metatrain.utils.finetuning import FinetuneHypers, NoFinetuneHypers
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.long_range import LongRangeHypers
 from metatrain.utils.loss import LossSpecification
 from metatrain.utils.scaler import FixedScalerWeights
+
+from .modules.finetuning import FinetuneHypers, NoFinetuneHypers
 
 
 class ModelHypers(TypedDict):

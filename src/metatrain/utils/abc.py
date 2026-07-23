@@ -151,6 +151,22 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
             handle the new dataset.
         """
 
+    def remove_output(self, target_name: str) -> None:
+        """
+        Remove a previously registered output target from the model.
+
+        Used to drop targets whose heads are no longer meaningful, e.g. after a
+        backbone-altering fine-tuning run (``full``/``lora``) makes them stale.
+
+        Not every architecture supports this; the default implementation raises
+        ``NotImplementedError``.
+
+        :param target_name: Name of the target to remove.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support removing an output."
+        )
+
     @classmethod
     @abstractmethod
     def load_checkpoint(

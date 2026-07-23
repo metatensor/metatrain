@@ -238,6 +238,25 @@ class BaseScaler(torch.nn.Module):
             ],
         )
 
+    def remove_output(self, target_name: str) -> None:
+        """
+        Remove a previously registered target, mirroring :meth:`add_output`.
+
+        :param target_name: Name of the target to remove.
+        """
+        if target_name in self.target_names:
+            self.target_names.remove(target_name)
+        if target_name in self.multi_property_target_names:
+            self.multi_property_target_names.remove(target_name)
+        self.sample_kinds.pop(target_name, None)
+        self.N.pop(target_name, None)
+        self.Y2.pop(target_name, None)
+        self.scales.pop(target_name, None)
+        self.per_target_scales.pop(target_name, None)
+        self.per_property_N.pop(target_name, None)
+        self.per_property_Y2.pop(target_name, None)
+        self.per_property_scales.pop(target_name, None)
+
     def _compute_N_and_Y2(
         self,
         systems: List[System],
@@ -246,7 +265,6 @@ class BaseScaler(torch.nn.Module):
         per_property: bool,
         mask: Optional[TensorMap],
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
-
         N_list = []
         Y2_list = []
         for key, block in target.items():

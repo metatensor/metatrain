@@ -213,6 +213,19 @@ class BaseCompositionModel(torch.nn.Module):
             ],
         )
 
+    def remove_output(self, target_name: str) -> None:
+        """
+        Remove a previously registered target, mirroring :meth:`add_output`.
+
+        :param target_name: Name of the target to remove.
+        """
+        if target_name in self.target_names:
+            self.target_names.remove(target_name)
+        self.sample_kinds.pop(target_name, None)
+        self.XTX.pop(target_name, None)
+        self.XTY.pop(target_name, None)
+        self.weights.pop(target_name, None)
+
     def accumulate(
         self,
         systems: List[System],
