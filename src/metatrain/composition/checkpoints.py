@@ -10,3 +10,6 @@ def trainer_update_v1_v2(checkpoint: dict) -> None:
     checkpoint["train_hypers"]["distributed_port"] = checkpoint["train_hypers"].get(
         "distributed_port", 39591
     )
+    checkpoint["train_hypers"]["num_workers"] = checkpoint["train_hypers"].get(
+        "num_workers", None
+    )

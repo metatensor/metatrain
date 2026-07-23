@@ -12,7 +12,9 @@ from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    get_num_workers,
     unpack_batch,
+    validate_num_workers,
 )
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
@@ -135,6 +137,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
             else:
                 samplers = [None] * len(train_datasets)
 
+            if self.hypers["num_workers"] is None:
+                num_workers = get_num_workers()
+                logging.info(
+                    "Number of workers for data-loading not provided and chosen "
+                    f"automatically. Using {num_workers} workers."
+                )
+            else:
+                num_workers = self.hypers["num_workers"]
+                validate_num_workers(num_workers)
+
             dataloaders = []
             for dataset, sampler in zip(train_datasets, samplers, strict=True):
                 if len(dataset) < batch_size:
@@ -152,6 +164,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         shuffle=None if sampler is not None else False,
                         drop_last=False,
                         collate_fn=collate_fn,
+                        num_workers=num_workers,
                     )
                 )
 

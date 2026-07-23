@@ -97,3 +97,6 @@ class TrainerHypers(TypedDict):
     weights, since the composition model is a deterministic fit rather than
     an iterative optimization. Defaults to the size of the smallest training
     dataset."""
+    num_workers: NotRequired[Optional[int]] = None
+    """Number of workers for data loading. If not provided, it is set
+    automatically."""
