@@ -43,6 +43,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         assert isinstance(model, Scaler)
 
+        model = model.to(dtype=dtype, device=devices[0])
+
         additive_models = getattr(self, "_additive_models", [])
         is_distributed = getattr(self, "_is_distributed", False)
         fixed_weights = self.hypers.get("fixed_weights", None)

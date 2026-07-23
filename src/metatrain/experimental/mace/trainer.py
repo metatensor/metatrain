@@ -243,14 +243,25 @@ class Trainer(TrainerInterface):
             is_distributed=is_distributed,
             checkpoint_dir=checkpoint_dir,
         )
+        scaling_weights = self.hypers["fixed_scaling_weights"]
+        if isinstance(scaling_weights, str):
+            if model.get_fixed_scaling_weights():
+                raise ValueError(
+                    "The loaded MACE model provides its own scaling weights, "
+                    "which cannot be combined with a scaler checkpoint passed as "
+                    "`fixed_scaling_weights`. Use the dict form of "
+                    "`fixed_scaling_weights` instead."
+                )
+        else:
+            scaling_weights = {
+                **model.get_fixed_scaling_weights(),
+                **scaling_weights,
+            }
 
         if self.hypers["scale_targets"]:
             train_or_load_scaler(
                 scaler=model.scaler,
-                fixed_weights={
-                    **model.get_fixed_scaling_weights(),
-                    **self.hypers["fixed_scaling_weights"],
-                },
+                fixed_weights=scaling_weights,
                 train_datasets=train_datasets,
                 additive_models=model.additive_models,
                 batch_size=self.hypers["batch_size"],

@@ -501,6 +501,9 @@ class Scaler(ModelInterface[ModelHypers]):
             dataset_info=model_data["dataset_info"],
         )
 
+        dtype = model_state_dict["dummy_buffer"].dtype
+        model.to(dtype)
+
         model.load_state_dict(model_state_dict)
         model.sync_tensor_maps()
 

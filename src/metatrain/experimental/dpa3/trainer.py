@@ -159,12 +159,24 @@ class Trainer(TrainerInterface[TrainerHypers]):
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
 
+        atomic_baseline = self.hypers["fixed_composition_weights"]
+        if isinstance(atomic_baseline, str):
+            if model.get_fixed_composition_weights():
+                raise ValueError(
+                    "The loaded DPA3 model provides its own atomic baselines, "
+                    "which cannot be combined with a composition model "
+                    "checkpoint passed as `atomic_baseline`. Use the dict form "
+                    "of `atomic_baseline` instead."
+                )
+        else:
+            atomic_baseline = {
+                **model.get_fixed_composition_weights(),
+                **atomic_baseline,
+            }
+
         train_or_load_composition_model(
             composition_model=model.additive_models[0],
-            atomic_baseline={
-                **model.get_fixed_composition_weights(),
-                **self.hypers["fixed_composition_weights"],
-            },
+            atomic_baseline=atomic_baseline,
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
             batch_size=self.hypers["batch_size"],
