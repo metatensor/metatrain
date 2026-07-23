@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Literal, Union, cast
 
 import metatensor.torch as mts
 import torch
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive.remove import remove_additive
@@ -125,15 +125,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
             if is_distributed:
                 world_size = torch.distributed.get_world_size()
                 rank = torch.distributed.get_rank()
-                samplers = [
-                    DistributedSampler(
-                        dataset,
-                        num_replicas=world_size,
-                        rank=rank,
-                        shuffle=False,
-                        drop_last=False,
-                    )
-                    for dataset in train_datasets
+                # Strided shards instead of DistributedSampler: its padding
+                # duplicates samples to equalize shard sizes, which would bias
+                # the least-squares fit. Unequal shard sizes are fine here, as
+                # the only collective is the final all_reduce.
+                samplers: List[Any] = [
+                    range(rank, len(dataset), world_size) for dataset in train_datasets
                 ]
             else:
                 samplers = [None] * len(train_datasets)
@@ -152,7 +149,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         dataset=dataset,
                         batch_size=batch_size,
                         sampler=sampler,
-                        shuffle=None if sampler else False,
+                        shuffle=None if sampler is not None else False,
                         drop_last=False,
                         collate_fn=collate_fn,
                     )
@@ -187,14 +184,25 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         if is_distributed:
             torch.distributed.barrier()
+            # A rank whose shard of some dataset was empty never accumulated
+            # the corresponding targets, so its XTX/XTY are still on the CPU,
+            # while NCCL needs them on the GPU for the all_reduce.
+            model.model._sync_device_dtype(device, torch.float64)
+            handles = []
             for target_name in targets_to_accumulate:
                 for XTX_block, XTY_block in zip(
                     model.model.XTX[target_name],
                     model.model.XTY[target_name],
                     strict=True,
                 ):
-                    torch.distributed.all_reduce(XTX_block.values)
-                    torch.distributed.all_reduce(XTY_block.values)
+                    handles.append(
+                        torch.distributed.all_reduce(XTX_block.values, async_op=True)
+                    )
+                    handles.append(
+                        torch.distributed.all_reduce(XTY_block.values, async_op=True)
+                    )
+            for handle in handles:
+                handle.wait()
 
         model.model.fit(fixed_weights, targets_to_fit=model._new_outputs)
 
