@@ -49,3 +49,5 @@ architecture:
     best_model_metric: mae_prod
     grad_clip_norm: 1.0
     loss: mse
+    num_epochs_warmup: 0
+    scheduler_patience: 10

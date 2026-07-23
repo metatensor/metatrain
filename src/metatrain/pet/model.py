@@ -21,7 +21,6 @@ from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL, CompositionModel
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.finetuning import apply_finetuning_strategy
 from metatrain.utils.hooks import setup_post_hooks
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
@@ -174,7 +173,7 @@ class PET(ModelInterface):
         self.property_labels: Dict[str, List[Labels]] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
-        for target_name, target_info in dataset_info.targets.items():
+        for target_name, target_info in model_outs.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
 
@@ -196,10 +195,7 @@ class PET(ModelInterface):
                     if target_name in targets
                     else "",
                     unit=targets[target_name].unit if target_name in targets else "",
-                    sample_kind="atom",
-                    description=targets[target_name].description
-                    if target_name in targets
-                    else "",
+                    per_atom=True,
                 )
 
         # long-range module
@@ -263,8 +259,6 @@ class PET(ModelInterface):
         self.single_label = Labels.single()
 
         self.finetune_config: Dict[str, Any] = {}
-        print (self.hypers['gap_layer'])
-        self.bandgap_layer = build_sequential_silu(self.hypers['gap_layer'])
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -1232,6 +1226,8 @@ class PET(ModelInterface):
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)
         interaction_range = max(interaction_ranges)
+
+        print(self.outputs)
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,

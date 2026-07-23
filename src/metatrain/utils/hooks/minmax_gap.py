@@ -5,7 +5,7 @@ from typing_extensions import TypedDict, NotRequired
 from typing import Literal
 
 from metatrain.utils.data import DatasetInfo, TargetInfo
-from metatrain.utils.hypers import init_with_defaults
+#from metatrain.utils.hypers import init_with_defaults
 
 # -----------------------------------------
 #                Hypers
@@ -53,9 +53,9 @@ class HookHypers(TypedDict):
     """
     Hyperparameters for the global multipole hook.
     """
-    pooling: PoolingHypers = init_with_defaults(PoolingHypers)
+    pooling: PoolingHypers = {"type": "smoothmax", "alpha_bottom": 20.0, "alpha_top": -20.0}
 
-    inputs: HookInputs = init_with_defaults(HookInputs)
+    inputs: HookInputs = {}
 
     outputs: str
 
@@ -149,7 +149,7 @@ class MinMaxGap(torch.nn.Module):
 
         self.hypers = hypers
 
-        pooling_hypers = hypers.get("pooling", init_with_defaults(PoolingHypers))
+        pooling_hypers = hypers.get("pooling", {"type": "smoothmax", "alpha_bottom": 20.0, "alpha_top": -20.0})
 
         self._pooling_type = pooling_hypers["type"]
 
@@ -159,17 +159,17 @@ class MinMaxGap(torch.nn.Module):
 
         # Build the input target that we will request from the model,
         # which is the local multipoles
-        inputs = hypers.get("inputs", init_with_defaults(HookInputs))
+        inputs = hypers.get("inputs", {})
         self._input_names = [
             inputs.get("bottom", "mtt::aux::gap_bottom"),
             inputs.get("top", "mtt::aux::gap_top"),
         ]
 
-        if self.out_target.sample_kind != "system":
+        if self.out_target.per_atom:
             raise ValueError(
                 f"MinMaxGap hook only supports system-level outputs, "
                 f"but {self.out_name} has sample kind "
-                f"{self.out_target.sample_kind}"
+                f"system."
             )
         if not self.out_target.is_scalar:
             raise ValueError(
@@ -193,7 +193,7 @@ class MinMaxGap(torch.nn.Module):
         )
 
         self._input_target_infos = {
-            input_name: TargetInfo(per_atom_layout)
+            input_name: TargetInfo("", per_atom_layout)
             for input_name in self._input_names
         }
         self._blocks_shape = [
@@ -227,7 +227,7 @@ class MinMaxGap(torch.nn.Module):
             k: ModelOutput(
                 quantity="",
                 unit="",
-                sample_kind="atom",
+                per_atom=True,
             ) for k in self._input_names
         }
 
@@ -282,8 +282,8 @@ class MinMaxGap(torch.nn.Module):
                         names=["system"],
                         values=torch.arange(num_systems, dtype=torch.int32, device=device).reshape(-1, 1),
                     ),
-                    components=layout.components,
-                    properties=layout.properties,
+                    components=layout_block.components,
+                    properties=layout_block.properties,
                 )
             )
 

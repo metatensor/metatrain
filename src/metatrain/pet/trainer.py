@@ -359,7 +359,7 @@ class Trainer(TrainerInterface):
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a learning rate scheduler
-        lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
+        lr_scheduler = get_scheduler(optimizer, self.hypers)
 
         if self.scheduler_state_dict is not None and not is_finetune:
             # same as the optimizer, try to load the scheduler state dict
