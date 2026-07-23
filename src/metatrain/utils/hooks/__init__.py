@@ -6,11 +6,13 @@ from metatrain.utils.data import DatasetInfo, TargetInfo
 
 from .global_multipole import GlobalMultipole
 from .minmax_gap import MinMaxGap
+from .tensor_basis import TensorBasis
 
 
 KNOWN_POST_HOOKS = {
     "global_multipoles": GlobalMultipole,
     "minmax_gap": MinMaxGap,
+    "tensor_basis": TensorBasis,
 }
 
 
