@@ -392,6 +392,21 @@ class BaseModel(torch.nn.Module):
                 }
             )
 
+    def remove_output(self, target_name: str) -> None:
+        """
+        Remove the head and last layers of a previously registered output target,
+        mirroring :meth:`_add_output`.
+
+        ``torch.nn.ModuleDict.pop`` has no ``default`` argument, so presence is
+        checked explicitly before deleting.
+
+        :param target_name: Name of the target to remove.
+        """
+        if target_name in self.heads:
+            del self.heads[target_name]
+        if target_name in self.last_layers:
+            del self.last_layers[target_name]
+
 
 class GradientModel(torch.nn.Module):
     """

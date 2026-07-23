@@ -46,6 +46,7 @@ from metatrain.utils.transfer import batch_to
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import PhACE
+from .modules.finetuning import apply_finetuning_strategy
 from .utils import systems_to_batch
 
 
@@ -139,7 +140,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -188,6 +189,41 @@ class Trainer(TrainerInterface[TrainerHypers]):
             logging.info(f"Training on {world_size} devices with dtype {dtype}")
         else:
             logging.info(f"Training on device {device} with dtype {dtype}")
+
+        # Apply fine-tuning strategy if provided
+        is_finetune = self.hypers["finetune"]["read_from"] is not None
+        if is_finetune:
+            assert self.hypers["finetune"]["read_from"] is not None  # for mypy
+            # ``inherit_heads`` is a one-time weight-copy initialization step that
+            # must only run when finetuning first starts (a fresh ``Trainer``), not
+            # again when a restart resumes an already-started finetuning run (a
+            # restarted ``Trainer`` has its ``optimizer_state_dict`` restored by
+            # ``load_checkpoint``); otherwise it would clobber the head weights
+            # trained so far with a fresh copy from the source target.
+            is_fresh_finetune_start = self.optimizer_state_dict is None
+            model = apply_finetuning_strategy(
+                model,
+                self.hypers["finetune"],
+                apply_inherit_heads=is_fresh_finetune_start,
+            )
+            method = self.hypers["finetune"]["method"]
+            num_params = sum(p.numel() for p in model.parameters())
+            num_trainable_params = sum(
+                p.numel() for p in model.parameters() if p.requires_grad
+            )
+
+            logging.info(f"Applied finetuning strategy: {method}")
+            logging.info(
+                f"Number of trainable parameters: {num_trainable_params} "
+                f"[{num_trainable_params / num_params:.2%} %]"
+            )
+            inherit_heads = self.hypers["finetune"]["inherit_heads"]
+            if inherit_heads and is_fresh_finetune_start:
+                logging.info(
+                    "Inheriting initial weights for heads and last layers for targets: "
+                    f"from {list(inherit_heads.values())} to "
+                    f"{list(inherit_heads.keys())}"
+                )
 
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
@@ -711,6 +747,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
+        if self.best_model_state_dict is not None:
+            self.best_model_state_dict["finetune_config"] = model.finetune_config
         checkpoint.update(
             {
                 "train_hypers": self.hypers,
