@@ -164,7 +164,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
         trainer.train(
             model=self,
             dtype=torch.float64,
-            devices=[torch.device("cpu")],
+            devices=[self.dummy_buffer.device],
             train_datasets=datasets,
             val_datasets=datasets,
             checkpoint_dir="",

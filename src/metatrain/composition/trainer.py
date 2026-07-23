@@ -68,19 +68,19 @@ class Trainer(TrainerInterface[TrainerHypers]):
             return
 
         # When trained from within another architecture, the parent trainer has
-        # already initialized the process group and moved the model to the
-        # right device; standalone (`mtt train`) distributed runs must do both
-        # here.
+        # already initialized the process group; standalone (`mtt train`)
+        # distributed runs must do it here, and get their device from it.
         owns_process_group = False
         if is_distributed and not torch.distributed.is_initialized():
             device, world_size, _ = initialize_slurm_nccl_process_group(
                 self.hypers["distributed_port"]
             )
-            model.to(device=device)
             owns_process_group = True
-            logging.info(f"Training on {world_size} devices")
-
-        device = model.dummy_buffer.device
+            logging.info(f"Training on {world_size} devices with dtype {dtype}")
+        else:
+            device = devices[0]
+            logging.info(f"Training on device {device} with dtype {dtype}")
+        model.to(device=device)
 
         # Targets with fixed weights don't need data accumulation, only fit().
         targets_to_accumulate = [
