@@ -154,13 +154,13 @@ class CompositionModel(ModelInterface[ModelHypers]):
         if len(self.target_infos) == 0:
             return
 
-        hypers: dict = {}
-        if fixed_weights is not None:
-            hypers["atomic_baseline"] = fixed_weights
-        hypers["batch_size"] = batch_size
+        hypers: dict = {
+            "atomic_baseline": fixed_weights if fixed_weights is not None else {},
+            "batch_size": batch_size,
+            "distributed": is_distributed,
+        }
         trainer = CompositionTrainer(hypers=hypers)  # type: ignore[arg-type]
         trainer._additive_models = additive_models
-        trainer._is_distributed = is_distributed
         trainer.train(
             model=self,
             dtype=torch.float64,

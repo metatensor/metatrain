@@ -81,6 +81,10 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for the composition trainer."""
 
+    distributed: NotRequired[bool] = False
+    """Whether to use distributed training"""
+    distributed_port: NotRequired[int] = 39591
+    """Port for distributed communication among processes"""
     atomic_baseline: NotRequired[FixedCompositionWeights] = {}
     """Fixed per-species baselines, overriding the least-squares fit for the
     targets/atomic types they cover. A dict mapping each target name to either

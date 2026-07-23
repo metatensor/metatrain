@@ -1,5 +1,6 @@
+import logging
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Union
+from typing import Any, Dict, List, Literal, Union, cast
 
 import metatensor.torch as mts
 import torch
@@ -16,18 +17,32 @@ from metatrain.utils.data import (
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
 )
+from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
+from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists_transform
 from metatrain.utils.transfer import batch_to
 
+from . import checkpoints
 from .documentation import TrainerHypers
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
 
     def __init__(self, hypers: TrainerHypers):
+        # Unlike other trainers, this one is also instantiated directly by
+        # other architectures (see train_or_load_composition_model), possibly
+        # with partial hypers, so missing entries are filled with their
+        # defaults here.
+        hypers = cast(TrainerHypers, {**init_with_defaults(TrainerHypers), **hypers})
         super().__init__(hypers)
+
+        # Other additive models (e.g. ZBL) whose contributions are subtracted
+        # from the targets before fitting. Set by architectures that train the
+        # composition model as an additive baseline (see
+        # train_or_load_composition_model); empty for standalone training.
+        self._additive_models: List[torch.nn.Module] = []
 
     def train(
         self,
@@ -42,18 +57,28 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         assert isinstance(model, CompositionModel)
 
-        additive_models = getattr(self, "_additive_models", [])
-        is_distributed = getattr(self, "_is_distributed", False)
-        fixed_weights = self.hypers.get("atomic_baseline", None)
-        batch_size = self.hypers.get("batch_size")
+        additive_models = self._additive_models
+        is_distributed = self.hypers["distributed"]
+        fixed_weights = self.hypers["atomic_baseline"]
+        batch_size = self.hypers["batch_size"]
         if batch_size is None:
             batch_size = min(len(dataset) for dataset in train_datasets)
 
         if len(model.target_infos) == 0:
             return
 
-        if fixed_weights is None:
-            fixed_weights = {}
+        # When trained from within another architecture, the parent trainer has
+        # already initialized the process group and moved the model to the
+        # right device; standalone (`mtt train`) distributed runs must do both
+        # here.
+        owns_process_group = False
+        if is_distributed and not torch.distributed.is_initialized():
+            device, world_size, _ = initialize_slurm_nccl_process_group(
+                self.hypers["distributed_port"]
+            )
+            model.to(device=device)
+            owns_process_group = True
+            logging.info(f"Training on {world_size} devices")
 
         device = model.dummy_buffer.device
 
@@ -187,6 +212,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
             ckpt_path = Path(checkpoint_dir) / "composition_model.ckpt"
             self.save_checkpoint(model, ckpt_path)
 
+        if owns_process_group:
+            torch.distributed.destroy_process_group()
+
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         # epoch, best_epoch and best_model_state_dict are already set by
         # model.get_checkpoint()
@@ -208,13 +236,18 @@ class Trainer(TrainerInterface[TrainerHypers]):
     ) -> "Trainer":
         raise ValueError("Composition model does not allow restarting training")
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        version = checkpoint.get("trainer_ckpt_version", 0)
-        if version != Trainer.__checkpoint_version__:
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["trainer_ckpt_version"] == v:
+                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["trainer_ckpt_version"] = v + 1
+
+        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using trainer "
-                f"version {version}, while the current "
-                f"trainer version is {Trainer.__checkpoint_version__}."
+                f"version {checkpoint['trainer_ckpt_version']}, while the current "
+                f"trainer version is {cls.__checkpoint_version__}."
             )
         return checkpoint
