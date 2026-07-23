@@ -59,6 +59,10 @@ class OutputTests(ArchitectureTests):
     equivariance_error_tolerance: float = 1e-5
     """Tolerance for equivariance tests."""
 
+    monomer_equal_dimer: bool = False
+    """Whether the model is expected to produce the same output for
+    a dimer and two monomers at a large distance."""
+
     @pytest.fixture
     def n_features(self) -> Optional[int | list[int]]:
         """Fixture that returns the number of features produced by the model.
@@ -504,6 +508,11 @@ class OutputTests(ArchitectureTests):
         argument of the ``forward()`` method, and it handles it correctly.
         That is, the model only returns outputs for the selected atoms.
 
+        The test runs the model on a dimer system and compares the per-atom
+        energies to those of a system where the monomers are far apart. If
+        these two energies are meant to be the same in the model, this test
+        will fail unless ``monomer_equal_dimer`` is set to ``True``.
+
         This test is skipped if the model does not support the ``selected_atoms``
         argument of the ``forward()`` method, i.e., if ``supports_selected_atoms``
         is set to ``False``.
@@ -578,7 +587,12 @@ class OutputTests(ArchitectureTests):
                 selected_atoms=selection_labels,
             )
 
-            assert not mts.allclose(energy_monomer["energy"], energy_dimer["energy"])
+            if self.monomer_equal_dimer:
+                assert mts.allclose(energy_monomer["energy"], energy_dimer["energy"])
+            else:
+                assert not mts.allclose(
+                    energy_monomer["energy"], energy_dimer["energy"]
+                )
 
             assert mts.allclose(
                 energy_monomer["energy"], energy_monomer_in_dimer["energy"]

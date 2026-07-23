@@ -24,6 +24,7 @@ from metatrain.experimental.phace.modules.base_model import (
 )
 from metatrain.experimental.phace.modules.cg_coefficients import ClebschGordanReal
 from metatrain.experimental.phace.utils import systems_to_batch
+from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL
 from metatrain.utils.data.atomic_basis_helpers import (
@@ -33,7 +34,6 @@ from metatrain.utils.data.atomic_basis_helpers import (
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
 
 from . import checkpoints
 
@@ -464,7 +464,7 @@ class PhACE(ModelInterface[ModelHypers]):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(
+            return_dict = self.scaler.apply_scales(
                 systems,
                 return_dict,
                 selected_atoms=selected_atoms,

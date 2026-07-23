@@ -10,6 +10,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DistributedSampler
 
 from metatrain.composition import train_or_load_composition_model
+from metatrain.scaler import train_or_load_scaler
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.augmentation import O3Augmenter
@@ -194,13 +195,14 @@ class Trainer(TrainerInterface):
         )
 
         if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets,
-                model.additive_models,
-                self.hypers["batch_size"],
-                is_distributed,
-                self.hypers["fixed_scaling_weights"],
+            train_or_load_scaler(
+                scaler=model.scaler,
+                fixed_weights=self.hypers["fixed_scaling_weights"],
+                train_datasets=train_datasets,
+                additive_models=model.additive_models,
+                batch_size=self.hypers["batch_size"],
+                is_distributed=is_distributed,
+                checkpoint_dir=checkpoint_dir,
                 per_structure_targets=self.hypers["per_structure_targets"],
             )
 
@@ -407,7 +409,9 @@ class Trainer(TrainerInterface):
                 # not per-property. This transformation only applies to targets with
                 # per-property scales (i.e. multiple blocks or multiple properties), and
                 # leaves the others unchanged.
-                predictions = (model.module if is_distributed else model).scaler(
+                predictions = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(
                     systems,
                     predictions,
                     remove=False,
@@ -445,14 +449,16 @@ class Trainer(TrainerInterface):
                 if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
                     scaled_predictions = (
                         model.module if is_distributed else model
-                    ).scaler(
+                    ).scaler.apply_scales(
                         systems,
                         predictions,
                         remove=False,
                         use_per_target_scales=True,
                         use_per_property_scales=False,
                     )
-                    scaled_targets = (model.module if is_distributed else model).scaler(
+                    scaled_targets = (
+                        model.module if is_distributed else model
+                    ).scaler.apply_scales(
                         systems,
                         targets,
                         remove=False,
@@ -508,7 +514,9 @@ class Trainer(TrainerInterface):
                 # per-target, and not per-property. This transformation only applies
                 # to targets with per-property scales (i.e. multiple blocks or
                 # multiple properties), and leaves the others unchanged.
-                predictions = (model.module if is_distributed else model).scaler(
+                predictions = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(
                     systems,
                     predictions,
                     remove=False,
@@ -526,14 +534,18 @@ class Trainer(TrainerInterface):
                 # Reapply scales and accumulate quantities for computing val metrics.
                 # This is done for every epoch as validation metrics are needed for
                 # model selection
-                scaled_predictions = (model.module if is_distributed else model).scaler(
+                scaled_predictions = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(
                     systems,
                     predictions,
                     remove=False,
                     use_per_target_scales=True,
                     use_per_property_scales=False,
                 )
-                scaled_targets = (model.module if is_distributed else model).scaler(
+                scaled_targets = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(
                     systems,
                     targets,
                     remove=False,
