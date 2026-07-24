@@ -159,6 +159,10 @@ class MetatrainArchitectureValidationError(MetatrainValidationError):
 
         :return: The formatted error string to display to the user.
         """
+        if len(error["loc"]) == 0:
+            # raised by a validator of the whole architecture options, e.g. the
+            # architecture hypers sanitizer: report the plain message
+            return error["msg"].removeprefix("Value error, ")
 
         hyper_type: Literal["model", "training"] = error["loc"][0]
         field = error["loc"][1]
@@ -205,10 +209,12 @@ class MetatrainArchitectureValidationError(MetatrainValidationError):
         """
         errors = self.errors
 
-        # Organize errors by their top-level location (model vs training)
-        error_dict: dict[Literal["model", "training"], list[dict]] = {}
+        # Organize errors by their top-level location (model vs training).
+        # Errors raised by validators of the whole architecture options (e.g.
+        # the architecture hypers sanitizer) have an empty location.
+        error_dict: dict[str, list[dict]] = {}
         for err in errors:
-            top_level = err["loc"][0]
+            top_level = str(err["loc"][0]) if len(err["loc"]) > 0 else ""
             if top_level not in error_dict:
                 error_dict[top_level] = []
             error_dict[top_level].append(err)
@@ -237,6 +243,10 @@ class MetatrainArchitectureValidationError(MetatrainValidationError):
                     f"\n---- [Error {i}] {self.get_loc_path(err['loc'])}"
                     f"\n\n  {self.get_error_string(err)}\n"
                 )
+        # Log errors without a location (whole-options validators)
+        if "" in error_dict:
+            for err in error_dict[""]:
+                error_str += f"\n{self.get_error_string(err)}\n"
 
         return error_str
 

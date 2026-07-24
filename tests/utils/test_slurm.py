@@ -6,6 +6,7 @@ from metatrain.utils.distributed.slurm import (
     initialize_slurm_nccl_process_group,
     resolve_distributed,
 )
+from metatrain.utils.pydantic import MetatrainValidationError
 
 
 def _set_slurm_env(monkeypatch, num_tasks):
@@ -52,14 +53,18 @@ def test_multitask_slurm_distributed_disabled(monkeypatch):
     _set_slurm_env(monkeypatch, 16)
     with (
         pytest.warns(DeprecationWarning, match="DEPRECATED"),
-        pytest.raises(ValueError, match="distributed training is disabled"),
+        pytest.raises(
+            MetatrainValidationError, match="distributed training is disabled"
+        ),
     ):
         check_architecture_options(name="pet", options=_pet_options(distributed=False))
 
 
 def test_multitask_slurm_unsupported_architecture(monkeypatch):
     _set_slurm_env(monkeypatch, 16)
-    with pytest.raises(ValueError, match="does not support distributed training"):
+    with pytest.raises(
+        MetatrainValidationError, match="does not support distributed training"
+    ):
         check_architecture_options(
             name="composition", options=get_default_hypers("composition")
         )
