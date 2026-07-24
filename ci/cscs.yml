@@ -48,8 +48,10 @@ test distributed:
   script:
     - flock /tmp/ldconfig.lock -c "test -f /tmp/ld_$CI_JOB_ID || { ldconfig || true; touch /tmp/ld_$CI_JOB_ID; }"
     - . /mtt-venv/bin/activate
-    - cd tests/distributed
-    - mtt train options-distributed.yaml | tee train.log
+    - cd tests/resources
+    # distributed is left at its default "auto": the multi-task SLURM launch
+    # of this test must be detected and enable distributed training
+    - mtt train options-pet.yaml | tee train.log
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:
     SLURM_JOB_NUM_NODES: 1
@@ -72,8 +74,8 @@ test distributed misconfiguration:
   script:
     - flock /tmp/ldconfig.lock -c "test -f /tmp/ld_$CI_JOB_ID || { ldconfig || true; touch /tmp/ld_$CI_JOB_ID; }"
     - . /mtt-venv/bin/activate
-    - cd tests/distributed
-    - 'if mtt train options-not-distributed.yaml > train-not-distributed-$SLURM_PROCID.log 2>&1; then echo "FAILED: training started despite a multi-task launch without distributed training."; exit 1; fi'
+    - cd tests/resources
+    - 'if mtt train options-pet.yaml -r architecture.training.distributed=false > train-not-distributed-$SLURM_PROCID.log 2>&1; then echo "FAILED: training started despite a multi-task launch without distributed training."; exit 1; fi'
     - 'grep "distributed training is disabled" train-not-distributed-$SLURM_PROCID.log || { echo "FAILED: expected an early error about the non-distributed multi-task launch."; cat train-not-distributed-$SLURM_PROCID.log; exit 1; }'
   variables:
     SLURM_JOB_NUM_NODES: 1
