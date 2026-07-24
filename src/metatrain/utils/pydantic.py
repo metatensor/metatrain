@@ -298,7 +298,7 @@ def validate_architecture_options(
         """
         return sanitize_architecture_hypers(
             architecture_name=architecture_name or "",
-            hypers=hypers.dict(),
+            hypers=hypers.model_dump(),
             trainer_hypers_cls=trainer_hypers,
         )
 
