@@ -24,6 +24,44 @@ def is_slurm_main_process() -> bool:
     return os.environ["SLURM_PROCID"] == "0"
 
 
+def check_slurm_distributed_config(
+    architecture_name: str, training_hypers: dict
+) -> None:
+    """
+    Check that a multi-task SLURM launch matches the distributed configuration.
+
+    When ``mtt train`` is launched with more than one SLURM task while
+    distributed training is disabled (or not supported by the architecture),
+    every task silently runs its own full copy of the training, all writing to
+    the same output files. Fail early with a clear message instead.
+
+    :param architecture_name: Name of the architecture being trained.
+    :param training_hypers: The architecture's training hyperparameters.
+    :raises ValueError: If the job runs under more than one SLURM task while
+        distributed training is disabled or unsupported.
+    """
+    if not is_slurm():
+        return
+    num_tasks = int(os.environ.get("SLURM_NTASKS", "1"))
+    if num_tasks <= 1:
+        return
+    if "distributed" not in training_hypers:
+        raise ValueError(
+            f"This job was launched with {num_tasks} SLURM tasks, but the "
+            f"'{architecture_name}' architecture does not support distributed "
+            "training: every task would run its own full copy of the same "
+            "training. Please launch with a single task."
+        )
+    if not training_hypers["distributed"]:
+        raise ValueError(
+            f"This job was launched with {num_tasks} SLURM tasks, but "
+            "distributed training is disabled: every task would run its own "
+            "full copy of the same training. Set 'distributed: true' in the "
+            "'training' section of the architecture options, or launch with a "
+            "single task."
+        )
+
+
 class DistributedEnvironment:
     """
     Distributed environment for Slurm.

@@ -33,6 +33,9 @@ Fixed
 Added
 #####
 
+- ``mtt train`` now fails early when launched with more than one SLURM task
+  while distributed training is disabled or not supported by the architecture,
+  instead of silently running one full copy of the training per task.
 - ``max_atoms_per_batch`` now works with ``DiskDataset``: ``DiskDatasetWriter``
   stores the number of atoms of every structure in a ``metadata/atom_counts.npy``
   file, which the sampler reads without opening every entry in the zip.
