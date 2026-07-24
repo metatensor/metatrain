@@ -81,6 +81,10 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for the composition trainer."""
 
+    distributed: NotRequired[bool] = False
+    """Whether to use distributed training"""
+    distributed_port: NotRequired[int] = 39591
+    """Port for distributed communication among processes"""
     atomic_baseline: NotRequired[FixedCompositionWeights] = {}
     """Fixed per-species baselines, overriding the least-squares fit for the
     targets/atomic types they cover. A dict mapping each target name to either
@@ -93,3 +97,6 @@ class TrainerHypers(TypedDict):
     weights, since the composition model is a deterministic fit rather than
     an iterative optimization. Defaults to the size of the smallest training
     dataset."""
+    num_workers: NotRequired[Optional[int]] = None
+    """Number of workers for data loading. If not provided, it is set
+    automatically."""

@@ -90,14 +90,19 @@ def train_or_load_composition_model(
         assert isinstance(atomic_baseline, dict)
         logging.info("Calculating composition weights")
         trainer = Trainer(
-            hypers={"atomic_baseline": atomic_baseline, "batch_size": batch_size}
+            hypers={
+                "atomic_baseline": atomic_baseline,
+                "batch_size": batch_size,
+                "distributed": is_distributed,
+            }
         )
         trainer._additive_models = other_additive_models
-        trainer._is_distributed = is_distributed
+        # The trainer fits on devices[0]; pass the model's current device so
+        # embedded training stays where the parent architecture put the model.
         trainer.train(
             model=composition_model,
             dtype=torch.float64,
-            devices=[torch.device("cpu")],
+            devices=[composition_model.dummy_buffer.device],
             train_datasets=train_datasets,
             val_datasets=train_datasets,
             checkpoint_dir=checkpoint_dir,
