@@ -53,6 +53,9 @@ Added
   being refitted from the training data.
 - Rotational augmentation now supports atomic-basis targets and Cartesian targets of
   rank > 2.
+- LLPR energy ensembles can now return explicit ``positions`` and ``strain`` gradients,
+  giving per-member forces and virials, and hence their uncertainty, straight from the
+  exported model.
 
 Changed
 #######
