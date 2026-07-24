@@ -4,6 +4,7 @@ import torch
 from metatrain.utils.distributed.slurm import (
     check_slurm_distributed_config,
     initialize_slurm_nccl_process_group,
+    resolve_distributed,
 )
 
 
@@ -13,9 +14,36 @@ def _set_slurm_env(monkeypatch, num_tasks):
     monkeypatch.setenv("SLURM_NTASKS", str(num_tasks))
 
 
+def test_resolve_distributed_auto(monkeypatch):
+    """The default "auto" enables distributed training exactly when the job
+    runs under more than one SLURM task."""
+    _set_slurm_env(monkeypatch, 16)
+    assert resolve_distributed("auto") is True
+
+    _set_slurm_env(monkeypatch, 1)
+    assert resolve_distributed("auto") is False
+
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    monkeypatch.delenv("SLURM_PROCID", raising=False)
+    assert resolve_distributed("auto") is False
+
+
+def test_resolve_distributed_explicit_bool_deprecated(monkeypatch):
+    _set_slurm_env(monkeypatch, 1)
+    with pytest.warns(DeprecationWarning, match="DEPRECATED"):
+        assert resolve_distributed(True) is True
+    with pytest.warns(DeprecationWarning, match="DEPRECATED"):
+        assert resolve_distributed(False) is False
+
+
 def test_check_slurm_distributed_config_distributed_enabled(monkeypatch):
     _set_slurm_env(monkeypatch, 16)
     check_slurm_distributed_config("pet", {"distributed": True})
+
+
+def test_check_slurm_distributed_config_auto(monkeypatch):
+    _set_slurm_env(monkeypatch, 16)
+    check_slurm_distributed_config("pet", {"distributed": "auto"})
 
 
 def test_check_slurm_distributed_config_single_task(monkeypatch):

@@ -1,5 +1,7 @@
 import logging
 import os
+import warnings
+from typing import Union
 
 import hostlist
 import torch
@@ -22,6 +24,30 @@ def is_slurm_main_process() -> bool:
     :return: True if the current process is the main process, False otherwise.
     """
     return os.environ["SLURM_PROCID"] == "0"
+
+
+def resolve_distributed(distributed: Union[bool, str]) -> bool:
+    """
+    Resolve the ``distributed`` hyperparameter to a boolean.
+
+    The default value ``"auto"`` enables distributed training when running
+    inside a SLURM job with more than one task. Explicit booleans override the
+    detection, but are deprecated.
+
+    :param distributed: The raw value of the ``distributed`` hyperparameter.
+    :return: Whether to use distributed training.
+    """
+    if distributed == "auto":
+        return is_slurm() and int(os.environ.get("SLURM_NTASKS", "1")) > 1
+    warnings.warn(
+        "DEPRECATED[distributed]: Setting the `distributed` option explicitly "
+        "is deprecated and will be removed at some point. The default value "
+        "'auto' enables distributed training automatically when running under "
+        "more than one SLURM task.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return bool(distributed)
 
 
 def check_slurm_distributed_config(
@@ -52,13 +78,14 @@ def check_slurm_distributed_config(
             "training: every task would run its own full copy of the same "
             "training. Please launch with a single task."
         )
-    if not training_hypers["distributed"]:
+    if training_hypers["distributed"] is False:
         raise ValueError(
             f"This job was launched with {num_tasks} SLURM tasks, but "
             "distributed training is disabled: every task would run its own "
-            "full copy of the same training. Set 'distributed: true' in the "
-            "'training' section of the architecture options, or launch with a "
-            "single task."
+            "full copy of the same training. Remove 'distributed: false' from "
+            "the 'training' section of the architecture options (the default "
+            "'auto' enables distributed training in multi-task SLURM jobs), "
+            "or launch with a single task."
         )
 
 

@@ -4,7 +4,8 @@ device: cuda
 architecture:
   name: pet
   training:
-    distributed: true
+    # distributed is left at its default "auto": the multi-task SLURM launch
+    # of this test must be detected and enable distributed training
     batch_size: 25
     num_epochs: 5
 

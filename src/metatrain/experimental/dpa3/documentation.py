@@ -75,7 +75,7 @@ with the following definitions needed to fully understand some of the parameters
 
 """
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 from typing_extensions import TypedDict
 
@@ -221,8 +221,10 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for training DPA3 models."""
 
-    distributed: bool = False
-    """Whether to use distributed training."""
+    distributed: Union[bool, Literal["auto"]] = "auto"
+    """Whether to use distributed training. The default ``"auto"`` enables
+    distributed training when running under more than one SLURM task.
+    Explicit booleans override the detection and are deprecated."""
     distributed_port: int = 39591
     """Port for DDP communication."""
     batch_size: int = 8

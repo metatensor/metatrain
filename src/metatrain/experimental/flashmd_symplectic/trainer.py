@@ -27,7 +27,10 @@ from metatrain.utils.data import (
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
-from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
+from metatrain.utils.distributed.slurm import (
+    initialize_slurm_nccl_process_group,
+    resolve_distributed,
+)
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
@@ -129,7 +132,7 @@ class Trainer(TrainerInterface):
         }
         model.set_masses(atomic_mass_dict)
 
-        is_distributed = self.hypers["distributed"]
+        is_distributed = resolve_distributed(self.hypers["distributed"])
         is_finetune = "finetune" in self.hypers
 
         if is_distributed:
