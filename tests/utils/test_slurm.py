@@ -1,6 +1,47 @@
+import pytest
 import torch
 
-from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
+from metatrain.utils.distributed.slurm import (
+    check_slurm_distributed_config,
+    initialize_slurm_nccl_process_group,
+)
+
+
+def _set_slurm_env(monkeypatch, num_tasks):
+    monkeypatch.setenv("SLURM_JOB_ID", "123")
+    monkeypatch.setenv("SLURM_PROCID", "0")
+    monkeypatch.setenv("SLURM_NTASKS", str(num_tasks))
+
+
+def test_check_slurm_distributed_config_distributed_enabled(monkeypatch):
+    _set_slurm_env(monkeypatch, 16)
+    check_slurm_distributed_config("pet", {"distributed": True})
+
+
+def test_check_slurm_distributed_config_single_task(monkeypatch):
+    _set_slurm_env(monkeypatch, 1)
+    check_slurm_distributed_config("pet", {"distributed": False})
+
+
+def test_check_slurm_distributed_config_not_slurm(monkeypatch):
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    monkeypatch.delenv("SLURM_PROCID", raising=False)
+    check_slurm_distributed_config("pet", {"distributed": False})
+
+
+def test_check_slurm_distributed_config_distributed_disabled(monkeypatch):
+    """Multiple SLURM tasks with distributed training disabled must fail
+    early: every task would otherwise run its own full copy of the training,
+    all writing to the same output files."""
+    _set_slurm_env(monkeypatch, 16)
+    with pytest.raises(ValueError, match="distributed training is disabled"):
+        check_slurm_distributed_config("pet", {"distributed": False})
+
+
+def test_check_slurm_distributed_config_unsupported_architecture(monkeypatch):
+    _set_slurm_env(monkeypatch, 16)
+    with pytest.raises(ValueError, match="does not support distributed training"):
+        check_slurm_distributed_config("gap", {})
 
 
 def test_initialize_slurm_nccl_process_group_single_visible_gpu(monkeypatch):
