@@ -694,6 +694,23 @@ def test_same_name_targets_extra_data(
         train_model(options_extra)
 
 
+def test_no_final_eval(caplog, monkeypatch, tmp_path, options):
+    """Tests that the final evaluation can be disabled."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options = copy.deepcopy(options)
+    options["final_eval"] = False
+
+    train_model(options)
+
+    log_text = caplog.text
+    assert "Skipping final evaluation." in log_text
+    assert "Running final evaluation" not in log_text
+
+
 def test_restart(options, monkeypatch, tmp_path, MODEL_PATH_64_BIT):
     """Test that continuing training from a checkpoint runs without an error raise."""
     monkeypatch.chdir(tmp_path)

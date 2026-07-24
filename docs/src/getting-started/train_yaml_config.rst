@@ -27,14 +27,15 @@ The YAML input file can be divided into five sections:
 Computational Parameters
 ========================
 
-The computational parameters define the computational ``device``, ``base_precision`` and
-``seed``. These parameters are optional.
+The computational parameters define the computational ``device``, ``base_precision``,
+``seed`` and ``final_eval``. These parameters are optional.
 
 .. code-block:: yaml
 
     device: cuda
     base_precision: 32
     seed: 0
+    final_eval: true
 
 .. container:: mtt-hypers-remove-classname
 
@@ -45,6 +46,9 @@ The computational parameters define the computational ``device``, ``base_precisi
         :no-index:
 
     .. autoattribute:: metatrain.share.base_hypers.BaseHypers.seed
+        :no-index:
+
+    .. autoattribute:: metatrain.share.base_hypers.BaseHypers.final_eval
         :no-index:
 
 .. _architecture-section:
