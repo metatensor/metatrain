@@ -2,11 +2,18 @@ import inspect
 import logging
 from typing import Annotated, Any, Literal, Union, cast
 
-from pydantic import BaseModel, Field, TypeAdapter, ValidationError, create_model
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    create_model,
+)
 from typing_extensions import NotRequired
 
 from ..share import base_hypers
-from ..share.base_hypers import BaseHypers, EvalHypers
+from ..share.base_hypers import BaseHypers, EvalHypers, sanitize_architecture_hypers
 from .hypers import init_with_defaults
 
 
@@ -282,8 +289,21 @@ def validate_architecture_options(
         options["atomic_types"] = []
         added_atomic_types = True
 
+    # Build the function that will sanitize the architecture options.
+    def _architecture_sanitizer(hypers: BaseModel) -> dict:
+        """Wrapper to sanitize architecture hypers for this particular architecture.
+
+        :param hypers: The hypers to sanitize.
+        :return: The sanitized hypers.
+        """
+        return sanitize_architecture_hypers(
+            architecture_name=architecture_name or "",
+            hypers=hypers.dict(),
+            trainer_hypers_cls=trainer_hypers,
+        )
+
     validated = validate(
-        ArchitectureOptions,
+        Annotated[ArchitectureOptions, AfterValidator(_architecture_sanitizer)],
         options,
         error_cls=MetatrainArchitectureValidationError.for_architecture(
             architecture_name
