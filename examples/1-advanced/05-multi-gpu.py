@@ -19,10 +19,11 @@ To know if the model supports multi-GPU training, please check
 Input file
 ----------
 
-To do this, you only need to switch on the ``distributed`` option in the ``.yaml`` file
-for the training. Let's take the
-:ref:`sphx_glr_generated_examples_0-beginner_03-train_from_scratch.py` example and
-adjust the ``options.yaml`` file.
+You do not need to change anything in the ``.yaml`` file for the training:
+distributed training is enabled automatically whenever the job runs under more
+than one SLURM task. For example, the ``options.yaml`` file of the
+:ref:`sphx_glr_generated_examples_0-beginner_03-train_from_scratch.py` example
+can be used as it is:
 
 .. literalinclude:: options-distributed.yaml
    :language: yaml
@@ -52,7 +53,7 @@ GPUs that you have asked for. You should make a single GPU visible for each proc
 
     # load modules and/or virtual environments and/or containers here
 
-    srun mtt train options-distributed.yaml
+    srun mtt train options.yaml
 
 Performance
 -----------
@@ -73,8 +74,8 @@ This 100-epoch training takes 23 seconds.
     ...
     [2025-10-08 11:34:45][INFO] - Training finished!
 
-Now let's switch off the multi-GPU training by writing ``distributed: false``, and
-submit this job again. The training takes 69 seconds.
+Now let's switch off the multi-GPU training by submitting the same job with a
+single task (``--ntasks 1``). The training takes 69 seconds.
 
 .. code-block:: bash
 
@@ -85,7 +86,7 @@ submit this job again. The training takes 69 seconds.
 Multi-GPU fine-tuning
 ---------------------
 
-You can use multi-GPU for fine-tuning too, by writing ``distributed: True`` in the
-``.yaml`` input. For information about fine-tuning, please refer to the
+You can use multi-GPU for fine-tuning too, in the same way: launch the job with
+one SLURM task per GPU. For information about fine-tuning, please refer to the
 :ref:`sphx_glr_generated_examples_0-beginner_02-fine-tuning.py` example.
 """
