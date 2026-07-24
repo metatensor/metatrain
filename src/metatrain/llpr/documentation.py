@@ -27,7 +27,7 @@ architecture can also output the following additional quantity:
   with the LLPR approach.
 """
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 from typing_extensions import TypedDict
 
@@ -47,8 +47,10 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for the LLPR trainer."""
 
-    distributed: bool = False
-    """Whether to use distributed training"""
+    distributed: Union[bool, Literal["auto"]] = "auto"
+    """Whether to use distributed training. The default ``"auto"`` enables
+    distributed training when running under more than one SLURM task.
+    Explicit booleans override the detection and are deprecated."""
     distributed_port: int = 39591
     """Port for distributed communication among processes"""
     batch_size: int = 8

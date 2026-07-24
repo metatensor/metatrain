@@ -67,6 +67,9 @@ Changed
   ("Smooth Physical Architecture with Compact Equivariants"). The old name is gone:
   the ``phace`` optional dependency is now ``space``, and existing checkpoints, which
   record the old architecture name, will no longer load.
+- The ``distributed`` training option now defaults to ``"auto"``, which enables
+  distributed training exactly when the job runs under more than one SLURM task.
+  Setting explicit booleans still works but is deprecated.
 - ``DiskDataset`` reading now scales to zips with millions of files: the archive is
   indexed once at construction and dataloader workers read from the index, instead of
   each re-parsing the whole zip (which could take minutes and tens of GB of RAM). The

@@ -9,7 +9,7 @@ The symplectic variant of :ref:`FlashMD <arch-flashmd>`.
 {{SECTION_DEFAULT_HYPERS}}
 """
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 from typing_extensions import TypedDict
 
@@ -117,8 +117,10 @@ class TrainerHypers(TypedDict):
     module will be used. These correspond to masses averaged over the natural
     isotopic abundance of each element.
     """
-    distributed: bool = False
-    """Whether to use distributed training"""
+    distributed: Union[bool, Literal["auto"]] = "auto"
+    """Whether to use distributed training. The default ``"auto"`` enables
+    distributed training when running under more than one SLURM task.
+    Explicit booleans override the detection and are deprecated."""
     distributed_port: int = 39591
     """Port for DDP communication"""
     batch_size: int = 16
