@@ -1579,7 +1579,7 @@ class MemmapDataset(TorchDataset):
                                 ),
                             ),
                             components=[Labels.range("xyz", 3)],
-                            properties=Labels.range("energy", 1),
+                            properties=Labels.range(target_key.replace("mtt::", ""), 1),
                         ),
                     )
                 if target_options["stress"]:
@@ -1599,7 +1599,7 @@ class MemmapDataset(TorchDataset):
                                 Labels.range("xyz_1", 3),
                                 Labels.range("xyz_2", 3),
                             ],
-                            properties=Labels.range("energy", 1),
+                            properties=Labels.range(target_key.replace("mtt::", ""), 1),
                         ),
                     )
 
