@@ -268,23 +268,25 @@ class TargetHypers(TypedDict):
     """
 
 
-def sanitize_architecture_hypers(architecture_name: str, hypers: dict) -> dict:
+def sanitize_architecture_hypers(
+    architecture_name: str, hypers: dict, trainer_hypers_cls: type
+) -> dict:
     """Sanitize architecture hypers: handle deprecated options and check them
     against the runtime environment.
 
     :param architecture_name: The name of the architecture.
-    :param hypers: The architecture options, with the training options merged
-        with their defaults.
+    :param hypers: The architecture options.
+    :param trainer_hypers_cls: The TrainerHypers class of the architecture.
     :return: The sanitized hypers.
     """
     training_hypers = hypers.get("training", {})
 
-    if isinstance(training_hypers.get("distributed"), bool):
+    if "distributed" in training_hypers:
         warnings.warn(
-            "DEPRECATED[distributed]: Setting the `distributed` option "
-            "explicitly is deprecated and will be removed at some point. The "
-            "default value 'auto' enables distributed training automatically "
-            "when running under more than one SLURM task.",
+            "DEPRECATED[distributed]: The `distributed` option is deprecated "
+            "and will be removed at some point. When it is not set, "
+            "distributed training is enabled automatically when running under "
+            "more than one SLURM task.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -293,20 +295,20 @@ def sanitize_architecture_hypers(architecture_name: str, hypers: dict) -> dict:
     if num_tasks > 1:
         # Without distributed training, every SLURM task would run its own
         # full copy of the same training.
-        if "distributed" not in training_hypers:
+        if "distributed" not in trainer_hypers_cls.__annotations__:
             raise ValueError(
                 f"This job was launched with {num_tasks} SLURM tasks, but the "
                 f"'{architecture_name}' architecture does not support "
                 "distributed training: every task would run its own full copy "
                 "of the same training. Please launch with a single task."
             )
-        if training_hypers["distributed"] is False:
+        if training_hypers.get("distributed") is False:
             raise ValueError(
                 f"This job was launched with {num_tasks} SLURM tasks, but "
                 "distributed training is disabled: every task would run its "
                 "own full copy of the same training. Remove 'distributed: "
                 "false' from the 'training' section of the architecture "
-                "options (the default 'auto' enables distributed training in "
+                "options (distributed training is enabled automatically in "
                 "multi-task SLURM jobs), or launch with a single task."
             )
 

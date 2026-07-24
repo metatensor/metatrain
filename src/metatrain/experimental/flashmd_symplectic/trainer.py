@@ -132,7 +132,7 @@ class Trainer(TrainerInterface):
         }
         model.set_masses(atomic_mass_dict)
 
-        is_distributed = resolve_distributed(self.hypers["distributed"])
+        is_distributed = resolve_distributed(self.hypers.get("distributed"))
         is_finetune = "finetune" in self.hypers
 
         if is_distributed:

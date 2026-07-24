@@ -119,7 +119,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if start_epoch == 0:
             model.set_wrapped_model(wrapped_model)
 
-        is_distributed = resolve_distributed(self.hypers["distributed"])
+        is_distributed = resolve_distributed(self.hypers.get("distributed"))
 
         # For the initial LLPR calibration, distributed training can be used
         if is_distributed:

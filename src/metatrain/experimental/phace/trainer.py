@@ -167,7 +167,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
     ) -> None:
         assert dtype in PhACE.__supported_dtypes__
 
-        is_distributed = resolve_distributed(self.hypers["distributed"])
+        is_distributed = resolve_distributed(self.hypers.get("distributed"))
 
         if is_distributed:
             if len(devices) > 1:

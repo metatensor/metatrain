@@ -71,7 +71,7 @@ def check_architecture_options(
     :param options: architecture options to check
     """
     hypers_classes = get_hypers_classes(name)
-    sanitize_architecture_hypers(name, options)
+    sanitize_architecture_hypers(name, options, hypers_classes["trainer"])
     validate_architecture_options(
         options,
         hypers_classes["model"],

@@ -20,18 +20,18 @@ def _pet_options(**training):
     return options
 
 
-def test_resolve_distributed_auto(monkeypatch):
-    """The default "auto" enables distributed training exactly when the job
-    runs under more than one SLURM task."""
+def test_resolve_distributed_unset(monkeypatch):
+    """When the option is not set, distributed training is enabled exactly
+    when the job runs under more than one SLURM task."""
     _set_slurm_env(monkeypatch, 16)
-    assert resolve_distributed("auto") is True
+    assert resolve_distributed(None) is True
 
     _set_slurm_env(monkeypatch, 1)
-    assert resolve_distributed("auto") is False
+    assert resolve_distributed(None) is False
 
     monkeypatch.delenv("SLURM_JOB_ID", raising=False)
     monkeypatch.delenv("SLURM_PROCID", raising=False)
-    assert resolve_distributed("auto") is False
+    assert resolve_distributed(None) is False
 
 
 def test_multitask_slurm_auto(monkeypatch):

@@ -115,7 +115,7 @@ the ``energy`` property. For example, you can use:
 
 """
 
-from typing import Literal, Optional, Union
+from typing import Literal, Optional
 
 from typing_extensions import NotRequired, TypedDict
 
@@ -320,10 +320,10 @@ class TrainerHypers(TypedDict):
     """Scheduler patience."""
 
     # General training parameters that are shared across architectures
-    distributed: Union[bool, Literal["auto"]] = "auto"
-    """Whether to use distributed training. The default ``"auto"`` enables
-    distributed training when running under more than one SLURM task.
-    Explicit booleans override the detection and are deprecated."""
+    distributed: NotRequired[bool]
+    """Whether to use distributed training. When not set, distributed training
+    is enabled automatically when running under more than one SLURM task.
+    Setting this option explicitly is deprecated."""
     distributed_port: int = 39591
     """Port for DDP communication"""
     batch_size: int = 16

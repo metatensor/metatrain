@@ -84,7 +84,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
     ):
         assert dtype in DPA3.__supported_dtypes__
 
-        is_distributed = resolve_distributed(self.hypers["distributed"])
+        is_distributed = resolve_distributed(self.hypers.get("distributed"))
 
         if is_distributed:
             device, world_size, rank = initialize_slurm_nccl_process_group(
