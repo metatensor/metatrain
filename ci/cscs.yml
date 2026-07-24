@@ -48,8 +48,10 @@ test distributed:
   script:
     - flock /tmp/ldconfig.lock -c "test -f /tmp/ld_$CI_JOB_ID || { ldconfig || true; touch /tmp/ld_$CI_JOB_ID; }"
     - . /mtt-venv/bin/activate
-    - cd tests/distributed
-    - mtt train options-distributed.yaml | tee train.log
+    - cd tests/resources
+    # the distributed option is not set: the multi-task SLURM launch of this
+    # test must be detected and enable distributed training
+    - mtt train options-pet.yaml | tee train.log
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:
     SLURM_JOB_NUM_NODES: 1
@@ -60,6 +62,29 @@ test distributed:
     SLURM_TIMELIMIT: '00:10:00'
     SLURM_UNBUFFEREDIO: 1
     USE_NCCL: 'cuda12'
+    GIT_STRATEGY: fetch
+
+# A multi-task launch without distributed training enabled must fail early
+# with a clear error instead of running one training copy per task
+test distributed misconfiguration:
+  stage: test
+  extends: .container-runner-daint-gh200
+  image: $CSCS_REGISTRY_PATH/base/mtt:$CI_COMMIT_SHORT_SHA
+  timeout: 24h
+  script:
+    - flock /tmp/ldconfig.lock -c "test -f /tmp/ld_$CI_JOB_ID || { ldconfig || true; touch /tmp/ld_$CI_JOB_ID; }"
+    - . /mtt-venv/bin/activate
+    - cd tests/resources
+    - 'if mtt train options-pet.yaml -r architecture.training.distributed=false > train-not-distributed-$SLURM_PROCID.log 2>&1; then echo "FAILED: training started despite a multi-task launch without distributed training."; exit 1; fi'
+    - 'grep "distributed training is disabled" train-not-distributed-$SLURM_PROCID.log || { echo "FAILED: expected an early error about the non-distributed multi-task launch."; cat train-not-distributed-$SLURM_PROCID.log; exit 1; }'
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 4
+    SLURM_GPUS_PER_TASK: 1
+    SLURM_CPUS_PER_TASK: 16
+    SLURM_TIMELIMIT: '00:05:00'
+    SLURM_UNBUFFEREDIO: 1
     GIT_STRATEGY: fetch
 
 test distributed multitarget:

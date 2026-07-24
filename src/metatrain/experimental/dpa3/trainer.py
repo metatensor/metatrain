@@ -22,7 +22,10 @@ from metatrain.utils.data import (
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
-from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
+from metatrain.utils.distributed.slurm import (
+    initialize_slurm_nccl_process_group,
+    resolve_distributed,
+)
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
@@ -81,7 +84,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
     ):
         assert dtype in DPA3.__supported_dtypes__
 
-        is_distributed = self.hypers["distributed"]
+        is_distributed = resolve_distributed(self.hypers.get("distributed"))
 
         if is_distributed:
             device, world_size, rank = initialize_slurm_nccl_process_group(

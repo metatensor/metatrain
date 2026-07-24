@@ -1,6 +1,7 @@
 # mypy: disable-error-code=misc
 # We ignore misc errors in this file because TypedDict
 # with default values is not allowed by mypy.
+import os
 import warnings
 from typing import Annotated, Any, Literal, Optional
 
@@ -14,6 +15,8 @@ from pydantic import (
     with_config,
 )
 from typing_extensions import NotRequired, TypedDict
+
+from metatrain.utils.distributed.slurm import is_slurm
 
 
 class BasePrecision:
@@ -263,6 +266,53 @@ class TargetHypers(TypedDict):
 
     See :ref:`gradient-subsection`.
     """
+
+
+def sanitize_architecture_hypers(
+    architecture_name: str, hypers: dict, trainer_hypers_cls: type
+) -> dict:
+    """Sanitize architecture hypers: handle deprecated options and check them
+    against the runtime environment.
+
+    :param architecture_name: The name of the architecture.
+    :param hypers: The architecture options.
+    :param trainer_hypers_cls: The TrainerHypers class of the architecture.
+    :return: The sanitized hypers.
+    """
+    training_hypers = hypers.get("training", {})
+
+    if "distributed" in training_hypers:
+        warnings.warn(
+            "DEPRECATED[distributed]: The `distributed` option is deprecated "
+            "and will be removed at some point. When it is not set, "
+            "distributed training is enabled automatically when running under "
+            "more than one SLURM task.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+    num_tasks = int(os.environ.get("SLURM_NTASKS", "1")) if is_slurm() else 1
+    if num_tasks > 1:
+        # Without distributed training, every SLURM task would run its own
+        # full copy of the same training.
+        if "distributed" not in trainer_hypers_cls.__annotations__:
+            raise ValueError(
+                f"This job was launched with {num_tasks} SLURM tasks, but the "
+                f"'{architecture_name}' architecture does not support "
+                "distributed training: every task would run its own full copy "
+                "of the same training. Please launch with a single task."
+            )
+        if training_hypers.get("distributed") is False:
+            raise ValueError(
+                f"This job was launched with {num_tasks} SLURM tasks, but "
+                "distributed training is disabled: every task would run its "
+                "own full copy of the same training. Remove 'distributed: "
+                "false' from the 'training' section of the architecture "
+                "options (distributed training is enabled automatically in "
+                "multi-task SLURM jobs), or launch with a single task."
+            )
+
+    return hypers
 
 
 def sanitize_target_hypers(target_hypers: TargetHypers) -> TargetHypers:

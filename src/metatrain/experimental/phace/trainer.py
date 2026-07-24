@@ -30,7 +30,10 @@ from metatrain.utils.data import (
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
 )
-from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
+from metatrain.utils.distributed.slurm import (
+    initialize_slurm_nccl_process_group,
+    resolve_distributed,
+)
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator, LossSpecification
@@ -164,7 +167,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
     ) -> None:
         assert dtype in PhACE.__supported_dtypes__
 
-        is_distributed = self.hypers["distributed"]
+        is_distributed = resolve_distributed(self.hypers.get("distributed"))
 
         if is_distributed:
             if len(devices) > 1:

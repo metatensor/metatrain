@@ -1,6 +1,68 @@
+import pytest
 import torch
 
-from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
+from metatrain.utils.architectures import check_architecture_options, get_default_hypers
+from metatrain.utils.distributed.slurm import (
+    initialize_slurm_nccl_process_group,
+    resolve_distributed,
+)
+
+
+def _set_slurm_env(monkeypatch, num_tasks):
+    monkeypatch.setenv("SLURM_JOB_ID", "123")
+    monkeypatch.setenv("SLURM_PROCID", "0")
+    monkeypatch.setenv("SLURM_NTASKS", str(num_tasks))
+
+
+def _pet_options(**training):
+    options = get_default_hypers("pet", base_precision=32)
+    options["training"].update(training)
+    return options
+
+
+def test_resolve_distributed_unset(monkeypatch):
+    """When the option is not set, distributed training is enabled exactly
+    when the job runs under more than one SLURM task."""
+    _set_slurm_env(monkeypatch, 16)
+    assert resolve_distributed(None) is True
+
+    _set_slurm_env(monkeypatch, 1)
+    assert resolve_distributed(None) is False
+
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    monkeypatch.delenv("SLURM_PROCID", raising=False)
+    assert resolve_distributed(None) is False
+
+
+def test_multitask_slurm_auto(monkeypatch):
+    _set_slurm_env(monkeypatch, 16)
+    check_architecture_options(name="pet", options=_pet_options())
+
+
+def test_explicit_distributed_deprecated(monkeypatch):
+    _set_slurm_env(monkeypatch, 1)
+    with pytest.warns(DeprecationWarning, match="DEPRECATED"):
+        check_architecture_options(name="pet", options=_pet_options(distributed=True))
+
+
+def test_multitask_slurm_distributed_disabled(monkeypatch):
+    """Multiple SLURM tasks with distributed training explicitly disabled must
+    fail early: every task would otherwise run its own full copy of the
+    training, all writing to the same output files."""
+    _set_slurm_env(monkeypatch, 16)
+    with (
+        pytest.warns(DeprecationWarning, match="DEPRECATED"),
+        pytest.raises(ValueError, match="distributed training is disabled"),
+    ):
+        check_architecture_options(name="pet", options=_pet_options(distributed=False))
+
+
+def test_multitask_slurm_unsupported_architecture(monkeypatch):
+    _set_slurm_env(monkeypatch, 16)
+    with pytest.raises(ValueError, match="does not support distributed training"):
+        check_architecture_options(
+            name="composition", options=get_default_hypers("composition")
+        )
 
 
 def test_initialize_slurm_nccl_process_group_single_visible_gpu(monkeypatch):

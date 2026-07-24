@@ -29,7 +29,7 @@ architecture can also output the following additional quantity:
 
 from typing import Literal, Optional
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 from metatrain.utils.loss import LossSpecification
 
@@ -47,8 +47,10 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for the LLPR trainer."""
 
-    distributed: bool = False
-    """Whether to use distributed training"""
+    distributed: NotRequired[bool]
+    """Whether to use distributed training. When not set, distributed training
+    is enabled automatically when running under more than one SLURM task.
+    Setting this option explicitly is deprecated."""
     distributed_port: int = 39591
     """Port for distributed communication among processes"""
     batch_size: int = 8

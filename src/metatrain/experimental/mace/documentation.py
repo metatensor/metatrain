@@ -320,8 +320,10 @@ class TrainerHypers(TypedDict):
     """Scheduler patience."""
 
     # General training parameters that are shared across architectures
-    distributed: bool = False
-    """Whether to use distributed training"""
+    distributed: NotRequired[bool]
+    """Whether to use distributed training. When not set, distributed training
+    is enabled automatically when running under more than one SLURM task.
+    Setting this option explicitly is deprecated."""
     distributed_port: int = 39591
     """Port for DDP communication"""
     batch_size: int = 16
