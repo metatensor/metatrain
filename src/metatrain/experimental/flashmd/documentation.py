@@ -162,7 +162,7 @@ class TrainerHypers(TypedDict):
     module will be used. These correspond to masses averaged over the natural
     isotopic abundance of each element.
     """
-    distributed: NotRequired[bool]
+    distributed: NotRequired[Optional[bool]] = None
     """Whether to use distributed training. When not set, distributed training
     is enabled automatically when running under more than one SLURM task.
     Setting this option explicitly is deprecated."""
