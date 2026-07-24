@@ -27,6 +27,14 @@ Unreleased
 Fixed
 #####
 
+- Standalone training of the ``composition`` architecture now works in distributed
+  environments (via the ``distributed`` and ``distributed_port`` hyperparameters, as for
+  the other architectures), fits on the requested device instead of always on the CPU,
+  and loads data in parallel (``num_workers``). The trainer checkpoint version was
+  bumped to 2.
+- The distributed composition fit no longer sees duplicated samples on shards of uneven
+  size, which slightly biased the fitted weights whenever the dataset size was not
+  divisible by the number of ranks.
 - ``DiskDatasetWriter`` in append mode now continues the entry numbering of the
   existing zip instead of restarting from zero.
 
