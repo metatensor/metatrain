@@ -444,6 +444,12 @@ class BaseHypers(TypedDict):
     important for ensuring reproducibility. If not specified, the seed is generated
     randomly and reported in the log.
     """
+    print_stats: NotRequired[bool | Literal["auto"]] = "auto"
+    """Whether to print statistics about the datasets before training.
+
+    If set to ``"auto"``, statistics are printed only if the training, validation
+    and test sets combined have less than 1 million structures.
+    """
     wandb: NotRequired[WandbConfig]
     """Configuration for Weights & Biases logging.
 
