@@ -1,4 +1,4 @@
-"""JAX-based ASE calculator for the PhACE model.
+"""JAX-based ASE calculator for the SPACE model.
 
 Uses the Equinox port in ``eqx.py`` with JAX automatic differentiation
 for force computation.
@@ -13,7 +13,7 @@ import jax.numpy as jnp
 import numpy as np
 from ase.calculators.calculator import Calculator, all_changes
 
-from .eqx import EqxPhACE, _get_adaptive_cutoffs, load_from_checkpoint
+from .eqx import EqxSPACE, _get_adaptive_cutoffs, load_from_checkpoint
 
 
 # Optimization-level presets: name → geometric bucket ratio.
@@ -59,7 +59,7 @@ def _next_bucket(n: int, ratio: float = 1.5) -> int:
     return bucket
 
 
-def _make_prefilter_fn(model: EqxPhACE, n_atoms_pad: int):
+def _make_prefilter_fn(model: EqxSPACE, n_atoms_pad: int):
     """Return a JIT-compiled function that computes adaptive cutoffs and keep mask.
 
     Computes pair distances internally from positions and cell shifts, so that
@@ -119,7 +119,7 @@ def _make_prefilter_fn(model: EqxPhACE, n_atoms_pad: int):
     return _fn
 
 
-def _make_energy_forces_stress_fn(model: EqxPhACE, n_atoms: int):
+def _make_energy_forces_stress_fn(model: EqxSPACE, n_atoms: int):
     """Return a JIT-compiled function that returns (energy, forces, stress).
 
     Stress is computed by differentiating E w.r.t. a 3×3 strain tensor ε,
@@ -198,19 +198,19 @@ def _torch_to_jax(t: "_torch.Tensor") -> jnp.ndarray:
     return jax.dlpack.from_dlpack(t.clone().contiguous())
 
 
-class PhACEJAXCalculator(Calculator):
-    """ASE calculator using the JAX/Equinox PhACE model.
+class SPACEJAXCalculator(Calculator):
+    """ASE calculator using the JAX/Equinox SPACE model.
 
     Example usage::
 
-        calc = PhACEJAXCalculator("model.ckpt")
+        calc = SPACEJAXCalculator("model.ckpt")
         atoms.calc = calc
         e = atoms.get_potential_energy()
         f = atoms.get_forces()
 
         # For heterogeneous datasets, lower the optimization level to reduce
         # the number of JIT recompilations and avoid OOM:
-        calc = PhACEJAXCalculator("model.ckpt", optimization_level="low")
+        calc = SPACEJAXCalculator("model.ckpt", optimization_level="low")
     """
 
     implemented_properties = ["energy", "forces", "stress"]
@@ -252,7 +252,7 @@ class PhACEJAXCalculator(Calculator):
             if float(optimization_level) <= 1.0:
                 raise ValueError("optimization_level ratio must be > 1.0")
             self._bucket_ratio = float(optimization_level)
-        self.model: EqxPhACE = load_from_checkpoint(checkpoint_path)
+        self.model: EqxSPACE = load_from_checkpoint(checkpoint_path)
         self._cached_n_atoms: Optional[int] = None
         self._prefilter_fn = None
         self._energy_and_forces_fn = None

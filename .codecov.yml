@@ -65,10 +65,10 @@ component_management:
       paths:
         - "src/metatrain/experimental/mace/.*"
 
-    - component_id: phace
-      name: PhACE
+    - component_id: space
+      name: SPACE
       paths:
-        - "src/metatrain/experimental/phace/.*"
+        - "src/metatrain/experimental/space/.*"
 
     - component_id: dpa3
       name: DPA3

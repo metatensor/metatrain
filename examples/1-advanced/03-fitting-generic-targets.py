@@ -41,7 +41,7 @@ capabilities of the architectures in metatrain.
      - Yes
      - Yes
      - Only with ``rank=1`` (vectors)
-   * - PhACE
+   * - SPACE
      - Energy, forces, stress/virial
      - Yes
      - Yes

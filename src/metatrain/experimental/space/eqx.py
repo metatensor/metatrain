@@ -1,6 +1,6 @@
-"""JAX/Equinox port of the PhACE architecture.
+"""JAX/Equinox port of the SPACE architecture.
 
-This module implements the PhACE model using JAX and Equinox, enabling
+This module implements the SPACE model using JAX and Equinox, enabling
 JIT compilation and automatic differentiation for efficient force computation.
 Only total energy output is supported (no general target handling).
 """
@@ -532,10 +532,10 @@ class EqxEquivariantMessagePasser(eqx.Module):
         return [fi + fo for fi, fo in zip(features_in, features_out, strict=False)]
 
 
-class EqxPhACE(eqx.Module):
-    """Equinox port of the PhACE BaseModel (energy output only).
+class EqxSPACE(eqx.Module):
+    """Equinox port of the SPACE BaseModel (energy output only).
 
-    Parameters are loaded from a metatrain PhACE checkpoint and include
+    Parameters are loaded from a metatrain SPACE checkpoint and include
     the composition model and scaler for full energy prediction.
     """
 
@@ -1050,11 +1050,11 @@ def _build_equivariant_message_passer(
     )
 
 
-def load_from_checkpoint(ckpt_path: str) -> "EqxPhACE":
-    """Load an EqxPhACE model from a metatrain PhACE checkpoint.
+def load_from_checkpoint(ckpt_path: str) -> "EqxSPACE":
+    """Load an EqxSPACE model from a metatrain SPACE checkpoint.
 
     :param ckpt_path: Path to the ``model.ckpt`` file.
-    :return: Loaded :class:`EqxPhACE` model.
+    :return: Loaded :class:`EqxSPACE` model.
     """
     import metatensor.torch as mts
     import torch
@@ -1076,7 +1076,7 @@ def load_from_checkpoint(ckpt_path: str) -> "EqxPhACE":
         hypers["tensor_product_expansion_ratio"] = hypers["tp_expansion_ratio"]
 
     # ---- rebuild BaseModel to get n_max_l, k_max_l, U_dict, padded_l_list ----
-    from metatrain.experimental.phace.modules.base_model import BaseModel
+    from metatrain.experimental.space.modules.base_model import BaseModel
 
     base = BaseModel(hypers, dataset_info)
     n_max_l = base.precomputer.n_max_l
@@ -1227,7 +1227,7 @@ def load_from_checkpoint(ckpt_path: str) -> "EqxPhACE":
     )
     atomic_types = tuple(int(at) for at in dataset_info.atomic_types)
 
-    return EqxPhACE(
+    return EqxSPACE(
         spline_positions=spline_positions,
         spline_values=spline_values,
         spline_derivatives=spline_derivatives,

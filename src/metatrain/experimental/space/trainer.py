@@ -45,7 +45,8 @@ from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
 from .documentation import TrainerHypers
-from .model import PhACE
+from .model import SPACE
+from .modules.finetuning import apply_finetuning_strategy
 from .utils import systems_to_batch
 
 
@@ -71,7 +72,7 @@ def _disable_fx_duck_shape():
         torch.fx.experimental._config.use_duck_shape = init_duck_shape
 
 
-def compile_model(model: PhACE, loader: torch.utils.data.DataLoader):
+def compile_model(model: SPACE, loader: torch.utils.data.DataLoader):
     # inspired by the NequIP codebase
     parameter_tensor = next(iter(model.parameters()))
     dtype = parameter_tensor.dtype
@@ -139,7 +140,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -155,14 +156,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
     def train(
         self,
-        model: PhACE,
+        model: SPACE,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ) -> None:
-        assert dtype in PhACE.__supported_dtypes__
+        assert dtype in SPACE.__supported_dtypes__
 
         is_distributed = self.hypers["distributed"]
 
@@ -170,7 +171,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             if len(devices) > 1:
                 raise ValueError(
                     "Requested distributed training with the `multi-gpu` device. "
-                    "If you want to run distributed training with PhACE, please "
+                    "If you want to run distributed training with SPACE, please "
                     "set `device` to cuda."
                 )
             # the calculation of the device number works both when GPUs on different
@@ -189,9 +190,44 @@ class Trainer(TrainerInterface[TrainerHypers]):
         else:
             logging.info(f"Training on device {device} with dtype {dtype}")
 
+        # Apply fine-tuning strategy if provided
+        is_finetune = self.hypers["finetune"]["read_from"] is not None
+        if is_finetune:
+            assert self.hypers["finetune"]["read_from"] is not None  # for mypy
+            # ``inherit_heads`` is a one-time weight-copy initialization step that
+            # must only run when finetuning first starts (a fresh ``Trainer``), not
+            # again when a restart resumes an already-started finetuning run (a
+            # restarted ``Trainer`` has its ``optimizer_state_dict`` restored by
+            # ``load_checkpoint``); otherwise it would clobber the head weights
+            # trained so far with a fresh copy from the source target.
+            is_fresh_finetune_start = self.optimizer_state_dict is None
+            model = apply_finetuning_strategy(
+                model,
+                self.hypers["finetune"],
+                apply_inherit_heads=is_fresh_finetune_start,
+            )
+            method = self.hypers["finetune"]["method"]
+            num_params = sum(p.numel() for p in model.parameters())
+            num_trainable_params = sum(
+                p.numel() for p in model.parameters() if p.requires_grad
+            )
+
+            logging.info(f"Applied finetuning strategy: {method}")
+            logging.info(
+                f"Number of trainable parameters: {num_trainable_params} "
+                f"[{num_trainable_params / num_params:.2%} %]"
+            )
+            inherit_heads = self.hypers["finetune"]["inherit_heads"]
+            if inherit_heads and is_fresh_finetune_start:
+                logging.info(
+                    "Inheriting initial weights for heads and last layers for targets: "
+                    f"from {list(inherit_heads.values())} to "
+                    f"{list(inherit_heads.keys())}"
+                )
+
         # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # The additive models of the PhACE are always in float64 (to avoid
+        # The additive models of the SPACE are always in float64 (to avoid
         # numerical errors in the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
@@ -201,7 +237,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
         extra_data_info = dataset_info.extra_data
-        # PhACE is rotation-equivariant by construction, so only inversions are
+        # SPACE is rotation-equivariant by construction, so only inversions are
         # worth augmenting with
         inversion_augmenter = O3Augmenter(
             target_info_dict=train_targets,
@@ -711,6 +747,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
+        if self.best_model_state_dict is not None:
+            self.best_model_state_dict["finetune_config"] = model.finetune_config
         checkpoint.update(
             {
                 "train_hypers": self.hypers,

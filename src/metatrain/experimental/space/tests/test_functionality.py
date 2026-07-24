@@ -4,7 +4,8 @@ import pytest
 import torch
 from metatomic.torch import ModelOutput, System
 
-from metatrain.experimental.phace import PhACE
+from metatrain.experimental.space import SPACE
+from metatrain.experimental.space.modules.base_model import _make_k_max_l
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -28,7 +29,7 @@ def _make_hypers() -> dict:
     return hypers
 
 
-def _make_system(model: PhACE) -> System:
+def _make_system(model: SPACE) -> System:
     system = System(
         types=torch.tensor([6, 6]),
         positions=torch.tensor([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]]),
@@ -36,6 +37,38 @@ def _make_system(model: PhACE) -> System:
         pbc=torch.tensor([True, True, True]),
     )
     return get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+
+
+@pytest.mark.parametrize(
+    ("n_max", "expected_k_max_l"),
+    [
+        ([128, 64, 32], [256, 64, 64]),
+        ([128, 64, 64, 32, 16], [256, 128, 128, 32, 32]),
+        ([128, 64], [256, 128]),
+    ],
+)
+def test_k_max_l_pairs_odd_l_with_next_even_l(n_max, expected_k_max_l):
+    """Each odd ``l`` must get the same number of channels as ``l + 1``.
+
+    The CG machinery pads every odd ``l`` up to the next even one (see
+    ``padded_l_list``), so aligning the channel counts the same way makes the
+    ragged per-``l`` slices in ``BaseModel`` collapse to zero width at odd
+    ``l``, shrinking the tensor products. The last ``l`` is never paired, since
+    it has no ``l + 1`` to pad to.
+    """
+    assert (
+        _make_k_max_l(n_max, n_channels=2, force_rectangular=False) == expected_k_max_l
+    )
+
+
+def test_rectangular_k_max_l_is_unchanged():
+    """``force_rectangular`` widens every ``l`` to ``k_max_l[0]``, so there is
+    nothing ragged left to truncate and the pairing must not apply."""
+    assert _make_k_max_l([128, 64, 32], n_channels=2, force_rectangular=True) == [
+        256,
+        256,
+        256,
+    ]
 
 
 def test_cartesian_rank1():
@@ -57,7 +90,7 @@ def test_cartesian_rank1():
             )
         },
     )
-    model = PhACE(hypers, dataset_info)
+    model = SPACE(hypers, dataset_info)
     system = _make_system(model)
     output = model([system], {"dipole": ModelOutput(sample_kind="system")})
     values = output["dipole"].block().values
@@ -85,7 +118,7 @@ def test_nc_stress(sample_kind):
             )
         },
     )
-    model = PhACE(hypers, dataset_info)
+    model = SPACE(hypers, dataset_info)
     system = _make_system(model)
     outputs = {"non_conservative_stress": ModelOutput(sample_kind=sample_kind)}
     stress = model([system], outputs)["non_conservative_stress"].block().values
@@ -123,7 +156,7 @@ def test_multiple_targets():
         atomic_types=[6],
         targets=targets,
     )
-    model = PhACE(hypers, dataset_info)
+    model = SPACE(hypers, dataset_info)
     system = _make_system(model)
     outputs = {
         "energy": ModelOutput(quantity="energy", unit="eV", sample_kind="system"),

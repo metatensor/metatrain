@@ -1,10 +1,11 @@
 """
-PhACE (Experimental)
+SPACE (Experimental)
 ====================
 
-PhACE is a physics-inspired equivariant neural network architecture. Compared to, for
-example, MACE and GRACE, it uses a geometrically motivated basis and a fast and
-elegant tensor product implementation. The tensor product used in PhACE leverages a
+SPACE (Smooth Physical Architecture with Compact Equivariants) is a physics-inspired
+equivariant neural network architecture. Compared to, for example, MACE and GRACE, it
+uses a geometrically motivated basis and a fast and elegant tensor product
+implementation. The tensor product used in SPACE leverages a
 equivariant representation that differs from the typical spherical one. You can read
 more about it here: https://pubs.acs.org/doi/10.1021/acs.jpclett.4c02376.
 
@@ -13,7 +14,7 @@ more about it here: https://pubs.acs.org/doi/10.1021/acs.jpclett.4c02376.
 Additional outputs
 ------------------
 
-- ``feature``: the internal PhACE features, before the different heads for each
+- ``feature``: the internal SPACE features, before the different heads for each
   target.
 - :ref:`mtt-aux-target-last-layer-features`: The features for a given target, taken
   before the last linear layer of the corresponding head.
@@ -29,7 +30,7 @@ parameters to tune, both for the
 :ref:`model <arch-{{architecture}}_model_hypers>` and the
 :ref:`trainer <arch-{{architecture}}_trainer_hypers>`. Here, we provide a
 **list of the parameters that are in general the most important** (in decreasing order
-of importance) for the PhACE architecture:
+of importance) for the SPACE architecture:
 
 .. container:: mtt-hypers-remove-classname
 
@@ -63,6 +64,7 @@ from typing import Literal, Optional
 from typing_extensions import TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
+from metatrain.pet.modules.finetuning import FinetuneHypers, NoFinetuneHypers
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
 from metatrain.utils.scaler import FixedScalerWeights
@@ -90,7 +92,7 @@ class RadialBasisHypers(TypedDict):
 
 
 class ModelHypers(TypedDict):
-    """Hyperparameters for the experimental.phace model."""
+    """Hyperparameters for the experimental.space model."""
 
     num_tensor_products: int = 6
     """Number of tensor products per GNN layer."""
@@ -181,7 +183,7 @@ class ModelHypers(TypedDict):
 
 
 class TrainerHypers(TypedDict):
-    """Hyperparameters for training the experimental.phace model."""
+    """Hyperparameters for training the experimental.space model."""
 
     compile: bool = False
     """Whether to use `torch.compile` during training.
@@ -333,3 +335,38 @@ class TrainerHypers(TypedDict):
 
     loss: str | dict[str, LossSpecification] = "mse"
     """Loss function used for training."""
+
+    finetune: NoFinetuneHypers | FinetuneHypers = {
+        "read_from": None,
+        "method": "full",
+        "config": {},
+        "inherit_heads": {},
+    }
+    """Finetuning hyperparameters.
+
+    Setting ``read_from`` to a path enables finetuning from a pretrained SPACE
+    checkpoint. The ``method`` can be one of:
+
+    - ``"full"``: all parameters are trainable.
+    - ``"heads"``: only the heads and last layers are trained; the rest of the
+      model is frozen.
+    - ``"lora"``: LoRA adapters are injected into the linear layers and only
+      those are trained.
+
+    ``config`` may be left empty, in which case the SPACE module names are used
+    (``linear_layer`` for LoRA; the heads and last layers of the base model for
+    ``"heads"``). Example for heads-only finetuning::
+
+        finetune:
+          read_from: /path/to/pretrained.ckpt
+          method: heads
+
+    Example for LoRA finetuning::
+
+        finetune:
+          read_from: /path/to/pretrained.ckpt
+          method: lora
+          config:
+            rank: 8
+            alpha: 16
+    """

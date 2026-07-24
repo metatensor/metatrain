@@ -1,8 +1,8 @@
-from .model import PhACE
+from .model import SPACE
 from .trainer import Trainer
 
 
-__model__ = PhACE
+__model__ = SPACE
 __trainer__ = Trainer
 
 __authors__ = [

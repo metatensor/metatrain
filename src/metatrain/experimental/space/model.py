@@ -16,14 +16,16 @@ from metatomic.torch import (
 )
 
 from metatrain.composition import CompositionModel
-from metatrain.experimental.phace.documentation import ModelHypers
-from metatrain.experimental.phace.modules.base_model import (
+from metatrain.experimental.space.documentation import ModelHypers
+from metatrain.experimental.space.modules.base_model import (
     BaseModel,
     FakeGradientModel,
     GradientModel,
 )
-from metatrain.experimental.phace.modules.cg_coefficients import ClebschGordanReal
-from metatrain.experimental.phace.utils import systems_to_batch
+from metatrain.experimental.space.modules.cg_coefficients import ClebschGordanReal
+from metatrain.experimental.space.modules.finetuning import apply_finetuning_strategy
+from metatrain.experimental.space.utils import systems_to_batch
+from metatrain.pet.modules.finetuning import compute_stale_targets
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL
 from metatrain.utils.data.atomic_basis_helpers import (
@@ -50,11 +52,11 @@ warnings.filterwarnings(
 )
 
 
-class PhACE(ModelInterface[ModelHypers]):
-    """PhACE model: metatomic-based wrapper around ``BaseModel``
+class SPACE(ModelInterface[ModelHypers]):
+    """SPACE model: metatomic-based wrapper around ``BaseModel``
     and/or ``GradientModel``."""
 
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(references={})
@@ -120,7 +122,9 @@ class PhACE(ModelInterface[ModelHypers]):
         self._sph_to_cart_rank2 = W
 
         self.mlp_head_num_layers = self.hypers["mlp_head_num_layers"]
+        self.target_names: List[str] = []
         for target_name, target_info in train_dataset_info.targets.items():
+            self.target_names.append(target_name)
             self._add_output(target_name, target_info)
 
         self.last_layer_feature_size = self.k_max_l[0]
@@ -154,11 +158,13 @@ class PhACE(ModelInterface[ModelHypers]):
 
         self.single_label = Labels.single()
 
+        self.finetune_config: Dict[str, Any] = {}
+
     @torch.jit.export
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
-    def restart(self, dataset_info: DatasetInfo) -> "PhACE":
+    def restart(self, dataset_info: DatasetInfo) -> "SPACE":
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -171,10 +177,18 @@ class PhACE(ModelInterface[ModelHypers]):
         }
         self.has_new_targets = len(new_targets) > 0
 
+        # Targets that were present before this run but are not part of the current
+        # run's dataset: with a backbone-altering finetuning method (full/lora), their
+        # heads are no longer meaningful and are dropped once training starts, by
+        # ``apply_finetuning_strategy`` (which decides based on the method).
+        stale_targets = compute_stale_targets(
+            self.dataset_info.targets, dataset_info.targets
+        )
+
         if len(new_atomic_types) > 0:
             raise ValueError(
                 f"New atomic types found in the dataset: {new_atomic_types}. "
-                "The PhACE model does not support adding new atomic types."
+                "The SPACE model does not support adding new atomic types."
             )
 
         # Modified dataset_info with the targets as they will be seen by
@@ -183,6 +197,7 @@ class PhACE(ModelInterface[ModelHypers]):
 
         # register new outputs as new last layers
         for target_name in new_targets:
+            self.target_names.append(target_name)
             self._add_output(target_name, train_dataset_info.targets[target_name])
 
         self.dataset_info = merged_info
@@ -200,6 +215,12 @@ class PhACE(ModelInterface[ModelHypers]):
             ),
         )
         self.scaler.restart(train_dataset_info)
+
+        # Actual removal (if any) is deferred to ``apply_finetuning_strategy``
+        # (called later, once training starts), since ``inherit_heads`` needs these
+        # stale targets' heads to still be around to copy weights from, and only
+        # backbone-altering methods (``full``/``lora``) actually drop them.
+        self._stale_finetune_targets = stale_targets
 
         return self
 
@@ -529,7 +550,7 @@ class PhACE(ModelInterface[ModelHypers]):
         cls,
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
-    ) -> "PhACE":
+    ) -> "SPACE":
         if context == "restart":
             logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
@@ -545,6 +566,11 @@ class PhACE(ModelInterface[ModelHypers]):
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
         )
+        # The finetuning strategy has to be re-applied before loading the state
+        # dict, since it can change the set of parameters (LoRA injects layers).
+        finetune_config = model_state_dict.pop("finetune_config", {})
+        if finetune_config:
+            model = apply_finetuning_strategy(model, finetune_config)
         state_dict_iterator = iter(model_state_dict.values())
         next(state_dict_iterator)  # skip an int tensor
         next(state_dict_iterator)  # skip another int tensor
@@ -621,7 +647,7 @@ class PhACE(ModelInterface[ModelHypers]):
 
         if target_info.is_spherical and len(target_info.layout.block(0).components) > 1:
             raise ValueError(
-                "PhACE does not support target spherical tensors with rank > 1."
+                "SPACE does not support target spherical tensors with rank > 1."
                 f"'{target_name}' has rank "
                 f"{len(target_info.layout.block(0).components)}."
             )
@@ -659,6 +685,28 @@ class PhACE(ModelInterface[ModelHypers]):
                 block.properties for block in target_info.layout.blocks()
             ]
 
+    def remove_output(self, target_name: str) -> None:
+        """
+        Remove a previously registered output target, mirroring ``_add_output``.
+
+        Used to drop targets whose heads are no longer meaningful after a
+        backbone-altering fine-tuning run (``full``/``lora``).
+
+        :param target_name: Name of the target to remove.
+        """
+        self.outputs.pop(target_name, None)
+        self.outputs.pop(
+            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features", None
+        )
+        # ``fake_gradient_model`` and ``gradient_model`` wrap the same ``BaseModel``,
+        # so its heads and last layers only have to be dropped once
+        self.module.module.remove_output(target_name)
+        self.key_labels.pop(target_name, None)
+        self.component_labels.pop(target_name, None)
+        self.property_labels.pop(target_name, None)
+        if target_name in self.cartesian_rank2_targets:
+            self.cartesian_rank2_targets.remove(target_name)
+
     def requested_neighbor_lists(
         self,
     ) -> List[NeighborListOptions]:
@@ -671,8 +719,10 @@ class PhACE(ModelInterface[ModelHypers]):
         ]
 
     def get_checkpoint(self) -> Dict:
+        model_state_dict = self.state_dict()
+        model_state_dict["finetune_config"] = self.finetune_config
         checkpoint = {
-            "architecture_name": "experimental.phace",
+            "architecture_name": "experimental.space",
             "model_ckpt_version": self.__checkpoint_version__,
             "metadata": self.metadata,
             "model_data": {
@@ -681,7 +731,7 @@ class PhACE(ModelInterface[ModelHypers]):
             },
             "epoch": None,
             "best_epoch": None,
-            "model_state_dict": self.state_dict(),
+            "model_state_dict": model_state_dict,
             "best_model_state_dict": self.state_dict(),
         }
         return checkpoint

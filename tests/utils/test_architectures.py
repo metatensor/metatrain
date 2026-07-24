@@ -32,7 +32,7 @@ def test_find_all_architectures():
     assert "soap_bpnn" in all_arches
     assert "experimental.flashmd" in all_arches
     assert "experimental.flashmd_symplectic" in all_arches
-    assert "experimental.phace" in all_arches
+    assert "experimental.space" in all_arches
     assert "experimental.classifier" in all_arches
     assert "experimental.dpa3" in all_arches
     assert "llpr" in all_arches

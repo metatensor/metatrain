@@ -233,7 +233,7 @@ soap-bpnn-tests:
     GIT_STRATEGY: fetch
 
 # Run tox tests (single GPU)
-phace-tests:
+space-tests:
   stage: test
   # Trigger tox tests as soon as base image is ready
   needs:
@@ -244,12 +244,12 @@ phace-tests:
   script:
     - rm -rf /tmp/tox/
     - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
-    - tox -e phace-tests --workdir /tmp/tox/ --list-dependencies
+    - tox -e space-tests --workdir /tmp/tox/ --list-dependencies
   variables:
     SLURM_JOB_NUM_NODES: 1
     SLURM_PARTITION: normal
     SLURM_NTASKS: 1
-    SLURM_TIMELIMIT: '00:07:00'
+    SLURM_TIMELIMIT: '00:10:00'
     GIT_STRATEGY: fetch
 
 flashmd-symplectic-tests:

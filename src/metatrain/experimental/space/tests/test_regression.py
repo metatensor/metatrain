@@ -7,7 +7,7 @@ import torch
 from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
-from metatrain.experimental.phace import PhACE, Trainer
+from metatrain.experimental.space import SPACE, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo, get_dataset
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
@@ -46,7 +46,7 @@ def test_regression_init():
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
     )
-    model = PhACE(MODEL_HYPERS, dataset_info)
+    model = SPACE(MODEL_HYPERS, dataset_info)
 
     model.module = model.fake_gradient_model
     del model.gradient_model
@@ -134,7 +134,7 @@ def test_regression_train():
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
-    model = PhACE(MODEL_HYPERS, dataset_info)
+    model = SPACE(MODEL_HYPERS, dataset_info)
 
     hypers["training"]["num_epochs"] = 1
     trainer = Trainer(hypers["training"])
@@ -234,7 +234,7 @@ def test_regression_train_spherical(device):
     )
     model_hypers = copy.deepcopy(MODEL_HYPERS)
     model_hypers["radial_basis"]["max_eigenvalue"] = 50.0
-    model = PhACE(model_hypers, dataset_info)
+    model = SPACE(model_hypers, dataset_info)
     requested_neighbor_lists = get_requested_neighbor_lists(model)
 
     hypers["training"]["num_epochs"] = 1
@@ -268,31 +268,31 @@ def test_regression_train_spherical(device):
     expected_output = torch.tensor(
         [
             [
-                -12.553195953369,
-                3.217277050018,
-                5.746766567230,
-                15.610146522522,
-                -0.747889816761,
-                -12.364739418030,
-                -14.011876106262,
+                6.037218570709,
+                -20.826728820801,
+                3.790696144104,
+                -2.735383987427,
+                -5.273448467255,
+                13.737586021423,
+                -25.770248413086,
             ],
             [
-                0.325646221638,
-                -0.382812023163,
-                0.090028271079,
-                -0.202921912074,
-                -0.177629277110,
-                -0.194395795465,
-                -0.509811341763,
+                0.453383862972,
+                -0.392211914062,
+                -0.108619153500,
+                0.075395479798,
+                0.189080968499,
+                0.205460190773,
+                -0.185118868947,
             ],
             [
-                0.408660411835,
-                -1.066052556038,
-                -0.526026010513,
-                -3.874698638916,
-                -1.422418594360,
-                -0.656789183617,
-                -1.677640914917,
+                1.826280117035,
+                1.597882151604,
+                0.738721668720,
+                1.108302593231,
+                -2.045205593109,
+                -3.061319351196,
+                2.960993289948,
             ],
         ],
         device=device,
