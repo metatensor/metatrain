@@ -33,7 +33,6 @@ from ..utils.data import (
 from ..utils.data.dataset import _save_indices, _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
-from ..utils.distributed.slurm import check_slurm_distributed_config
 from ..utils.errors import ArchitectureError, OutOfMemoryError
 from ..utils.io import (
     check_file_extension,
@@ -307,11 +306,6 @@ def train_model(
 
     check_architecture_options(
         name=architecture_name, options=OmegaConf.to_container(options["architecture"])
-    )
-
-    check_slurm_distributed_config(
-        architecture_name,
-        OmegaConf.to_container(options["architecture"]["training"]),
     )
 
     ###########################

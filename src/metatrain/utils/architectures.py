@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Union
 from omegaconf import OmegaConf
 
 from .. import PACKAGE_ROOT
+from ..share.base_hypers import sanitize_architecture_hypers
 from .hypers import init_with_defaults
 from .pydantic import validate_architecture_options
 
@@ -70,6 +71,7 @@ def check_architecture_options(
     :param options: architecture options to check
     """
     hypers_classes = get_hypers_classes(name)
+    sanitize_architecture_hypers(name, options)
     validate_architecture_options(
         options,
         hypers_classes["model"],
