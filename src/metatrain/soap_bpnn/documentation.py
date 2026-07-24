@@ -39,9 +39,9 @@ with the following definitions needed to fully understand some of the parameters
 
 """
 
-from typing import Literal, Optional, Union
+from typing import Literal, Optional
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.utils.hypers import init_with_defaults
@@ -136,10 +136,10 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for training SOAP BPNN models."""
 
-    distributed: Union[bool, Literal["auto"]] = "auto"
-    """Whether to use distributed training. The default ``"auto"`` enables
-    distributed training when running under more than one SLURM task.
-    Explicit booleans override the detection and are deprecated."""
+    distributed: NotRequired[bool]
+    """Whether to use distributed training. When not set, distributed training
+    is enabled automatically when running under more than one SLURM task.
+    Setting this option explicitly is deprecated."""
     distributed_port: int = 39591
     """Port for distributed communication among processes"""
     batch_size: int = 8

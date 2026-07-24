@@ -49,8 +49,8 @@ test distributed:
     - flock /tmp/ldconfig.lock -c "test -f /tmp/ld_$CI_JOB_ID || { ldconfig || true; touch /tmp/ld_$CI_JOB_ID; }"
     - . /mtt-venv/bin/activate
     - cd tests/resources
-    # distributed is left at its default "auto": the multi-task SLURM launch
-    # of this test must be detected and enable distributed training
+    # the distributed option is not set: the multi-task SLURM launch of this
+    # test must be detected and enable distributed training
     - mtt train options-pet.yaml | tee train.log
     - 'if [ $SLURM_PROCID == 0 ]; then grep "Training on 4 devices" train.log || { echo "FAILED: Not training on 4 devices as requested."; exit 1; }; fi'
   variables:

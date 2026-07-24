@@ -163,7 +163,7 @@ class Trainer(TrainerInterface):
     ) -> None:
         assert dtype in MetaMACE.__supported_dtypes__
 
-        is_distributed = resolve_distributed(self.hypers["distributed"])
+        is_distributed = resolve_distributed(self.hypers.get("distributed"))
         is_finetune = "finetune" in self.hypers
 
         if is_distributed:
