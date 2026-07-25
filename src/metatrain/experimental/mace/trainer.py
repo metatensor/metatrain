@@ -115,6 +115,10 @@ def get_optimizer_and_scheduler(
                 "name": "scaler",
                 "params": model.scaler.parameters(),
             },
+            {
+                "name": "post_hooks",
+                "params": model.post_hooks.parameters(),
+            },
         ]
     )
 
