@@ -1,11 +1,10 @@
 import copy
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Union, cast
+from typing import Any, Dict, List, Literal, Union
 
 import metatensor.torch as mts
 import torch
-from torch.utils.data import DataLoader
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive.remove import get_remove_additive_transform
@@ -13,6 +12,7 @@ from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    build_val_dataloaders,
     get_num_workers,
     unpack_batch,
     validate_num_workers,
@@ -24,7 +24,6 @@ from metatrain.utils.distributed.slurm import (
     initialize_slurm_nccl_process_group,
     resolve_distributed,
 )
-from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists_transform
 from metatrain.utils.transfer import batch_to
@@ -37,11 +36,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 2
 
     def __init__(self, hypers: TrainerHypers):
-        # Unlike other trainers, this one is also instantiated directly by
-        # other architectures (see train_or_load_composition_model), possibly
-        # with partial hypers, so missing entries are filled with their
-        # defaults here.
-        hypers = cast(TrainerHypers, {**init_with_defaults(TrainerHypers), **hypers})
         super().__init__(hypers)
 
         # Other additive models (e.g. ZBL) whose contributions are subtracted
@@ -64,7 +58,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         assert isinstance(model, CompositionModel)
 
         additive_models = self._additive_models
-        is_distributed = resolve_distributed(self.hypers["distributed"])
+        is_distributed = resolve_distributed(self.hypers.get("distributed"))
         fixed_weights = self.hypers["atomic_baseline"]
         batch_size = self.hypers["batch_size"]
         if batch_size is None:
@@ -163,27 +157,17 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 num_workers = self.hypers["num_workers"]
                 validate_num_workers(num_workers)
 
-            dataloaders = []
-            for dataset, sampler in zip(train_datasets, samplers, strict=True):
-                if len(dataset) < batch_size:
-                    raise ValueError(
-                        f"A training dataset has fewer samples "
-                        f"({len(dataset)}) than the batch size "
-                        f"({batch_size}). "
-                        "Please reduce the batch size."
-                    )
-                dataloaders.append(
-                    DataLoader(
-                        dataset=dataset,
-                        batch_size=batch_size,
-                        sampler=sampler,
-                        shuffle=None if sampler is not None else False,
-                        drop_last=False,
-                        collate_fn=collate_fn,
-                        num_workers=num_workers,
-                    )
-                )
-
+            # The validation dataloader builder covers every sample exactly
+            # once, without shuffling or dropping the tail batch, which is what
+            # the deterministic fit needs (the training builder does both).
+            dataloaders = build_val_dataloaders(
+                val_datasets=train_datasets,
+                val_distributed_samplers=samplers,
+                collate_fn_val=collate_fn,
+                batch_size=batch_size,
+                max_atoms_per_batch=None,
+                num_workers=num_workers,
+            )
             dataloader = CombinedDataLoader(dataloaders, shuffle=False)
 
             for batch in dataloader:

@@ -7,7 +7,7 @@ from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems
 from metatrain.utils.data.target_info import get_energy_target_info
 
-from . import DATASET_PATH
+from . import DATASET_PATH, DEFAULT_HYPERS
 from .test_regression import _build_target_tensormaps, _make_synthetic_targets
 
 
@@ -59,7 +59,13 @@ def _make_datasets_and_info():
 def _fit(is_distributed):
     datasets, dataset_info = _make_datasets_and_info()
     model = CompositionModel(hypers={}, dataset_info=dataset_info)
-    trainer = Trainer(hypers={"distributed": is_distributed, "batch_size": 1})
+    trainer = Trainer(
+        hypers={
+            **DEFAULT_HYPERS["training"],
+            "distributed": is_distributed,
+            "batch_size": 1,
+        }
+    )
     trainer.train(
         model=model,
         dtype=torch.float64,

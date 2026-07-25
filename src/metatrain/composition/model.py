@@ -185,12 +185,13 @@ class CompositionModel(ModelInterface[ModelHypers]):
         if len(self.target_infos) == 0:
             return
 
-        hypers: dict = {
-            "atomic_baseline": fixed_weights if fixed_weights is not None else {},
-            "batch_size": batch_size,
-            "distributed": is_distributed,
-        }
-        trainer = CompositionTrainer(hypers=hypers)  # type: ignore[arg-type]
+        from metatrain.utils.architectures import get_default_hypers
+
+        hypers = get_default_hypers("composition")["training"]
+        hypers["atomic_baseline"] = fixed_weights if fixed_weights is not None else {}
+        hypers["batch_size"] = batch_size
+        hypers["distributed"] = is_distributed
+        trainer = CompositionTrainer(hypers=hypers)
         trainer._additive_models = additive_models
         trainer.train(
             model=self,

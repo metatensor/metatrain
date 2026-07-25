@@ -12,7 +12,7 @@ from metatrain.utils.data.target_info import (
     get_generic_target_info,
 )
 
-from . import DATASET_PATH
+from . import DATASET_PATH, DEFAULT_HYPERS
 
 
 pytestmark = pytest.mark.filterwarnings("ignore::FutureWarning")
@@ -140,7 +140,7 @@ def test_restart_no_new_targets_preserves_weights():
     )
 
     dataset_without_energy = Dataset.from_dict({"system": systems[:4]})
-    trainer = Trainer(hypers={"batch_size": 2})
+    trainer = Trainer(hypers={**DEFAULT_HYPERS["training"], "batch_size": 2})
     trainer.train(
         model=model,
         dtype=torch.float64,
@@ -192,7 +192,9 @@ def test_multi_dataset_fixed_and_fitted_targets():
     )
     model = CompositionModel(hypers={}, dataset_info=dataset_info)
 
-    trainer = Trainer(hypers={"atomic_baseline": {"energy_a": 0.0}})
+    trainer = Trainer(
+        hypers={**DEFAULT_HYPERS["training"], "atomic_baseline": {"energy_a": 0.0}}
+    )
     trainer.train(
         model=model,
         dtype=torch.float64,
