@@ -616,7 +616,14 @@ class PET(ModelInterface[ModelHypers]):
         #            Apply hooks
         # -----------------------------------
         for hook in self.post_hooks:
-            return_dict.update(hook(systems, return_dict))
+            return_dict.update(
+                hook(
+                    systems,
+                    outputs,
+                    return_dict,
+                    selected_atoms,
+                )
+            )
 
         # **Post-processing (Evaluation Only)**
         with torch.profiler.record_function("PET::post-processing"):

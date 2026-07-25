@@ -480,7 +480,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # -----------------------------------
 
         for hook in self.post_hooks:
-            return_dict.update(hook(systems, return_dict))
+            return_dict.update(
+                hook(
+                    systems,
+                    outputs,
+                    return_dict,
+                    selected_atoms,
+                )
+            )
 
         # -----------------------------------------
         #   Undo data preprocessing (eval only)
