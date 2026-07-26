@@ -163,8 +163,8 @@ class UnavailableOutputError(Exception):
     """
 
 
-def setup_post_hooks(
-    post_hooks_hypers: dict, dataset_info: DatasetInfo
+def setup_hooks(
+    dataset_info: DatasetInfo,
 ) -> tuple[
     list[torch.nn.Module],
     dict[str, TargetInfo],
@@ -172,8 +172,8 @@ def setup_post_hooks(
     """
     Setup the post-processing hooks to apply to the outputs of the model.
 
-    :param post_hooks_hypers: The hyperparameters for the post-processing hooks.
-    :param dataset_info: The dataset information.
+    :param dataset_info: The dataset information, which contains target
+        information and also the hooks specification.
     :return: A tuple containing the list of post-processing hooks, and a
         dictionary with the outputs that the model should produce before the
         hooks are applied.
@@ -234,7 +234,7 @@ def setup_post_hooks(
 
         return unavailable_out_hooks, unavailable_errors
 
-    hooks_to_set_up = post_hooks_hypers
+    hooks_to_set_up = dataset_info.hooks.copy()
     while True:
         new_hooks_to_set_up, errors = _set_up(hooks_to_set_up, dataset_info)
         if len(new_hooks_to_set_up) == 0:
@@ -252,3 +252,23 @@ def setup_post_hooks(
         dataset_info.targets.update(model_outputs)
 
     return post_hooks, model_outputs
+
+
+def restart_hooks(
+    hooks: list[HookInterface], dataset_info: DatasetInfo
+) -> tuple[list[HookInterface], dict[str, TargetInfo]]:
+    """
+    Restart hooks with new dataset information.
+
+    :param hooks: List of existing hooks to restart.
+    :param dataset_info: New dataset information to use for restarting the hooks.
+    :return: A tuple containing the list of restarted hooks and a dictionary
+      with the outputs that the model should produce before the hooks are applied.
+
+    """
+    if len(hooks) > 0:
+        raise ValueError("Restarting from previous hooks is not supported yet.")
+
+    forward_hooks, model_outs = setup_hooks(dataset_info)
+
+    return forward_hooks, model_outs

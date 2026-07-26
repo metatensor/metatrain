@@ -2,7 +2,7 @@ import pytest
 
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
-from metatrain.utils.hooks.helpers import find_all_hooks, setup_post_hooks
+from metatrain.utils.hooks.helpers import find_all_hooks, setup_hooks
 
 
 @pytest.fixture
@@ -55,7 +55,10 @@ class TestSetupPostHooks:
 
         hypers = {}
 
-        post_hooks, model_outs = setup_post_hooks(hypers, dataset_info)
+        dataset_info = dataset_info.copy()
+        dataset_info.hooks = hypers
+
+        post_hooks, model_outs = setup_hooks(dataset_info)
 
         assert len(post_hooks) == 0
         assert model_outs == dataset_info.targets
@@ -68,7 +71,10 @@ class TestSetupPostHooks:
             "identity": "mtt::local_energy",
         }
 
-        post_hooks, model_outs = setup_post_hooks(hypers, dataset_info)
+        dataset_info = dataset_info.copy()
+        dataset_info.hooks = hypers
+
+        post_hooks, model_outs = setup_hooks(dataset_info)
 
         assert len(post_hooks) == 1
         assert "mtt::local_energy" not in model_outs
@@ -90,7 +96,10 @@ class TestSetupPostHooks:
             },
         }
 
-        post_hooks, model_outs = setup_post_hooks(hypers, dataset_info)
+        dataset_info = dataset_info.copy()
+        dataset_info.hooks = hypers
+
+        post_hooks, model_outs = setup_hooks(dataset_info)
 
         assert len(post_hooks) == 1
         assert "mtt::local_energy" not in model_outs
@@ -109,7 +118,10 @@ class TestSetupPostHooks:
             "identity": {"outputs": "mtt::local_energy", "inputs": "mtt::extra_energy"},
         }
 
-        post_hooks, model_outs = setup_post_hooks(hypers, dataset_info)
+        dataset_info = dataset_info.copy()
+        dataset_info.hooks = hypers
+
+        post_hooks, model_outs = setup_hooks(dataset_info)
 
         assert len(post_hooks) == 1
         assert "mtt::local_energy" not in model_outs
@@ -134,7 +146,10 @@ class TestSetupPostHooks:
             },
         }
 
-        post_hooks, model_outs = setup_post_hooks(hypers, dataset_info)
+        dataset_info = dataset_info.copy()
+        dataset_info.hooks = hypers
+
+        post_hooks, model_outs = setup_hooks(dataset_info)
 
         assert len(post_hooks) == 2
         assert "energy" not in model_outs
@@ -157,8 +172,11 @@ class TestSetupPostHooks:
             },
         }
 
+        dataset_info = dataset_info.copy()
+        dataset_info.hooks = hypers
+
         with pytest.raises(ValueError, match="mtt::intermediate_energy"):
-            post_hooks, model_outs = setup_post_hooks(hypers, dataset_info)
+            post_hooks, model_outs = setup_hooks(dataset_info)
 
     def test_chained_hooks_with_laterdependency(self, dataset_info):
         """Similar to the previous test, but in this case the output will
@@ -171,7 +189,10 @@ class TestSetupPostHooks:
             "identity": {"outputs": "energy", "inputs": "mtt::intermediate_energy"},
         }
 
-        post_hooks, model_outs = setup_post_hooks(hypers, dataset_info)
+        dataset_info = dataset_info.copy()
+        dataset_info.hooks = hypers
+
+        post_hooks, model_outs = setup_hooks(dataset_info)
 
         assert len(post_hooks) == 2
         assert "energy" not in model_outs

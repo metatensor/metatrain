@@ -574,6 +574,7 @@ def train_model(
         atomic_types=atomic_types,
         targets=target_info_dict,
         extra_data=extra_data_info_dict,
+        hooks=options.get("hooks", {}),
     )
 
     ###########################
