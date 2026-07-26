@@ -29,7 +29,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.hooks import setup_post_hooks
+from metatrain.utils.hooks import setup_hooks
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
@@ -264,10 +264,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # the model during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
-        post_hooks, model_outs = setup_post_hooks(
-            self.hypers["post_hooks"], train_dataset_info
-        )
-        self.post_hooks = torch.nn.ModuleList(post_hooks)
+        forward_hooks, model_outs = setup_hooks(train_dataset_info)
+        self.forward_hooks = torch.nn.ModuleList(forward_hooks)
 
         # Create heads for each target, store the layout for each of them.
         self.heads = torch.nn.ModuleDict()
@@ -369,7 +367,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # Add outputs needed by hooks
         # ----------------------------
         # TODO: In reality, we would have to check if the hook's output is requested
-        for hook in self.post_hooks:
+        for hook in self.forward_hooks:
             requested_inputs = hook.requested_inputs()
             outputs.update(requested_inputs)
 
@@ -479,7 +477,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         #            Apply hooks
         # -----------------------------------
 
-        for hook in self.post_hooks:
+        for hook in self.forward_hooks:
             return_dict.update(
                 hook(
                     systems,

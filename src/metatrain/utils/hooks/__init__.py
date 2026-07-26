@@ -1,6 +1,6 @@
-from .helpers import setup_post_hooks
+from .helpers import restart_hooks, setup_hooks
 
 
-__all__ = ["setup_post_hooks"]
+__all__ = ["setup_hooks", "restart_hooks"]
 
 PostHooksHypers = dict[str, dict | str]
