@@ -22,6 +22,7 @@ from metatomic.torch import (
 from metatrain.composition import CompositionModel
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import TargetInfo
+from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
@@ -100,6 +101,7 @@ class DPA3(ModelInterface[ModelHypers]):
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
+        check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
         self.atomic_types = dataset_info.atomic_types
 
         # Resolve precision: descriptor.precision is the authority.

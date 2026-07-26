@@ -28,6 +28,7 @@ from metatrain.experimental.space.utils import systems_to_batch
 from metatrain.pet.modules.finetuning import compute_stale_targets
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL
+from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
     sparsify_atomic_basis_target,
@@ -68,6 +69,7 @@ class SPACE(ModelInterface[ModelHypers]):
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
+        check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
 
         self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = sorted(dataset_info.atomic_types)

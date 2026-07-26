@@ -20,6 +20,10 @@ from metatrain.composition import CompositionModel
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.data.atom_pair_helpers import (
+    check_no_atom_pair_targets,
+    get_pair_sample_labels,
+)
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
     sparsify_atomic_basis_target,
@@ -41,7 +45,7 @@ from .modules.diagnostic import (
     standardize_featurizer_input_tensor,
 )
 from .modules.finetuning import apply_finetuning_strategy, compute_stale_targets
-from .modules.structures import concatenate_structures, get_pair_sample_labels
+from .modules.structures import concatenate_structures
 
 
 AVAILABLE_FEATURIZERS = typing.get_args(ModelHypers.__annotations__["featurizer_type"])
@@ -70,6 +74,7 @@ class PET(ModelInterface[ModelHypers]):
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
+        check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
 
         # Cache the hyperparameters that PET itself (as opposed to the pure-PyTorch
         # backend) needs. The remaining hyperparameters are cached on ``self.backend``.
