@@ -159,9 +159,9 @@ class GlobalMultipole(HookInterface[Hypers]):
         # Enforce origin independence by subtracting the centre of nuclear charge of
         # each system from its atomic positions.
         positions = torch.cat([system.positions for system in systems], dim=0)
-        nuclear_charges = torch.cat(
-            [system.types for system in systems], dim=0
-        ).to(positions.dtype)
+        nuclear_charges = torch.cat([system.types for system in systems], dim=0).to(
+            positions.dtype
+        )
         sizes = torch.tensor(
             [len(system) for system in systems], device=device, dtype=torch.long
         )
