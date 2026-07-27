@@ -22,6 +22,7 @@ from metatrain.utils.data import (
     DatasetInfo,
     unpack_batch,
 )
+from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.target_info import (
     is_auxiliary_output,
 )
@@ -88,6 +89,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
+        check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
 
         self.hypers = hypers
         self.dataset_info = dataset_info

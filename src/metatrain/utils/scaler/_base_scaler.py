@@ -3,6 +3,7 @@ Contains the ``BaseScaler`` class. This is intended for eventual porting to meta
 The class ``Scaler`` wraps this to be compatible with metatrain-style objects.
 """
 
+import itertools
 import logging
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -88,6 +89,14 @@ class BaseScaler(torch.nn.Module):
                 "system",
                 "atom",
             ],
+            [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ],
         ]
 
         if layout.sample_names == valid_sample_names[0]:
@@ -98,6 +107,19 @@ class BaseScaler(torch.nn.Module):
             self.sample_kinds[target_name] = "per_atom"
             samples = Labels(
                 ["atomic_type"], torch.arange(len(self.atomic_types)).reshape(-1, 1)
+            )
+
+        elif layout.sample_names == valid_sample_names[2]:
+            # Atom-pair (edge) target: only a per-target scale is supported (see below),
+            # always fixed at the identity value (1.0) - for now not fit from data nor
+            # user-overridable with fixed scaling weights.
+            self.sample_kinds[target_name] = "atom_pair"
+            index_pairs = list(
+                itertools.product(range(len(self.atomic_types)), repeat=2)
+            )
+            samples = Labels(
+                ["first_atomic_type", "second_atomic_type"],
+                torch.tensor(index_pairs, dtype=torch.int32),
             )
 
         else:
@@ -182,7 +204,12 @@ class BaseScaler(torch.nn.Module):
             ],
         )
 
-        if len(layout.keys) > 1 or len(layout[0].properties) > 1:
+        if self.sample_kinds[target_name] != "atom_pair" and (
+            len(layout.keys) > 1 or len(layout[0].properties) > 1
+        ):
+            # Per-property scales are not supported for atom-pair (edge) targets:
+            # only a per-target scale is used, so per-property scales stay at
+            # their identity default (1.0).
             self.multi_property_target_names.append(target_name)
 
         # Next, per-property scales. These have a single value per-block and
@@ -370,6 +397,11 @@ class BaseScaler(torch.nn.Module):
 
         # accumulate per-target N and Y2 quantities
         for target_name, target in targets.items():
+            if self.sample_kinds[target_name] == "atom_pair":
+                # Atom-pair (edge) target scales are not fit from data, instead kept at
+                # their default identity value (1.0).
+                continue
+
             mask = None
             if target_name + "_mask" in extra_data:
                 mask = extra_data[target_name + "_mask"]
@@ -718,9 +750,7 @@ class BaseScaler(torch.nn.Module):
                                 ),
                             )
 
-                else:
-                    assert self.sample_kinds[output_name] == "per_atom"
-
+                elif self.sample_kinds[output_name] == "per_atom":
                     output_block_types = torch.cat([system.types for system in systems])
                     if "atom_type" in key.names:
                         atom_type = key["atom_type"]
@@ -777,6 +807,28 @@ class BaseScaler(torch.nn.Module):
                         components=output_block.components,
                         properties=output_block.properties,
                     )
+
+                else:
+                    assert self.sample_kinds[output_name] == "atom_pair"
+
+                    if len(output_block.gradients_list()) > 0:
+                        raise NotImplementedError(
+                            "scaling of gradients is not implemented for "
+                            f"atom-pair target '{output_name}'"
+                        )
+                    if selected_atoms is not None:
+                        raise NotImplementedError(
+                            "`selected_atoms` is not supported for atom-pair "
+                            f"target '{output_name}'"
+                        )
+
+                    prediction_block = TensorBlock(
+                        values=scaled_vals,
+                        samples=output_block.samples,
+                        components=output_block.components,
+                        properties=output_block.properties,
+                    )
+
                 prediction_blocks.append(prediction_block)
 
             predictions[output_name] = TensorMap(
@@ -787,7 +839,9 @@ class BaseScaler(torch.nn.Module):
         return predictions
 
     def _set_fixed_weights(
-        self, target_name: str, weights: Union[float, Dict[int, float]]
+        self,
+        target_name: str,
+        weights: Union[float, dict[int, float]],
     ) -> None:
         """
         Apply fixed weights to the scales of a given target.
@@ -796,6 +850,12 @@ class BaseScaler(torch.nn.Module):
         :param weights: Either a single float value to be applied to all atomic types,
             or a dict mapping atomic type (int) to weight (float).
         """
+        if self.sample_kinds[target_name] == "atom_pair":
+            raise ValueError(
+                "Fixed scaling weights are not currently supported for "
+                f"atom-pair (edge) target '{target_name}'"
+            )
+
         # Error out if multiple blocks or multiple properties are present. These are
         # difficult to allow in the yaml files.
         if len(self.scales[target_name]) > 1:
@@ -818,13 +878,13 @@ class BaseScaler(torch.nn.Module):
         )
 
         if isinstance(weights, dict):
+            # Error out if `weights` is a dict but the target is per-structure
+            if self.sample_kinds[target_name] == "per_structure":
+                raise ValueError(
+                    "Fixed weights as a dict are not supported for per-structure "
+                    f"target '{target_name}'"
+                )
             for atomic_type in self.atomic_types.tolist():
-                # Error out if `weights` is a dict but the target is per-structure
-                if self.sample_kinds[target_name] == "per_structure":
-                    raise ValueError(
-                        "Fixed weights as a dict are not supported for per-structure "
-                        f"target '{target_name}'"
-                    )
                 # Error out if any atomic types are missing
                 if int(atomic_type) not in weights:
                     raise ValueError(

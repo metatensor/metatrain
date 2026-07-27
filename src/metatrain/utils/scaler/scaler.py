@@ -1,3 +1,4 @@
+import itertools
 import logging
 from typing import Callable, Dict, List, Optional, Sequence, Union
 
@@ -170,7 +171,9 @@ class Scaler(torch.nn.Module):
             of each target. The keys of the dict are the target names, and the values
             are either a single float value to be applied to all atomic types, or a
             dict mapping atomic type (int) to weight (float). If not provided, all
-            scales will be computed based on the accumulated quantities.
+            scales will be computed based on the accumulated quantities. Fixed weights
+            are not currently supported for atom-pair targets: their scales are always
+            left at the identity value ``1.0``.
         :param initial_transforms: A list of callables to be included in
             the collate function of the dataloader. The callables passed here will be
             applied before the other callables set by the scaler.
@@ -455,6 +458,14 @@ class Scaler(torch.nn.Module):
         valid_sample_names = [
             ["system"],
             ["system", "atom"],
+            [
+                "system",
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ],
         ]
 
         if layout.sample_names == valid_sample_names[0]:
@@ -463,6 +474,15 @@ class Scaler(torch.nn.Module):
         elif layout.sample_names == valid_sample_names[1]:
             samples = Labels(
                 ["atomic_type"], torch.arange(len(self.atomic_types)).reshape(-1, 1)
+            )
+
+        elif layout.sample_names == valid_sample_names[2]:
+            index_pairs = list(
+                itertools.product(range(len(self.atomic_types)), repeat=2)
+            )
+            samples = Labels(
+                ["first_atomic_type", "second_atomic_type"],
+                torch.tensor(index_pairs, dtype=torch.int32),
             )
 
         else:

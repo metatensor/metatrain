@@ -5,6 +5,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 from metatomic.torch.o3 import (
+    O3Transformation,
     random_transformations,
     transform_system,
     transform_tensor,
@@ -252,6 +253,219 @@ def test_distinct_transformations_per_system():
     )
 
     mts.allclose_raise(RfX[target_name], expected, atol=1e-5)
+
+
+def test_rotation_atom_pair():
+    """Tests that O3Augmenter correctly wires an atom-pair-sampled target through to
+    metatomic's ``transform_tensor``: recovering non-contiguous "system" ids (via
+    ``_tensor_system_ids``) and routing each system's own transformation to its own
+    pair rows, exactly as it already does for per-atom targets (see
+    ``test_distinct_transformations_per_system``). Rotation correctness itself is
+    metatomic's responsibility (see its ``tests/o3.py::test_pair_samples_routing``);
+    this only checks metatrain's own plumbing for the atom-pair sample kind, by
+    comparing against a direct call to ``transform_tensor`` rather than re-deriving
+    the expected rotated values by hand."""
+    target_name = "mtt::pair_target"
+
+    # Absolute dataset ids, deliberately not 0, ..., n-1
+    system_ids = torch.tensor([3, 8], dtype=torch.int32)
+    systems = [
+        System(
+            positions=torch.tensor(
+                [[0.1, 0.2, 0.3], [1.0, 0.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 8]),
+            cell=torch.zeros((3, 3), dtype=torch.float64),
+            pbc=torch.tensor([False, False, False]),
+        )
+        for _ in range(2)
+    ]
+
+    torch.manual_seed(0)
+    values = torch.randn(2, 3, 1, dtype=torch.float64)
+    # one pair sample per system, tagged with that system's absolute dataset id
+    samples = Labels(
+        [
+            "system",
+            "first_atom",
+            "second_atom",
+            "cell_shift_a",
+            "cell_shift_b",
+            "cell_shift_c",
+        ],
+        torch.tensor([[3, 0, 1, 0, 0, 0], [8, 0, 1, 0, 0, 0]]),
+    )
+    target = TensorMap(
+        keys=Labels(["o3_lambda", "o3_sigma"], torch.tensor([[1, 1]])),
+        blocks=[
+            TensorBlock(
+                values=values,
+                samples=samples,
+                components=[Labels(["o3_mu"], torch.tensor([[-1], [0], [1]]))],
+                properties=Labels(["p"], torch.tensor([[0]])),
+            )
+        ],
+    )
+
+    dataset_info = _dataset_info(
+        target_name,
+        {"spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}},
+        "atom_pair",
+    )
+    rotational_augmenter = O3Augmenter(dataset_info.targets, {})
+
+    # system 0 (id 3) is left alone while system 1 (id 8) is rotated
+    transformations = [
+        torch.eye(3, dtype=torch.float64),
+        torch.tensor(_R.T, dtype=torch.float64),
+    ]
+    _, RfX, _ = rotational_augmenter.apply_augmentations(
+        systems, {target_name: target}, transformations, extra_data={}
+    )
+
+    expected = transform_tensor(
+        target,
+        systems,
+        [O3Transformation(t, max_angular_momentum=1) for t in transformations],
+        system_ids=system_ids,
+    )
+    mts.allclose_raise(RfX[target_name], expected)
+
+
+def test_rotation_atom_pair_scalar():
+    """Tests that a scalar atom-pair target is left invariant by rotation, while its
+    pair rows are still routed to the right system via the "system" samples column
+    (recovering non-contiguous ids through ``_tensor_system_ids``, as in
+    ``test_rotation_atom_pair``). A scalar has no components, so
+    ``_contract_component_axes`` is a no-op for every row regardless of which
+    system's transformation it is paired with; this test pins that down explicitly
+    rather than only cross-checking against ``transform_tensor``."""
+    target_name = "mtt::pair_scalar"
+
+    # Absolute dataset ids, deliberately not 0, ..., n-1
+    systems = [
+        System(
+            positions=torch.tensor(
+                [[0.1, 0.2, 0.3], [1.0, 0.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 8]),
+            cell=torch.zeros((3, 3), dtype=torch.float64),
+            pbc=torch.tensor([False, False, False]),
+        )
+        for _ in range(2)
+    ]
+
+    torch.manual_seed(0)
+    values = torch.randn(2, 1, dtype=torch.float64)
+    # one pair sample per system, tagged with that system's absolute dataset id
+    samples = Labels(
+        [
+            "system",
+            "first_atom",
+            "second_atom",
+            "cell_shift_a",
+            "cell_shift_b",
+            "cell_shift_c",
+        ],
+        torch.tensor([[3, 0, 1, 0, 0, 0], [8, 0, 1, 0, 0, 0]]),
+    )
+    target = TensorMap(
+        keys=Labels(["_"], torch.tensor([[0]])),
+        blocks=[
+            TensorBlock(
+                values=values,
+                samples=samples,
+                components=[],
+                properties=Labels(["p"], torch.tensor([[0]])),
+            )
+        ],
+    )
+
+    dataset_info = _dataset_info(target_name, "scalar", "atom_pair")
+    rotational_augmenter = O3Augmenter(dataset_info.targets, {})
+
+    # system 0 (id 3) is left alone while system 1 (id 8) is rotated
+    transformations = [
+        torch.eye(3, dtype=torch.float64),
+        torch.tensor(_R.T, dtype=torch.float64),
+    ]
+    _, RfX, _ = rotational_augmenter.apply_augmentations(
+        systems, {target_name: target}, transformations, extra_data={}
+    )
+
+    # a scalar is invariant under rotation, whichever pair (system) it belongs to, so
+    # the values must come back bit-identical and the samples untouched
+    out_block = RfX[target_name].block()
+    torch.testing.assert_close(out_block.values, values)
+    assert out_block.samples == samples
+
+
+def test_rotation_atom_pair_cartesian():
+    """Tests that a Cartesian (rank-1) atom-pair target has each pair's row rotated by
+    its own system's transformation, exactly as for a per-structure Cartesian target
+    (see ``test_cartesian_rank3``), with routing recovered from non-contiguous
+    "system" ids via ``_tensor_system_ids``. The expected values are derived by hand
+    (one row rotated, one left alone) rather than by cross-checking against
+    ``transform_tensor``."""
+    target_name = "mtt::pair_vector"
+
+    systems = [
+        System(
+            positions=torch.tensor(
+                [[0.1, 0.2, 0.3], [1.0, 0.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 8]),
+            cell=torch.zeros((3, 3), dtype=torch.float64),
+            pbc=torch.tensor([False, False, False]),
+        )
+        for _ in range(2)
+    ]
+
+    torch.manual_seed(0)
+    values = torch.randn(2, 3, 1, dtype=torch.float64)
+    # one pair sample per system, tagged with that system's absolute dataset id
+    samples = Labels(
+        [
+            "system",
+            "first_atom",
+            "second_atom",
+            "cell_shift_a",
+            "cell_shift_b",
+            "cell_shift_c",
+        ],
+        torch.tensor([[3, 0, 1, 0, 0, 0], [8, 0, 1, 0, 0, 0]]),
+    )
+    target = TensorMap(
+        keys=Labels(["_"], torch.tensor([[0]])),
+        blocks=[
+            TensorBlock(
+                values=values,
+                samples=samples,
+                components=[Labels(["xyz"], torch.arange(3).reshape(-1, 1))],
+                properties=Labels(["p"], torch.tensor([[0]])),
+            )
+        ],
+    )
+
+    dataset_info = _dataset_info(target_name, {"cartesian": {"rank": 1}}, "atom_pair")
+    rotational_augmenter = O3Augmenter(dataset_info.targets, {})
+
+    # system 0 (id 3) is left alone while system 1 (id 8) is rotated
+    identity = torch.eye(3, dtype=torch.float64)
+    matrix = torch.tensor(_R, dtype=torch.float64)
+    _, RfX, _ = rotational_augmenter.apply_augmentations(
+        systems, {target_name: target}, [identity, matrix], extra_data={}
+    )
+
+    expected = torch.stack(
+        [
+            torch.einsum("Ai,ip->Ap", identity, values[0]),
+            torch.einsum("Ai,ip->Ap", matrix, values[1]),
+        ]
+    )
+    out_block = RfX[target_name].block()
+    torch.testing.assert_close(out_block.values, expected)
+    assert out_block.samples == samples
 
 
 def test_apply_random_augmentations():

@@ -16,6 +16,7 @@ from metatomic.torch import (
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
+from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
     sparsify_atomic_basis_target,
@@ -73,6 +74,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
+        check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
 
         if not (isinstance(hypers, dict) and len(hypers) == 0):
             raise ValueError(
@@ -432,6 +434,13 @@ class CompositionModel(ModelInterface[ModelHypers]):
         :param target_info: Information about the target.
         :return: Whether the target can be fitted by the composition model.
         """
+        if target_info.sample_kind == "atom_pair":
+            logging.debug(
+                f"Composition model does not support target {target_name} "
+                "since sample kind 'atom_pair' is not implemented yet."
+            )
+            return False
+
         if not target_info.is_scalar and not target_info.is_spherical:
             logging.debug(
                 f"Composition model does not support target {target_name} "

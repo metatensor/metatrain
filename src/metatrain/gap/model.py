@@ -19,6 +19,7 @@ from skmatter._selection import _FPS as _FPS_skmatter
 from metatrain.composition import CompositionModel
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL
+from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.metadata import merge_metadata
 
@@ -43,6 +44,7 @@ class GAP(ModelInterface[ModelHypers]):
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
+        check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
 
         if len(dataset_info.targets) > 1:
             raise NotImplementedError("GAP only supports a single output")
