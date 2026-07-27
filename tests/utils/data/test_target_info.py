@@ -55,6 +55,46 @@ def cartesian_target_config() -> DictConfig:
     )
 
 
+@pytest.fixture
+def scalar_atom_pair_target_config() -> DictConfig:
+    return DictConfig(
+        {
+            "quantity": "scalar",
+            "unit": "",
+            "sample_kind": "atom_pair",
+            "num_subtargets": 10,
+            "type": "scalar",
+        }
+    )
+
+
+@pytest.fixture
+def cartesian_atom_pair_target_config() -> DictConfig:
+    return DictConfig(
+        {
+            "quantity": "dipole",
+            "unit": "D",
+            "sample_kind": "atom_pair",
+            "num_subtargets": 5,
+            "type": {
+                "Cartesian": {
+                    "rank": 1,
+                }
+            },
+        }
+    )
+
+
+ATOM_PAIR_SAMPLE_NAMES = [
+    "system",
+    "first_atom",
+    "second_atom",
+    "cell_shift_a",
+    "cell_shift_b",
+    "cell_shift_c",
+]
+
+
 @pytest.fixture(params=[None, "cartesian", "coupled"])
 def spherical_product(request) -> Literal[None, "cartesian", "coupled"]:
     return request.param
@@ -181,6 +221,40 @@ def test_layout_cartesian(cartesian_target_config):
     assert not target_info.is_atomic_basis
 
 
+def test_layout_scalar_atom_pair(scalar_atom_pair_target_config):
+    target_info = get_generic_target_info("scalar", scalar_atom_pair_target_config)
+    assert target_info.quantity == "scalar"
+    assert target_info.unit == ""
+    assert target_info.sample_kind == "atom_pair"
+    assert target_info.gradients == []
+    assert target_info.device == target_info.layout.device
+    assert target_info.layout.block().samples.names == ATOM_PAIR_SAMPLE_NAMES
+
+    # Check that TargetInfo correctly identifies the type of target.
+    assert target_info.is_scalar
+    assert not target_info.is_cartesian
+    assert not target_info.is_spherical
+    assert not target_info.is_atomic_basis
+
+
+def test_layout_cartesian_atom_pair(cartesian_atom_pair_target_config):
+    target_info = get_generic_target_info(
+        "cartesian", cartesian_atom_pair_target_config
+    )
+    assert target_info.quantity == "dipole"
+    assert target_info.unit == "D"
+    assert target_info.sample_kind == "atom_pair"
+    assert target_info.gradients == []
+    assert target_info.device == target_info.layout.device
+    assert target_info.layout.block().samples.names == ATOM_PAIR_SAMPLE_NAMES
+
+    # Check that TargetInfo correctly identifies the type of target.
+    assert not target_info.is_scalar
+    assert target_info.is_cartesian
+    assert not target_info.is_spherical
+    assert not target_info.is_atomic_basis
+
+
 def test_layout_spherical(spherical_target_config, spherical_product):
     target_info = get_generic_target_info("spherical", spherical_target_config)
     assert target_info.quantity == "spherical"
@@ -273,6 +347,14 @@ def test_torchscript_scalar(scalar_target_config):
 
 def test_torchscript_cartesian(cartesian_target_config):
     _test_instance_torchscript_compatible(cartesian_target_config)
+
+
+def test_torchscript_scalar_atom_pair(scalar_atom_pair_target_config):
+    _test_instance_torchscript_compatible(scalar_atom_pair_target_config)
+
+
+def test_torchscript_cartesian_atom_pair(cartesian_atom_pair_target_config):
+    _test_instance_torchscript_compatible(cartesian_atom_pair_target_config)
 
 
 def test_torchscript_spherical(spherical_target_config):

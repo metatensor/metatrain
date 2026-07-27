@@ -490,6 +490,16 @@ def _get_scalar_target_info(target_name: str, target: DictConfig) -> TargetInfo:
     sample_names = ["system"]
     if target["sample_kind"] == "atom":
         sample_names.append("atom")
+    if target["sample_kind"] == "atom_pair":
+        sample_names.extend(
+            [
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ]
+        )
 
     block = TensorBlock(
         # float64: otherwise metatensor can't serialize
@@ -524,6 +534,16 @@ def _get_cartesian_target_info(target_name: str, target: DictConfig) -> TargetIn
     sample_names = ["system"]
     if target["sample_kind"] == "atom":
         sample_names.append("atom")
+    if target["sample_kind"] == "atom_pair":
+        sample_names.extend(
+            [
+                "first_atom",
+                "second_atom",
+                "cell_shift_a",
+                "cell_shift_b",
+                "cell_shift_c",
+            ]
+        )
 
     cartesian_key = next(iter(target["type"]))
 
