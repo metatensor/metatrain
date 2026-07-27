@@ -46,8 +46,16 @@ translates with it, so the dependence cancels exactly, whatever the value of
 :math:`\sum_i q_i`. The centre of nuclear charge is a convention used by some electronic
 structure codes, but not all.
 
-This is controlled by the ``origin`` hyperparameter: set it to ``"absolute"`` to keep the
-positions as they are stored, and recover the origin-dependent behaviour described above.
+This is controlled by the ``origin`` hyperparameter: set it to ``"absolute"`` to keep
+the positions as they are stored, and recover the origin-dependent behaviour described
+above.
+
+.. note::
+
+    This hook only makes sense for non-periodic systems: :math:`\sum_i q_i \mathbf{r}_i`
+    depends on how the atoms are wrapped into the cell, and under periodic boundary
+    conditions the dipole is only defined modulo a quantum. This is not handled in the
+    current implementation.
 """
 
 from typing import Literal, Optional, TypedDict
