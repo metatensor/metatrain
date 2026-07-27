@@ -37,10 +37,13 @@ def get_single_direction_edges(tmap: TensorMap) -> TensorMap:
 
     It keeps only:
 
-    - If atom types are different, the edges where the first atom type
-      is smaller than the second atom type.
-    - If atom types are the same, the edges where the first atom index
-      is smaller than the second atom index.
+    - If atom types are different, the edges where the first atom type is smaller than
+      the second atom type.
+    - If atom types are the same, the edges where:
+        - the first atom index is smaller than the second atom index for pairs in the
+          central unit cell, or
+        - the first atom index equals the second atom index, but the cell shift is
+          nonzero and positive (i.e. a,b,c >= 0).
 
     This function only works for atomic basis data for now.
 
@@ -67,10 +70,28 @@ def get_single_direction_edges(tmap: TensorMap) -> TensorMap:
             new_blocks.append(block.copy())
             new_keys.append(key)
             continue
-        else:
-            # Otherwise, get the edges where the first atom index is smaller
-            # than the second one.
-            mask = block.samples["first_atom"] < block.samples["second_atom"]
+        else:  # first_atom_type == second_atom_type
+            # Otherwise, get the edges where:
+            #   - the first atom index is smaller than the second one in the central
+            #     unit cell
+            #   - or the indices are the same but the cell shift is nonzero and positive
+            cell_shifts = torch.hstack(
+                [
+                    block.samples["cell_shift_a"],
+                    block.samples["cell_shift_b"],
+                    block.samples["cell_shift_c"],
+                ]
+            )
+            is_central_cell = torch.isclose(torch.linalg.norm(cell_shifts, dim=1), 0.0)
+            is_positive_shift = torch.all(cell_shifts >= 0, dim=1)
+            mask = (
+                (block.samples["first_atom"] < block.samples["second_atom"])
+                & is_central_cell
+            ) | (
+                (block.samples["first_atom"] == block.samples["second_atom"])
+                & ~is_central_cell
+                & is_positive_shift
+            )
             new_block = TensorBlock(
                 values=block.values[mask],
                 samples=Labels(
@@ -251,7 +272,7 @@ def get_bidirectional_edges_transform(
                 name in extra_data_info_dict
                 and extra_data_info_dict[name].sample_kind == "atom_pair"
             ):
-                targets[name] = get_bidirectional_edges(tensor)
+                extra[name] = get_bidirectional_edges(tensor)
 
         return systems, targets, extra
 

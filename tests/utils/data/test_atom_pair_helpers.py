@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import metatensor.torch as mts
 import pytest
 
@@ -9,8 +7,7 @@ from metatrain.utils.data.atom_pair_helpers import (
     get_single_direction_edges,
 )
 
-
-RESOURCES_PATH = Path(__file__).resolve().parents[2] / "resources"
+from ...conftest import RESOURCES_PATH
 
 
 @pytest.mark.parametrize("batch_size", [1, 2])

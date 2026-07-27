@@ -822,64 +822,6 @@ class BaseScaler(torch.nn.Module):
                             f"target '{output_name}'"
                         )
 
-                    # TODO: uncomment the following once scales can be specified or
-                    # computed for per-pair targets that makes them different from 1.0.
-
-                    # n_types = len(self.atomic_types)
-
-                    # if (
-                    #     "first_atom_type" in key.names
-                    #     and "second_atom_type" in key.names
-                    # ):
-                    #     first_types = torch.full(
-                    #         (len(output_block.samples),),
-                    #         int(key["first_atom_type"]),
-                    #         dtype=torch.long,
-                    #         device=device,
-                    #     )
-                    #     second_types = torch.full(
-                    #         (len(output_block.samples),),
-                    #         int(key["second_atom_type"]),
-                    #         dtype=torch.long,
-                    #         device=device,
-                    #     )
-                    # else:
-                    #     all_types = torch.cat([system.types for system in systems])
-                    #     system_lengths = torch.tensor(
-                    #         [len(s.types) for s in systems],
-                    #         dtype=torch.long,
-                    #         device=device,
-                    #     )
-                    #     offsets = torch.cat(
-                    #         [
-                    #             torch.zeros(1, dtype=torch.long, device=device),
-                    #             torch.cumsum(system_lengths[:-1], dim=0),
-                    #         ]
-                    #     )
-                    #     raw_system_indices = output_block.samples.values[:, 0]
-                    #     _, system_indices = torch.unique_consecutive(
-                    #         raw_system_indices, return_inverse=True
-                    #     )
-                    #     first_atom_indices = output_block.samples.values[:, 1]
-                    #     second_atom_indices = output_block.samples.values[:, 2]
-                    #     first_types = all_types[
-                    #         offsets[system_indices] + first_atom_indices
-                    #     ]
-                    #     second_types = all_types[
-                    #         offsets[system_indices] + second_atom_indices
-                    #     ]
-
-                    # pair_index = (
-                    #     self.type_to_index[first_types] * n_types
-                    #     + self.type_to_index[second_types]
-                    # )
-
-                    # # Scale the values of the output block
-                    # if remove:  # remove the scaler
-                    #     scaled_vals = scaled_vals / scales_block_values[pair_index]
-                    # else:  # apply the scaler
-                    #     scaled_vals = scaled_vals * scales_block_values[pair_index]
-
                     prediction_block = TensorBlock(
                         values=scaled_vals,
                         samples=output_block.samples,

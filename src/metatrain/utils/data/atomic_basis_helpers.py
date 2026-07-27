@@ -64,22 +64,23 @@ def get_per_atom_sample_labels(
 # ===== Densification utilities (keys with atom types to samples)
 
 
-def _densify_per_atom_atomic_basis_target(
+def _densify_atomic_basis_target(
     tensor: TensorMap,
     layout: TensorMap,
     fill_value: float = torch.nan,
 ) -> TensorMap:
     """
-    Densify the per-atom atomic basis target by moving the "atom_type" key dimension to
-    the samples, creating a padded property dimension according to the maximum property
-    size for each irrep.
+    Densify a per-atom/atom-pair atomic basis target by moving the "atom_type"-like
+    (i.e. either "atom_type" or "first_atom_type"/"second_atom_type") key dimension(s)
+    to the samples, creating a padded property dimension according to the maximum
+    property size for each irrep.
 
-    :param tensor: the per-atom atomic basis target TensorMap to densify.
+    :param tensor: the per-atom/atom-pair atomic basis target TensorMap to densify.
     :param layout: the layout TensorMap defining the global basis set.
     :param fill_value: the value to use for filling in the padded values when
         densifying.
 
-    :return: the densified per-atom atomic basis target TensorMap.
+    :return: the densified per-atom/atom-pair atomic basis target TensorMap.
     """
 
     # First ensure that the tensor has all keys present in the layout tensor (i.e. the
@@ -192,13 +193,12 @@ def densify_atomic_basis_target(
 
     :return: the densified atomic basis target TensorMap.
     """
-    if "atom" in tensor.sample_names:
-        return _densify_per_atom_atomic_basis_target(tensor, layout, fill_value)
-    else:
-        return _densify_per_atom_atomic_basis_target(tensor, layout, fill_value)
+    if "atom" in tensor.sample_names or "first_atom" in tensor.sample_names:
+        return _densify_atomic_basis_target(tensor, layout, fill_value)
 
     raise NotImplementedError(
-        "Currently only densification of per-atom atomic basis targets is implemented."
+        "Currently only densification of per-atom/atom-pair atomic basis "
+        "targets is implemented."
     )
 
 
@@ -232,6 +232,7 @@ def _pad_block(
             (len(samples), *[len(c) for c in block.components], len(properties)),
             fill_value=fill_value,
             dtype=block.values.dtype,
+            device=block.values.device,
         )
         # Intersect first rather than assuming `block.samples` is a subset of
         # `samples`: for atom-pair targets, the real data may contain pairs
@@ -413,7 +414,7 @@ def _compute_sparse_properties(layout: TensorMap) -> TensorMap:
             non_type_indices.append(i)
 
     # Build union of properties across atom types for each non-type key — same
-    # logic as _densify_per_atom_atomic_basis_target.
+    # logic as _densify_atomic_basis_target.
     union_properties: dict[str, Labels] = {}
     for key, block in layout.items():
         k = str([key.values[i].item() for i in non_type_indices])
@@ -692,13 +693,10 @@ def sparsify_atomic_basis_target(
         return _sparsify_per_atom_atomic_basis_target(
             systems, tensor, sparse_properties, atom_types_batch
         )
-    elif "first_atom" in tensor.sample_names:
-        return _sparsify_per_atom_pair_atomic_basis_target(
-            systems, tensor, sparse_properties, atom_types_batch
-        )
 
-    raise NotImplementedError(
-        "Currently only sparsification of per-atom atomic basis targets is implemented."
+    assert "first_atom" in tensor.sample_names
+    return _sparsify_per_atom_pair_atomic_basis_target(
+        systems, tensor, sparse_properties, atom_types_batch
     )
 
 
