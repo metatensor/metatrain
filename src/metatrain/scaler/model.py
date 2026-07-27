@@ -44,7 +44,6 @@ class Scaler(ModelInterface[ModelHypers]):
     atomic_types: List[int]
     target_infos: Dict[str, TargetInfo]
     new_outputs: List[str]
-    # model: BaseScaler
 
     @staticmethod
     def requested_neighbor_lists() -> List[NeighborListOptions]:
@@ -74,7 +73,7 @@ class Scaler(ModelInterface[ModelHypers]):
         )
         self.outputs: Dict[str, ModelOutput] = {}
 
-        # keeps track of dtype and device of the composition model
+        # keeps track of dtype and device of the scaler
         self.register_buffer("dummy_buffer", torch.randn(1))
 
         self.new_outputs = []
@@ -195,7 +194,7 @@ class Scaler(ModelInterface[ModelHypers]):
         use_per_target_scales: bool = True,
         use_per_property_scales: bool = True,
     ) -> Dict[str, TensorMap]:
-        """Scales the outputs based on the stored standard deviations.
+        """Scales the outputs based on the stored (uncentered) standard deviations.
 
         :param systems: List of systems for which the outputs were computed.
         :param outputs: Dictionary containing the output TensorMaps.
