@@ -1,5 +1,9 @@
 from .combine_dataloaders import CombinedDataLoader  # noqa: F401
-from .dataloaders import build_train_dataloaders, build_val_dataloaders  # noqa: F401
+from .dataloaders import (  # noqa: F401
+    build_train_dataloaders,
+    build_val_dataloaders,
+    resolve_dataloader_workers,
+)
 from .dataset import (  # noqa: F401
     CollateFn,
     Dataset,
@@ -13,7 +17,6 @@ from .dataset import (  # noqa: F401
     get_stats,
     load_indices,
     unpack_batch,
-    validate_num_workers,
 )
 from .get_dataset import get_dataset  # noqa: F401
 from .readers import read_extra_data, read_systems, read_targets  # noqa: F401

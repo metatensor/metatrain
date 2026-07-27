@@ -17,9 +17,8 @@ from metatrain.utils.data import (
     Dataset,
     build_train_dataloaders,
     build_val_dataloaders,
-    get_num_workers,
+    resolve_dataloader_workers,
     unpack_batch,
-    validate_num_workers,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
@@ -210,15 +209,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
             ],
         )
 
-        if self.hypers["num_workers"] is None:
-            num_workers = get_num_workers()
-            logging.info(
-                "Number of workers for data-loading not provided and chosen "
-                f"automatically. Using {num_workers} workers."
-            )
-        else:
-            num_workers = self.hypers["num_workers"]
-            validate_num_workers(num_workers)
+        num_workers, mp_context = resolve_dataloader_workers(
+            self.hypers["num_workers"], device, train_datasets + val_datasets
+        )
 
         if is_distributed:
             train_samplers = [
@@ -256,6 +249,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             max_atoms_per_batch=max_atoms,
             min_atoms_per_batch=self.hypers["min_atoms_per_batch"],
             num_workers=num_workers,
+            multiprocessing_context=mp_context,
         )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
@@ -267,6 +261,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             batch_size=self.hypers["batch_size"],
             max_atoms_per_batch=max_atoms,
             num_workers=num_workers,
+            multiprocessing_context=mp_context,
         )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 

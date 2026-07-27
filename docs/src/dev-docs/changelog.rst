@@ -38,6 +38,23 @@ Fixed
 - Loading a checkpoint newer than the installed architecture now raises a clear error
   asking to upgrade metatrain, instead of a confusing upgrade failure.
 
+Changed
+#######
+
+- When training on CUDA with disk-backed datasets (``DiskDataset``,
+  ``MemmapDataset``), dataloader workers are now started with the ``spawn``
+  method instead of being forked. Forking after CUDA initialization is
+  unsupported by PyTorch and made every worker gradually duplicate the memory
+  of the training process on long runs.
+
+Removed
+#######
+
+- The restriction of ``num_workers`` to 0 on platforms without fork (macOS,
+  Windows) is gone: everything a dataloader worker receives is now picklable,
+  so spawned workers work everywhere. ``validate_num_workers`` was removed
+  from ``metatrain.utils.data``.
+
 Added
 #####
 

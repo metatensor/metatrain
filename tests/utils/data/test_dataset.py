@@ -1,3 +1,4 @@
+import pickle
 from pathlib import Path
 
 import numpy as np
@@ -22,7 +23,7 @@ from metatrain.utils.data import (
     read_targets,
     unpack_batch,
 )
-from metatrain.utils.data.dataset import MemmapDataset
+from metatrain.utils.data.dataset import DiskDataset, MemmapDataset
 from metatrain.utils.data.writers import MemmapWriter
 
 
@@ -1370,3 +1371,49 @@ def test_memmap_masses_attached(tmp_path):
     # the atom label is local (0), not the global offset (1)
     assert block.samples.values.tolist() == [[1, 0]]
     assert block.values.squeeze(-1).tolist() == [12.0]
+
+
+def test_disk_dataset_is_picklable():
+    """DiskDataset must survive pickling: spawned dataloader workers receive
+    their dataset by pickle."""
+    dataset = DiskDataset(RESOURCES_PATH / "spherical_disk_dataset.zip")
+    sample = dataset[0]  # populate the cached sample class before pickling
+
+    reloaded = pickle.loads(pickle.dumps(dataset))
+    sample2 = reloaded[0]
+    assert sample2._fields == sample._fields
+    assert torch.equal(sample2.system.positions, sample.system.positions)
+
+
+def test_memmap_dataset_is_picklable(tmp_path):
+    """MemmapDataset must pickle small (paths, not array contents): spawned
+    dataloader workers receive their dataset by pickle."""
+    ns = 2
+    na = np.array([0, 2, 5], dtype=np.int64)
+    np.save(tmp_path / "ns.npy", ns)
+    np.save(tmp_path / "na.npy", na)
+    np.array(
+        [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [0, 0, 1]], dtype="float32"
+    ).tofile(tmp_path / "x.bin")
+    np.array([1, 1, 6, 6, 8], dtype="int32").tofile(tmp_path / "a.bin")
+    np.zeros((ns, 3, 3), dtype="float32").tofile(tmp_path / "c.bin")
+    np.arange(5, dtype="float32").reshape(5, 1).tofile(tmp_path / "charge.bin")
+
+    target_options = {
+        "atomic_charge": {
+            "key": "charge",
+            "sample_kind": "atom",
+            "num_subtargets": 1,
+            "type": "scalar",
+            "quantity": "energy",
+        }
+    }
+    dataset = MemmapDataset(tmp_path, target_options)
+    sample = dataset[1]  # opens the memmaps and creates the sample class
+
+    payload = pickle.dumps(dataset)
+    assert len(payload) < 10_000  # paths and metadata, not array contents
+
+    sample2 = pickle.loads(payload)[1]
+    assert sample2._fields == sample._fields
+    assert torch.equal(sample2.system.positions, sample.system.positions)

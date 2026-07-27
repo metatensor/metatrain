@@ -15,7 +15,6 @@ from metatrain.utils.data import (
     build_val_dataloaders,
     get_num_workers,
     unpack_batch,
-    validate_num_workers,
 )
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
@@ -155,7 +154,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
             else:
                 num_workers = self.hypers["num_workers"]
-                validate_num_workers(num_workers)
 
             # The validation dataloader builder covers every sample exactly
             # once, without shuffling or dropping the tail batch, which is what

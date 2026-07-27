@@ -1,3 +1,4 @@
+import functools
 import io
 import math
 import multiprocessing
@@ -10,6 +11,7 @@ from typing import Any, Callable, Dict, List, NamedTuple, Optional, Set, Tuple, 
 import numpy as np
 import torch
 from metatensor.learn.data import Dataset, group_and_join
+from metatensor.learn.data._dataset import _BaseDataset
 from metatensor.learn.data._namedtuple import namedtuple
 from metatensor.torch import (
     Labels,
@@ -44,6 +46,34 @@ from metatrain.utils.data.target_info import (
 )
 from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.units import get_gradient_units
+
+
+def _rebuild_base_dataset(cls: Any, state: dict) -> Any:
+    obj = cls.__new__(cls)
+    obj.__dict__.update(state)
+    obj._sample_class = namedtuple("Sample", obj._field_names)
+    return obj
+
+
+def _base_dataset_reduce(self: Any) -> tuple:
+    state = self.__dict__.copy()
+    # the dynamically created namedtuple class cannot be pickled; it is
+    # recreated from _field_names in _rebuild_base_dataset (the same treatment
+    # DiskDataset gives its own sample class below)
+    state.pop("_sample_class", None)
+    return _rebuild_base_dataset, (type(self), state)
+
+
+# metatensor-learn datasets are not picklable as-is — and dataloader workers
+# started with the "spawn" method receive their dataset by pickling. Give them
+# a __reduce__ until metatensor-learn supports pickling natively. Routing the
+# rebuild through a function in THIS module also guarantees that unpickling
+# imports it (and, transitively, metatomic.torch and metatensor.torch) before
+# reconstructing the System/TensorMap objects held by the dataset: their C++
+# TorchScript classes must be registered first, and a spawned worker unpickles
+# the dataset before anything else has imported those modules ("Tried to
+# deserialize class ... which is not known to the runtime").
+_BaseDataset.__reduce__ = _base_dataset_reduce  # type: ignore[attr-defined]
 
 
 def _set(values: List[int]) -> List[int]:
@@ -889,10 +919,8 @@ class DiskDataset(torch.utils.data.Dataset):
 
         self._fields_to_read.append("mtt::aux::system_index")
 
-        fields_map = fields if isinstance(fields, dict) else {}
-        self._sample_class = namedtuple(
-            "Sample", [fields_map.get(field, field) for field in self._fields_to_read]
-        )
+        # target-config dicts remap dataset field names to target names
+        self._fields_map: Dict[str, str] = fields if isinstance(fields, dict) else {}
 
         # The dataset is valid: report skipped files, once.
         # DiskDatasetWriter output never triggers this.
@@ -906,6 +934,21 @@ class DiskDataset(torch.utils.data.Dataset):
                 "`<N>/system.mta` or `<N>/<target>.mts`.",
                 stacklevel=2,
             )
+
+    @functools.cached_property
+    def _sample_class(self) -> Any:
+        return namedtuple(
+            "Sample",
+            [self._fields_map.get(field, field) for field in self._fields_to_read],
+        )
+
+    def __getstate__(self) -> dict:
+        # _sample_class is a cached_property stored in __dict__ after first access;
+        # drop it so workers recreate it lazily rather than unpickling a dynamic
+        # class (the SmartZip drops its own process-local file handle the same way).
+        state = self.__dict__.copy()
+        state.pop("_sample_class", None)
+        return state
 
     def _read_member(self, index: int, field_name: str) -> io.BytesIO:
         """Read one zip member of the sample at ``index``.
@@ -1148,9 +1191,6 @@ def get_num_workers() -> int:
     :return: A good number of workers for data loading.
     """
 
-    if multiprocessing.get_start_method(allow_none=False) != "fork":
-        return 0
-
     # len(os.sched_getaffinity(0)) detects thread counts set by slurm,
     # multiprocessing.cpu_count() doesn't but is more portable
     if hasattr(os, "sched_getaffinity"):
@@ -1165,23 +1205,6 @@ def get_num_workers() -> int:
     num_workers = max(0, min(num_threads - reserve, cap))
 
     return num_workers
-
-
-def validate_num_workers(num_workers: int) -> None:
-    """
-    Gets a good number of workers for data loading.
-
-    :param num_workers: The number of workers to validate.
-    :raises ValueError: If the number of workers is greater than 0 and the
-        multiprocessing start method is not "fork".
-    """
-
-    if multiprocessing.get_start_method(allow_none=False) != "fork" and num_workers > 0:
-        raise ValueError(
-            "You are using a start method for multiprocessing that is not "
-            "'fork' (this is likely because you are on macOS or Windows). "
-            "In this case, num_workers must be set to 0."
-        )
 
 
 def _make_system_contiguous(system: System) -> System:
@@ -1231,6 +1254,13 @@ class MemmapArray:
         self.dtype = np.dtype(dtype)
         self.mode = mode
         self._mm = None
+
+    def __getstate__(self) -> dict:
+        # pickling an open np.memmap materializes the whole array into the
+        # pickle; drop the handle so workers reopen the file lazily
+        state = self.__dict__.copy()
+        state["_mm"] = None
+        return state
 
     def _ensure_open(self) -> None:
         if self._mm is None:
@@ -1309,13 +1339,6 @@ class MemmapDataset(TorchDataset):
                     f"Extra data key '{key}' has type '{opts.get('type')}'; "
                     "only 'scalar' is supported for MemmapDataset extra data."
                 )
-        self.sample_class = namedtuple(
-            "Sample",
-            ["system"]
-            + list(self.target_config.keys())
-            + list(self.extra_data_config.keys()),
-        )
-
         # Information about the structures
         self.ns = np.load(path / "ns.npy")
         self.na = np.load(path / "na.npy")
@@ -1409,6 +1432,22 @@ class MemmapDataset(TorchDataset):
                 raise ValueError(
                     f"Unsupported target configuration: {single_target_options}"
                 )
+
+    @functools.cached_property
+    def sample_class(self) -> Any:
+        return namedtuple(
+            "Sample",
+            ["system"]
+            + list(self.target_config.keys())
+            + list(self.extra_data_config.keys()),
+        )
+
+    def __getstate__(self) -> dict:
+        # the dynamically created sample class cannot be pickled; drop it so
+        # workers recreate it lazily (same treatment as DiskDataset above)
+        state = self.__dict__.copy()
+        state.pop("sample_class", None)
+        return state
 
     def __len__(self) -> int:
         return self.ns

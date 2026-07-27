@@ -1,3 +1,4 @@
+import functools
 from typing import Callable, Dict, List, Tuple
 
 import torch
@@ -30,6 +31,16 @@ def remove_scale(
     )
 
 
+def _remove_scale_transform_impl(
+    scaler: Scaler,
+    systems: List[System],
+    targets: Dict[str, TensorMap],
+    extra: Dict[str, TensorMap],
+) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+    new_targets = remove_scale(systems, targets, scaler)
+    return systems, new_targets, extra
+
+
 def get_remove_scale_transform(scaler: Scaler) -> Callable:
     """
     Remove the scaling from the targets using the provided scaler.
@@ -37,19 +48,4 @@ def get_remove_scale_transform(scaler: Scaler) -> Callable:
     :param scaler: The scaler used to scale the targets.
     :return: A function that removes the scaling from the targets.
     """
-
-    def transform(
-        systems: List[System],
-        targets: Dict[str, TensorMap],
-        extra: Dict[str, TensorMap],
-    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
-        """
-        :param systems: List of systems.
-        :param targets: Dictionary containing the targets corresponding to the systems.
-        :param extra: Dictionary containing any extra data.
-        :return: The systems, updated targets and extra data.
-        """
-        new_targets = remove_scale(systems, targets, scaler)
-        return systems, new_targets, extra
-
-    return transform
+    return functools.partial(_remove_scale_transform_impl, scaler)
