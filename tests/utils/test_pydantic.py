@@ -1,14 +1,19 @@
 # mypy: ignore-errors
 # Satisfying mypy in this file is hard because the fixtures
 # define different classes depending on the parametrization.
+from copy import deepcopy
+
 import pytest
 import requests
 from pydantic import BaseModel
 from typing_extensions import TypedDict
 
+from metatrain.share.base_hypers import BaseHypers
+from metatrain.utils.architectures import preload_documentation_module
 from metatrain.utils.pydantic import (
     MetatrainArchitectureValidationError,
     MetatrainValidationError,
+    get_train_json_schema,
     validate,
     validate_architecture_options,
     validate_base_options,
@@ -156,3 +161,29 @@ def test_validation_error_doc_link():
     for link in [modelhypers_link, trainerhypers_link]:
         response = requests.head(link)
         assert response.status_code == 200, f"Link {link} is not reachable"
+
+
+def test_get_train_json_schema():
+    """Test that get_train_json_schema returns a valid JSON schema.
+
+    Also check that the hypers classes have not gotten their annotations
+    modified by the schema generation process.
+    """
+    pet_docs = preload_documentation_module("pet")
+    pet_model_hypers = pet_docs.ModelHypers
+    pet_trainer_hypers = pet_docs.TrainerHypers
+    old_model_annotations = deepcopy(pet_model_hypers.__annotations__)
+    pet_trainer_annotations = deepcopy(pet_trainer_hypers.__annotations__)
+    base_old_annotations = deepcopy(BaseHypers.__annotations__)
+
+    schema = get_train_json_schema(allow_missing_hypers=True)
+
+    assert isinstance(schema, dict)
+    assert "properties" in schema
+    assert "architecture" in schema["properties"]
+
+    # Check that the hypers classes have not gotten their annotations
+    # modified by the schema generation process.
+    assert pet_model_hypers.__annotations__ == old_model_annotations
+    assert pet_trainer_hypers.__annotations__ == pet_trainer_annotations
+    assert BaseHypers.__annotations__ == base_old_annotations
