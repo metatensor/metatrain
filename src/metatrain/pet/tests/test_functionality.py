@@ -12,6 +12,7 @@ from metatomic_ase import MetatomicCalculator
 from metatrain.composition import Trainer as CompositionTrainer
 from metatrain.pet import PET
 from metatrain.pet.modules.transformer import AttentionBlock
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -444,7 +445,11 @@ def test_composition_contribution_in_eval_atomic_basis():
         }
     )
     composition_trainer = CompositionTrainer(
-        hypers={"atomic_baseline": {}, "batch_size": 1}
+        hypers={
+            **get_default_hypers("composition")["training"],
+            "atomic_baseline": {},
+            "batch_size": 1,
+        }
     )
     composition_trainer.train(
         model=model.additive_models[0],

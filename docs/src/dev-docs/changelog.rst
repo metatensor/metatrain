@@ -27,6 +27,12 @@ Unreleased
 Fixed
 #####
 
+- The distributed composition fit no longer sees duplicated samples on shards of uneven
+  size, which slightly biased the fitted weights whenever the dataset size was not
+  divisible by the number of ranks.
+- The ``Scaler`` now attaches the neighbor lists required by the additive models
+  itself, instead of relying on a previous fit having attached them to the systems as
+  a side effect.
 - ``DiskDatasetWriter`` in append mode now continues the entry numbering of the
   existing zip instead of restarting from zero.
 
@@ -50,7 +56,10 @@ Added
 - MACE architecture now supports multi-headed MACE models through the ``mace_head_name`` hyperparameter.
 - ``composition`` is now a standalone architecture: it can be trained, exported, and run
   for inference on its own (``architecture: {name: composition}``), in addition to being
-  used as an additive baseline inside the other architectures.
+  used as an additive baseline inside the other architectures. Standalone training
+  supports distributed environments (detected automatically from the SLURM
+  environment), fits on the requested device, and loads data in parallel
+  (``num_workers``).
 - The ``atomic_baseline`` hyperparameter now also accepts a path to a pretrained
   composition checkpoint, which is loaded and reused as the additive baseline instead of
   being refitted from the training data.

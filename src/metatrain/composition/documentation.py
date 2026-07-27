@@ -81,15 +81,24 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for the composition trainer."""
 
-    atomic_baseline: NotRequired[FixedCompositionWeights] = {}
+    distributed: NotRequired[bool]
+    """Whether to use distributed training. When not set, distributed training
+    is enabled automatically when running under more than one SLURM task.
+    Setting this option explicitly is deprecated."""
+    distributed_port: int = 39591
+    """Port for distributed communication among processes"""
+    atomic_baseline: FixedCompositionWeights = {}
     """Fixed per-species baselines, overriding the least-squares fit for the
     targets/atomic types they cover. A dict mapping each target name to either
     a single weight for all atomic types, or a dict mapping atomic types to
     weights. Unlike the identically-named hyperparameter of other
     architectures, a path to a composition checkpoint is not accepted here."""
-    batch_size: NotRequired[Optional[int]] = None
+    batch_size: Optional[int] = None
     """Number of structures to accumulate at a time when building the
     least-squares problem. This only affects memory usage, not the fitted
     weights, since the composition model is a deterministic fit rather than
     an iterative optimization. Defaults to the size of the smallest training
     dataset."""
+    num_workers: Optional[int] = None
+    """Number of workers for data loading. If not provided, it is set
+    automatically."""

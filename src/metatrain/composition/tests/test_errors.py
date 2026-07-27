@@ -10,7 +10,7 @@ from metatrain.utils.data.target_info import (
     get_generic_target_info,
 )
 
-from . import DATASET_PATH
+from . import DATASET_PATH, DEFAULT_HYPERS
 
 
 def test_non_empty_hypers_raises():
@@ -73,7 +73,7 @@ def test_train_float32_raises():
         },
     )
     model = CompositionModel(hypers={}, dataset_info=dataset_info)
-    trainer = Trainer(hypers={})
+    trainer = Trainer(hypers={**DEFAULT_HYPERS["training"]})
 
     with pytest.raises(
         ValueError,

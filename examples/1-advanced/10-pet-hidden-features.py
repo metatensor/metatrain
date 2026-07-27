@@ -271,7 +271,9 @@ def print_all_module_paths(model):
     print("-" * 95)
     for name, module in model.named_modules():
         if name and not any(name.startswith(p) for p in _skip):
-            print(f"  mtt::feature::{name:<50}  {type(module).__name__}")
+            # the "backend" namespace is omitted from the feature path for brevity
+            name_ = name.replace("backend.", "")
+            print(f"  mtt::feature::{name_:<50}  {type(module).__name__}")
 
 
 print_all_module_paths(model)
@@ -331,3 +333,5 @@ for key, tmap in predictions.items():
     print(
         f"{key[len('mtt::feature::') :]:45s}  {str(block.values.shape):20s}  ({kind})"
     )
+
+# %%

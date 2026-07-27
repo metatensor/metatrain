@@ -76,6 +76,7 @@ class TestCheckpoints(CheckpointTests, CompositionTests):
     # checkpoints cannot be loaded in the "restart" context.
     incompatible_trainer_checkpoints = [
         "checkpoints/model-v1_trainer-v1.ckpt.gz",
+        "checkpoints/model-v1_trainer-v2.ckpt.gz",
     ]
 
 
