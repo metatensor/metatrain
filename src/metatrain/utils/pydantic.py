@@ -518,6 +518,11 @@ def get_train_json_schema(allow_missing_hypers: bool) -> dict:
     for arch_name in find_all_architectures():
         arch_doc = preload_documentation_module(arch_name)
 
+        # We are going to modify the annotations so that the schema is correct,
+        # store the original annotations so we can restore them later.
+        old_model_annotations = arch_doc.ModelHypers.__annotations__
+        old_trainer_annotations = arch_doc.TrainerHypers.__annotations__
+
         ModelHypers = set_not_required_and_defaults(arch_doc.ModelHypers)
         TrainerHypers = set_not_required_and_defaults(arch_doc.TrainerHypers)
 
@@ -552,13 +557,22 @@ def get_train_json_schema(allow_missing_hypers: bool) -> dict:
             },
         )
 
+        # Now that the model has been created, we can restore the original annotations
+        ModelHypers.__annotations__ = old_model_annotations
+        TrainerHypers.__annotations__ = old_trainer_annotations
+
         arch_models.append(ArchModel)
 
     # Build the global model for the training options, setting the
     # architecture field to be a union of all the possible architectures.
+    old_base_annotations = BaseHypers.__annotations__
     _baseHypers = set_not_required_and_defaults(BaseHypers)
     _baseHypers.__annotations__["architecture"] = Union[tuple(arch_models)]
 
     mtttrain_model = TypeAdapter(_baseHypers)
+    json_schema = mtttrain_model.json_schema()
 
-    return mtttrain_model.json_schema()
+    # Restore the original annotations of BaseHypers to avoid side effects
+    BaseHypers.__annotations__ = old_base_annotations
+
+    return json_schema
