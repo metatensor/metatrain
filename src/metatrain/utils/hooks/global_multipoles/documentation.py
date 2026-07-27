@@ -36,7 +36,7 @@ which is not guaranteed when the charges are learned: translating a system by
 :math:`\mathbf{a}` changes the prediction by :math:`\left(\sum_i q_i\right)\mathbf{a}`.
 
 To make the prediction invariant under a rigid translation, the positions of each system
-are referred to its centre of nuclear charge,
+are by default referred to its centre of nuclear charge,
 
 .. math::
     \mathbf{R} = \frac{\sum_i Z_i \mathbf{r}_i}{\sum_i Z_i}
@@ -45,9 +45,12 @@ before the multipole is assembled. Because the origin is defined by the system i
 translates with it, so the dependence cancels exactly, whatever the value of
 :math:`\sum_i q_i`. The centre of nuclear charge is a convention used by some electronic
 structure codes, but not all.
+
+This is controlled by the ``origin`` hyperparameter: set it to ``"absolute"`` to keep the
+positions as they are stored, and recover the origin-dependent behaviour described above.
 """
 
-from typing import Optional, TypedDict
+from typing import Literal, Optional, TypedDict
 
 
 class Hypers(TypedDict):
@@ -70,4 +73,22 @@ class Hypers(TypedDict):
 
     These targets must be spherical and global, i.e. with sample
     kind ``"system"``.
+    """
+
+    origin: Literal["center_of_charge", "absolute"] = "center_of_charge"
+    """
+    Origin (per-system) that the atomic positions are referred to when assembling the
+    multipole.
+
+    - ``"center_of_charge"`` (default): subtract each system's centre of nuclear charge,
+      :math:`\\mathbf{R} = \\sum_i Z_i \\mathbf{r}_i / \\sum_i Z_i`, from its positions.
+      Because the origin is defined by the system itself it translates with it, so the
+      predicted multipole is invariant under a rigid translation whatever the value of
+      :math:`\\sum_i q_i`. This is a convention used by some electronic structure codes,
+      but not all.
+    - ``"absolute"``: use the positions as they are stored, without shifting the origin.
+      The predicted multipole is then **not** translationally invariant unless the local
+      charges happen to sum to zero: translating a system by :math:`\\mathbf{a}` changes
+      it by :math:`\\left(\\sum_i q_i\\right)\\mathbf{a}`. Use this only when the
+      absolute frame is meaningful, or to reproduce earlier behaviour.
     """
