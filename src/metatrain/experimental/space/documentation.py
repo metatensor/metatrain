@@ -57,6 +57,15 @@ of importance) for the SPACE architecture:
 
   .. autoattribute:: {{model_hypers_path}}.force_rectangular
       :no-index:
+
+{{SECTION_MODEL_HYPERS}}
+
+with the radial basis hyperparameters being:
+
+.. autoclass:: {{architecture_path}}.documentation.RadialBasisHypers
+    :members:
+    :undoc-members:
+
 """
 
 from typing import Literal, Optional
