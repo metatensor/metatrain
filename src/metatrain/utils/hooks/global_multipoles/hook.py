@@ -156,10 +156,30 @@ class GlobalMultipole(HookInterface[Hypers]):
 
         device = systems[0].positions.device
 
-        # Get the concatenated positions of all atoms in the systems,
-        # and reorder the axes to match the spherical harmonics convention
+        # Enforce origin independence by subtracting the centre of nuclear charge of
+        # each system from its atomic positions.
+        positions = torch.cat([system.positions for system in systems], dim=0)
+        nuclear_charges = torch.cat(
+            [system.types for system in systems], dim=0
+        ).to(positions.dtype)
+        sizes = torch.tensor(
+            [len(system) for system in systems], device=device, dtype=torch.long
+        )
+        system_indices = torch.repeat_interleave(
+            torch.arange(len(systems), device=device), sizes
+        )
+        totals = torch.zeros(
+            len(systems), dtype=positions.dtype, device=device
+        ).index_add_(0, system_indices, nuclear_charges)
+        origins = torch.zeros(
+            (len(systems), 3), dtype=positions.dtype, device=device
+        ).index_add_(0, system_indices, nuclear_charges.unsqueeze(1) * positions)
+        origins = origins / totals.unsqueeze(1)
+
+        positions = positions - origins[system_indices]
+
+        # Reorder the axes to match the spherical harmonics convention
         # (x, y, z) -> (y, z, x)
-        positions = torch.cat([s.positions for s in systems], dim=0)
         positions = positions[:, [1, 2, 0]]
         if selected_atoms is not None:
             # Here we should filter out the positions only for the selected atoms
