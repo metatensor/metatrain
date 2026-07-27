@@ -8,6 +8,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
+from metatrain.utils.additive import ZBL
 from metatrain.utils.augmentation import O3Augmenter
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems
@@ -2464,3 +2465,79 @@ def test_scaler_torchscript(tmpdir):
         scaler = torch.jit.load(tmpdir / "scaler.pt")
 
     scaler(systems, fake_output)
+
+
+def test_scaler_with_neighbor_list_additive_model():
+    """The scaler must attach the neighbor lists needed by the additive models
+    (here ZBL) to the systems itself. It used to rely on an earlier fit (the
+    composition model's) having attached them to the same in-memory systems as
+    a side effect, which no longer happens when that fit loads data in worker
+    processes."""
+
+    systems = [
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                dtype=torch.float64,
+            ),
+            types=torch.tensor([1, 1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+        System(
+            positions=torch.tensor(
+                [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 8]),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        ),
+    ]
+    energies = [
+        TensorMap(
+            keys=Labels(names=["_"], values=torch.tensor([[0]])),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[e]], dtype=torch.float64),
+                    samples=Labels(names=["system"], values=torch.tensor([[i]])),
+                    components=[],
+                    properties=Labels(names=["energy"], values=torch.tensor([[0]])),
+                )
+            ],
+        )
+        for i, e in enumerate([1.0, 5.0])
+    ]
+    dataset = Dataset.from_dict({"system": systems, "energy": energies})
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 8],
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
+    )
+    zbl = ZBL(hypers={}, dataset_info=dataset_info)
+    scaler = Scaler(hypers={}, dataset_info=dataset_info).to(torch.float64)
+
+    # The systems have no neighbor lists attached: this used to raise a
+    # "No neighbor list found" error from the ZBL forward
+    scaler.train_model(
+        dataset,
+        additive_models=[zbl],
+        batch_size=1,
+        is_distributed=False,
+    )
+
+    fake_output = {
+        "energy": TensorMap(
+            keys=Labels.single(),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[1.0], [1.0]], dtype=torch.float64),
+                    samples=Labels(names=["system"], values=torch.tensor([[0], [1]])),
+                    components=[],
+                    properties=Labels.range("energy", 1),
+                )
+            ],
+        )
+    }
+    scales = scaler(systems, fake_output)["energy"].block().values
+    assert bool(torch.isfinite(scales).all()) and bool((scales > 0).all())

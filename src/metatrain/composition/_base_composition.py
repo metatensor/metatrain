@@ -617,8 +617,16 @@ class BaseCompositionModel(torch.nn.Module):
         return one_hot_encoding.to(dtype)
 
     def _sync_device_dtype(self, device: torch.device, dtype: torch.dtype) -> None:
-        # manually move the TensorMap dicts:
+        """
+        Move the accumulated quantities and the fitted weights to the given
+        device and dtype.
 
+        Needed because they are stored as ``TensorMap`` dicts, which
+        ``torch.nn.Module.to`` does not move.
+
+        :param device: Device to move the quantities to.
+        :param dtype: Dtype to convert the quantities to.
+        """
         self.atomic_types = self.atomic_types.to(device=device)
         self.type_to_index = self.type_to_index.to(device=device)
         self.XTX = {

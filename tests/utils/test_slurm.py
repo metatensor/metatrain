@@ -1,6 +1,8 @@
 import pytest
 import torch
+from typing_extensions import TypedDict
 
+from metatrain.share.base_hypers import sanitize_architecture_hypers
 from metatrain.utils.architectures import check_architecture_options, get_default_hypers
 from metatrain.utils.distributed.slurm import (
     initialize_slurm_nccl_process_group,
@@ -61,12 +63,18 @@ def test_multitask_slurm_distributed_disabled(monkeypatch):
 
 
 def test_multitask_slurm_unsupported_architecture(monkeypatch):
+    """Checked on the sanitizer directly with a dummy hypers class, since every
+    architecture with a training loop now supports distributed training."""
     _set_slurm_env(monkeypatch, 16)
-    with pytest.raises(
-        MetatrainValidationError, match="does not support distributed training"
-    ):
-        check_architecture_options(
-            name="composition", options=get_default_hypers("composition")
+
+    class NoDistributedTrainerHypers(TypedDict):
+        batch_size: int
+
+    with pytest.raises(ValueError, match="does not support distributed training"):
+        sanitize_architecture_hypers(
+            architecture_name="foo",
+            hypers={"training": {}},
+            trainer_hypers_cls=NoDistributedTrainerHypers,
         )
 
 

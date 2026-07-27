@@ -16,6 +16,7 @@ from metatrain.utils.per_atom import average_by_num_atoms
 
 from ..additive import remove_additive
 from ..data import DatasetInfo, TargetInfo, unpack_batch
+from ..neighbor_lists import get_system_with_neighbor_lists_transform
 from ..transfer import batch_to
 from ._base_scaler import BaseScaler, FixedScalerWeights
 
@@ -203,12 +204,25 @@ class Scaler(torch.nn.Module):
         device = self.dummy_buffer.device
 
         if not skip_accumulation:
+            # Attach the neighbor lists needed by the additive models whose
+            # contributions are removed below (e.g. ZBL): the scaler cannot
+            # rely on a previous fit having attached them to the systems.
+            requested_neighbor_lists = []
+            for additive_model in additive_models:
+                if hasattr(additive_model, "requested_neighbor_lists"):
+                    requested_neighbor_lists += (
+                        additive_model.requested_neighbor_lists()
+                    )
+
             # Create dataloader for the training datasets
             dataloader = self._get_dataloader(
                 datasets,
                 batch_size,
                 is_distributed=is_distributed,
-                initial_transforms=initial_transforms,
+                initial_transforms=[
+                    *initial_transforms,
+                    get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                ],
             )
 
             # accumulate

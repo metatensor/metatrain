@@ -33,6 +33,18 @@ from .documentation import ModelHypers
 
 
 class CompositionModel(ModelInterface[ModelHypers]):
+    """
+    A model that predicts invariant targets as a sum of per-species weights,
+    fitted by least squares on the training data.
+
+    It is used both as a standalone architecture and as an additive baseline
+    inside the other architectures.
+
+    :param hypers: Hyperparameters for the model. Should be an empty dictionary.
+    :param dataset_info: Information about the dataset used to initialize the
+        model.
+    """
+
     __checkpoint_version__ = 1
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64]
@@ -51,6 +63,12 @@ class CompositionModel(ModelInterface[ModelHypers]):
 
     @staticmethod
     def requested_neighbor_lists() -> List[NeighborListOptions]:
+        """
+        Get the neighbor lists required by the model.
+
+        :return: An empty list, as the composition model does not use neighbor
+            lists.
+        """
         return []
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
@@ -142,6 +160,19 @@ class CompositionModel(ModelInterface[ModelHypers]):
         is_distributed: bool,
         fixed_weights: Optional[FixedCompositionWeights] = None,
     ) -> None:
+        """
+        Fit the composition weights from the provided datasets.
+
+        Deprecated, use ``Trainer.train()`` instead.
+
+        :param datasets: Datasets to fit the weights on.
+        :param additive_models: Additive models (e.g. ZBL) whose contributions
+            are subtracted from the targets before fitting.
+        :param batch_size: Batch size for data loading.
+        :param is_distributed: Whether training is distributed.
+        :param fixed_weights: Fixed per-species baselines, overriding the fit
+            for the targets and atomic types they cover.
+        """
         warnings.warn(
             "train_model is deprecated, use Trainer.train() instead.",
             FutureWarning,
@@ -154,23 +185,35 @@ class CompositionModel(ModelInterface[ModelHypers]):
         if len(self.target_infos) == 0:
             return
 
-        hypers: dict = {}
-        if fixed_weights is not None:
-            hypers["atomic_baseline"] = fixed_weights
+        from metatrain.utils.architectures import get_default_hypers
+
+        hypers = get_default_hypers("composition")["training"]
+        hypers["atomic_baseline"] = fixed_weights if fixed_weights is not None else {}
         hypers["batch_size"] = batch_size
-        trainer = CompositionTrainer(hypers=hypers)  # type: ignore[arg-type]
+        hypers["distributed"] = is_distributed
+        trainer = CompositionTrainer(hypers=hypers)
         trainer._additive_models = additive_models
-        trainer._is_distributed = is_distributed
         trainer.train(
             model=self,
             dtype=torch.float64,
-            devices=[torch.device("cpu")],
+            devices=[self.dummy_buffer.device],
             train_datasets=datasets,
             val_datasets=datasets,
             checkpoint_dir="",
         )
 
     def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
+        """
+        Update the model to continue training, possibly with new targets.
+
+        Targets the composition model cannot handle are dropped, already fitted
+        targets keep their weights, and only the new targets are marked to be
+        fitted. New atomic types are not allowed.
+
+        :param dataset_info: Information about the new dataset, including the
+            targets that will be used for training.
+        :return: The updated model.
+        """
         raw_targets = {}
         for target_name in dataset_info.targets:
             target_info = dataset_info.targets[target_name]
@@ -237,6 +280,22 @@ class CompositionModel(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        """
+        Compute the requested outputs as per-atom composition predictions.
+
+        Every atom is predicted as the fitted weight of its atomic type. In
+        evaluation mode, atomic-basis targets are sparsified back to their
+        native layout, with ``atom_type`` in the keys; during training they
+        stay dense.
+
+        :param systems: List of systems to evaluate the model on.
+        :param outputs: Dictionary of outputs that the model should compute.
+        :param selected_atoms: Optional ``Labels`` specifying a subset of atoms
+            to compute the outputs for. If ``None``, the outputs are computed
+            for all atoms in each system.
+        :return: A dictionary mapping each requested output name to the
+            corresponding ``TensorMap`` containing the computed values.
+        """
         dtype = systems[0].positions.dtype
         device = systems[0].positions.device
 
@@ -273,6 +332,11 @@ class CompositionModel(ModelInterface[ModelHypers]):
         return pred
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
+        """
+        Get the outputs currently supported by this model.
+
+        :return: A dictionary of the supported outputs.
+        """
         return self.outputs
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
@@ -334,6 +398,16 @@ class CompositionModel(ModelInterface[ModelHypers]):
             delattr(self, buffer_name)
 
     def weights_to(self, device: torch.device, dtype: torch.dtype) -> None:
+        """
+        Move the fitted weights and the accumulated quantities to the given
+        device and dtype.
+
+        Needed because they are stored as ``TensorMap`` attributes, which
+        ``torch.nn.Module.to`` does not move.
+
+        :param device: Device to move the weights to.
+        :param dtype: Dtype to convert the weights to.
+        """
         if len(self.model.weights) != 0:
             if self.model.weights[list(self.model.weights.keys())[0]].device != device:
                 self.model.weights = {
@@ -348,6 +422,16 @@ class CompositionModel(ModelInterface[ModelHypers]):
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
+        """
+        Check whether the composition model can fit the given target.
+
+        Only scalar targets and spherical targets with at least one invariant
+        contribution are supported.
+
+        :param target_name: Name of the target, used for logging.
+        :param target_info: Information about the target.
+        :return: Whether the target can be fitted by the composition model.
+        """
         if not target_info.is_scalar and not target_info.is_spherical:
             logging.debug(
                 f"Composition model does not support target {target_name} "
@@ -380,12 +464,24 @@ class CompositionModel(ModelInterface[ModelHypers]):
         return True
 
     def sync_tensor_maps(self) -> None:
+        """
+        Reload the weight ``TensorMap`` objects from the registered buffers.
+
+        Must be called after the buffers change through means that bypass the
+        model, e.g. ``load_state_dict``.
+        """
         for k in self.dataset_info.targets:
             self.model.weights[k] = mts.load_buffer(
                 self.__getattr__(k + "_composition_buffer")
             )
 
     def get_checkpoint(self) -> Dict:
+        """
+        Get the checkpoint of the model.
+
+        :return: The model's checkpoint, containing all the information needed
+            by ``load_checkpoint`` to recreate the same model instance.
+        """
         model_state_dict = self.state_dict()
         checkpoint = {
             "architecture_name": "composition",
@@ -408,6 +504,15 @@ class CompositionModel(ModelInterface[ModelHypers]):
         checkpoint: Dict,
         context: Literal["restart", "finetune", "export"],
     ) -> "CompositionModel":
+        """
+        Create a model from a checkpoint.
+
+        :param checkpoint: Checkpoint's state dictionary.
+        :param context: Context in which to load the model: ``"restart"`` loads
+            the latest state, ``"finetune"`` and ``"export"`` load the best
+            state.
+        :return: An instance of the model.
+        """
         if context == "restart":
             logging.info(f"Using latest model from epoch {checkpoint.get('epoch')}")
             model_state_dict = checkpoint["model_state_dict"]
@@ -434,6 +539,12 @@ class CompositionModel(ModelInterface[ModelHypers]):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        """
+        Upgrade the checkpoint to the current version of the model.
+
+        :param checkpoint: Checkpoint's state dictionary.
+        :return: The upgraded checkpoint.
+        """
         for v in range(1, cls.__checkpoint_version__):
             if checkpoint.get("model_ckpt_version") == v:
                 update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
@@ -451,6 +562,14 @@ class CompositionModel(ModelInterface[ModelHypers]):
         return checkpoint
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
+        """
+        Turn this model into an :py:class:`metatomic.torch.AtomisticModel`,
+        containing the model itself, its capabilities and its metadata.
+
+        :param metadata: Additional metadata to add to the model, as specified
+            by the user.
+        :return: An instance of :py:class:`metatomic.torch.AtomisticModel`.
+        """
         dtype = self.dummy_buffer.dtype
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {dtype} for composition model")
