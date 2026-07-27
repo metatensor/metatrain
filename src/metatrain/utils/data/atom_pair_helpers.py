@@ -75,14 +75,15 @@ def get_single_direction_edges(tmap: TensorMap) -> TensorMap:
             #   - the first atom index is smaller than the second one in the central
             #     unit cell
             #   - or the indices are the same but the cell shift is nonzero and positive
-            cell_shifts = torch.hstack(
+            cell_shifts = torch.stack(
                 [
                     block.samples["cell_shift_a"],
                     block.samples["cell_shift_b"],
                     block.samples["cell_shift_c"],
-                ]
+                ],
+                dim=1,
             )
-            is_central_cell = torch.isclose(torch.linalg.norm(cell_shifts, dim=1), 0.0)
+            is_central_cell = torch.all(cell_shifts == 0, dim=1)
             is_positive_shift = torch.all(cell_shifts >= 0, dim=1)
             mask = (
                 (block.samples["first_atom"] < block.samples["second_atom"])
