@@ -28,6 +28,16 @@ class GlobalMultipole(HookInterface[Hypers]):
 
         self.hypers = hypers
 
+        # Origin the positions are referred to. Stored as a plain string so
+        # that the forward stays TorchScript-friendly.
+        origin = hypers.get("origin", "center_of_charge")
+        if origin not in ("center_of_charge", "absolute"):
+            raise ValueError(
+                f"Invalid 'origin' for the global multipoles hook: {origin!r}. "
+                f"Expected either 'center_of_charge' or 'absolute'."
+            )
+        self.origin: str = origin
+
         # Get the information about the output targets from the dataset info
         out_names = hypers["outputs"]
         if isinstance(out_names, str):
@@ -156,27 +166,33 @@ class GlobalMultipole(HookInterface[Hypers]):
 
         device = systems[0].positions.device
 
-        # Enforce origin independence by subtracting the centre of nuclear charge of
-        # each system from its atomic positions.
         positions = torch.cat([system.positions for system in systems], dim=0)
-        nuclear_charges = torch.cat([system.types for system in systems], dim=0).to(
-            positions.dtype
-        )
-        sizes = torch.tensor(
-            [len(system) for system in systems], device=device, dtype=torch.long
-        )
-        system_indices = torch.repeat_interleave(
-            torch.arange(len(systems), device=device), sizes
-        )
-        totals = torch.zeros(
-            len(systems), dtype=positions.dtype, device=device
-        ).index_add_(0, system_indices, nuclear_charges)
-        origins = torch.zeros(
-            (len(systems), 3), dtype=positions.dtype, device=device
-        ).index_add_(0, system_indices, nuclear_charges.unsqueeze(1) * positions)
-        origins = origins / totals.unsqueeze(1)
 
-        positions = positions - origins[system_indices]
+        if self.origin == "center_of_charge":
+            # Enforce origin independence by referring the positions of each
+            # system to its own centre of nuclear charge. The per-system sums
+            # are done with a scatter over the concatenated batch; note that
+            # the origin is computed per system and never over the whole batch,
+            # which would make the prediction depend on how systems are
+            # batched together.
+            nuclear_charges = torch.cat([system.types for system in systems], dim=0).to(
+                positions.dtype
+            )
+            sizes = torch.tensor(
+                [len(system) for system in systems], device=device, dtype=torch.long
+            )
+            system_indices = torch.repeat_interleave(
+                torch.arange(len(systems), device=device), sizes
+            )
+            totals = torch.zeros(
+                len(systems), dtype=positions.dtype, device=device
+            ).index_add_(0, system_indices, nuclear_charges)
+            origins = torch.zeros(
+                (len(systems), 3), dtype=positions.dtype, device=device
+            ).index_add_(0, system_indices, nuclear_charges.unsqueeze(1) * positions)
+            origins = origins / totals.unsqueeze(1)
+
+            positions = positions - origins[system_indices]
 
         # Reorder the axes to match the spherical harmonics convention
         # (x, y, z) -> (y, z, x)
