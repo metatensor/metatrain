@@ -145,7 +145,6 @@ from typing import Literal, Optional
 from typing_extensions import NotRequired, TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
-from metatrain.utils.hooks import PostHooksHypers
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.long_range import LongRangeHypers
 from metatrain.utils.loss import LossSpecification
@@ -258,8 +257,6 @@ class ModelHypers(TypedDict):
     max_spin_multiplicity: int = 10
     """Maximum spin multiplicity (2S+1) for the conditioning embedding table.
     Supports values in the range ``[1, max_spin_multiplicity]``."""
-    post_hooks: PostHooksHypers = {}
-    """Post-processing hooks to apply to the outputs of the model."""
 
 
 class TrainerHypers(TypedDict):
