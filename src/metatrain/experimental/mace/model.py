@@ -32,7 +32,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.hooks import setup_hooks
+from metatrain.utils.hooks import restart_hooks, setup_hooks
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.sum_over_atoms import sum_over_atoms
@@ -347,9 +347,28 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # the model during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
-        # Add extra heads for the new targets
-        for target_name in new_targets:
-            self._add_output(target_name, train_dataset_info.targets[target_name])
+        if dataset_info.targets != self.dataset_info.targets:
+            # Only re-run the hook setup when the targets changed; ``restart_hooks``
+            # does not support rebuilding already-instantiated hooks.
+            forward_hooks, model_outs = restart_hooks(
+                list(self.forward_hooks), train_dataset_info
+            )
+            self.forward_hooks = torch.nn.ModuleList(forward_hooks)
+
+            # Add extra heads for the new targets. Targets produced by a hook
+            # are not in ``model_outs``, since the model does not predict them
+            # directly; they only need to be registered as outputs.
+            targets = merged_info.targets
+            for target_name in new_targets:
+                if target_name in model_outs:
+                    self._add_output(target_name, model_outs[target_name])
+                self.outputs[target_name] = ModelOutput(
+                    quantity=targets[target_name].quantity
+                    if target_name in targets
+                    else "",
+                    unit=targets[target_name].unit if target_name in targets else "",
+                    sample_kind="atom",
+                )
 
         self.dataset_info = merged_info
 
