@@ -2426,6 +2426,63 @@ def test_scaler_skips_accumulation(caplog):
     )
 
 
+def _atom_pair_dataset_info(atomic_types):
+    """Minimal DatasetInfo with a single, single-property atom-pair target."""
+    target_name = "mtt::pair_target"
+    return target_name, DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=atomic_types,
+        targets={
+            target_name: get_generic_target_info(
+                target_name,
+                {
+                    "quantity": "",
+                    "unit": "",
+                    "type": {
+                        "spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}
+                    },
+                    "sample_kind": "atom_pair",
+                    "num_subtargets": 1,
+                },
+            )
+        },
+    )
+
+
+def test_scaler_atom_pair_default_scale_is_one():
+    """Atom-pair (edge) target scales are always the identity (1.0) for every
+    atomic-type pair, since they are never fit from data."""
+    atomic_types = [1, 6, 8]
+    target_name, dataset_info = _atom_pair_dataset_info(atomic_types)
+    scaler = Scaler(hypers={}, dataset_info=dataset_info)
+
+    # `fit()` never accumulates atom-pair data (see `BaseScaler.accumulate`), so
+    # this should leave the scale untouched at its identity default.
+    scaler.model.fit(targets_to_fit=[target_name])
+
+    scale = scaler.model.scales[target_name].block().values
+    torch.testing.assert_close(scale, torch.ones_like(scale))
+
+
+@pytest.mark.parametrize("weights", [1.5, {1: 1.5, 6: 2.0}])
+def test_scaler_atom_pair_fixed_weights_raises(weights):
+    """Fixed scaling weights (float or per-atomic-type dict) are not supported for
+    atom-pair targets: their scales are always fixed at 1.0."""
+    target_name, dataset_info = _atom_pair_dataset_info([1, 6])
+    scaler = Scaler(hypers={}, dataset_info=dataset_info)
+
+    with pytest.raises(
+        ValueError, match="Fixed scaling weights are not currently supported"
+    ):
+        scaler.train_model(
+            datasets=[],
+            additive_models=[],
+            batch_size=1,
+            is_distributed=False,
+            fixed_weights={target_name: weights},
+        )
+
+
 def test_scaler_torchscript(tmpdir):
     """Test the torchscripting, saving and loading of a scaler model."""
 

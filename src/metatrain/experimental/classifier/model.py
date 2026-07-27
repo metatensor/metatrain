@@ -13,6 +13,7 @@ from metatomic.torch import (
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 
@@ -49,6 +50,7 @@ class Classifier(ModelInterface[ModelHypers]):
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
+        check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
 
         self.dataset_info = dataset_info
         self.hidden_sizes = hypers["hidden_sizes"]

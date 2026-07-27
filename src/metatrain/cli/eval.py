@@ -267,6 +267,18 @@ def _eval_targets(
         targ_per_atom = average_by_num_atoms(
             batch_targets, systems, per_structure_keys=[]
         )
+        # For metrics, filter out the targets that have sample_kind "atom_pair"
+        # for now.
+        preds_per_atom = {
+            k: v
+            for k, v in preds_per_atom.items()
+            if options[k].sample_kind != "atom_pair"
+        }
+        targ_per_atom = {
+            k: v
+            for k, v in targ_per_atom.items()
+            if options[k].sample_kind != "atom_pair"
+        }
         rmse_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
         mae_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
 

@@ -24,6 +24,7 @@ from metatomic.torch import (
 from metatrain.composition import CompositionModel
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
     sparsify_atomic_basis_target,
@@ -105,6 +106,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
+        check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
 
         # ---------------------------
         # Get the MACE model instance

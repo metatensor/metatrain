@@ -3,9 +3,10 @@ from typing import Callable, Dict, List, Optional, Tuple
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import System
+from metatomic.torch import NeighborListOptions, System
 
 from ..data import DatasetInfo
+from .atom_pair_helpers import get_pair_sample_labels
 from .target_info import TargetInfo
 
 
@@ -63,22 +64,23 @@ def get_per_atom_sample_labels(
 # ===== Densification utilities (keys with atom types to samples)
 
 
-def _densify_per_atom_atomic_basis_target(
+def _densify_atomic_basis_target(
     tensor: TensorMap,
     layout: TensorMap,
     fill_value: float = torch.nan,
 ) -> TensorMap:
     """
-    Densify the per-atom atomic basis target by moving the "atom_type" key dimension to
-    the samples, creating a padded property dimension according to the maximum property
-    size for each irrep.
+    Densify a per-atom/atom-pair atomic basis target by moving the "atom_type"-like
+    (i.e. either "atom_type" or "first_atom_type"/"second_atom_type") key dimension(s)
+    to the samples, creating a padded property dimension according to the maximum
+    property size for each irrep.
 
-    :param tensor: the per-atom atomic basis target TensorMap to densify.
+    :param tensor: the per-atom/atom-pair atomic basis target TensorMap to densify.
     :param layout: the layout TensorMap defining the global basis set.
     :param fill_value: the value to use for filling in the padded values when
         densifying.
 
-    :return: the densified per-atom atomic basis target TensorMap.
+    :return: the densified per-atom/atom-pair atomic basis target TensorMap.
     """
 
     # First ensure that the tensor has all keys present in the layout tensor (i.e. the
@@ -191,11 +193,81 @@ def densify_atomic_basis_target(
 
     :return: the densified atomic basis target TensorMap.
     """
-    if "atom" in tensor.sample_names:
-        return _densify_per_atom_atomic_basis_target(tensor, layout, fill_value)
+    if "atom" in tensor.sample_names or "first_atom" in tensor.sample_names:
+        return _densify_atomic_basis_target(tensor, layout, fill_value)
 
     raise NotImplementedError(
-        "Currently only densification of per-atom atomic basis targets is implemented."
+        "Currently only densification of per-atom/atom-pair atomic basis "
+        "targets is implemented."
+    )
+
+
+def _pad_block(
+    block: TensorBlock,
+    axis: str,
+    padded_labels: Labels,
+    fill_value: float,
+) -> TensorBlock:
+    """
+    Takes a TensorBlock and pads it along the specified axis with zeros, using the
+    provided padded_labels to determine the metadata structure of the new block.
+
+    Any of the samples/properties that are already present in the block will be filled
+    with the original values, while the new samples/properties will be filled with
+    ``fill_value``.
+
+    :param block: The TensorBlock to pad.
+    :param axis: Either ``"samples"`` or ``"properties"``, specifying which axis to pad.
+    :param padded_labels: The target Labels defining the full (padded) extent of the
+        chosen axis.
+    :param fill_value: Value used to fill positions that have no corresponding entry in
+        the original block.
+    :return: A new TensorBlock padded to the requested shape along the chosen axis.
+    """
+    if axis == "samples":
+        samples = padded_labels
+        properties = block.properties
+
+        block_values = torch.full(
+            (len(samples), *[len(c) for c in block.components], len(properties)),
+            fill_value=fill_value,
+            dtype=block.values.dtype,
+            device=block.values.device,
+        )
+        # Intersect first rather than assuming `block.samples` is a subset of
+        # `samples`: for atom-pair targets, the real data may contain pairs
+        # outside the model's own neighbor list (e.g. a different cutoff was
+        # used when the target data was generated), in which case those extra
+        # samples are simply dropped.
+        intersection = samples.intersection(block.samples)
+        idxs_padded = samples.select(intersection)
+        idxs_original = block.samples.select(intersection)
+        assert len(idxs_padded) == len(idxs_original)
+        if len(idxs_original) > 0:
+            block_values[idxs_padded] = block.values[idxs_original]
+
+    else:
+        assert axis == "properties"
+        samples = block.samples
+        properties = padded_labels
+
+        block_values = torch.full(
+            (len(samples), *[len(c) for c in block.components], len(properties)),
+            fill_value=fill_value,
+            dtype=block.values.dtype,
+        )
+        intersection = properties.intersection(block.properties)
+        idxs_padded = properties.select(intersection)
+        idxs_original = block.properties.select(intersection)
+        assert len(idxs_padded) == len(idxs_original)
+        if len(idxs_original) > 0:
+            block_values[..., idxs_padded] = block.values[..., idxs_original]
+
+    return TensorBlock(
+        samples=samples,
+        components=block.components,
+        properties=properties,
+        values=block_values,
     )
 
 
@@ -225,10 +297,33 @@ def _pad_samples_per_atom_atomic_basis_target(
     return TensorMap(tensor.keys, new_blocks)
 
 
+def _pad_samples_per_atom_pair_atomic_basis_target(
+    systems: List[System],
+    tensor: TensorMap,
+    system_ids: torch.Tensor,
+    nl_options: NeighborListOptions,
+) -> TensorMap:
+    # Build the pair sample labels, keyed by the tensor's own native "system" ids
+    sample_labels = get_per_atom_sample_labels(systems, system_ids)
+    pair_sample_labels = get_pair_sample_labels(
+        sample_labels,
+        systems=systems,
+        nl_options=nl_options,
+    )
+
+    # Pad the samples according to the neighbor-list pair samples
+    new_blocks = []
+    for block in tensor:
+        new_blocks.append(_pad_block(block, "samples", pair_sample_labels, torch.nan))
+
+    return TensorMap(tensor.keys, new_blocks)
+
+
 def pad_samples_atomic_basis_target(
     systems: List[System],
     tensor: TensorMap,
     system_ids: torch.Tensor,
+    nl_options: Optional[NeighborListOptions] = None,
 ) -> TensorMap:
     """
     Pad the samples of the atomic basis target to have the same number of samples for
@@ -238,14 +333,26 @@ def pad_samples_atomic_basis_target(
     :param tensor: the atomic basis target TensorMap to pad.
     :param system_ids: the "system" label value for each system, in the same order as
         ``systems``, matching the tensor's own native "system" sample values.
+    :param nl_options: Options for the neighbor list used to enumerate edges for
+        per-atom-pair targets. Required if ``tensor`` is a per-atom-pair target.
 
     :return: the padded atomic basis target TensorMap
     """
 
     if "atom" in tensor.sample_names:
         return _pad_samples_per_atom_atomic_basis_target(systems, tensor, system_ids)
+    elif "first_atom" in tensor.sample_names:
+        if nl_options is None:
+            raise ValueError(
+                "`nl_options` must be provided to pad a per-atom-pair atomic "
+                "basis target."
+            )
+        return _pad_samples_per_atom_pair_atomic_basis_target(
+            systems, tensor, system_ids, nl_options
+        )
     raise NotImplementedError(
-        "Currently only padding of per-atom atomic basis targets is implemented."
+        "Currently only padding of per-atom and per-atom-pair atomic basis targets "
+        "is implemented."
     )
 
 
@@ -254,6 +361,7 @@ def prepare_atomic_basis_targets(
     system_ids: torch.Tensor,
     tensor: TensorMap,
     layout: TensorMap,
+    nl_options: Optional[NeighborListOptions] = None,
     fill_value: float = torch.nan,
 ) -> TensorMap:
     """
@@ -266,6 +374,8 @@ def prepare_atomic_basis_targets(
     :param tensor: the atomic basis target TensorMap to prepare.
     :param layout: the layout TensorMap defining the global basis set (i.e. the union of
         all blocks that should be present in the output).
+    :param nl_options: Options for the neighbor list used to enumerate edges for
+        per-atom-pair targets. Required if ``tensor`` is a per-atom-pair target.
     :param fill_value: the value to use for filling in the padded values when densifying
         and padding. Default is NaN, but can be set to 0 if desired (e.g. for
         classification targets).
@@ -277,7 +387,7 @@ def prepare_atomic_basis_targets(
     tensor = densify_atomic_basis_target(tensor, layout, fill_value)
 
     # Pad samples, labelling them with the target's own native "system" ids
-    tensor = pad_samples_atomic_basis_target(systems, tensor, system_ids)
+    tensor = pad_samples_atomic_basis_target(systems, tensor, system_ids, nl_options)
 
     return tensor
 
@@ -304,7 +414,7 @@ def _compute_sparse_properties(layout: TensorMap) -> TensorMap:
             non_type_indices.append(i)
 
     # Build union of properties across atom types for each non-type key — same
-    # logic as _densify_per_atom_atomic_basis_target.
+    # logic as _densify_atomic_basis_target.
     union_properties: dict[str, Labels] = {}
     for key, block in layout.items():
         k = str([key.values[i].item() for i in non_type_indices])
@@ -432,10 +542,127 @@ def _sparsify_per_atom_atomic_basis_target(
     return tensor
 
 
+def _sparsify_per_atom_pair_atomic_basis_target(
+    systems: List[System],
+    tensor: TensorMap,
+    sparse_properties: TensorMap,
+    atom_types_batch: Optional[torch.Tensor] = None,
+) -> TensorMap:
+    """
+    Sparsify the per-atom-pair atomic basis target by creating blocks with explicit
+    "first_atom_type" and "second_atom_type" dimensions.
+
+    :param systems: List of systems in the batch.
+    :param tensor: the atomic basis target TensorMap to sparsify.
+    :param sparse_properties: A TensorMap containing the properties to select.
+    :param atom_types_batch: Optional concatenated atom-type tensor for the batch.
+    :return: the sparsified atomic basis target TensorMap
+    """
+    if atom_types_batch is None:
+        # Get the atom types for each sample in the batch from the systems
+        atom_types_batch = torch.cat(
+            [system.types for system in systems],
+            dim=0,
+        )
+
+    device = tensor.device
+    atom_types_batch = atom_types_batch.to(device=device)
+
+    unique_types: list[int] = (
+        torch.unique(atom_types_batch).to(torch.int64).cpu().tolist()
+    )
+
+    sparse_properties = sparse_properties.to(device=device)
+
+    # Pre-compute per-system atom offsets so we can look up types from
+    # atom_types_batch with a single vectorized indexing step.
+    n_systems = len(systems)
+    system_lengths = torch.tensor(
+        [len(s.types) for s in systems], dtype=torch.long, device=device
+    )
+    offsets = torch.zeros(n_systems, dtype=torch.long, device=device)
+    if n_systems > 1:
+        offsets[1:] = torch.cumsum(system_lengths[:-1], dim=0)
+
+    new_keys: list[list[int]] = []
+    sparse_blocks: List[TensorBlock] = []
+    for key, block in tensor.items():
+        key_values: list[int] = key.values.to(torch.int64).tolist()
+
+        sample_vals = block.samples.values.long()
+
+        # Get the true system indices
+        _, sys_col = torch.unique_consecutive(sample_vals[:, 0], return_inverse=True)
+        first_atom_col = sample_vals[:, 1]
+        second_atom_col = sample_vals[:, 2]
+
+        # Get the atomic types of the batch
+        first_types = atom_types_batch[offsets[sys_col] + first_atom_col]
+        second_types = atom_types_batch[offsets[sys_col] + second_atom_col]
+
+        for first_atom_type in unique_types:
+            for second_atom_type in unique_types:
+                mask = (first_types == first_atom_type) & (
+                    second_types == second_atom_type
+                )
+                new_key = key_values + [first_atom_type, second_atom_type]
+
+                block_position = sparse_properties.keys.position(new_key)
+                if block_position is None:
+                    continue
+                assert block_position is not None  # for torchscript
+                layout_block = sparse_properties.block_by_id(block_position)
+
+                # Select samples
+                values = block.values[mask]
+                # Select properties
+                properties_mask = layout_block.values.ravel()
+                # Do block.values[..., properties_mask] in a torchscriptable way.
+                if block.values.ndim == 3:
+                    values = values[:, :, properties_mask]
+                elif block.values.ndim == 4:
+                    values = values[:, :, :, properties_mask]
+                else:
+                    raise ValueError(
+                        "Tensorblocks with more than 2 component dimensions can't be "
+                        "sparsified with the current implementation."
+                    )
+
+                sparse_block = TensorBlock(
+                    values=values,
+                    samples=Labels(
+                        names=[
+                            "system",
+                            "first_atom",
+                            "second_atom",
+                            "cell_shift_a",
+                            "cell_shift_b",
+                            "cell_shift_c",
+                        ],
+                        values=block.samples.values[mask],
+                    ),
+                    components=block.components,
+                    properties=layout_block.properties,
+                )
+
+                new_keys.append(new_key)
+                sparse_blocks.append(sparse_block)
+
+    tensor = TensorMap(
+        Labels(
+            names=tensor.keys.names + ["first_atom_type", "second_atom_type"],
+            values=torch.tensor(new_keys, device=device),
+        ),
+        sparse_blocks,
+    )
+
+    return tensor
+
+
 def sparsify_atomic_basis_target(
     systems: List[System],
     tensor: TensorMap,
-    layout: TensorMap,
+    layout: Optional[TensorMap] = None,
     atom_types_batch: Optional[torch.Tensor] = None,
     sparse_properties: Optional[TensorMap] = None,
 ) -> TensorMap:
@@ -447,16 +674,19 @@ def sparsify_atomic_basis_target(
     :param systems: List of systems in the batch.
     :param tensor: the atomic basis target TensorMap to sparsify.
     :param layout: the layout TensorMap defining the global basis set (i.e. the union of
-        all blocks that should be present in the sparsified output).
+        all blocks that should be present in the sparsified output). Required if
+        ``sparse_properties`` is not provided.
     :param atom_types_batch: Optional tensor containing the atom types for each sample
         in the batch. If not provided, these are inferred from the systems.
-    :param sparse_properties: A TensorMap containing the properties to select
-        from the dense tensor map to create each block in the sparse layout.
-        If not provided, it is computed from ``layout``.
+    :param sparse_properties: A TensorMap containing the properties to select from the
+        dense tensor map to create each block in the sparse layout. If not provided, it
+        is computed from ``layout``.
 
     :return: the sparsified atomic basis target TensorMap
     """
     if sparse_properties is None:
+        if layout is None:
+            raise ValueError("Either `layout` or `sparse_properties` must be provided.")
         sparse_properties = _compute_sparse_properties(layout)
 
     if "atom" in tensor.sample_names:
@@ -464,8 +694,9 @@ def sparsify_atomic_basis_target(
             systems, tensor, sparse_properties, atom_types_batch
         )
 
-    raise NotImplementedError(
-        "Currently only sparsification of per-atom atomic basis targets is implemented."
+    assert "first_atom" in tensor.sample_names
+    return _sparsify_per_atom_pair_atomic_basis_target(
+        systems, tensor, sparse_properties, atom_types_batch
     )
 
 
@@ -475,14 +706,18 @@ def sparsify_atomic_basis_target(
 def get_prepare_atomic_basis_targets_transform(
     target_info_dict: dict[str, TargetInfo],
     extra_data_info_dict: dict[str, TargetInfo],
+    nl_options: Optional[NeighborListOptions] = None,
 ) -> Tuple[Callable, Callable]:
     """
-    Get a function that prepares the atomic basis targets for batching by densifying
-    and padding.
+    Get a function that prepares the atomic basis targets for batching by densifying and
+    padding.
 
     :param target_info_dict: Dictionary mapping target names to TargetInfo objects.
     :param extra_data_info_dict: Dictionary mapping extra data names to TargetInfo
         objects.
+    :param nl_options: Options for the neighbor list used to enumerate edges for
+        per-atom-pair targets. Required if any of the targets/extra data are
+        per-atom-pair atomic basis targets.
 
     :return: A function that takes in systems, targets and extra data, and returns the
         systems, targets and extra data with prepared atomic basis targets.
@@ -523,6 +758,7 @@ def get_prepare_atomic_basis_targets_transform(
                     system_ids,
                     tensor,
                     target_info_dict[name].layout,
+                    nl_options,
                     fill_value=torch.nan,
                 )
 
@@ -549,6 +785,7 @@ def get_prepare_atomic_basis_targets_transform(
                     system_ids,
                     tensor,
                     extra_data_info_dict[name].layout,
+                    nl_options,
                     fill_value=torch.nan,
                 )
 
