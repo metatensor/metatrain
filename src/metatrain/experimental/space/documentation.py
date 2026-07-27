@@ -74,7 +74,29 @@ class RadialBasisHypers(TypedDict):
     """Hyperparameter concerning the radial basis functions used in the model."""
 
     max_eigenvalue: float = 25.0
-    """Maximum eigenvalue for the radial basis."""
+    """
+    Maximum eigenvalue for the radial basis.
+
+    This single parameter controls the maximum angular momentum ``l_max`` and the number
+    of radial basis functions per angular momentum ``n_max_l``.
+
+    A sufficiently high value of ``max_eigenvalue`` must be chosen to cover the maximum
+    rank of the target property. The following guide (only up to L = 10) can be used to
+    choose a suitable value for ``max_eigenvalue``:
+
+    l_max      max_eigenvalue range, [low, high)
+      0         [8.00, 12.97)
+      1         [12.97, 22.36)
+      2         [22.36, 35.32)
+      3         [35.32, 51.93)
+      4         [51.93, 72.21)
+      5         [72.21, 96.20)
+      6         [96.20, 123.87)
+      7         [123.87, 155.24)
+      8         [155.24, 190.32)
+      9         [190.32, 229.09)
+      10        [229.09, 271.55)
+    """
 
     element_scale: float = 0.7
     """Scaling factor for the element-dependent radial lengthscales."""

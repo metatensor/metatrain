@@ -5,20 +5,23 @@ import torch
 
 
 def split_up_features(features: List[torch.Tensor], k_max_l: List[int]):
-    """Split a ragged feature list into groups with equal channel counts per l.
+    """
+    Split a ragged feature list with orders l = 0, ..., l_max into groups indexed by L
+    (= 0, ..., l_max), where each group contains angular orders up to that L (i.e. l' =
+    0, ..., L) with equal channel counts.
 
-    Each inner list corresponds to a different l value and contains features *up to*
-    that l value, with the same number of channels. For example, from::
+    For example, the input features in the coupled basis are of pure-l character, and
+    are transformed from::
 
         [..., 1, 256](l=0)
         [..., 3, 128](l=1)
         [..., 5, 128](l=2)
 
-    to::
+    to a list of split and grouped features for each group L, i.e. to::
 
-        [[..., 1, 128]](l=0)
-        [[..., 1, 0], [..., 3, 0]](l=1)
-        [[..., 1, 128], [..., 3, 128], [..., 5, 128]](l=2)
+        [[..., 1, 128]](L=0)
+        [[..., 1, 0], [..., 3, 0]](L=1)
+        [[..., 1, 128], [..., 3, 128], [..., 5, 128]](L=2)
 
     This is necessary in order to create a compact representation.
     """
