@@ -336,6 +336,7 @@ def eval_model(
     :param append: If ``True``, open the output file in append mode.
     :param warm_up: Whether to do a warm-up of the model before evaluation.
     """
+    model.eval()
     logging.info("Setting up evaluation set.")
     # a trailing path separator signals a memmap dataset directory; this has to be
     # detected on the raw string, since Path() silently drops trailing separators

@@ -94,6 +94,11 @@ dpa3 = [
     "deepmd-kit[torch]>=3.1.0",
     "torch>=2.7",
 ]
+edge-composition = [
+    "sphericart-torch",
+    "featomic-torch",
+    "torchcurves >=0.3.0"
+]
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]

@@ -8,7 +8,11 @@ from metatensor.torch.operations._add import _add_block_block
 from metatensor.torch.operations._multiply import _multiply_block_constant
 from metatomic.torch import System
 
+from metatrain.experimental.edge_composition import EdgeCompositionModel
+from metatrain.experimental.edge_composition.utils.samples import match_samples
+
 from ..data import TargetInfo
+from ..data.match_tmaps import match_layout
 from ..evaluate_model import evaluate_model
 
 
@@ -17,6 +21,7 @@ def remove_additive(
     targets: Dict[str, TensorMap],
     additive_model: torch.nn.Module,
     target_info_dict: Dict[str, TargetInfo],
+    extra_data: Dict[str, TensorMap] = {},
 ) -> Dict[str, TensorMap]:
     """Remove an additive contribution from the training targets.
 
@@ -35,12 +40,17 @@ def remove_additive(
             "require grad and does not have a grad_fn"
         ),
     )
-    # The additive model's output layout follows its module mode (additive models
-    # predict atomic-basis targets in their dense layout in training mode, and
-    # sparsify them in eval mode). The subtraction below happens in dense space,
-    # against transform-densified targets, so force train mode for the evaluation.
+
     was_training = additive_model.training
-    additive_model.train(True)
+    if isinstance(additive_model, EdgeCompositionModel):
+        additive_model.eval()
+    else:
+        # The additive model's output layout follows its module mode (additive models
+        # predict atomic-basis targets in their dense layout in training mode, and
+        # sparsify them in eval mode). The subtraction below happens in dense space,
+        # against transform-densified targets, so force train mode for the evaluation.
+        additive_model.train(True)
+
     additive_contribution = evaluate_model(
         additive_model,
         systems,
@@ -51,6 +61,23 @@ def remove_additive(
         },
         is_training=False,  # we don't need any gradients w.r.t. any parameters
     )
+
+    for key, contribution in additive_contribution.items():
+        # Make the additive contribution match the layout of the target.
+        additive_contribution[key] = match_layout(
+            contribution, targets[key], target_info_dict[key].layout, systems
+        )
+
+    atom_pair_contribs = {
+        key: v
+        for key, v in additive_contribution.items()
+        if target_info_dict[key].sample_kind == "atom_pair"
+    }
+
+    additive_contribution.update(
+        match_samples(atom_pair_contribs, targets, extra_data, which_samples="targets")
+    )
+
     additive_model.train(was_training)
 
     for target_key in additive_contribution.keys():
@@ -174,10 +201,7 @@ def get_remove_additive_transform(
         """
         for additive_model in additive_models:
             targets = remove_additive(
-                systems,
-                targets,
-                additive_model,
-                target_info_dict,
+                systems, targets, additive_model, target_info_dict, extra_data=extra
             )
         return systems, targets, extra
 
