@@ -9,6 +9,7 @@ import torch
 from huggingface_hub import hf_hub_download
 from metatomic.torch import check_atomistic_model, load_atomistic_model
 
+from .. import __version__
 from .architectures import find_all_architectures, import_architecture
 
 
@@ -222,7 +223,17 @@ def model_from_checkpoint(
         model_ckpt_version = 1
         checkpoint["model_ckpt_version"] = model_ckpt_version
 
-    if model_ckpt_version != architecture.__model__.__checkpoint_version__:
+    if model_ckpt_version > architecture.__model__.__checkpoint_version__:
+        raise RuntimeError(
+            f"Unable to load the model checkpoint for the '{architecture_name}' "
+            f"architecture: the checkpoint uses checkpoint format version "
+            f"{model_ckpt_version}, but the installed '{architecture_name}' "
+            f"architecture only supports up to version "
+            f"{architecture.__model__.__checkpoint_version__}. You are using "
+            f"metatrain version {__version__}, which is too old to read this "
+            "checkpoint. Please upgrade metatrain to a newer version."
+        )
+    elif model_ckpt_version < architecture.__model__.__checkpoint_version__:
         try:
             if ckpt_before_versioning:
                 warnings.warn(
