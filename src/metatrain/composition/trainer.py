@@ -118,7 +118,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 for additive_model in additive_models
             ]
             callables = [
-                atomic_basis_transform,
+                #atomic_basis_transform,
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(cpu_additive_models, model.target_infos),
             ]
