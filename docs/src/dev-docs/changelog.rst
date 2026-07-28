@@ -35,6 +35,8 @@ Fixed
   a side effect.
 - ``DiskDatasetWriter`` in append mode now continues the entry numbering of the
   existing zip instead of restarting from zero.
+- Loading a checkpoint newer than the installed architecture now raises a clear error
+  asking to upgrade metatrain, instead of a confusing upgrade failure.
 
 Added
 #####
