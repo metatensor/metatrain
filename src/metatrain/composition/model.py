@@ -98,7 +98,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
         # layout is sparse (atom_type as a key dimension). This keeps
         # checkpoints portable across every architecture: standalone training
         # and training embedded in e.g. PET both produce the same layout.
-        dense_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+        dense_dataset_info = dataset_info  # densify_atomic_basis_dataset_info(dataset_info)
         self.target_infos = {
             target_name: target_info
             for target_name, target_info in dense_dataset_info.targets.items()
@@ -318,18 +318,19 @@ class CompositionModel(ModelInterface[ModelHypers]):
         )
 
         if not self.training:
+            ...
             # For atomic basis targets, sparsify to create blocks with "atom_type"
             # in the key dimensions, and ensure properties are unpadded. In training
             # mode, predictions stay dense: remove_additive subtracts them from
             # transform-densified targets.
-            targets = self.dataset_info.targets
-            for k, v in pred.items():
-                if k in targets and targets[k].is_atomic_basis:
-                    pred[k] = sparsify_atomic_basis_target(
-                        systems,
-                        v,
-                        targets[k].layout,
-                    )
+            # targets = self.dataset_info.targets
+            # for k, v in pred.items():
+            #     if k in targets and targets[k].is_atomic_basis:
+            #         pred[k] = sparsify_atomic_basis_target(
+            #             systems,
+            #             v,
+            #             targets[k].layout,
+            #         )
 
         return pred
 

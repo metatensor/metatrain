@@ -23,7 +23,7 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import CompositionModel
+from metatrain.composition.model import CompositionModel
 from metatrain.utils.architectures import get_default_hypers, import_architecture
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
