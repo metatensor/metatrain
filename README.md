@@ -161,7 +161,10 @@ Thanks goes to all people who make metatrain possible:
 
 [![Contributors](https://contrib.rocks/image?repo=metatensor/metatrain)](https://github.com/metatensor/metatrain/graphs/contributors)
 
-The overall metatrain project is [maintained](https://github.com/lab-cosmo/.github/blob/main/Maintainers.md) by @frostedoyster, @pfebrer, and @PicoCentauri who will reply to issues and pull requests opened on this repository as soon as possible. You can mention them directly if you did not receive an answer after a couple of days. Additionally, different architectures are maintained by separate maintainers, you can find their names in the corresponding [documentation](https://docs.metatensor.org/metatrain/latest/architectures/)
+The overall metatrain project is [maintained](https://github.com/lab-cosmo/.github/blob/main/Maintainers.md) by @pfebrer and @PicoCentauri who will reply to issues and pull requests opened on this repository as soon as possible. You can mention them directly if you did not receive an answer after a couple of days.
+It was previously maintained by @frostedoyster (2023 to 2026), many thanks to them for their work making metatrain awesome!
+
+Additionally, different architectures are maintained by separate maintainers, you can find their names in the corresponding [documentation](https://docs.metatensor.org/metatrain/latest/architectures/)
 
 <!-- marker-cite -->
 

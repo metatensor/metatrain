@@ -2,14 +2,14 @@
 # that they get asked for a review whenever the code for this architecture
 # is modified.
 
-**/composition           @ppegolo
-**/soap_bpnn            @frostedoyster
-**/pet                  @abmazitov @frostedoyster @sofiia-chorna
-**/gap                  @DavideTisi
-**/space                @frostedoyster
-**/llpr                 @frostedoyster @SanggyuChong
-**/flashmd              @johannes-spies @frostedoyster
-**/flashmd_symplectic   @frostedoyster @johannes-spies
-**/classifier           @frostedoyster
-**/mace                 @pfebrer @jwa7
+**/classifier           @sofiia-chorna
+**/composition          @ppegolo
 **/dpa3                 @HaoZeke
+**/flashmd              @johannes-spies @zyxwwxyz
+**/flashmd_symplectic   @johannes-spies @zyxwwxyz
+**/gap                  @DavideTisi
+**/llpr                 @ppegolo @SanggyuChong
+**/mace                 @pfebrer @jwa7
+**/pet                  @abmazitov @sofiia-chorna
+**/soap_bpnn            @ppegolo
+**/space                @frostedoyster
