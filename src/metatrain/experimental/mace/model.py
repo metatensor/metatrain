@@ -24,6 +24,7 @@ from metatomic.torch import (
 from metatrain.composition import CompositionModel
 from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.atomic_basis_helpers import (
@@ -302,7 +303,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
         )
         self.additive_models = torch.nn.ModuleList([composition_model])
 
-        self.scaler = Scaler(hypers={}, dataset_info=train_dataset_info)
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=train_dataset_info)
 
         self.finetune_config: Dict[str, Any] = {}
 

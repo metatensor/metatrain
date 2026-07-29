@@ -17,7 +17,11 @@ from metatrain.utils.data import (
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
 )
-from metatrain.utils.io import check_file_extension
+from metatrain.utils.distributed.slurm import (
+    initialize_slurm_nccl_process_group,
+    resolve_distributed,
+)
+from metatrain.utils.io import check_file_extension, model_from_checkpoint
 from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists_transform,
 )
@@ -48,11 +52,26 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         model = model.to(dtype=dtype, device=devices[0])
 
-        additive_models = getattr(self, "_additive_models", [])
-        is_distributed = getattr(self, "_is_distributed", False)
-        fixed_weights = self.hypers.get("fixed_weights", None)
-        per_structure_targets = self.hypers.get("per_structure_targets", [])
-        batch_size = self.hypers.get("batch_size")
+        # Get additive models, if they are paths to checkpoints load them.
+        input_additive_models = self.hypers["additive_models"]
+        additive_models = []
+        for additive_model in input_additive_models:
+            if isinstance(additive_model, str):
+                ckpt = torch.load(
+                    additive_model, map_location="cpu", weights_only=False
+                )
+                additive_model = model_from_checkpoint(ckpt, context="export")
+            if not isinstance(additive_model, ModelInterface):
+                raise ValueError(
+                    f"Additive model must be a path to a checkpoint or a "
+                    f"ModelInterface instance, got {type(additive_model)}."
+                )
+            additive_models.append(additive_model)
+
+        is_distributed = resolve_distributed(self.hypers.get("distributed"))
+        fixed_weights = self.hypers["fixed_weights"]
+        per_structure_targets = self.hypers["per_structure_targets"]
+        batch_size = self.hypers["batch_size"]
         if batch_size is None:
             batch_size = min(len(dataset) for dataset in train_datasets)
 
@@ -64,6 +83,21 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         if len(model.target_infos) == 0:  # no (new) targets to fit
             return
+
+        # When trained from within another architecture, the parent trainer has
+        # already initialized the process group; standalone (`mtt train`)
+        # distributed runs must do it here, and get their device from it.
+        owns_process_group = False
+        if is_distributed and not torch.distributed.is_initialized():
+            device, world_size, _ = initialize_slurm_nccl_process_group(
+                self.hypers["distributed_port"]
+            )
+            owns_process_group = True
+            logging.info(f"Training on {world_size} devices with dtype {dtype}")
+        else:
+            device = devices[0]
+            logging.info(f"Training on device {device} with dtype {dtype}")
+        model.to(device=device)
 
         skip_accumulation = fixed_weights is not None and all(
             t in fixed_weights for t in model.new_outputs
@@ -259,6 +293,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if checkpoint_dir and (not is_distributed or torch.distributed.get_rank() == 0):
             ckpt_path = Path(checkpoint_dir) / "scaler.ckpt"
             self.save_checkpoint(model, ckpt_path)
+
+        if owns_process_group:
+            torch.distributed.destroy_process_group()
 
     def _get_dataloader(
         self,

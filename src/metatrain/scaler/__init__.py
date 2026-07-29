@@ -1,9 +1,11 @@
 import logging
+from copy import deepcopy
 from typing import List, Optional, Sequence, Union
 
 import torch
 from torch import nn
 
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset
 from metatrain.utils.data.dataset import Subset
 from metatrain.utils.io import load_model
@@ -99,19 +101,22 @@ def train_or_load_scaler(
         scaler.load_state_dict(loaded.state_dict())
         scaler.sync_tensor_maps()
     else:
+        hypers = deepcopy(get_default_hypers("scaler")["training"])
         if fixed_weights is None:
             fixed_weights = {}
-        logging.info("Calculating scaler weights")
-        trainer = Trainer(
-            hypers={
+        hypers.update(
+            {
                 "fixed_weights": fixed_weights,
                 "batch_size": batch_size,
+                "distributed": is_distributed,
+                "additive_models": additive_models,
                 "per_structure_targets": list(per_structure_targets),
                 **(trainer_hypers or {}),
             }
         )
-        trainer._additive_models = additive_models
-        trainer._is_distributed = is_distributed
+
+        trainer = Trainer(hypers)
+        logging.info("Calculating scaler weights")
         trainer.train(
             model=scaler,
             dtype=torch.float64,

@@ -20,7 +20,7 @@ FixedScalerWeights = Dict[str, Union[float, Dict[int, float]]]
 class ModelHypers(TypedDict):
     """Hyperparameters for the scaler."""
 
-    densify_atomic_basis: NotRequired[bool] = True
+    densify_atomic_basis: bool = True
     """Whether to densify the atomic basis targets when computing the scaling
     weights. This can only be done if the target is loaded from a DiskDataset.
 
@@ -38,6 +38,12 @@ class TrainerHypers(TypedDict):
     :meth:`Scaler.train_model <metatrain.scaler.Scaler.train_model>`,
     see its documentation to understand exactly what to pass here.
     """
+    additive_models: list[str] = []
+    """List of checkpoint files to load additive models from.
+
+    The contribution from these models will be subtracted from the targets
+    before computing the scales.
+    """
     batch_size: Optional[int] = None
     """Number of structures to accumulate at a time.
     This only affects memory usage, not the resulting scales, since the
@@ -48,3 +54,9 @@ class TrainerHypers(TypedDict):
     """Target names that should be treated as
     per-structure quantities and therefore not divided by the number of atoms.
     """
+    distributed: NotRequired[bool]
+    """Whether to use distributed training. When not set, distributed training
+    is enabled automatically when running under more than one SLURM task.
+    Setting this option explicitly is deprecated."""
+    distributed_port: int = 39591
+    """Port for distributed communication among processes"""
