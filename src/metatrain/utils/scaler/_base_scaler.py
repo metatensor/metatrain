@@ -110,9 +110,8 @@ class BaseScaler(torch.nn.Module):
             )
 
         elif layout.sample_names == valid_sample_names[2]:
-            # Atom-pair (edge) target: only a per-target scale is supported (see below),
-            # always fixed at the identity value (1.0) - for now not fit from data nor
-            # user-overridable with fixed scaling weights.
+            # Atom-pair (edge) target. Scales are inferred from the onsite (node)
+            # target, not computed from the atom pair targets.
             self.sample_kinds[target_name] = "atom_pair"
             index_pairs = list(
                 itertools.product(range(len(self.atomic_types)), repeat=2)
@@ -207,9 +206,9 @@ class BaseScaler(torch.nn.Module):
         if self.sample_kinds[target_name] != "atom_pair" and (
             len(layout.keys) > 1 or len(layout[0].properties) > 1
         ):
-            # Per-property scales are not supported for atom-pair (edge) targets:
-            # only a per-target scale is used, so per-property scales stay at
-            # their identity default (1.0).
+            # Per-property scales are not computed for atom-pair (edge) targets:
+            # only a per-target proxy scale is derived from the onsite (node)
+            # target, so per-property scales stay at their identity default (1.0).
             self.multi_property_target_names.append(target_name)
 
         # Next, per-property scales. These have a single value per-block and
@@ -398,8 +397,9 @@ class BaseScaler(torch.nn.Module):
         # accumulate per-target N and Y2 quantities
         for target_name, target in targets.items():
             if self.sample_kinds[target_name] == "atom_pair":
-                # Atom-pair (edge) target scales are not fit from data, instead kept at
-                # their default identity value (1.0).
+                # Atom-pair (edge) target scales are never fit from the actual
+                # pair data; they are derived later from the onsite (node)
+                # target's scales via `apply_onsite_scales_for_offsite`.
                 continue
 
             mask = None
@@ -750,7 +750,83 @@ class BaseScaler(torch.nn.Module):
                                 ),
                             )
 
-                elif self.sample_kinds[output_name] == "per_atom":
+                elif self.sample_kinds[output_name] == "atom_pair":
+                    if len(output_block.gradients_list()) > 0:
+                        raise NotImplementedError(
+                            "scaling of gradients is not implemented for "
+                            f"atom-pair target '{output_name}'"
+                        )
+                    if selected_atoms is not None:
+                        raise NotImplementedError(
+                            "`selected_atoms` is not supported for atom-pair "
+                            f"target '{output_name}'"
+                        )
+
+                    n_types = len(self.atomic_types)
+
+                    if (
+                        "first_atom_type" in key.names
+                        and "second_atom_type" in key.names
+                    ):
+                        first_types = torch.full(
+                            (len(output_block.samples),),
+                            int(key["first_atom_type"]),
+                            dtype=torch.long,
+                            device=device,
+                        )
+                        second_types = torch.full(
+                            (len(output_block.samples),),
+                            int(key["second_atom_type"]),
+                            dtype=torch.long,
+                            device=device,
+                        )
+                    else:
+                        all_types = torch.cat([system.types for system in systems])
+                        system_lengths = torch.tensor(
+                            [len(s.types) for s in systems],
+                            dtype=torch.long,
+                            device=device,
+                        )
+                        offsets = torch.cat(
+                            [
+                                torch.zeros(1, dtype=torch.long, device=device),
+                                torch.cumsum(system_lengths[:-1], dim=0),
+                            ]
+                        )
+                        raw_system_indices = output_block.samples.values[:, 0]
+                        _, system_indices = torch.unique_consecutive(
+                            raw_system_indices, return_inverse=True
+                        )
+                        first_atom_indices = output_block.samples.values[:, 1]
+                        second_atom_indices = output_block.samples.values[:, 2]
+                        first_types = all_types[
+                            offsets[system_indices] + first_atom_indices
+                        ]
+                        second_types = all_types[
+                            offsets[system_indices] + second_atom_indices
+                        ]
+
+                    pair_index = (
+                        self.type_to_index[first_types] * n_types
+                        + self.type_to_index[second_types]
+                    )
+
+                    # Scale the values of the output block
+                    if remove:  # remove the scaler
+                        scaled_vals = scaled_vals / scales_block_values[pair_index]
+                    else:  # apply the scaler
+                        scaled_vals = scaled_vals * scales_block_values[pair_index]
+
+                    prediction_block = TensorBlock(
+                        values=scaled_vals,
+                        samples=output_block.samples,
+                        components=output_block.components,
+                        properties=output_block.properties,
+                    )
+
+                else:
+                    assert self.sample_kinds[output_name] == "per_atom"
+
                     output_block_types = torch.cat([system.types for system in systems])
                     if "atom_type" in key.names:
                         atom_type = key["atom_type"]
@@ -808,27 +884,6 @@ class BaseScaler(torch.nn.Module):
                         properties=output_block.properties,
                     )
 
-                else:
-                    assert self.sample_kinds[output_name] == "atom_pair"
-
-                    if len(output_block.gradients_list()) > 0:
-                        raise NotImplementedError(
-                            "scaling of gradients is not implemented for "
-                            f"atom-pair target '{output_name}'"
-                        )
-                    if selected_atoms is not None:
-                        raise NotImplementedError(
-                            "`selected_atoms` is not supported for atom-pair "
-                            f"target '{output_name}'"
-                        )
-
-                    prediction_block = TensorBlock(
-                        values=scaled_vals,
-                        samples=output_block.samples,
-                        components=output_block.components,
-                        properties=output_block.properties,
-                    )
-
                 prediction_blocks.append(prediction_block)
 
             predictions[output_name] = TensorMap(
@@ -837,6 +892,107 @@ class BaseScaler(torch.nn.Module):
             )
 
         return predictions
+
+    def apply_onsite_scales_for_offsite(
+        self,
+        node_target_name: str,
+        edge_target_name: str,
+    ) -> None:
+        """
+        Computes the per-target scales of an atom-pair (edge) target from the per-target
+        scales of the corresponding per-atom (node) target.
+
+        For each pair of atomic types (Z_I, Z_J), the per-target scale of the edge
+        target is set to the geometric mean of the per-target scales of the node target
+        for Z_I and Z_J.
+
+        Only per-target scales are computed for edge targets; per-property scales for
+        atom-pair targets stay at their identity default (1.0) - see
+        :py:meth:`add_output`.
+
+        Must be called after :py:meth:`fit`.
+
+        :param node_target_name: Name of the per-atom (node) target.
+        :param edge_target_name: Name of the atom-pair (edge) target.
+        """
+        if node_target_name not in self.target_names:
+            raise ValueError(f"Node target '{node_target_name}' not found in scaler.")
+        if edge_target_name not in self.target_names:
+            raise ValueError(f"Edge target '{edge_target_name}' not found in scaler.")
+        if self.sample_kinds[edge_target_name] != "atom_pair":
+            raise ValueError(f"Target '{edge_target_name}' is not an atom-pair target.")
+
+        node_pt = self.per_target_scales[node_target_name]
+        edge_pt = self.per_target_scales[edge_target_name]
+        node_key_names: List[str] = list(node_pt.keys.names)
+
+        # For each atomic type (indexed by its position in `self.atomic_types`),
+        # look up the node target's scale (taking from the invariant block,
+        # though all blocks have the same value).
+        type_scale: Dict[int, torch.Tensor] = {}
+        for i_type, atomic_type in enumerate(self.atomic_types.tolist()):
+            node_key = [
+                atomic_type
+                if n == "atom_type"
+                else (0 if n == "o3_lambda" else 1 if n == "o3_sigma" else 0)
+                for n in node_key_names
+            ]
+            pos = node_pt.keys.position(node_key)
+            if pos is None:
+                logging.warning(
+                    "apply_onsite_scales_for_offsite: could not find the "
+                    f"invariant node block for atom type {atomic_type} in "
+                    f"target '{node_target_name}'; edge scales for pairs "
+                    "involving this type will be left unchanged."
+                )
+                continue
+            type_scale[i_type] = node_pt.block_by_id(pos).values[i_type, 0]
+
+        new_blocks: List[TensorBlock] = []
+        for edge_key in edge_pt.keys:
+            edge_block = edge_pt.block(edge_key)
+
+            new_vals = edge_block.values.clone()
+            for row_idx, (first_index, second_index) in enumerate(
+                edge_block.samples.values.tolist()
+            ):
+                if first_index not in type_scale or second_index not in type_scale:
+                    continue  # leave this row unchanged (warning already logged)
+
+                s_I = type_scale[first_index]
+                s_J = type_scale[second_index]
+                new_vals[row_idx, :] = torch.sqrt(s_I.abs() * s_J.abs())
+
+            new_blocks.append(
+                TensorBlock(
+                    values=new_vals,
+                    samples=edge_block.samples,
+                    components=edge_block.components,
+                    properties=edge_block.properties,
+                )
+            )
+
+        self.per_target_scales[edge_target_name] = TensorMap(edge_pt.keys, new_blocks)
+
+        # Recompute full scales = per_target * per_property (per_property scales
+        # for atom-pair targets are always 1.0, so this is really just a copy).
+        current_pp = self.per_property_scales[edge_target_name]
+        new_full_blocks: List[TensorBlock] = []
+        for key in self.per_target_scales[edge_target_name].keys:
+            pt_b = self.per_target_scales[edge_target_name].block(key)
+            pp_b = current_pp.block(key)
+            full_vals = torch.nan_to_num(pt_b.values * pp_b.values, nan=1.0)
+            new_full_blocks.append(
+                TensorBlock(
+                    values=full_vals,
+                    samples=pt_b.samples,
+                    components=pt_b.components,
+                    properties=pt_b.properties,
+                )
+            )
+        self.scales[edge_target_name] = TensorMap(
+            self.per_target_scales[edge_target_name].keys, new_full_blocks
+        )
 
     def _set_fixed_weights(
         self,

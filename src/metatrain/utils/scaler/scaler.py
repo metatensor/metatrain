@@ -47,10 +47,7 @@ class Scaler(torch.nn.Module):
 
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
-        self.target_infos = {
-            target_name: target_info
-            for target_name, target_info in dataset_info.targets.items()
-        }
+        self.target_infos = dict(dataset_info.targets)
 
         # Initialize the scaler model
         self.model = BaseScaler(
@@ -153,6 +150,7 @@ class Scaler(torch.nn.Module):
         fixed_weights: Optional[FixedScalerWeights] = None,
         initial_transforms: Sequence[Callable] = (),
         per_structure_targets: Optional[List[str]] = None,
+        use_onsite_scales_for_offsite: bool = False,
     ) -> None:
         """
         Train the scaler model by accumulating the necessary quantities from the
@@ -179,6 +177,13 @@ class Scaler(torch.nn.Module):
             applied before the other callables set by the scaler.
         :param per_structure_targets: Target names that should be treated as
             per-structure quantities and therefore not divided by the number of atoms.
+        :param use_onsite_scales_for_offsite: If ``True``, the per-target scales of
+            atom-pair (edge) targets (i.e. targets with ``sample_kind == "atom_pair"``)
+            are computed as the geometric mean of their correpsonding per-atom (node)
+            targets. For the edges of a given matrix target named
+            ``mtt::matrix_edges::X`` the scales of the nodes targets named
+            ``mtt::matrix_nodes::X`` are used. If ``False`` (the default), edge targets
+            are left at their default scale of 1.0.
         """
         if not isinstance(datasets, list):
             datasets = [datasets]
@@ -271,6 +276,13 @@ class Scaler(torch.nn.Module):
         # Compute the scales on all ranks
         self.model.fit(fixed_weights=fixed_weights, targets_to_fit=self.new_outputs)
 
+        # Atom-pair (edge) targets are never fit from their own data (see
+        # `BaseScaler.accumulate`); if requested, derive their per-target (and full)
+        # scales from the matching onsite (node) target's scales instead. Otherwise,
+        # they remain the identity (1.0).
+        if use_onsite_scales_for_offsite:
+            self._apply_onsite_scales_for_offsite()
+
         # update the buffer scales now they are fitted
         for target_name in self.model.scales.keys():
             self.register_buffer(
@@ -307,6 +319,7 @@ class Scaler(torch.nn.Module):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
+                targets = {k: v for k, v in targets.items() if k in self.target_infos}
                 if len(targets) == 0:
                     break
 
@@ -365,6 +378,41 @@ class Scaler(torch.nn.Module):
                         )
                     ).to(device),
                 )
+
+    def _apply_onsite_scales_for_offsite(self) -> None:
+        """
+        For every atom-pair (edge) target currently being fitted, look up the matching
+        onsite (node) target - following the ``mtt::matrix_edges::X`` /
+        ``mtt::matrix_nodes::X`` naming convention - and, if found, override the edge
+        target's scales with a geometric-mean proxy derived from the node target's
+        per-atom-type scales. Edge target scales are never computed from the actual
+        (offsite) pair data.
+
+        Only called from :py:meth:`train_model` when
+        ``use_onsite_scales_for_offsite=True`` is passed.
+        """
+        for edge_name in self.new_outputs:
+            if self.model.sample_kinds[edge_name] != "atom_pair":
+                continue
+            if "::matrix_edges::" not in edge_name:
+                logging.warning(
+                    f"Atom-pair target '{edge_name}' does not follow the "
+                    "'mtt::matrix_edges::X' naming convention, so no matching "
+                    "onsite target can be found. Leaving its scales at 1.0."
+                )
+                continue
+            node_name = edge_name.replace("::matrix_edges::", "::matrix_nodes::")
+            if node_name not in self.model.target_names:
+                logging.warning(
+                    f"No matching onsite target '{node_name}' found for "
+                    f"atom-pair target '{edge_name}'. Leaving its scales at 1.0."
+                )
+                continue
+            logging.info(
+                f"Applying onsite-scale proxy for atom-pair target '{edge_name}': "
+                f"using scales from onsite target '{node_name}'"
+            )
+            self.model.apply_onsite_scales_for_offsite(node_name, edge_name)
 
     def restart(self, dataset_info: DatasetInfo) -> "Scaler":
         """
@@ -628,6 +676,8 @@ class Scaler(torch.nn.Module):
         # Reload the scales of the (old) targets, which are not stored in the model
         # state_dict, from the buffers
         for k in self.dataset_info.targets:
+            if k not in self.target_infos:
+                continue
             self.model.scales[k] = mts.load_buffer(
                 self.__getattr__(k + "_scaler_buffer")
             )
