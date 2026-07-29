@@ -61,10 +61,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     additive_model, map_location="cpu", weights_only=False
                 )
                 additive_model = model_from_checkpoint(ckpt, context="export")
-            if not isinstance(additive_model, ModelInterface):
+            if not isinstance(additive_model, torch.nn.Module):
                 raise ValueError(
                     f"Additive model must be a path to a checkpoint or a "
-                    f"ModelInterface instance, got {type(additive_model)}."
+                    f"torch.nn.Module instance, got {type(additive_model)}."
                 )
             additive_models.append(additive_model)
 
