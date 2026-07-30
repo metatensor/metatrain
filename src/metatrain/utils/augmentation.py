@@ -1,11 +1,28 @@
-from typing import Dict, List, Optional, Tuple
+import functools
+from typing import (
+    AbstractSet,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 import torch
-from metatensor.torch import TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 from metatomic.torch.o3 import O3Transformations, random_transformations
 
 from .data import TargetInfo
+
+
+#: Key under which :meth:`O3Augmenter.apply_random_system_augmentations` records the
+#: transformation it applied, so that :meth:`O3Augmenter.undo_augmentation` can invert
+#: it on the model's predictions.
+AUGMENTATION_NAME = "mtt::aux::augmentation"
 
 
 class O3Augmenter:
@@ -38,6 +55,11 @@ class O3Augmenter:
         self._max_angular_momentum = _max_angular_momentum(
             target_info_dict, extra_data_info_dict
         )
+        self._target_names = set(target_info_dict)
+        # Extra data declared as physical quantities, i.e. the ones whose tensor
+        # character the user has described. Only these are transformed when the
+        # per-target split is active; see ``apply_random_system_augmentations``.
+        self._declared_extra_data = set(extra_data_info_dict)
 
     def apply_random_augmentations(
         self,
@@ -55,20 +77,172 @@ class O3Augmenter:
         :return: A tuple of augmented systems, targets, and extra data.
         """
         dtype = systems[0].positions.dtype
+        transformations = self.sample_transformations(len(systems), dtype=dtype)
+        return self._apply(systems, targets, transformations, extra_data=extra_data)
+
+    def sample_transformations(
+        self,
+        n_systems: int,
+        dtype: torch.dtype,
+    ) -> O3Transformations:
+        """
+        Draws one random transformation per system from the configured group.
+
+        Exposed separately from :meth:`apply_random_augmentations` so that a caller
+        which needs to know *which* transformation was applied can sample first and
+        apply second, rather than trying to recover it afterwards. Density losses do
+        this: their metric matrices are built in the unrotated frame, so they must
+        undo the augmentation on their residual.
+
+        :param n_systems: Number of transformations to draw.
+        :param dtype: Floating point dtype of the transformation matrices.
+        :return: The batch of ``n_systems`` transformations, one per system.
+        """
         if self._group == "inversions":
-            signs = torch.randint(0, 2, (len(systems),)) * 2 - 1
-            matrices = [sign * torch.eye(3, dtype=dtype) for sign in signs]
-            return self.apply_augmentations(
-                systems, targets, matrices, extra_data=extra_data
-            )
-        transformations = random_transformations(
-            len(systems),
+            signs = torch.randint(0, 2, (n_systems,)) * 2 - 1
+            matrices = torch.stack([sign * torch.eye(3, dtype=dtype) for sign in signs])
+            return O3Transformations(matrices, self._max_angular_momentum)
+        return random_transformations(
+            n_systems,
             self._max_angular_momentum,
             device=torch.device("cpu"),
             dtype=dtype,
             add_inversions=True,
         )
-        return self._apply(systems, targets, transformations, extra_data=extra_data)
+
+    def apply_random_system_augmentations(
+        self,
+        systems: List[System],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+        original_frame: AbstractSet[str] = frozenset(),
+    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+        """
+        Augments the systems, keeping ``original_frame`` targets in the dataset frame.
+
+        The alternative to :meth:`apply_random_augmentations`: rather than rotating
+        everything and comparing in the augmented frame, the targets named in
+        ``original_frame`` are left as the dataset stores them, and
+        :meth:`undo_augmentation` maps their predictions back before the loss is
+        taken. The two are equivalent for a rotationally invariant loss -- the
+        residual of one is the rotation of the other -- but only this ordering leaves
+        a target's reference data in the frame it was computed in.
+
+        Every other target is augmented exactly as :meth:`apply_random_augmentations`
+        would, so mixing the two kinds in one run leaves each of them with the loss it
+        would have had on its own.
+
+        Extra data follows its target: an entry named ``"<target>_..."`` is treated as
+        belonging to that target. Only extra data **declared** in the augmenter's
+        ``extra_data_info_dict`` is ever transformed, since only those have a
+        described tensor character; bookkeeping payloads are passed through.
+
+        The applied transformation is recorded in ``extra_data`` under
+        :data:`AUGMENTATION_NAME`.
+
+        :param systems: A list of :class:`System` objects.
+        :param targets: A dictionary mapping target names to :class:`TensorMap`
+            objects.
+        :param extra_data: An optional dictionary of additional :class:`TensorMap`
+            objects.
+        :param original_frame: Names of the targets to leave in the dataset's frame.
+        :return: A tuple of augmented systems, the targets, and the extra data with
+            the applied transformation recorded in it.
+        """
+        dtype = systems[0].positions.dtype
+        transformations = self.sample_transformations(len(systems), dtype=dtype)
+        new_systems = transformations.transform_systems(systems)
+
+        n_systems = len(systems)
+
+        def _transform(tmap: TensorMap) -> TensorMap:
+            return transformations.transform_tensormap(
+                tmap, _tensor_system_ids(tmap, n_systems)
+            )
+
+        new_targets = {
+            name: tmap if name in original_frame else _transform(tmap)
+            for name, tmap in targets.items()
+        }
+
+        new_extra_data: Dict[str, TensorMap] = {}
+        for name, tmap in (extra_data or {}).items():
+            if (
+                name in self._declared_extra_data
+                and self._owning_target(name) not in original_frame
+            ):
+                new_extra_data[name] = _transform(tmap)
+            else:
+                new_extra_data[name] = tmap
+
+        new_extra_data[AUGMENTATION_NAME] = _pack_transformations(
+            transformations.matrices
+        )
+        return new_systems, new_targets, new_extra_data
+
+    def undo_augmentation(
+        self,
+        predictions: Dict[str, TensorMap],
+        systems: List[System],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+        original_frame: AbstractSet[str] = frozenset(),
+    ) -> Dict[str, TensorMap]:
+        """
+        Maps predictions back into the frame their targets are stored in.
+
+        The inverse of :meth:`apply_random_system_augmentations`, to be called on a
+        model's output before the loss is taken. Only the targets named in
+        ``original_frame`` are mapped back; the rest were compared in the augmented
+        frame and must stay there. If no augmentation was recorded -- during
+        validation, or when :meth:`apply_random_augmentations` was used instead --
+        the predictions are returned untouched, so callers need no conditional.
+
+        :param predictions: The model's outputs.
+        :param systems: The systems the predictions were made on.
+        :param extra_data: The batch's extra data, holding the recorded
+            transformation.
+        :param original_frame: Names of the targets to map back. Must match what was
+            passed to :meth:`apply_random_system_augmentations`.
+        :return: The predictions, each in the frame its target is stored in.
+        """
+        if extra_data is None or AUGMENTATION_NAME not in extra_data:
+            return predictions
+        to_undo = [name for name in predictions if name in original_frame]
+        if not to_undo:
+            return predictions
+
+        reference = predictions[to_undo[0]].block(0).values
+        matrices = _unpack_transformations(extra_data[AUGMENTATION_NAME]).to(
+            dtype=reference.dtype, device=reference.device
+        )
+        transformations = O3Transformations(matrices, self._max_angular_momentum)
+        n_systems = len(systems)
+        return {
+            name: (
+                transformations.inverse_transform_tensormap(
+                    tmap, _tensor_system_ids(tmap, n_systems)
+                )
+                if name in original_frame
+                else tmap
+            )
+            for name, tmap in predictions.items()
+        }
+
+    def _owning_target(self, extra_data_name: str) -> Optional[str]:
+        """The target an extra-data entry belongs to.
+
+        Uses the ``"<target>_..."`` naming convention that metatrain's own extra data
+        follows (masks, metric matrices, projections).
+
+        :param extra_data_name: Key of the entry in ``extra_data``.
+        :return: The longest matching target name, or ``None`` if it belongs to none.
+        """
+        owners = [
+            name
+            for name in self._target_names
+            if extra_data_name.startswith(f"{name}_")
+        ]
+        return max(owners, key=len) if owners else None
 
     def apply_augmentations(
         self,
@@ -134,8 +308,8 @@ class O3Augmenter:
         the *same* system (e.g. to estimate a model's equivariance error
         on-line, during training), where the target is compared against a
         prediction mapped back to the original frame afterwards -- see
-        :meth:`undo_augmentation`, not against a target rotated alongside the
-        system.
+        :meth:`undo_replicate_and_augment`, not against a target rotated
+        alongside the system.
 
         :param systems: the systems to replicate and augment.
         :param num_augmentations: how many independent augmented copies to
@@ -146,7 +320,7 @@ class O3Augmenter:
             entries are independent augmentations of the same original system,
             in the same order as ``systems`` -- and ``transformations`` is the
             batch of operations applied, one per entry of
-            ``augmented_systems``, kept for :meth:`undo_augmentation`.
+            ``augmented_systems``, kept for :meth:`undo_replicate_and_augment`.
         """
         replicated = [system for system in systems for _ in range(num_augmentations)]
         dtype = replicated[0].positions.dtype
@@ -168,7 +342,7 @@ class O3Augmenter:
         augmented = transformations.transform_systems(replicated)
         return augmented, transformations
 
-    def undo_augmentation(
+    def undo_replicate_and_augment(
         self,
         predictions: Dict[str, TensorMap],
         transformations: O3Transformations,
@@ -191,6 +365,95 @@ class O3Augmenter:
             )
             for name, tmap in predictions.items()
         }
+
+
+def original_frame_targets(loss_hypers: Union[str, Dict[str, Any], None]) -> Set[str]:
+    """
+    The targets whose losses must be evaluated in the frame the dataset stores them in.
+
+    Read from :attr:`~metatrain.utils.loss.LossInterface.evaluate_in_original_frame`,
+    so a loss opts in without any trainer having to know about it.
+
+    :param loss_hypers: The trainer's ``loss`` hyperparameter, keyed by target name.
+    :return: The names of those targets; empty if none.
+    """
+    from .loss import LossType
+
+    if not isinstance(loss_hypers, dict):
+        # the shorthand `loss: mse`, i.e. one loss type for every target
+        return set()
+
+    names = set()
+    for target_name, spec in loss_hypers.items():
+        loss_type = spec.get("type") if isinstance(spec, dict) else None
+        if loss_type is None:
+            continue
+        if LossType.from_key(loss_type).cls.evaluate_in_original_frame:
+            names.add(target_name)
+    return names
+
+
+def get_augmentation_transform(
+    augmenter: O3Augmenter, original_frame: AbstractSet[str]
+) -> Callable:
+    """
+    Selects the augmentation workflow a run's targets require.
+
+    :param augmenter: The augmenter to draw transformations from.
+    :param original_frame: Targets to keep in the dataset's frame, from
+        :func:`original_frame_targets`. When empty, the ordinary
+        augment-everything workflow is used.
+    :return: The collate transform to use for training augmentation.
+    """
+    if not original_frame:
+        return augmenter.apply_random_augmentations
+    return functools.partial(
+        augmenter.apply_random_system_augmentations, original_frame=original_frame
+    )
+
+
+def _pack_transformations(matrices: torch.Tensor) -> TensorMap:
+    """Store one 3x3 transformation per system as a flat, invariant payload.
+
+    Kept without a component axis so that it is inert to any further augmentation:
+    it describes a transformation, and is not itself a physical quantity to rotate.
+
+    :param matrices: ``(n_systems, 3, 3)`` orthogonal matrices, one per system
+        (e.g. an :class:`~metatomic.torch.o3.O3Transformations`'s ``.matrices``).
+    :return: A :class:`TensorMap` with one ``(n_systems, 9)`` block.
+    """
+    values = matrices.reshape(matrices.shape[0], -1)
+    n_systems = values.shape[0]
+    return TensorMap(
+        Labels.single().to(device=values.device),
+        [
+            TensorBlock(
+                values=values,
+                samples=Labels(
+                    names=["system"],
+                    values=torch.arange(
+                        n_systems, dtype=torch.int32, device=values.device
+                    ).reshape(-1, 1),
+                ),
+                components=[],
+                properties=Labels(
+                    names=["matrix_element"],
+                    values=torch.arange(
+                        9, dtype=torch.int32, device=values.device
+                    ).reshape(-1, 1),
+                ),
+            )
+        ],
+    )
+
+
+def _unpack_transformations(packed: TensorMap) -> torch.Tensor:
+    """Recover the transformations stored by :func:`_pack_transformations`.
+
+    :param packed: The :data:`AUGMENTATION_NAME` entry of ``extra_data``.
+    :return: A ``(n_systems, 3, 3)`` tensor.
+    """
+    return packed.block().values.reshape(-1, 3, 3)
 
 
 def _tensor_system_ids(tensor: TensorMap, n_systems: int) -> Optional[torch.Tensor]:

@@ -3,7 +3,7 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
 
 import torch
 import torch.distributed
@@ -17,7 +17,11 @@ from metatrain.composition import train_or_load_composition_model
 from metatrain.scaler import train_or_load_scaler
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
-from metatrain.utils.augmentation import O3Augmenter
+from metatrain.utils.augmentation import (
+    O3Augmenter,
+    get_augmentation_transform,
+    original_frame_targets,
+)
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
@@ -31,6 +35,7 @@ from metatrain.utils.data import (
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
 )
+from metatrain.utils.density_hooks import get_density_hooks
 from metatrain.utils.distributed.slurm import (
     initialize_slurm_nccl_process_group,
     resolve_distributed,
@@ -340,24 +345,40 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.scaler.to(device)
         model.scaler.scales_to(device=device, dtype=torch.float64)
 
+        # Hooks for on-the-fly computations to support density learning
+        density = get_density_hooks(self.hypers["loss"])
+
+        # Define the targets whose losses must be evaluated in the original
+        # (un-transformed) frame
+        original_frame = original_frame_targets(self.hypers["loss"])
+        augmentation_callable = get_augmentation_transform(
+            inversion_augmenter, original_frame
+        )
+
+        # Shared callables that run after `atomic_basis_transform` (and after
+        # augmentation in training).
+        base_callables: List[Callable[..., Any]] = [
+            get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+            get_remove_additive_transform(additive_models, train_targets),
+            get_remove_scale_transform(scaler),
+        ]
+
         # Create collate functions:
         collate_fn_train = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
                 atomic_basis_transform,
-                inversion_augmenter.apply_random_augmentations,
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
+                *density.collate_transforms(),
+                augmentation_callable,
+                *base_callables,
             ],
         )
         collate_fn_val = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[  # no augmentation for validation
                 atomic_basis_transform,
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
+                *density.collate_transforms(),
+                *base_callables,
             ],
         )
 
@@ -494,6 +515,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 predictions = model(
                     systems, _get_requested_outputs(targets, dataset_info.targets)
+                )
+
+                # Back-transform predictions to the original frame for targets that
+                # require it.
+                predictions = inversion_augmenter.undo_augmentation(
+                    predictions, systems, extra_data, original_frame
                 )
 
                 # average by the number of atoms
