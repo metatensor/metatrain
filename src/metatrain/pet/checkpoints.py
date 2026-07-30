@@ -374,6 +374,29 @@ def model_update_v15_v16(checkpoint: dict) -> None:
             checkpoint[key] = updated
 
 
+def model_update_v16_v17(checkpoint: dict) -> None:
+    """
+    Update a v16 checkpoint to v17.
+
+    Adds the head and readout hyperparameters introduced on this version, set to
+    the values reproducing the previous behaviour: one head per target shared by
+    all of its blocks, two Linear+SiLU layers per head, and a readout with no
+    atom-type conditioning. The ``state_dict`` is unchanged: with these settings
+    the head layout is the same as before, and the readouts are plain linear maps
+    whose ``weight`` / ``bias`` have the same names and shapes as the
+    ``torch.nn.Linear`` last layers they replace.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    hypers = checkpoint["model_data"]["model_hypers"]
+    if "head_type" not in hypers:
+        hypers["head_type"] = "per_target"
+    if "num_head_layers" not in hypers:
+        hypers["num_head_layers"] = 2
+    if "readout_type" not in hypers:
+        hypers["readout_type"] = {"atom_type_gating": False, "hypers": {}}
+
+
 ###########################
 # TRAINER #################
 ###########################

@@ -1,9 +1,39 @@
-from typing import Type, TypedDict, TypeVar
+from typing import Any, Collection, Optional, Type, TypedDict, TypeVar
 
 from typing_extensions import TypedDict as TE_TypedDict
 
 
 HypersType = TypeVar("HypersType")
+
+
+def resolve_per_target(
+    hyper: Any,
+    target_name: str,
+    default: Any,
+    spec_keys: Optional[Collection[str]] = None,
+) -> Any:
+    """Resolve a hyperparameter that may be set globally or per target.
+
+    Some hyperparameters accept either a single value applying to every target, or
+    a dict keyed by target name (like the ``loss`` option), in which case targets
+    absent from the dict fall back to ``default``.
+
+    When the hyperparameter's own value is itself a dict, the two forms are
+    ambiguous. ``spec_keys`` resolves that: a dict carrying any of those keys is
+    read as a bare (global) value rather than as a mapping of target names.
+
+    :param hyper: The hyperparameter value, either global or keyed by target name.
+    :param target_name: Name of the target to resolve for.
+    :param default: Value to use for targets absent from a per-target dict.
+    :param spec_keys: Keys identifying a bare value that is itself a dict. Leave as
+        ``None`` for hyperparameters whose values are not dicts.
+    :return: The value of the hyperparameter for this target.
+    """
+    if not isinstance(hyper, dict):
+        return hyper
+    if spec_keys is not None and any(key in hyper for key in spec_keys):
+        return hyper
+    return hyper.get(target_name, default)
 
 
 def get_hypers_list(hypers_cls: Type[HypersType]) -> list[str]:
