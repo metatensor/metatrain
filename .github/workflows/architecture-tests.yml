@@ -24,6 +24,7 @@ jobs:
           - soap-bpnn
           - composition
           - dpa3
+          - scaler
 
     runs-on: ubuntu-24.04
 
