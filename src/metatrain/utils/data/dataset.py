@@ -32,6 +32,7 @@ from omegaconf import DictConfig
 from torch.utils.data import Dataset as TorchDataset
 from torch.utils.data import Subset
 
+from metatrain.utils.data.raw_payload import split_raw_payloads
 from metatrain.utils.data.readers.metatensor import (
     _check_tensor_map_metadata,
     _empty_tensor_map_like,
@@ -391,7 +392,15 @@ class CollateFn:
     def __call__(
         self,
         batch: List[Dict[str, Any]],
-    ) -> Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]:
+    ) -> Tuple[
+        torch.Tensor,
+        List[int],
+        List[str],
+        List[int],
+        List[str],
+        List[int],
+        List[Tuple[str, type, Any, List[torch.Tensor]]],
+    ]:
         """
         :param batch: A batch
         :return: A tuple containing:
@@ -401,6 +410,8 @@ class CollateFn:
             - a list with the sizes of each target buffer
             - a list with the names of each extra data
             - a list with the sizes of each extra data buffer
+            - a list of ``(name, type, metadata, tensors)`` for each extra-data
+              entry carried raw rather than serialised into the blob
         """
         # group & join
         collated = group_and_join(batch, join_kwargs=self.join_kwargs)
@@ -422,6 +433,11 @@ class CollateFn:
         for callable in self.callables:
             systems, targets, extra = callable(systems, targets, extra)
 
+        # Entries that declare themselves raw payloads skip serialisation entirely
+        # and travel as plain tensors, which the DataLoader already moves between
+        # processes through shared memory.
+        extra, raw_extra = split_raw_payloads(extra)
+
         target_names = list(targets.keys())
         extra_names = list(extra.keys())
 
@@ -441,7 +457,22 @@ class CollateFn:
 
         blob = torch.concatenate(system_buffers + target_buffers + extra_buffers)
 
-        return blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes
+        # ``ForkingPickler`` rebases any tensor it finds into shared memory whatever
+        # container it sits in, so the payloads' tensors need no flattening here.
+        raw = [
+            (name, type(payload), payload.metadata(), payload.tensors())
+            for name, payload in raw_extra.items()
+        ]
+
+        return (
+            blob,
+            system_sizes,
+            target_names,
+            target_sizes,
+            extra_names,
+            extra_sizes,
+            raw,
+        )
 
 
 def unpack_batch(
@@ -453,7 +484,15 @@ def unpack_batch(
     :param batch: The batch to unpack.
     :return: A tuple with the unpacked batch
     """
-    blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes = batch
+    (
+        blob,
+        system_sizes,
+        target_names,
+        target_sizes,
+        extra_names,
+        extra_sizes,
+        raw,
+    ) = batch
 
     all_buffers = torch.split(blob, system_sizes + target_sizes + extra_sizes)
     systems = all_buffers[: len(system_sizes)]
@@ -477,6 +516,10 @@ def unpack_batch(
     systems = list(load_system_buffer(s) for s in systems)
     targets = {key: load_buffer(t) for key, t in targets.items()}
     extra_data = {key: load_buffer(t) for key, t in extra_data.items()}
+
+    # Raw payloads are rebuilt from the tensors that travelled alongside the blob.
+    for name, payload_type, metadata, tensors in raw:
+        extra_data[name] = payload_type.rebuild(tensors, metadata)
     return systems, targets, extra_data
 
 

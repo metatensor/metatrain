@@ -38,7 +38,10 @@ def build_train_dataloaders(
         fixed number of structures.
     :param min_atoms_per_batch: Minimum total atom count for a packed batch to be
         kept. Only used when ``max_atoms_per_batch`` is set.
-    :param num_workers: Number of ``DataLoader`` workers.
+    :param num_workers: Number of ``DataLoader`` workers. When non-zero the
+        workers are persistent, so they are spawned once rather than once per
+        epoch, and any state a collate function caches survives between
+        epochs.
     :return: A tuple ``(dataloaders, epoch_samplers)``. ``epoch_samplers`` contains
         every sampler (``DistributedSampler`` or ``MaxAtomDistributedBatchSampler``)
         that must have ``set_epoch()`` called on it before each epoch.
@@ -67,6 +70,7 @@ def build_train_dataloaders(
                     batch_sampler=batch_sampler,
                     collate_fn=collate_fn_train,
                     num_workers=num_workers,
+                    persistent_workers=num_workers > 0,
                 )
             )
         else:
@@ -88,6 +92,7 @@ def build_train_dataloaders(
                     drop_last=(train_sampler is None),
                     collate_fn=collate_fn_train,
                     num_workers=num_workers,
+                    persistent_workers=num_workers > 0,
                 )
             )
     return dataloaders, epoch_samplers
@@ -119,7 +124,10 @@ def build_val_dataloaders(
         is ``None``.
     :param max_atoms_per_batch: If set, pack batches by atom count instead of by a
         fixed number of structures.
-    :param num_workers: Number of ``DataLoader`` workers.
+    :param num_workers: Number of ``DataLoader`` workers. When non-zero the
+        workers are persistent, so they are spawned once rather than once per
+        epoch, and any state a collate function caches survives between
+        epochs.
     :return: One ``DataLoader`` per dataset in ``val_datasets``.
     """
     dataloaders: List[DataLoader] = []
@@ -142,6 +150,7 @@ def build_val_dataloaders(
                     batch_sampler=batch_sampler,
                     collate_fn=collate_fn_val,
                     num_workers=num_workers,
+                    persistent_workers=num_workers > 0,
                 )
             )
         else:
@@ -154,6 +163,7 @@ def build_val_dataloaders(
                     drop_last=False,
                     collate_fn=collate_fn_val,
                     num_workers=num_workers,
+                    persistent_workers=num_workers > 0,
                 )
             )
     return dataloaders

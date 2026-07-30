@@ -11,6 +11,7 @@ from metatomic.torch.o3 import (
 )
 
 from .data import TargetInfo
+from .data.raw_payload import RawExtraPayload
 
 
 class O3Augmenter:
@@ -126,6 +127,10 @@ class O3Augmenter:
             for name, tmap in extra_data.items():
                 if name.endswith("_mask"):
                     # loss masks are not physical quantities and must not be rotated
+                    new_extra_data[name] = tmap
+                elif isinstance(tmap, RawExtraPayload):
+                    # a raw payload carries no metadata describing how it transforms,
+                    # so whoever attached it owns its equivariance
                     new_extra_data[name] = tmap
                 else:
                     new_extra_data[name] = _transform(tmap)
