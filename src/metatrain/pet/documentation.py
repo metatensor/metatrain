@@ -140,7 +140,7 @@ important** (in decreasing order of importance):
       :no-index:
 """
 
-from typing import Literal, Optional
+from typing import Any, Dict, Literal, Optional, Union
 
 from typing_extensions import NotRequired, TypedDict
 
@@ -200,8 +200,41 @@ class ModelHypers(TypedDict):
     increasing it might lead to better accuracy, especially on larger datasets, at the
     cost of increased training and evaluation time.
     """
-    d_head: int = 128
-    """Dimension of the attention heads."""
+    d_head: Union[int, Dict[str, int]] = 128
+    """Output dimension of the node/edge heads.
+
+    Either a single ``int`` (the same head dimension for the node and the edge
+    heads) or a dict ``{node: int, edge: int}`` setting them independently. See
+    :attr:`head_type` and :attr:`num_head_layers`.
+    """
+    head_type: Union[
+        Literal["per_target", "per_block"],
+        Dict[str, Literal["per_target", "per_block"]],
+    ] = "per_target"
+    """How the node/edge heads are shared across a target's blocks.
+
+    ``"per_target"`` (default): one node head and one edge head per target,
+    shared across all of that target's blocks. This is the standard PET
+    behaviour.
+
+    ``"per_block"``: a separate node/edge head per block of each target, so that
+    every block can filter the backbone features for its own symmetry
+    independently. Note that this multiplies the cost of the (nonlinear) heads by
+    the number of blocks; for the edge heads, which act on the
+    ``(n_atoms, max_neighbors)`` array, that cost is usually the dominant term of
+    the whole model.
+
+    May also be set *per target* by passing a dict keyed by target name (like the
+    ``loss`` option), e.g. ``{"mtt::foo": "per_block"}``. A bare value applies to
+    all targets; with a dict, targets not listed fall back to ``"per_target"``.
+    """
+    num_head_layers: int = 2
+    """Number of Linear+SiLU layers in each node/edge head. Must be ``>= 1``.
+
+    Each head maps ``d_node`` -> ``d_head`` (nodes) or ``d_pet`` -> ``d_head``
+    (edges) through ``num_head_layers`` linear layers with SiLU activations,
+    before the (linear) readout. See :attr:`head_type` and :attr:`d_head`.
+    """
     d_node: int = 256
     """Dimension of the node features.
 
@@ -242,6 +275,48 @@ class ModelHypers(TypedDict):
     Additionally, the feedforward version uses bidirectional features flow during the
     message passing iterations, that favors features flowing from atom ``i`` to atom
     ``j`` to be not equal to the features flowing from atom ``j`` to atom ``i``."""
+    readout_type: Dict[str, Any] = {"atom_type_gating": False, "hypers": {}}
+    """Atom-type conditioning of the (linear) readout, i.e. the last layers.
+
+    The readout is a strictly *linear* map from the head dimension to each block's
+    output dimension; all nonlinearity lives in the heads (see :attr:`head_type`).
+    This hyper controls optional atom-type conditioning of that linear map.
+
+    ``{atom_type_gating: false}`` (default): a single shared linear readout per
+    block, with no atom-type conditioning. This is the standard PET readout.
+
+    ``{atom_type_gating: "one-hot"}``: an independent linear readout per atomic
+    type, selected by the central-atom type. This is the natural readout for
+    targets whose blocks span several atomic types, such as atom-centered basis
+    expansions of a scalar field, where each type needs its own map onto a
+    property axis padded to the largest per-type basis.
+
+    ``{atom_type_gating: "moe", hypers: {...}}``: a mixture-of-experts linear
+    readout whose experts are gated by routing weights from a learned embedding of
+    the central-atom type. Note that every expert is evaluated for every atom, so
+    this costs ``num_experts`` times a plain readout.
+
+    .. code-block:: yaml
+
+        readout_type:
+          atom_type_gating: moe
+          hypers:
+            num_experts: 5
+            num_routed_experts: 5
+            num_topk_experts: 2
+            embedding_dim: 16   # optional, default 16
+
+    May also be set *per target* by passing a dict keyed by target name whose
+    values are per-target specs. A spec containing the ``atom_type_gating`` key
+    applies to all targets; otherwise the dict is read as ``{target_name: spec}``
+    and targets not listed fall back to the default (no conditioning):
+
+    .. code-block:: yaml
+
+        readout_type:
+          mtt::foo:
+            atom_type_gating: one-hot
+    """
     zbl: bool = False
     """Use ZBL potential for short-range repulsion"""
     long_range: LongRangeHypers = init_with_defaults(LongRangeHypers)
