@@ -12,7 +12,11 @@ from metatrain.composition import train_or_load_composition_model
 from metatrain.scaler import train_or_load_scaler
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
-from metatrain.utils.augmentation import O3Augmenter
+from metatrain.utils.augmentation import (
+    O3Augmenter,
+    get_augmentation_transform,
+    original_frame_targets,
+)
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
@@ -26,6 +30,7 @@ from metatrain.utils.data import (
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
 )
+from metatrain.utils.density_hooks import get_density_hooks
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
@@ -284,6 +289,17 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
 
         target_keys = list(train_targets.keys())
+
+        # Hooks for on-the-fly computations to support density learning
+        density = get_density_hooks(self.hypers["loss"])
+
+        # Define the targets whose losses must be evaluated in the original
+        # (un-transformed) frame
+        original_frame = original_frame_targets(self.hypers["loss"])
+        augmentation_callable = get_augmentation_transform(
+            rotational_augmenter, original_frame
+        )
+
         # Shared callables that run after `atomic_basis_transform` (and after
         # rotational augmentation in training).
         base_callables: List[Callable[..., Any]] = [
@@ -292,11 +308,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
             get_remove_additive_transform(additive_models, train_targets),
             get_remove_scale_transform(scaler),
         ]
+
+        # Define collate functions:
         collate_fn_train = CollateFn(
             target_keys=target_keys,
             callables=[
                 atomic_basis_transform,
-                rotational_augmenter.apply_random_augmentations,
+                *density.collate_transforms(),
+                augmentation_callable,
                 *base_callables,
             ],
         )
@@ -304,6 +323,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             target_keys=target_keys,
             callables=[  # no augmentation for validation
                 atomic_basis_transform,
+                *density.collate_transforms(),
                 *base_callables,
             ],
         )
@@ -430,6 +450,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     systems,
                     {key: train_targets[key] for key in targets.keys()},
                     is_training=True,
+                )
+
+                # Back-transform predictions to the original frame for targets that
+                # require it.
+                predictions = rotational_augmenter.undo_augmentation(
+                    predictions, systems, extra_data, original_frame
                 )
 
                 # average by the number of atoms

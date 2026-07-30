@@ -4,7 +4,7 @@
 import math
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, Literal, Optional, Type
+from typing import Any, Dict, List, Literal, Optional, Tuple, Type
 
 import metatensor.torch as mts
 import torch
@@ -15,6 +15,13 @@ from torch.nn.modules.loss import _Loss
 from typing_extensions import NotRequired, TypedDict
 
 from metatrain.utils.data import TargetInfo
+from metatrain.utils.pyscf_loss import (
+    METRICS,
+    metric_matrix_name,
+    ri_density_fit_constant_name,
+    ri_projections_name,
+    unpack_metric_matrices,
+)
 
 
 @with_config(ConfigDict(extra="allow"))
@@ -49,6 +56,13 @@ class LossInterface(ABC):
     loss_kwargs: Dict[str, Any]
     target: str
     gradient: Optional[str]
+
+    #: Whether this loss must see its targets in the frame the dataset stores them in,
+    #: rather than in the augmented frame. Set by losses that depend on a quantity
+    #: derived from the unaugmented geometry; the trainer then augments only the
+    #: systems and maps the predictions back before the loss is taken. See
+    #: :func:`~metatrain.utils.augmentation.get_augmentation_transform`.
+    evaluate_in_original_frame: bool = False
 
     def __init__(
         self,
@@ -442,6 +456,309 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
             reduction,
             loss_fn=torch.nn.HuberLoss(reduction=reduction, delta=delta),
         )
+
+
+def _flatten_to_pyscf_order(
+    tensor_map: TensorMap,
+    subtract: Optional[TensorMap] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Flatten atomic-basis coefficients (or their residual) into PySCF basis order.
+
+    PySCF orders auxiliary basis functions by atom, then by shell in the order the
+    basis lists them (angular momentum ascending, radial function within it), then
+    by the ``2l + 1`` angular components. A densified atomic-basis target stores one
+    block per ``o3_lambda``, with values ``(atom, m, n)`` and NaN on the property
+    axis wherever an element has no such function.
+
+    Laying the blocks out as ``(atom, [l][n][m])`` and taking the non-NaN entries in
+    row-major order therefore reproduces PySCF order exactly, with no explicit index
+    arithmetic: boolean-mask indexing walks rows in order, and the samples of a
+    collated batch are already ordered by system and then by atom.
+
+    :param tensor_map: Coefficients to flatten.
+    :param subtract: If given, flatten ``tensor_map - subtract`` instead. NaN
+        padding propagates through the subtraction and is dropped either way.
+    :return: ``(flat, counts_per_atom)``, where ``flat`` concatenates every atom of
+        the batch in order.
+    """
+    keys = sorted(tensor_map.keys, key=lambda key: int(key[0]))
+    per_block: List[torch.Tensor] = []
+    for key in keys:
+        values = tensor_map.block(key).values
+        if subtract is not None:
+            values = values - subtract.block(key).values
+        if int(key[0]) == 1:
+            # metatensor orders l=1 components as m = -1, 0, +1; PySCF uses the
+            # Cartesian-like x, y, z order, i.e. m = +1, -1, 0.
+            values = values[:, [2, 0, 1], :]
+        # (atom, m, n) -> (atom, n, m): n is major within an angular channel.
+        per_block.append(values.transpose(1, 2).reshape(values.shape[0], -1))
+
+    wide = torch.cat(per_block, dim=1)
+    mask = ~torch.isnan(wide)
+    return wide[mask], mask.sum(dim=1)
+
+
+def _quadratic_form(vector: torch.Tensor, matrix: torch.Tensor) -> torch.Tensor:
+    """
+    Evaluate ``v^T M v`` for one system.
+
+    A matrix-vector product followed by a dot: the transformation this quadratic form
+    actually is, rather than a general contraction. Both arguments reach here in the
+    model's dtype, since ``batch_to`` casts the metric alongside the targets.
+
+    :param vector: Coefficient (or residual) vector for one system.
+    :param matrix: That system's two-centre metric matrix.
+    :return: The scalar ``v^T M v``.
+    """
+    return torch.dot(vector, torch.mv(matrix, vector))
+
+
+class _DensityLoss(LossInterface):
+    """
+    Shared machinery for the two quadratic density losses.
+
+    Both express an error of the reconstructed scalar field as a quadratic form in
+    the coefficients, weighted by a two-centre metric ``M`` supplied per system in
+    ``extra_data``. They differ only in what reference data they consume; see
+    :py:class:`DensityMSELossViaC` and :py:class:`DensityMSELossViaW`.
+
+    :param name: key of the coefficient target.
+    :param gradient: not supported; must be ``None``.
+    :param weight: weight of this term in the aggregated loss.
+    :param reduction: ``"mean"``, ``"sum"`` or ``"none"``.
+    :param metric: ``"overlap"`` (S) or ``"coulomb"`` (J).
+    :param aux_basis: auxiliary basis the reference coefficients were fitted in,
+        e.g. ``"def2-universal-jfit"`` or ``"etb:def2-svp:2.0"``. Read by the trainer
+        to build the metric transform, and kept here so the loss configuration is
+        self-contained.
+    """
+
+    #: The metric matrix depends on the geometry, and is built on the unaugmented
+    #: one -- the frame the reference coefficients were fitted in -- which is only
+    #: consistent if the coefficients are compared in that same frame.
+    evaluate_in_original_frame = True
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+        metric: str = "overlap",
+        aux_basis: Optional[str] = None,
+    ):
+        super().__init__(name, gradient, weight, reduction)
+        if gradient is not None:
+            raise NotImplementedError(
+                f"{type(self).__name__} does not support gradients of the coefficients."
+            )
+        if metric not in METRICS:
+            raise ValueError(f"unknown metric {metric!r}; expected one of {METRICS}.")
+        if aux_basis is None:
+            raise ValueError(
+                f"density losses on target '{name}' require 'aux_basis', the "
+                "auxiliary basis the reference coefficients were fitted in."
+            )
+        self.metric = metric
+        self.aux_basis = aux_basis
+
+    def _require(self, extra_data: Optional[Any], key: str) -> Any:
+        if extra_data is None or key not in extra_data:
+            raise RuntimeError(
+                f"'{type(self).__name__}' on target '{self.target}' requires "
+                f"'{key}' in extra_data; it is added by the density collate "
+                "transforms that the trainer installs."
+            )
+        return extra_data[key]
+
+    def _per_system(
+        self,
+        tensor_map: TensorMap,
+        subtract: Optional[TensorMap],
+        extra_data: Optional[Any],
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        """Flatten to PySCF order and split into one coefficient vector per system.
+
+        Systems are kept ragged rather than padded to the batch maximum: the loss is
+        a per-system quadratic form, so padding buys no batching that the metric
+        matrices could share, while costing ``n_systems * n_max**2`` storage against
+        the ``sum_i n_i**2`` actually needed.
+
+        :param tensor_map: the predicted coefficients.
+        :param subtract: reference coefficients to subtract, or ``None`` to
+            flatten ``tensor_map`` alone.
+        :param extra_data: the batch's extra data, holding the metric matrices.
+        :return: ``(vectors, matrices)``, one of each per system.
+        """
+        packed = self._require(extra_data, metric_matrix_name(self.target, self.metric))
+        matrices = unpack_metric_matrices(packed)
+
+        system_of_atom = (
+            tensor_map.block(tensor_map.keys[0]).samples.values[:, 0].to(torch.int64)
+        )
+
+        flat, counts_per_atom = _flatten_to_pyscf_order(tensor_map, subtract)
+
+        counts = torch.zeros(
+            len(matrices), dtype=counts_per_atom.dtype, device=counts_per_atom.device
+        ).scatter_add_(0, system_of_atom, counts_per_atom)
+        sizes = counts.tolist()
+
+        expected = [matrix.shape[0] for matrix in matrices]
+        if sizes != expected:
+            raise ValueError(
+                f"target '{self.target}' has a per-system coefficient count that "
+                f"does not match the '{self.aux_basis}' auxiliary basis "
+                f"({sizes} vs {expected}). Check that 'aux_basis' matches the basis "
+                "the dataset was fitted in."
+            )
+        return list(torch.split(flat, sizes)), matrices
+
+    def _reduce(self, per_system: torch.Tensor) -> torch.Tensor:
+        if self.reduction == "mean":
+            return per_system.mean()
+        elif self.reduction == "sum":
+            return per_system.sum()
+        elif self.reduction == "none":
+            return per_system
+        raise ValueError(f"unknown reduction '{self.reduction}'")
+
+
+class DensityMSELossViaC(_DensityLoss):
+    """
+    Quadratic density error from the coefficient residual: ``L = Δc^T M Δc``.
+
+    For a field :math:`\\rho(r) = \\sum_i c_i \\phi_i(r)`, this is
+
+    .. math::
+
+        \\int |\\rho_\\mathrm{pred}(r) - \\rho_\\mathrm{ref}(r)|^2 \\, dr
+            = \\Delta c^T S \\, \\Delta c
+
+    with ``metric="overlap"``, and the electrostatic self-energy of the residual
+    with ``metric="coulomb"``. Either is the quantity that matters for density
+    learning, unlike a plain MSE on the coefficients, which ignores that the basis
+    is neither orthogonal nor normalised.
+
+    Requires reference coefficients in the dataset. Use
+    :py:class:`DensityMSELossViaW` instead when the reference is stored as
+    projections, or when ``S`` is too ill-conditioned to invert for them.
+
+    The value is the **per-system total** error, an extensive quantity: metatrain's
+    per-atom averaging does not apply, since it deliberately skips blocks whose
+    samples carry an ``"atom"`` dimension, as this target's do.
+
+    **Scale convention.** The trainer removes the per-target scale from the targets
+    before the loss, so the residual seen here is :math:`\\Delta c / s`. Being
+    quadratic, the loss is the true error divided by the constant :math:`s^2`, which
+    is absorbed into ``weight``. A *per-property* scale would not factor out, but
+    metatrain removes only the per-target scalar, so this is safe.
+    """
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        deltas, matrices = self._per_system(
+            predictions[self.target], targets[self.target], extra_data
+        )
+        # L_i = dc_i . (M_i dc_i): a matrix-vector product followed by a dot, which
+        # is the transformation this quadratic form actually is. The contraction is
+        # bandwidth-bound on streaming M, so the arrangement matters less than not
+        # streaming padding along with it.
+        return self._reduce(
+            torch.stack(
+                [
+                    _quadratic_form(delta, matrix)
+                    for delta, matrix in zip(deltas, matrices, strict=True)
+                ]
+            )
+        )
+
+
+class DensityMSELossViaW(_DensityLoss):
+    """
+    Quadratic density error from projections: ``L = c^T M c - 2 c^T w (+ const)``.
+
+    Here :math:`w = M c_\\mathrm{ref}` are the projections of the reference density
+    onto the auxiliary basis. Expanding :math:`\\Delta c^T M \\Delta c` gives
+
+    .. math::
+
+        c^T M c - 2 c^T w + c_\\mathrm{ref}^T w
+
+    so this is the *same* quantity as :py:class:`DensityMSELossViaC`, reached without
+    ever forming :math:`c_\\mathrm{ref} = M^{-1} w`. That matters because ``S`` is
+    typically ill-conditioned for large auxiliary bases, so the inversion — not the
+    loss — is where accuracy is lost. The two therefore make a meaningful ablation
+    pair rather than a redundant one.
+
+    The final term is a constant with no gradient. It is added when the collate
+    transform has supplied it, which makes the loss bounded below by zero and hence
+    directly comparable to ``via_c``; without it the loss is shifted by an unknown
+    per-system constant and only differences are meaningful.
+
+    :param name: key of the coefficient target.
+    :param gradient: not supported; must be ``None``.
+    :param weight: weight of this term in the aggregated loss.
+    :param reduction: ``"mean"``, ``"sum"`` or ``"none"``.
+    :param metric: ``"overlap"`` (S) or ``"coulomb"`` (J).
+    :param aux_basis: auxiliary basis the reference coefficients were fitted in.
+    :param projections_key: ``extra_data`` key holding ``w``. Defaults to
+        ``<target>_projections``.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+        metric: str = "overlap",
+        aux_basis: Optional[str] = None,
+        projections_key: Optional[str] = None,
+    ):
+        super().__init__(name, gradient, weight, reduction, metric, aux_basis)
+        self.projections_key = (
+            projections_key
+            if projections_key is not None
+            else ri_projections_name(name)
+        )
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        projections = self._require(extra_data, self.projections_key)
+
+        # Flatten predictions and projections under the same code path so the two
+        # flat vectors index the same basis functions.
+        coefficients, matrices = self._per_system(
+            predictions[self.target], None, extra_data
+        )
+        projected, _ = self._per_system(projections, None, extra_data)
+
+        per_system = torch.stack(
+            [
+                _quadratic_form(c, matrix)
+                - 2.0 * torch.dot(c.to(matrix.dtype), w.to(matrix.dtype))
+                for c, w, matrix in zip(coefficients, projected, matrices, strict=True)
+            ]
+        )
+
+        constant_name = ri_density_fit_constant_name(self.target)
+        if extra_data is not None and constant_name in extra_data:
+            constant = extra_data[constant_name].block().values.reshape(-1)
+            per_system = per_system + constant.to(
+                dtype=per_system.dtype, device=per_system.device
+            )
+        return self._reduce(per_system)
 
 
 class ShiftAgnosticMSE(LossInterface):
@@ -1203,6 +1520,8 @@ class LossType(Enum):
     GAUSSIAN_NLL = ("gaussian_nll_ensemble", TensorMapGaussianNLLLoss)
     GAUSSIAN_CRPS = ("gaussian_crps_ensemble", TensorMapGaussianCRPSLoss)
     EMPIRICAL_CRPS = ("empirical_crps_ensemble", TensorMapEmpiricalCRPSLoss)
+    DENSITY_MSE_VIA_C = ("density_mse_via_c", DensityMSELossViaC)
+    DENSITY_MSE_VIA_W = ("density_mse_via_w", DensityMSELossViaW)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key

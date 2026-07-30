@@ -11,7 +11,12 @@ from metatomic.torch.o3 import (
     transform_tensor,
 )
 
-from metatrain.utils.augmentation import O3Augmenter
+from metatrain.utils.augmentation import (
+    AUGMENTATION_NAME,
+    O3Augmenter,
+    _unpack_transformations,
+    original_frame_targets,
+)
 from metatrain.utils.data import DatasetInfo, DiskDataset
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
@@ -848,3 +853,190 @@ def test_rotation_per_atom_spherical_rank2(batch_size, device):
     # Check that the rotated target matches the reference, without leaving the device
     assert RfX.device.type == torch.device(device).type
     mts.allclose_raise(RfX, fRX, atol=1e-5)
+
+
+# ── the per-target frame split ────────────────────────────────────────────────
+
+
+def _one_system():
+    return System(
+        types=torch.tensor([6, 1]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 1.1]], dtype=torch.float64),
+        cell=torch.zeros(3, 3, dtype=torch.float64),
+        pbc=torch.tensor([False, False, False]),
+    )
+
+
+def _spherical_tensor_map(values, name="p"):
+    """A per-structure ``l=1`` TensorMap, e.g. a dipole."""
+    return TensorMap(
+        Labels(["o3_lambda", "o3_sigma"], torch.tensor([[1, 1]])),
+        [
+            TensorBlock(
+                values=values,
+                samples=Labels(["system"], torch.tensor([[0]], dtype=torch.int32)),
+                components=[
+                    Labels(["o3_mu"], torch.tensor([[-1], [0], [1]], dtype=torch.int32))
+                ],
+                properties=Labels([name], torch.tensor([[0]], dtype=torch.int32)),
+            )
+        ],
+    )
+
+
+def _two_target_augmenter():
+    info = {
+        name: get_generic_target_info(
+            name,
+            {
+                "quantity": "",
+                "unit": "",
+                "type": {"spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}},
+                "num_subtargets": 1,
+                "sample_kind": "structure",
+            },
+        )
+        for name in ("rotated", "held")
+    }
+    return O3Augmenter(target_info_dict=info)
+
+
+def test_frame_split_keeps_each_target_in_its_own_frame():
+    """
+    A run may mix targets evaluated in the augmented frame with targets evaluated in
+    the dataset's frame. Each must end up with exactly the residual it would have had
+    on its own, so that adding one kind of target cannot silently change the other's
+    objective.
+    """
+    systems = [_one_system()]
+    augmenter = _two_target_augmenter()
+
+    torch.manual_seed(0)
+    targets = {
+        "rotated": _spherical_tensor_map(torch.randn(1, 3, 1, dtype=torch.float64)),
+        "held": _spherical_tensor_map(torch.randn(1, 3, 1, dtype=torch.float64)),
+    }
+    raw_predictions = {
+        "rotated": _spherical_tensor_map(torch.randn(1, 3, 1, dtype=torch.float64)),
+        "held": _spherical_tensor_map(torch.randn(1, 3, 1, dtype=torch.float64)),
+    }
+
+    augmented, split_targets, extra = augmenter.apply_random_system_augmentations(
+        systems, targets, original_frame={"held"}
+    )
+    # The model would see the same augmented systems either way, so simulate its
+    # output by rotating the same raw predictions.
+    _, rotated_predictions, _ = augmenter.apply_augmentations(
+        systems,
+        raw_predictions,
+        [_unpack_transformations(extra[AUGMENTATION_NAME])[0]],
+    )
+    final = augmenter.undo_augmentation(
+        rotated_predictions, augmented, extra, original_frame={"held"}
+    )
+
+    # Reference: what each target would have got in a run of its own kind.
+    _, all_rotated, _ = augmenter.apply_augmentations(
+        systems, targets, [_unpack_transformations(extra[AUGMENTATION_NAME])[0]]
+    )
+
+    # "rotated" is compared in the augmented frame, exactly as without any split
+    torch.testing.assert_close(
+        final["rotated"].block(0).values, rotated_predictions["rotated"].block(0).values
+    )
+    torch.testing.assert_close(
+        split_targets["rotated"].block(0).values,
+        all_rotated["rotated"].block(0).values,
+    )
+
+    # "held" is compared in the dataset frame, and its target was left untouched
+    assert split_targets["held"] is targets["held"]
+    torch.testing.assert_close(
+        final["held"].block(0).values, raw_predictions["held"].block(0).values
+    )
+
+
+def test_frame_split_leaves_undeclared_extra_data_alone():
+    """
+    Only extra data declared as a physical quantity is transformed, and only when it
+    belongs to a target being augmented. Bookkeeping payloads and anything owned by a
+    held-back target must pass through untouched.
+    """
+    systems = [_one_system()]
+    info = {
+        "rotated": get_generic_target_info(
+            "rotated",
+            {
+                "quantity": "",
+                "unit": "",
+                "type": {"spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}},
+                "num_subtargets": 1,
+                "sample_kind": "structure",
+            },
+        ),
+        "held": get_generic_target_info(
+            "held",
+            {
+                "quantity": "",
+                "unit": "",
+                "type": {"spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}},
+                "num_subtargets": 1,
+                "sample_kind": "structure",
+            },
+        ),
+    }
+    extra_info = {
+        "rotated_reference": info["rotated"],
+        "held_reference": info["held"],
+    }
+    augmenter = O3Augmenter(target_info_dict=info, extra_data_info_dict=extra_info)
+
+    torch.manual_seed(1)
+    extra_data = {
+        # declared, owned by an augmented target -> transformed
+        "rotated_reference": _spherical_tensor_map(
+            torch.randn(1, 3, 1, dtype=torch.float64)
+        ),
+        # declared, owned by a held-back target -> left in the dataset frame
+        "held_reference": _spherical_tensor_map(
+            torch.randn(1, 3, 1, dtype=torch.float64)
+        ),
+        # undeclared bookkeeping -> never touched
+        "mtt::aux::system_index": TensorMap(
+            Labels.single(),
+            [
+                TensorBlock(
+                    values=torch.tensor([[7.0]], dtype=torch.float64),
+                    samples=Labels(["system"], torch.tensor([[0]], dtype=torch.int32)),
+                    components=[],
+                    properties=Labels(["i"], torch.tensor([[0]], dtype=torch.int32)),
+                )
+            ],
+        ),
+    }
+    before = {k: v.block(0).values.clone() for k, v in extra_data.items()}
+
+    _, _, new_extra = augmenter.apply_random_system_augmentations(
+        systems, {}, extra_data, original_frame={"held"}
+    )
+
+    assert not torch.allclose(
+        new_extra["rotated_reference"].block(0).values, before["rotated_reference"]
+    )
+    torch.testing.assert_close(
+        new_extra["held_reference"].block(0).values, before["held_reference"]
+    )
+    torch.testing.assert_close(
+        new_extra["mtt::aux::system_index"].block(0).values,
+        before["mtt::aux::system_index"],
+    )
+
+
+def test_original_frame_targets_reads_the_loss_classes():
+    assert original_frame_targets(None) == set()
+    assert original_frame_targets(
+        {
+            "density": {"type": "density_mse_via_c", "aux_basis": "x"},
+            "energy": {"type": "mae"},
+        }
+    ) == {"density"}
