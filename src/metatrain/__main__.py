@@ -14,6 +14,7 @@ from .cli.export import (
     _prepare_export_model_args,
     export_model,
 )
+from .cli.show import _add_show_model_parser, show_model
 from .cli.train import (
     _add_train_model_parser,
     _prepare_train_model_args,
@@ -59,6 +60,7 @@ def main():
     subparser = ap.add_subparsers(help="sub-command help")
     _add_eval_model_parser(subparser)
     _add_export_model_parser(subparser)
+    _add_show_model_parser(subparser)
     _add_train_model_parser(subparser)
 
     args = ap.parse_args()
@@ -102,6 +104,8 @@ def main():
             elif callable == "export_model":
                 _prepare_export_model_args(args)
                 export_model(**args.__dict__)
+            elif callable == "show_model":
+                show_model(**args.__dict__)
             elif callable == "train_model":
                 _prepare_train_model_args(args)
                 train_model(**args.__dict__)

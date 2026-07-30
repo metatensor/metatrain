@@ -8,6 +8,7 @@ _metatrain()
   local yaml='!*@(.yml|.yaml)'
   local ckpt='!*.ckpt'
   local pt='!*.pt'
+  local model='!*@(.ckpt|.pt)'
   local architecture_names=$(python -c "
 from metatrain.utils.architectures import find_all_architectures
 print(' '.join(find_all_architectures()))
@@ -57,6 +58,27 @@ print(' '.join(find_all_architectures()))
       COMPREPLY=( $(compgen -W "${opts}" -- "${cur_word}") )
       return 0
       ;;
+    show)
+      case "${prev_word}" in
+        -h|--help)
+          COMPREPLY=( )
+          return 0
+          ;;
+        -e|--extensions-dir)
+          COMPREPLY=( $(compgen -d -- "${cur_word}") )
+          return 0
+          ;;
+        *)
+          if [[ $COMP_CWORD -eq 2 ]]; then
+            COMPREPLY=( $(compgen -f -X "$model" -- "${cur_word}") )
+            return 0
+          fi
+          ;;
+      esac
+      local opts="-h --help -e --extensions-dir"
+      COMPREPLY=( $(compgen -W "${opts}" -- "${cur_word}") )
+      return 0
+      ;;
     eval)
       case "${prev_word}" in
         -h|--help|-o|--output|-b|--batch-size|--check-consistency)
@@ -85,7 +107,7 @@ print(' '.join(find_all_architectures()))
   esac
 
   # Complete the basic metatrain commands.
-  local opts="eval export train -h --help --debug --version"
+  local opts="eval export show train -h --help --debug --version"
   COMPREPLY=( $(compgen -W "${opts}" -- "${cur_word}") )
   return 0
 }
