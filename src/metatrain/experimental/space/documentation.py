@@ -219,6 +219,44 @@ class ModelHypers(TypedDict):
     heads: dict[str, Literal["linear", "mlp"]] = {}
     """Heads to use in the model, with options being "linear" or "mlp"."""
 
+    readout_type: dict = {"atom_type_gating": False, "hypers": {}}
+    """Atom-type conditioning of the last layers.
+
+    The last layer of each ``o3_lambda`` block is a strictly *linear* map from the
+    model's features onto that block's properties. This hyper controls optional
+    conditioning of that map on the central-atom type. The conditioning is on an
+    invariant quantity and carries no bias, so equivariance is preserved.
+
+    ``{atom_type_gating: false}`` (default): a single shared linear map per block.
+    This is the standard SPACE readout.
+
+    ``{atom_type_gating: "one-hot"}``: an independent linear map per atomic type.
+    This is the natural readout for targets whose blocks span several atomic
+    types, such as atom-centered basis expansions of a scalar field, where each
+    type needs its own map onto a property axis padded to the largest per-type
+    basis.
+
+    ``{atom_type_gating: "moe", hypers: {...}}``: a mixture-of-experts linear
+    readout routed by a learned embedding of the central-atom type. Note that
+    every expert is evaluated for every atom, so this costs ``num_experts`` times
+    a plain readout.
+
+    .. code-block:: yaml
+
+        readout_type:
+          atom_type_gating: moe
+          hypers:
+            num_experts: 5
+            num_routed_experts: 5
+            num_topk_experts: 2
+            embedding_dim: 16   # optional, default 16
+
+    May also be set *per target* by passing a dict keyed by target name whose
+    values are per-target specs. A spec containing the ``atom_type_gating`` key
+    applies to all targets; otherwise the dict is read as ``{target_name: spec}``
+    and targets not listed fall back to the default (no conditioning).
+    """
+
     zbl: bool = False
     """Whether to use the ZBL potential in the model."""
 

@@ -4,6 +4,9 @@ import numpy as np
 import torch
 from torch.func import functional_call, grad
 
+from metatrain.utils.hypers import resolve_per_target
+from metatrain.utils.readout import LinearReadout, MoEReadout
+
 from .cg_coefficients import get_cg_coefficients
 from .cg_iterator import CGIterator
 from .layers import Linear
@@ -292,7 +295,11 @@ class BaseModel(torch.nn.Module):
             output: Dict[int, torch.Tensor] = {}
             for l_str, layer_L in layer.items():
                 l = int(l_str)  # noqa: E741
-                output[l] = layer_L(last_layer_feature_dict[output_name][l])
+                # ``center_species_indices`` is only used by readouts conditioned
+                # on the atomic type, and ignored by the unconditioned ones.
+                output[l] = layer_L(
+                    last_layer_feature_dict[output_name][l], center_species_indices
+                )
             return_dict[output_name] = output
 
         for output_name, llf in last_layer_feature_dict.items():
@@ -300,7 +307,60 @@ class BaseModel(torch.nn.Module):
 
         return return_dict
 
+    def _make_last_layer(self, in_features, out_features, readout_spec):
+        """
+        Build the last layer (readout) for one ``o3_lambda`` block.
+
+        The readout is strictly linear and carries no bias, and any conditioning is
+        on the (invariant) central-atom type, so equivariance is preserved. All
+        variants use the NTK parametrization, matching SPACE's own ``Linear``.
+
+        :param in_features: Input feature dimension, ``k_max_l[l]``.
+        :param out_features: Number of properties of this block.
+        :param readout_spec: The per-target readout spec, with keys
+            ``atom_type_gating`` and ``hypers``.
+        :return: A module with forward signature ``(features, group_idx)``.
+        """
+        gating = readout_spec.get("atom_type_gating", False)
+        hypers = readout_spec.get("hypers", {})
+
+        if not gating:
+            # Unconditioned: keep SPACE's own ``Linear``. An ungated
+            # ``LinearReadout`` computes exactly the same function, but ``Linear``
+            # leaves the parameter names and the initialisation untouched, and with
+            # them existing checkpoints and the equinox export path.
+            return Linear(in_features, out_features)
+        if gating == "one-hot":
+            return LinearReadout(
+                in_features,
+                out_features,
+                n_groups=len(self.atomic_types),
+                ntk_parametrization=True,
+            )
+        if gating == "moe":
+            return MoEReadout(
+                in_features,
+                out_features,
+                n_groups=len(self.atomic_types),
+                num_experts=hypers["num_experts"],
+                num_routed_experts=hypers["num_routed_experts"],
+                num_topk_experts=hypers["num_topk_experts"],
+                embedding_dim=hypers.get("embedding_dim", 16),
+                ntk_parametrization=True,
+            )
+        raise ValueError(
+            f"Unknown atom_type_gating: {gating!r}. "
+            "Available options are: false, 'one-hot' and 'moe'."
+        )
+
     def _add_output(self, target_name, target_info):
+        readout_spec = resolve_per_target(
+            self.hypers["readout_type"],
+            target_name,
+            {"atom_type_gating": False, "hypers": {}},
+            spec_keys=("atom_type_gating",),
+        )
+
         if target_name not in self.head_types:
             if target_info.is_scalar:
                 use_mlp = True  # default to MLP for scalars
@@ -332,8 +392,10 @@ class BaseModel(torch.nn.Module):
         if target_info.is_scalar:
             self.last_layers[target_name] = torch.nn.ModuleDict(
                 {
-                    "0": Linear(
-                        self.k_max_l[0], len(target_info.layout.block().properties)
+                    "0": self._make_last_layer(
+                        self.k_max_l[0],
+                        len(target_info.layout.block().properties),
+                        readout_spec,
                     )
                 }
             )
@@ -345,8 +407,10 @@ class BaseModel(torch.nn.Module):
                 # rank-1: treat as a spherical L=1 target
                 self.last_layers[target_name] = torch.nn.ModuleDict(
                     {
-                        "1": Linear(
-                            self.k_max_l[1], len(target_info.layout.block().properties)
+                        "1": self._make_last_layer(
+                            self.k_max_l[1],
+                            len(target_info.layout.block().properties),
+                            readout_spec,
                         )
                     }
                 )
@@ -362,7 +426,9 @@ class BaseModel(torch.nn.Module):
                             f"basis only goes up to l={self.l_max}. You should "
                             "increase the ``max_eigenvalue`` hyperparameter."
                         )
-                    rank2_layers[str(l)] = Linear(self.k_max_l[l], num_props)
+                    rank2_layers[str(l)] = self._make_last_layer(
+                        self.k_max_l[l], num_props, readout_spec
+                    )
                 self.last_layers[target_name] = torch.nn.ModuleDict(rank2_layers)
             else:
                 raise NotImplementedError(
@@ -384,9 +450,10 @@ class BaseModel(torch.nn.Module):
                     )
             self.last_layers[target_name] = torch.nn.ModuleDict(
                 {
-                    str(l): Linear(
+                    str(l): self._make_last_layer(
                         self.k_max_l[l],
                         len(target_info.layout.block({"o3_lambda": l}).properties),
+                        readout_spec,
                     )
                     for l in irreps  # noqa: E741
                 }
