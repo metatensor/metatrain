@@ -60,3 +60,6 @@ class TrainerHypers(TypedDict):
     Setting this option explicitly is deprecated."""
     distributed_port: int = 39591
     """Port for distributed communication among processes"""
+    num_workers: Optional[int] = None
+    """Number of workers for data loading. If not provided, it is set
+    automatically."""

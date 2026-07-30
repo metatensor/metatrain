@@ -4,7 +4,7 @@ from typing import Any, Callable, Dict, List, Literal, Sequence, Union
 
 import metatensor.torch as mts
 import torch
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import remove_additive
@@ -12,7 +12,10 @@ from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    build_val_dataloaders,
+    get_num_workers,
     unpack_batch,
+    validate_num_workers,
 )
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
@@ -333,42 +336,40 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 f"The scaler only supports float64 during training. Got dtype: {dtype}."
             )
 
-        # Build the dataloaders
         if is_distributed:
             world_size = torch.distributed.get_world_size()
             rank = torch.distributed.get_rank()
-            samplers = [
-                DistributedSampler(
-                    dataset,
-                    num_replicas=world_size,
-                    rank=rank,
-                    shuffle=False,
-                    drop_last=False,
-                )
-                for dataset in datasets
+            # Strided shards instead of DistributedSampler: its padding
+            # duplicates samples to equalize shard sizes, which would bias
+            # the least-squares fit. Unequal shard sizes are fine here, as
+            # the only collective is the final all_reduce.
+            samplers: List[Any] = [
+                range(rank, len(dataset), world_size) for dataset in datasets
             ]
         else:
             samplers = [None] * len(datasets)
 
-        dataloaders = []
-        for dataset, sampler in zip(datasets, samplers, strict=False):
-            if len(dataset) < batch_size:
-                raise ValueError(
-                    f"A training dataset has fewer samples "
-                    f"({len(dataset)}) than the batch size "
-                    f"({batch_size}). "
-                    "Please reduce the batch size."
-                )
-            dataloaders.append(
-                DataLoader(
-                    dataset=dataset,
-                    batch_size=batch_size,
-                    sampler=sampler,
-                    shuffle=None if sampler else False,
-                    drop_last=False,
-                    collate_fn=collate_fn,
-                )
+        if self.hypers["num_workers"] is None:
+            num_workers = get_num_workers()
+            logging.info(
+                "Number of workers for data-loading not provided and chosen "
+                f"automatically. Using {num_workers} workers."
             )
+        else:
+            num_workers = self.hypers["num_workers"]
+            validate_num_workers(num_workers)
+
+        # The validation dataloader builder covers every sample exactly
+        # once, without shuffling or dropping the tail batch, which is what
+        # the deterministic fit needs (the training builder does both).
+        dataloaders = build_val_dataloaders(
+            val_datasets=datasets,
+            val_distributed_samplers=samplers,
+            collate_fn_val=collate_fn,
+            batch_size=batch_size,
+            max_atoms_per_batch=None,
+            num_workers=num_workers,
+        )
 
         return CombinedDataLoader(dataloaders, shuffle=False)
 

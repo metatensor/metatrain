@@ -120,7 +120,7 @@ def train_or_load_scaler(
         trainer.train(
             model=scaler,
             dtype=torch.float64,
-            devices=[torch.device("cpu")],
+            devices=[scaler.dummy_buffer.device],
             train_datasets=train_datasets,
             val_datasets=train_datasets,
             checkpoint_dir=checkpoint_dir,
