@@ -1210,7 +1210,17 @@ def load_from_checkpoint(ckpt_path: str) -> "EqxSPACE":
             )
         )
 
-    last_layer = _build_linear(sd[f"{prefix}.last_layers.energy.0.linear_layer.weight"])
+    # An atom-type-conditioned last layer (``readout_type.atom_type_gating``) is a
+    # ``LinearReadout``, which holds its weight directly rather than nested under
+    # ``linear_layer``, so this lookup misses for it. That is deliberate: this
+    # export path does not implement the per-type weight selection.
+    last_layer_key = f"{prefix}.last_layers.energy.0.linear_layer.weight"
+    if last_layer_key not in sd:
+        raise NotImplementedError(
+            "the equinox export does not support atom-type-conditioned readouts "
+            "(readout_type.atom_type_gating)."
+        )
+    last_layer = _build_linear(sd[last_layer_key])
 
     # ---- scaler ----
     scaler_buf = sd["scaler.energy_scaler_buffer"]

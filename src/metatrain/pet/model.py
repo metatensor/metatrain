@@ -64,7 +64,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 16
+    __checkpoint_version__ = 17
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -91,7 +91,6 @@ class PET(ModelInterface[ModelHypers]):
         self.adaptive_cutoff_method = self.hypers["adaptive_cutoff_method"]
         self.d_pet = self.hypers["d_pet"]
         self.d_node = self.hypers["d_node"]
-        self.d_head = self.hypers["d_head"]
         self.num_gnn_layers = self.hypers["num_gnn_layers"]
         self.featurizer_type = self.hypers["featurizer_type"]
 
@@ -115,9 +114,17 @@ class PET(ModelInterface[ModelHypers]):
         self.backend = PETBackend(self.hypers, self.atomic_types)
         self.num_readout_layers = self.backend.num_readout_layers
         self.system_conditioning = self.backend.system_conditioning
-        self.last_layer_feature_size = (
-            self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
-        )  # for LLPR
+        self.d_head_node = self.backend.d_head_node
+        self.d_head_edge = self.backend.d_head_edge
+        # For LLPR: the last-layer features are the per-layer node and edge head
+        # outputs concatenated, so the two head dimensions are summed rather than
+        # multiplied by ``NUM_FEATURE_TYPES`` (equivalent when ``d_head`` is a
+        # single int). This assumes one head per readout layer; with
+        # ``head_type="per_block"`` the size is ``num_blocks`` times larger and
+        # therefore target-dependent, which this single scalar cannot express.
+        self.last_layer_feature_size = self.num_readout_layers * (
+            self.d_head_node + self.d_head_edge
+        )
 
         # the model is always capable of outputting the internal features
         self.outputs = {

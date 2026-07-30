@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import torch
 
@@ -12,7 +12,11 @@ class Linear(torch.nn.Module):
         self.linear_layer.weight.data.normal_(0.0, 1.0)
         self.n_feat_in = n_feat_in if n_feat_in > 0 else 1
 
-    def forward(self, x):
+    def forward(self, x, group_idx: Optional[torch.Tensor] = None):
+        # ``group_idx`` is unused. It is accepted so that this layer and the
+        # atom-type-conditioned :class:`metatrain.utils.readout.LinearReadout` share
+        # a call signature and can be used interchangeably as the last layer of a
+        # target (see ``BaseModel._make_last_layer``), including under TorchScript.
         return self.linear_layer(x) * self.n_feat_in ** (-0.5)
 
 
