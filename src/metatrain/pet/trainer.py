@@ -14,7 +14,11 @@ from metatrain.composition import train_or_load_composition_model
 from metatrain.scaler import train_or_load_scaler
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
-from metatrain.utils.augmentation import O3Augmenter
+from metatrain.utils.augmentation import (
+    O3Augmenter,
+    get_augmentation_transform,
+    original_frame_targets,
+)
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
@@ -28,6 +32,7 @@ from metatrain.utils.data import (
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
 )
+from metatrain.utils.density_hooks import get_density_hooks
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
@@ -287,7 +292,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Targets configured with the on-line equivariance penalty need every batch
         # replicated and augmented ``num_augmentations`` times instead of the usual
         # single random augmentation per system (see ``O3Augmenter
-        # .replicate_and_augment``/``.undo_augmentation`` and ``_evaluate`` below).
+        # .replicate_and_augment``/``.undo_replicate_and_augment`` and ``_evaluate``
+        # below).
         equivariance_penalty_losses: Dict[str, EquivariancePenaltyLoss] = {}
         for name in train_targets:
             candidate_loss = loss_fn.losses.get(name)
@@ -329,6 +335,31 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
 
         target_keys = list(train_targets.keys())
+
+        # Hooks for on-the-fly computations to support density learning
+        density = get_density_hooks(self.hypers["loss"])
+
+        # Define the targets whose losses must be evaluated in the original
+        # (un-transformed) frame
+        original_frame = original_frame_targets(self.hypers["loss"])
+        if num_augmentations is not None and original_frame:
+            # the on-line equivariance penalty replaces the usual single random
+            # augmentation with its own num_augmentations-per-system scheme (see
+            # below), which apply_random_system_augmentations/undo_augmentation's
+            # original-frame bookkeeping is not aware of -- so a target requesting
+            # one and a target requesting the other cannot currently be trained
+            # together in the same run.
+            raise ValueError(
+                "the on-line equivariance penalty ('equivariance_penalty' loss, "
+                f"active for {sorted(equivariance_penalty_losses)}) and a loss "
+                "evaluated in the original frame (active for "
+                f"{sorted(original_frame)}) are not currently supported together "
+                "in the same training run"
+            )
+        augmentation_callable = get_augmentation_transform(
+            rotational_augmenter, original_frame
+        )
+
         # Shared callables that run after `atomic_basis_transform` (and after
         # rotational augmentation in training).
         base_callables: List[Callable[..., Any]] = [
@@ -337,9 +368,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
             get_remove_additive_transform(additive_models, train_targets),
             get_remove_scale_transform(scaler),
         ]
-        train_callables: List[Callable[..., Any]] = [atomic_basis_transform]
+        train_callables: List[Callable[..., Any]] = [
+            atomic_basis_transform,
+            *density.collate_transforms(),
+        ]
         if num_augmentations is None:
-            train_callables.append(rotational_augmenter.apply_random_augmentations)
+            train_callables.append(augmentation_callable)
         # else: the on-line equivariance penalty draws its own ``num_augmentations``
         # augmentations per system in ``_evaluate`` below, replacing the usual single
         # random augmentation that would otherwise be applied here
@@ -349,6 +383,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             target_keys=target_keys,
             callables=[  # no augmentation for validation
                 atomic_basis_transform,
+                *density.collate_transforms(),
                 *base_callables,
             ],
         )
@@ -444,7 +479,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             raw_predictions = evaluate_model(
                 model, augmented_systems, requested, is_training=is_training
             )
-            predictions = rotational_augmenter.undo_augmentation(
+            predictions = rotational_augmenter.undo_replicate_and_augment(
                 raw_predictions, transformations
             )
             return reduce_predictions_over_augmentations(
@@ -543,6 +578,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     systems, targets, extra_data, dtype=dtype, device=device
                 )
                 predictions = _evaluate(systems, targets.keys(), is_training=True)
+
+                # Back-transform predictions to the original frame for targets that
+                # require it.
+                predictions = rotational_augmenter.undo_augmentation(
+                    predictions, systems, extra_data, original_frame
+                )
 
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
