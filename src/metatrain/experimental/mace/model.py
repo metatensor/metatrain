@@ -32,6 +32,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hooks import restart_hooks, setup_hooks
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
@@ -266,10 +267,13 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # the model during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
+        forward_hooks, model_outs = setup_hooks(train_dataset_info)
+        self.forward_hooks = torch.nn.ModuleList(forward_hooks)
+
         # Create heads for each target, store the layout for each of them.
         self.heads = torch.nn.ModuleDict()
         self.layouts: Dict[str, TensorMap] = {}
-        for target_name, target_info in train_dataset_info.targets.items():
+        for target_name, target_info in model_outs.items():
             self._add_output(target_name, target_info)
 
         self.layouts["mtt::aux::mace_features"] = get_e3nn_mts_layout(
@@ -282,13 +286,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
         )
 
         targets = dataset_info.targets
+        all_names = set([*train_dataset_info.targets, *model_outs, *self.layouts])
         self.outputs = {
             k: ModelOutput(
                 quantity=targets[k].quantity if k in targets else "",
                 unit=targets[k].unit if k in targets else "",
                 sample_kind="atom",
             )
-            for k in self.layouts
+            for k in all_names
         }
 
         # ---------------------------
@@ -333,9 +338,28 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # the model during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
-        # Add extra heads for the new targets
-        for target_name in new_targets:
-            self._add_output(target_name, train_dataset_info.targets[target_name])
+        if dataset_info.targets != self.dataset_info.targets:
+            # Only re-run the hook setup when the targets changed; ``restart_hooks``
+            # does not support rebuilding already-instantiated hooks.
+            forward_hooks, model_outs = restart_hooks(
+                list(self.forward_hooks), train_dataset_info
+            )
+            self.forward_hooks = torch.nn.ModuleList(forward_hooks)
+
+            # Add extra heads for the new targets. Targets produced by a hook
+            # are not in ``model_outs``, since the model does not predict them
+            # directly; they only need to be registered as outputs.
+            targets = merged_info.targets
+            for target_name in new_targets:
+                if target_name in model_outs:
+                    self._add_output(target_name, model_outs[target_name])
+                self.outputs[target_name] = ModelOutput(
+                    quantity=targets[target_name].quantity
+                    if target_name in targets
+                    else "",
+                    unit=targets[target_name].unit if target_name in targets else "",
+                    sample_kind="atom",
+                )
 
         self.dataset_info = merged_info
 
@@ -361,6 +385,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+
+        # ----------------------------
+        # Add outputs needed by hooks
+        # ----------------------------
+        # TODO: In reality, we would have to check if the hook's output is requested
+        for hook in self.forward_hooks:
+            requested_inputs = hook.requested_inputs()
+            outputs.update(requested_inputs)
 
         # --------------------------
         # Moving to device and dtype
@@ -462,6 +494,20 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 per_atom_output
                 if outputs[output_name].sample_kind == "atom"
                 else sum_over_atoms(per_atom_output)
+            )
+
+        # -----------------------------------
+        #            Apply hooks
+        # -----------------------------------
+
+        for hook in self.forward_hooks:
+            return_dict.update(
+                hook(
+                    systems,
+                    outputs,
+                    return_dict,
+                    selected_atoms,
+                )
             )
 
         # -----------------------------------------
