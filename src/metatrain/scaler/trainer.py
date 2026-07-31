@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Sequence, Union
+from typing import Any, Callable, Dict, List, Literal, Sequence, Union, cast
 
 import metatensor.torch as mts
 import torch
@@ -70,6 +70,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     f"torch.nn.Module instance, got {type(additive_model)}."
                 )
             additive_models.append(additive_model)
+
+        # Store in the model the identifiers of the additive models used
+        # to train the scaler, so that the scaler can check that the
+        # same additive models are used at inference time.
+        model.training_additive_models = [
+            additive_model.__class__.__name__ for additive_model in additive_models
+        ]
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
         fixed_weights = self.hypers["fixed_weights"]
@@ -377,9 +384,15 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # epoch, best_epoch and best_model_state_dict are already set by
         # model.get_checkpoint()
         checkpoint = model.get_checkpoint()
+
+        # Remove the additive models from the trainer hypers, so that we don't save
+        # torch modules in the checkpoint.
+        trainer_hypers = cast(dict, self.hypers.copy())
+        trainer_hypers.pop("additive_models", None)
+
         checkpoint.update(
             {
-                "train_hypers": self.hypers,
+                "train_hypers": trainer_hypers,
                 "trainer_ckpt_version": self.__checkpoint_version__,
             }
         )

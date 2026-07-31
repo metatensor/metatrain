@@ -209,6 +209,13 @@ class Trainer(TrainerInterface):
         )
 
         if self.hypers["scale_targets"]:
+            if isinstance(self.hypers["fixed_scaling_weights"], str) and not isinstance(
+                self.hypers["atomic_baseline"], str
+            ):
+                raise ValueError(
+                    "Can't use a checkpoint for the scaler without providing"
+                    "a checkpoint also for the composition model."
+                )
             train_or_load_scaler(
                 scaler=model.scaler,
                 fixed_weights=self.hypers["fixed_scaling_weights"],

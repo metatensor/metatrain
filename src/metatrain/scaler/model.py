@@ -510,7 +510,9 @@ class Scaler(ModelInterface[ModelHypers]):
             "best_epoch": None,
             "model_state_dict": model_state_dict,
             "best_model_state_dict": model_state_dict,
+            "training_additive_models": getattr(self, "training_additive_models", []),
         }
+
         return checkpoint
 
     @classmethod
@@ -541,6 +543,8 @@ class Scaler(ModelInterface[ModelHypers]):
 
         model.load_state_dict(model_state_dict)
         model.sync_tensor_maps()
+
+        model.training_additive_models = checkpoint["training_additive_models"]
 
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
 
@@ -586,3 +590,36 @@ class Scaler(ModelInterface[ModelHypers]):
         metadata = merge_metadata(self.metadata, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
+
+    def check_correct_additive_models(
+        self, additive_models: List[torch.nn.Module]
+    ) -> None:
+        """Checks that some additive models are compatible with this scaler.
+
+        For now it just checks that the class names of the additive models
+        match the ones used to train the scaler. More sophisticated checks
+        could be added in the future.
+
+        :param additive_models: List of additive models for which one wants to
+            check if they match the current scaler's training configuration.
+        :raises ValueError: If the additive models are not compatible with
+            this scaler.
+        """
+        n_trained = len(getattr(self, "training_additive_models", []))
+        n_provided = len(additive_models)
+        if n_trained != n_provided:
+            raise ValueError(
+                f"The number of additive models used to train the scaler "
+                f"({n_trained}) does not match the number of additive models "
+                f"provided now ({n_provided})."
+            )
+
+        # Check that additive models used to train the scaler are the
+        # same as the ones provided now
+        for i, additive_model in enumerate(additive_models):
+            if additive_model.__class__.__name__ != self.training_additive_models[i]:
+                raise ValueError(
+                    "The additive models used to train the scaler checkpoint "
+                    "are not the same as the ones provided now. Please make sure "
+                    "to use the same additive models for training and inference."
+                )

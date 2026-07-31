@@ -100,6 +100,9 @@ def train_or_load_scaler(
                 )
         scaler.load_state_dict(loaded.state_dict())
         scaler.sync_tensor_maps()
+
+        loaded.check_correct_additive_models(additive_models)
+        scaler.training_additive_models = loaded.training_additive_models
     else:
         hypers = deepcopy(get_default_hypers("scaler")["training"])
         if fixed_weights is None:

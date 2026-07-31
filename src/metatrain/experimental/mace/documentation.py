@@ -405,8 +405,10 @@ class TrainerHypers(TypedDict):
     <metatrain.scaler.Scaler.train_model>`, see its documentation to
     understand exactly what to pass here.
 
-    Apart from those options, one can pass a path to a model checkpoint, if that
+    Apart from those options, one can pass a path to a model checkpoint. If that
     is the checkpoint of a Scaler model, the pre-trained scaler will be loaded.
+    When passing a checkpoint for the scaler, ``atomic_baseline`` must also
+    be a checkpoint for a composition model.
 
     .. note::
         If a MACE model is loaded through the ``mace_model`` hyperparameter, the
