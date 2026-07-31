@@ -182,8 +182,8 @@ class InputTests(ArchitectureTests):
         """
         if not self.supports_restart:
             pytest.skip("The architecture does not support restart")
-        if len(default_hypers) == 0:
-            pytest.skip("The architecture does not have any hyperparameters")
+        if len(default_hypers["model"]) == 0:
+            pytest.skip("The model does not have any hyperparameters")
 
         model = self.model_cls(minimal_model_hypers, dataset_info)
 
