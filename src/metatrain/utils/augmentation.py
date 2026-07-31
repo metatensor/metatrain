@@ -158,7 +158,9 @@ def _tensor_system_ids(tensor: TensorMap, n_systems: int) -> Optional[torch.Tens
         # order-preserving dedup: the first-appearance order must match `systems`
         seen = dict.fromkeys(column.tolist())
         if len(seen) == n_systems:
-            return torch.tensor(list(seen.keys()), dtype=torch.int32)
+            return torch.tensor(
+                list(seen.keys()), dtype=torch.int32, device=column.device
+            )
     return None
 
 
