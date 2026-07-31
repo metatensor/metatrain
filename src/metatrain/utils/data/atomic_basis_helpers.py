@@ -879,4 +879,5 @@ def densify_atomic_basis_dataset_info(dataset_info: DatasetInfo) -> DatasetInfo:
             )
             for target_name, target_info in dataset_info.targets.items()
         },
+        hooks=dataset_info.hooks,
     )
