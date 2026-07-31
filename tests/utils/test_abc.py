@@ -71,7 +71,9 @@ class MyModel(ModelInterface):
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         raise NotImplementedError()
 
-    def restart(self, dataset_info: DatasetInfo) -> ModelInterface:
+    def restart(
+        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+    ) -> ModelInterface:
         raise NotImplementedError()
 
     @classmethod

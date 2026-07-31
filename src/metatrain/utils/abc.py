@@ -136,7 +136,7 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
 
     @abstractmethod
     def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict] = None
+        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
     ) -> "ModelInterface":
         """
         Update a model to restart training, potentially with different dataset and/or

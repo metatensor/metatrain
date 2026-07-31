@@ -204,7 +204,7 @@ class PET(ModelInterface[ModelHypers]):
         return self.outputs
 
     def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict] = None
+        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
     ) -> "PET":
 
         if model_hypers is not None:

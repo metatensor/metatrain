@@ -26,6 +26,7 @@ from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.target_info import (
     is_auxiliary_output,
 )
+from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.neighbor_lists import (
@@ -250,7 +251,13 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 bias=False,
             )
 
-    def restart(self, dataset_info: DatasetInfo) -> "LLPRUncertaintyModel":
+    def restart(
+        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+    ) -> "LLPRUncertaintyModel":
+
+        if model_hypers is not None:
+            raise_if_hypers_mismatch(self.hypers, model_hypers)
+
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [

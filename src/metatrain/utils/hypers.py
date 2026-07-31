@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import Any, Type, TypedDict, TypeVar
 
 from typing_extensions import TypedDict as TE_TypedDict
@@ -100,8 +101,8 @@ def overwrite_defaults(
 
 
 def get_hypers_diff(
-    old_hypers: dict,
-    new_hypers: dict,
+    old_hypers: Mapping[str, Any],
+    new_hypers: Mapping[str, Any],
 ) -> dict[str, tuple[Any, Any]]:
     """Get the difference between two hypers dictionaries.
 
@@ -121,16 +122,20 @@ def get_hypers_diff(
 
 
 def raise_hypers_mismatch(
-    hypers_diff: dict[str, tuple[Any, Any]],
+    hypers_diff: Mapping[str, tuple[Any, Any]],
 ) -> None:
     """Raise an error if the hypers diff is not empty.
-    
-    The hypers diff can be computed using :func:`get_hypers_diff`.
+
+    The error shows a report of the mismatched hyperparameters.
+
+    :param hypers_diff: A dict with the hyperparameters that are different.
+        It can be computed using :func:`get_hypers_diff`.
     """
     if hypers_diff:
         n_mismatches = len(hypers_diff)
         raise ValueError(
-            f"Found {n_mismatches} mismatch{(n_mismatches != 1) * 'es'} in model hyperparameters.\n"
+            f"Found {n_mismatches} mismatch{(n_mismatches != 1) * 'es'} "
+            "in model hyperparameters.\n"
             f"Mismatched hypers: {list(hypers_diff.keys())}\n"
             "\n-------- Mismatches --------\n\n"
             + "\n".join(
@@ -141,8 +146,8 @@ def raise_hypers_mismatch(
 
 
 def raise_if_hypers_mismatch(
-    old_hypers: dict,
-    new_hypers: dict,
+    old_hypers: Mapping[str, Any],
+    new_hypers: Mapping[str, Any],
 ) -> None:
     """Raise an error if the new hypers do not match the old hypers.
 
