@@ -701,14 +701,14 @@ def test_no_final_eval(caplog, monkeypatch, tmp_path, options):
 
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
-    options = copy.deepcopy(options)
     options["final_eval"] = False
 
     train_model(options)
 
     log_text = caplog.text
     assert "Skipping final evaluation." in log_text
-    assert "Running final evaluation" not in log_text
+    assert "Evaluating training dataset" not in log_text
+    assert Path("model.pt").exists()
 
 
 def test_restart(options, monkeypatch, tmp_path, MODEL_PATH_64_BIT):
