@@ -21,6 +21,7 @@
    installation
    getting-started/index
    architectures/index
+   hooks/index
    generated_examples/index
    concepts/index
    faq
