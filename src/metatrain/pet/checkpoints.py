@@ -361,10 +361,16 @@ def model_update_v15_v16(checkpoint: dict) -> None:
         if (state_dict := checkpoint.get(key)) is not None:
             # Rebuild the dict in the original order with the moved keys renamed, so
             # that the order-sensitive dtype probe in ``load_checkpoint`` keeps working.
-            updated = {
-                (f"backend.{name}" if name.startswith(moved_prefixes) else name): value
-                for name, value in state_dict.items()
-            }
+            updated = {}
+            for name, value in state_dict.items():
+                if name.startswith(moved_prefixes):
+                    updated[f"backend.{name}"] = value
+                    if name.startswith("system_conditioning."):
+                        # ``PET`` aliases ``self.system_conditioning`` to the backend
+                        # module, so these entries appear under both names.
+                        updated[name] = value
+                else:
+                    updated[name] = value
             checkpoint[key] = updated
 
 
