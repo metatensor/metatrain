@@ -206,6 +206,8 @@ filterwarnings = [
     "ignore:`compute_requested_neighbors_from_options` is deprecated and will be removed in a future version:UserWarning",
     # Code from ASE using deprecated NumPy features
     "ignore:Setting the shape on a NumPy array has been deprecated in NumPy 2.5:DeprecationWarning",
+    # new state_dict format in metatensor-learn
+    "ignore:module does not have '_mts_buffer_names'; falling back to processing all attributes:UserWarning",
 ]
 addopts = ["-p", "mtt_plugin"]
 pythonpath = "src/metatrain/utils/testing"
