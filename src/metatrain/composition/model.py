@@ -480,9 +480,12 @@ class CompositionModel(ModelInterface[ModelHypers]):
         model, e.g. ``load_state_dict``.
         """
         for k in self.dataset_info.targets:
-            self.model.weights[k] = mts.load_buffer(
-                self.__getattr__(k + "_composition_buffer")
-            )
+            buffer = self.__getattr__(k + "_composition_buffer")
+            # ``mts.load_buffer`` dereferences the buffer on the host, so it
+            # segfaults on a GPU buffer: deserialize on the CPU and move the
+            # weights back to the buffer's device.
+            weights = mts.load_buffer(buffer.to(device="cpu"))
+            self.model.weights[k] = weights.to(device=buffer.device)
 
     def get_checkpoint(self) -> Dict:
         """
