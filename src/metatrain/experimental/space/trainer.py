@@ -496,7 +496,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # not per-property. This transformation only applies to targets with
                 # per-property scales (i.e. multiple blocks or multiple properties), and
                 # leaves the others unchanged.
-                predictions = (model.module if is_distributed else model).scaler(
+                predictions = model.scaler(
                     systems,
                     predictions,
                     remove=False,
@@ -623,7 +623,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     # per-target, and not per-property. This transformation only applies
                     # to targets with per-property scales (i.e. multiple blocks or
                     # multiple properties), and leaves the others unchanged.
-                    predictions = (model.module if is_distributed else model).scaler(
+                    predictions = model.scaler(
                         systems,
                         predictions,
                         remove=False,
