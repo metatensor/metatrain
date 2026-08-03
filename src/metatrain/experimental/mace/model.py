@@ -54,7 +54,7 @@ from .utils.structures import create_batch
 class MetaMACE(ModelInterface[ModelHypers]):
     """Interface of MACE for metatrain."""
 
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 5
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -620,9 +620,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 f"Error loading the checkpoint: missing keys {missing_keys}, "
                 f"unexpected keys {unexpected_keys}."
             )
-        # Set up composition and scaler models
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
+        # Set up composition model
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -654,10 +652,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # For example, after training, the additive models could still be in
         # float64
         self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         capabilities = self._get_capabilities()
 

@@ -4,6 +4,69 @@ when it is the scaler's fault.
 """
 
 import metatensor.torch as mts
+import torch
+
+
+def model_update_v1_v2(checkpoint: dict, prefix: str = "") -> None:
+    """
+    Update model checkpoint from version 1 to version 2.
+
+    The model now uses metatensor's ``nn.Module`` and ``register_buffer`` instead of
+    manually tracking the data.
+
+    :param checkpoint: The checkpoint to update.
+    :param prefix: Prefix prepended to the state_dict keys of the scaler (e.g.
+        ``"scaler."`` when the scaler is nested inside another architecture's
+        ``self.scaler``).
+    """
+    scaler_key = f"{prefix}model"
+
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is None:
+            continue
+
+        # If both model_state_dict and best_model_state_dict point to the same
+        # dict, the upgrade was already applied in the first iteration.
+        if f"{scaler_key}._mts_helper" in state_dict:
+            continue
+
+        dummy_buffer = state_dict[f"{prefix}dummy_buffer"]
+        empty_tensor = torch.zeros(
+            0, dtype=dummy_buffer.dtype, device=dummy_buffer.device
+        )
+
+        extra_state: dict[str, dict] = {
+            "scales": {},
+            "per_target_scales": {},
+            "per_property_scales": {},
+        }
+
+        for target_name in checkpoint["model_data"]["dataset_info"].targets:
+            scales_key = f"{prefix}{target_name}_scaler_buffer"
+            per_target_key = f"{prefix}{target_name}_per_target_scaler_buffer"
+            per_property_key = f"{prefix}{target_name}_per_property_scaler_buffer"
+
+            if scales_key not in state_dict:
+                continue
+
+            extra_state["scales"][target_name] = (
+                "metatensor.TensorMap",
+                state_dict.pop(scales_key),
+                empty_tensor,
+            )
+            extra_state["per_target_scales"][target_name] = (
+                "metatensor.TensorMap",
+                state_dict.pop(per_target_key),
+                empty_tensor,
+            )
+            extra_state["per_property_scales"][target_name] = (
+                "metatensor.TensorMap",
+                state_dict.pop(per_property_key),
+                empty_tensor,
+            )
+
+        state_dict[f"{scaler_key}._mts_helper"] = empty_tensor
+        state_dict[f"{scaler_key}._extra_state"] = extra_state
 
 
 def update_per_property_scales(checkpoint: dict, scaler_key: str = "scaler") -> None:
