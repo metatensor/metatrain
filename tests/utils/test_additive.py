@@ -414,6 +414,7 @@ def test_composition_model_torchscript(tmpdir):
             targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
         ),
     )
+    composition_model.to(dtype=torch.float64)
     composition_model = torch.jit.script(composition_model)
     composition_model(
         [system],

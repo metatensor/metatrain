@@ -1,3 +1,9 @@
+from metatrain.composition.checkpoints import (
+    model_update_v1_v2 as composition_update_v1_v2,
+)
+from metatrain.scaler.checkpoints import (
+    model_update_v1_v2 as scaler_update_v1_v2,
+)
 from metatrain.scaler.checkpoints import update_per_property_scales
 
 
@@ -37,6 +43,20 @@ def model_update_v3_v4(checkpoint: dict) -> None:
     """
     if "mace_head_name" not in checkpoint["model_data"]["hypers"]:
         checkpoint["model_data"]["hypers"]["mace_head_name"] = None
+
+
+def model_update_v4_v5(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 4 to version 5.
+
+    The embedded composition model and scaler now use
+    ``metatensor.torch.learn.nn.Module`` with ``register_buffer`` instead of
+    manually tracked buffers.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    composition_update_v1_v2(checkpoint, prefix="additive_models.0.")
+    scaler_update_v1_v2(checkpoint, prefix="scaler.")
 
 
 ###########################

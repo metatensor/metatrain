@@ -9,13 +9,14 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.learn import nn
 from metatomic.torch import System
 
 
 FixedScalerWeights = Dict[str, Union[float, Dict[int, float]]]
 
 
-class BaseScaler(torch.nn.Module):
+class BaseScaler(nn.Module):
     """
     Fits a scaler for a dict of targets. Scales are computed as the per-property (and
     therefore per-block) standard deviations. By default, the scales are also
@@ -52,13 +53,16 @@ class BaseScaler(torch.nn.Module):
         self.atomic_types = torch.as_tensor(atomic_types, dtype=torch.int32)
         self.target_names = []
         self.sample_kinds = {}
-        self.N = {}
-        self.Y2 = {}
-        self.scales = {}
-        self.per_property_N = {}
-        self.per_property_Y2 = {}
-        self.per_property_scales = {}
-        self.per_target_scales = {}
+        # `N`, `Y2`, `per_property_N`, and `per_property_Y2` are only used during
+        # fitting, not at inference, so they are registered as non-persistent buffers
+        # to keep them out of the state_dict.
+        self.register_buffer("N", {}, persistent=False)
+        self.register_buffer("Y2", {}, persistent=False)
+        self.register_buffer("scales", {})
+        self.register_buffer("per_property_N", {}, persistent=False)
+        self.register_buffer("per_property_Y2", {}, persistent=False)
+        self.register_buffer("per_property_scales", {})
+        self.register_buffer("per_target_scales", {})
         self.multi_property_target_names = []
 
         # go from an atomic type to its position in `self.atomic_types`
@@ -85,10 +89,7 @@ class BaseScaler(torch.nn.Module):
         self.target_names.append(target_name)
         valid_sample_names = [
             ["system"],
-            [
-                "system",
-                "atom",
-            ],
+            ["system", "atom"],
             [
                 "system",
                 "first_atom",
@@ -143,7 +144,6 @@ class BaseScaler(torch.nn.Module):
                     values=torch.zeros(
                         len(samples),
                         len(block.properties),
-                        dtype=torch.float64,
                     ),
                     samples=samples,
                     components=[],
@@ -159,7 +159,6 @@ class BaseScaler(torch.nn.Module):
                     values=torch.zeros(
                         len(samples),
                         len(block.properties),
-                        dtype=torch.float64,
                     ),
                     samples=samples,
                     components=[],
@@ -175,7 +174,6 @@ class BaseScaler(torch.nn.Module):
                     values=torch.ones(
                         len(samples),
                         len(block.properties),
-                        dtype=torch.float64,
                     ),
                     samples=samples,
                     components=[],
@@ -194,7 +192,6 @@ class BaseScaler(torch.nn.Module):
                     values=torch.ones(
                         len(samples),
                         len(block.properties),
-                        dtype=torch.float64,
                     ),
                     samples=samples,
                     components=[],
@@ -223,7 +220,6 @@ class BaseScaler(torch.nn.Module):
                     values=torch.zeros(
                         len(samples),
                         len(block.properties),
-                        dtype=torch.float64,
                     ),
                     samples=samples,
                     components=[],
@@ -239,7 +235,6 @@ class BaseScaler(torch.nn.Module):
                     values=torch.zeros(
                         len(samples),
                         len(block.properties),
-                        dtype=torch.float64,
                     ),
                     samples=samples,
                     components=[],
@@ -255,7 +250,6 @@ class BaseScaler(torch.nn.Module):
                     values=torch.ones(
                         len(samples),
                         len(block.properties),
-                        dtype=torch.float64,
                     ),
                     samples=samples,
                     components=[],
@@ -387,13 +381,16 @@ class BaseScaler(torch.nn.Module):
         :param extra_data: Optional dict of extra data, e.g., masks for the targets
             (e.g., for padded samples).
         """
+        dtype = systems[0].positions.dtype
+        if dtype != torch.float64:
+            raise ValueError(
+                "Scaler accumulation must be done in float64. "
+                f"Got systems with dtype {dtype}. Please move the systems to "
+                "float64 before accumulating."
+            )
 
         if extra_data is None:
             extra_data = {}
-
-        device = list(targets.values())[0][0].values.device
-        dtype = list(targets.values())[0][0].values.dtype
-        self._sync_device_dtype(device, dtype)
 
         # accumulate per-target N and Y2 quantities
         for target_name, target in targets.items():
@@ -447,13 +444,16 @@ class BaseScaler(torch.nn.Module):
         :param extra_data: Optional dict of extra data, e.g., masks for the targets
             (e.g., for padded samples).
         """
+        dtype = systems[0].positions.dtype
+        if dtype != torch.float64:
+            raise ValueError(
+                "Scaler accumulation must be done in float64. "
+                f"Got systems with dtype {dtype}. Please move the systems to "
+                "float64 before accumulating."
+            )
 
         if extra_data is None:
             extra_data = {}
-
-        device = list(targets.values())[0][0].values.device
-        dtype = list(targets.values())[0][0].values.dtype
-        self._sync_device_dtype(device, dtype)
 
         # Only accumulate targets with multiple properties
         targets = {
@@ -510,6 +510,14 @@ class BaseScaler(torch.nn.Module):
         if targets_to_fit is None:
             targets_to_fit = self.target_names
 
+        if len(targets_to_fit) > 0:
+            dtype = self.scales[targets_to_fit[0]].block(0).values.dtype
+            if dtype != torch.float64:
+                raise ValueError(
+                    "Scaler fitting must be done in float64. "
+                    f"Got dtype {dtype}. Please move the model to "
+                    "float64 before fitting (e.g. `model.to(dtype=torch.float64)`)."
+                )
         if fixed_weights is None:
             fixed_weights = {}
 
@@ -559,6 +567,15 @@ class BaseScaler(torch.nn.Module):
             for target_name in targets_to_fit
             if target_name in self.multi_property_target_names
         ]
+
+        if len(targets_to_fit) > 0:
+            dtype = self.scales[targets_to_fit[0]].block(0).values.dtype
+            if dtype != torch.float64:
+                raise ValueError(
+                    "Scaler fitting must be done in float64. "
+                    f"Got dtype {dtype}. Please move the model to "
+                    "float64 before fitting (e.g. `model.to(dtype=torch.float64)`)."
+                )
 
         # fit per-block, per-property scales
         for target_name in targets_to_fit:
@@ -655,10 +672,7 @@ class BaseScaler(torch.nn.Module):
         :raises ValueError: If no scales have been computed or if `outputs` keys contain
             unsupported keys.
         """
-
         device = list(outputs.values())[0][0].values.device
-        dtype = list(outputs.values())[0][0].values.dtype
-        self._sync_device_dtype(device, dtype)
 
         # Build the scaled outputs for each output
         predictions: Dict[str, TensorMap] = {}
@@ -915,37 +929,3 @@ class BaseScaler(torch.nn.Module):
             self.Y2[target_name].keys.to(device=block.values.device),
             [block.copy(deep=False)],
         )
-
-    def _sync_device_dtype(self, device: torch.device, dtype: torch.dtype) -> None:
-        # manually move the TensorMap dicts:
-
-        self.atomic_types = self.atomic_types.to(device=device)
-        self.type_to_index = self.type_to_index.to(device=device)
-        self.N = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.N.items()
-        }
-        self.Y2 = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.Y2.items()
-        }
-        self.scales = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.scales.items()
-        }
-        self.per_target_scales = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.per_target_scales.items()
-        }
-        self.per_property_N = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.per_property_N.items()
-        }
-        self.per_property_Y2 = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.per_property_Y2.items()
-        }
-        self.per_property_scales = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.per_property_scales.items()
-        }
