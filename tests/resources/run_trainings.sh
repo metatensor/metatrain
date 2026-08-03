@@ -4,7 +4,6 @@ set -eux
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 MODE=$1
-TRAIN_ID=${2:-""}
 
 if [ -z "$MODE" ]; then
     echo "Error: First argument of the script is the mode"
@@ -12,26 +11,6 @@ if [ -z "$MODE" ]; then
     echo " '32-bit', '64-bit' or 'pet'"
     exit 1
 fi
-
-# If there is a TRAIN_ID, implement a lock file
-if [ -n "$TRAIN_ID" ]; then
-    echo "Creating lockfile"
-    LOCKFILE="$ROOT_DIR/$MODE-$TRAIN_ID.trainlock"
-    if [ -f $LOCKFILE ]; then
-        # Wait until the lock file is removed
-        while [ -f $LOCKFILE ]; do
-            sleep 5
-        done
-        exit 0
-    else
-        touch $LOCKFILE
-    fi
-fi
-
-echo "Clearing previous generated files..."
-# Remove lock files from previous runs (but avoid removing the
-# current one!)
-find $ROOT_DIR -maxdepth 1 -name  "$MODE-*.trainlock" ! -name "$MODE-$TRAIN_ID.trainlock" -delete || true
 
 echo "Generating data for testing..."
 
@@ -42,8 +21,6 @@ rm -r "$TRAIN_DIR" || true
 mkdir -p "$TRAIN_DIR"
 cp *yaml *xyz "$TRAIN_DIR" 
 cd "$TRAIN_DIR"
-# The generated files are uniquely identified by the TRAIN_ID passed as second argument,
-# in this way a test run can know if the files have already been generated.
 if [ "$MODE" == "32-bit" ]; then
     mtt train ../options.yaml -o model-32-bit.pt -r base_precision=32
 elif [ "$MODE" == "64-bit" ]; then
@@ -54,10 +31,6 @@ else
     echo "Error: Unknown training mode (first argument): '$MODE'"
     echo " Please set it to '32-bit', '64-bit' or 'pet'"
     exit 1
-fi
-
-if [ -n "$TRAIN_ID" ]; then
-    rm $LOCKFILE || true
 fi
 
 # If the mode is 32-bit, we will try to upload the model to Hugging Face,
