@@ -57,6 +57,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             atomic_baseline={},
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
+            device=devices[0],
             batch_size=1,
             is_distributed=False,
             checkpoint_dir=checkpoint_dir,

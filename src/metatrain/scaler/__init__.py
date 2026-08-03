@@ -32,6 +32,7 @@ def train_or_load_scaler(
     scaler: Scaler,
     train_datasets: List[Union[Dataset, Subset]],
     additive_models: List[nn.Module],
+    device: torch.device,
     batch_size: int,
     is_distributed: bool,
     fixed_weights: Optional[FixedScalerWeights | str] = None,
@@ -49,6 +50,8 @@ def train_or_load_scaler(
     :param train_datasets: Training datasets
     :param additive_models: Additive models to
         subtract before fitting
+    :param device: Device on which to train the scaler. This should be a device
+        that supports float64 (e.g. CPU or CUDA, but not MPS).
     :param batch_size: Batch size for data loading
     :param is_distributed: Whether training is distributed
     :param fixed_weights: Fixed weights dict, or path to a checkpoint.
@@ -99,7 +102,6 @@ def train_or_load_scaler(
                     f"'{target_info.unit}'."
                 )
         scaler.load_state_dict(loaded.state_dict())
-        scaler.sync_tensor_maps()
 
         loaded.check_correct_additive_models(additive_models)
         scaler.training_additive_models = loaded.training_additive_models
@@ -123,7 +125,7 @@ def train_or_load_scaler(
         trainer.train(
             model=scaler,
             dtype=torch.float64,
-            devices=[scaler.dummy_buffer.device],
+            devices=[device],
             train_datasets=train_datasets,
             val_datasets=train_datasets,
             checkpoint_dir=checkpoint_dir,

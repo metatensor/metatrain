@@ -3,7 +3,6 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
-import metatensor.torch as mts
 import torch
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
@@ -80,7 +79,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
         else:
             device = devices[0]
             logging.info(f"Training on device {device} with dtype {dtype}")
-        model.to(device=device)
+
+        model.to(device=device, dtype=torch.float64)
 
         # Targets with fixed weights don't need data accumulation, only fit().
         targets_to_accumulate = [
@@ -190,7 +190,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             # A rank whose shard of some dataset was empty never accumulated
             # the corresponding targets, so its XTX/XTY are still on the CPU,
             # while NCCL needs them on the GPU for the all_reduce.
-            model.model._sync_device_dtype(device, torch.float64)
+            model.to(device=device, dtype=torch.float64)
             handles = []
             for target_name in targets_to_accumulate:
                 for XTX_block, XTY_block in zip(
@@ -208,16 +208,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 handle.wait()
 
         model.model.fit(fixed_weights, targets_to_fit=model._new_outputs)
-
-        for target_name in model.model.weights.keys():
-            model.register_buffer(
-                target_name + "_composition_buffer",
-                mts.save_buffer(
-                    mts.make_contiguous(
-                        model.model.weights[target_name].to("cpu", torch.float64)
-                    )
-                ).to(device),
-            )
 
         if checkpoint_dir and (not is_distributed or torch.distributed.get_rank() == 0):
             ckpt_path = Path(checkpoint_dir) / "composition_model.ckpt"

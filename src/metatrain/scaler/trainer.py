@@ -2,7 +2,6 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Sequence, Union, cast
 
-import metatensor.torch as mts
 import torch
 from torch.utils.data import DataLoader
 
@@ -107,7 +106,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
         else:
             device = devices[0]
             logging.info(f"Training on device {device} with dtype {dtype}")
-        model.to(device=device)
+
+        model.to(device=device, dtype=torch.float64)
 
         skip_accumulation = fixed_weights is not None and all(
             t in fixed_weights for t in model.new_outputs
@@ -205,30 +205,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Compute the scales on all ranks
         model.model.fit(fixed_weights=fixed_weights, targets_to_fit=model.new_outputs)
 
-        # update the buffer scales now they are fitted
-        for target_name in model.model.scales.keys():
-            model.register_buffer(
-                target_name + "_scaler_buffer",
-                mts.save_buffer(
-                    mts.make_contiguous(
-                        model.model.scales[target_name].to("cpu", torch.float64)
-                    )
-                ).to(device),
-            )
-
-        # update the buffer scales now they are fitted
-        for target_name in model.model.scales.keys():
-            model.register_buffer(
-                target_name + "_per_target_scaler_buffer",
-                mts.save_buffer(
-                    mts.make_contiguous(
-                        model.model.per_target_scales[target_name].to(
-                            "cpu", torch.float64
-                        )
-                    )
-                ).to(device),
-            )
-
         if any(
             [
                 target_name in model.model.multi_property_target_names
@@ -274,31 +250,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             # Compute the scales on all ranks
             model.model.fit_per_property(targets_to_fit=model.new_outputs)
-
-            # update the buffer scales now they have been updated with per-property
-            # scales
-            for target_name in model.model.scales.keys():
-                model.register_buffer(
-                    target_name + "_scaler_buffer",
-                    mts.save_buffer(
-                        mts.make_contiguous(
-                            model.model.scales[target_name].to("cpu", torch.float64)
-                        )
-                    ).to(device),
-                )
-
-            # update the buffer scales now they are fitted
-            for target_name in model.model.per_property_scales.keys():
-                model.register_buffer(
-                    target_name + "_per_property_scaler_buffer",
-                    mts.save_buffer(
-                        mts.make_contiguous(
-                            model.model.per_property_scales[target_name].to(
-                                "cpu", torch.float64
-                            )
-                        )
-                    ).to(device),
-                )
 
         if checkpoint_dir and (not is_distributed or torch.distributed.get_rank() == 0):
             ckpt_path = Path(checkpoint_dir) / "scaler.ckpt"

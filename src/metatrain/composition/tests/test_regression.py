@@ -236,6 +236,7 @@ def test_checkpoint_roundtrip_predictions():
 def test_regression_checkpoint():
     with gzip.open("regression_checkpoint.ckpt.gz", "rb") as fd:
         checkpoint = torch.load(fd, weights_only=False)
+    checkpoint = CompositionModel.upgrade_checkpoint(checkpoint)
     model = CompositionModel.load_checkpoint(checkpoint, context="export")
     model.eval()
 
