@@ -50,7 +50,6 @@ from ..utils.omegaconf import (
 from ..utils.pydantic import validate_base_options
 from .eval import _eval_targets
 from .export import _has_extensions
-from .formatter import CustomHelpFormatter
 
 
 def _is_indices_only_config(config: DictConfig) -> bool:
@@ -100,11 +99,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
 
     # If you change the synopsis of these commands or add new ones adjust the completion
     # script at `src/metatrain/share/metatrain-completion.bash`.
-    parser = subparser.add_parser(
-        "train",
-        description=description,
-        formatter_class=CustomHelpFormatter,
-    )
+    parser = subparser.add_parser("train", description=description)
     parser.set_defaults(callable="train_model")
 
     parser.add_argument(
