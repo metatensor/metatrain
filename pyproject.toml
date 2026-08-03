@@ -182,6 +182,12 @@ filterwarnings = [
     "ignore:`torch.jit.save` is deprecated. Please switch to `torch.export`:DeprecationWarning",
     "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`:DeprecationWarning",
     "ignore:`torch.jit.trace_method` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.script` is not supported in Python 3.14\\+ and may break. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.script_method` is not supported in Python 3.14\\+ and may break. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.trace` is not supported in Python 3.14\\+ and may break. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.trace_method` is not supported in Python 3.14\\+ and may break. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.save` is not supported in Python 3.14\\+ and may break. Please switch to `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.load` is not supported in Python 3.14\\+ and may break. Please switch to `torch.export`:DeprecationWarning",
     # Emitted when the inductor backend lazily imports `torch.utils.mkldnn` during the
     # first `torch.compile`; nothing in metatrain uses `script_method` directly.
     "ignore:`torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
@@ -192,11 +198,6 @@ filterwarnings = [
     "ignore:The TorchScript type system doesn't support instance-level annotations on empty non-base types",
     # Sphericart double backward warning
     "ignore:Second derivatives of the spherical harmonics with respect to the Cartesian coordinates were not requested at class creation.",
-    # OldCompositionModel deprecation warning
-    "ignore:`OldCompositionModel` composition model is deprecated. Please use `CompositionModel` instead.",
-    # We don't yet have a linux-aarch64 wheel on PyPI, so libgomp is not copied to
-    # sphericart_torch.libs' by cibuildwheels
-    "ignore:No libgomp shared library found in 'sphericart_torch.libs'.",
     # Multi-threaded tests clash with multi-process data-loading
     "ignore:This process \\(pid=\\d+\\) is multi-threaded, use of fork\\(\\) may lead to deadlocks in the child.:DeprecationWarning",
     # Initialization of tensors of zero size

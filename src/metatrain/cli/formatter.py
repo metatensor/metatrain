@@ -26,8 +26,17 @@ class CustomHelpFormatter(argparse.RawDescriptionHelpFormatter):
             prog = "%(prog)s" % dict(prog=self._prog)
 
             # build full usage string
-            format = self._format_actions_usage
-            action_usage = format(positionals + optionals, groups)
+            if hasattr(self, "_get_actions_usage_parts"):
+                # Python >= 3.14
+                parts, pos_start = self._get_actions_usage_parts(actions, groups)
+                if pos_start:
+                    parts = parts[pos_start:] + parts[:pos_start]
+                action_usage = " ".join(parts)
+            else:
+                # Python < 3.14
+                action_usage = self._format_actions_usage(  # type: ignore[attr-defined]
+                    positionals + optionals, groups
+                )
             usage = " ".join([s for s in [prog, action_usage] if s])
 
         # Call the superclass method to format the usage
