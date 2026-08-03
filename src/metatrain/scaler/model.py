@@ -489,7 +489,6 @@ class Scaler(ModelInterface[ModelHypers]):
             weights = mts.load_buffer(buffer.to(device="cpu"))
             self.model.scales[k] = weights.to(device=buffer.device)
 
-
             buffer = self.__getattr__(k + "_per_target_scaler_buffer")
             weights = mts.load_buffer(buffer.to(device="cpu"))
             self.model.per_target_scales[k] = weights.to(device=buffer.device)
