@@ -485,16 +485,17 @@ class Scaler(ModelInterface[ModelHypers]):
         # Reload the scales of the (old) targets, which are not stored in the model
         # state_dict, from the buffers
         for k in self.dataset_info.targets:
-            self.model.scales[k] = mts.load_buffer(
-                self.__getattr__(k + "_scaler_buffer")
-            )
-            self.model.per_target_scales[k] = mts.load_buffer(
-                self.__getattr__(k + "_per_target_scaler_buffer")
-            )
+            buffer = self.__getattr__(k + "_scaler_buffer")
+            weights = mts.load_buffer(buffer.to(device="cpu"))
+            self.model.scales[k] = weights.to(device=buffer.device)
 
-            self.model.per_property_scales[k] = mts.load_buffer(
-                self.__getattr__(k + "_per_property_scaler_buffer")
-            )
+            buffer = self.__getattr__(k + "_per_target_scaler_buffer")
+            weights = mts.load_buffer(buffer.to(device="cpu"))
+            self.model.per_target_scales[k] = weights.to(device=buffer.device)
+
+            buffer = self.__getattr__(k + "_per_property_scaler_buffer")
+            weights = mts.load_buffer(buffer.to(device="cpu"))
+            self.model.per_property_scales[k] = weights.to(device=buffer.device)
 
     def get_checkpoint(self) -> Dict:
         model_state_dict = self.state_dict()
