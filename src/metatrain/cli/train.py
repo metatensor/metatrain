@@ -780,6 +780,9 @@ def train_model(
         if not hypers["training"]["train_all_parameters"]:
             # Skip final evaluation for LLPR
             return
+    if architecture_name == "scaler":
+        # Skip final evaluation for scaler
+        return
 
     mts_atomistic_model = load_model(
         path=output,

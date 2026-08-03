@@ -1,7 +1,7 @@
 Scaler model
 ############
 
-.. automodule:: metatrain.utils.scaler.scaler
+.. automodule:: metatrain.scaler
     :members:
     :undoc-members:
     :show-inheritance:
