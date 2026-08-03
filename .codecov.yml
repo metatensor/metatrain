@@ -23,6 +23,11 @@ component_management:
       name: Composition
       paths:
         - "src/metatrain/composition/.*"
+    
+    - component_id: scaler
+      name: Scaler
+      paths:
+        - "src/metatrain/scaler/.*"
 
     - component_id: gap
       name: GAP

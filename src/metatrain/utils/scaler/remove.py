@@ -4,7 +4,7 @@ import torch
 from metatensor.torch import TensorMap
 from metatomic.torch import System
 
-from .scaler import Scaler
+from metatrain.scaler import Scaler
 
 
 def remove_scale(
@@ -21,7 +21,7 @@ def remove_scale(
     :param scaler: The scaler used to scale the targets.
     :return: The scaled targets.
     """
-    return scaler(
+    return scaler.apply_scales(
         systems,
         targets,
         remove=True,

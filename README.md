@@ -47,7 +47,8 @@ It also contains architectures meant to simplify tasks or augment the capabiliti
 
 | Name                                          | Description                                                                                                                          |
 |-----------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| [Composition][arch-composition]         | Per-species linear fit to training targets                                                                                           |
+| [Composition][arch-composition]               | Per-species linear fit to training targets                                                                                           |
+| [Scaler][arch-scaler]                         | Per-species, target and property scales for training targets.                                                                        |
 | [LLPR][arch-llpr]                             | Cheap uncertainty quantification via the last-layer prediction rigidity (LLPR) approach                                              |
 
 <!-- marker-arch-links -->
@@ -55,6 +56,7 @@ It also contains architectures meant to simplify tasks or augment the capabiliti
 <!-- links for the different architectures. To be replaced if we are building the docs locally or
 on a PR, since the docs use this README file directly.-->
 [arch-composition]: https://docs.metatensor.org/metatrain/latest/architectures/generated/composition.html
+[arch-scaler]: https://docs.metatensor.org/metatrain/latest/architectures/generated/scaler.html
 [arch-dpa3]: https://docs.metatensor.org/metatrain/latest/architectures/generated/dpa3.html
 [arch-flashmd]: https://docs.metatensor.org/metatrain/latest/architectures/generated/flashmd.html
 [arch-gap]: https://docs.metatensor.org/metatrain/latest/architectures/generated/gap.html

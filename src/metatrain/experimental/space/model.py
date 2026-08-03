@@ -26,8 +26,10 @@ from metatrain.experimental.space.modules.cg_coefficients import ClebschGordanRe
 from metatrain.experimental.space.modules.finetuning import apply_finetuning_strategy
 from metatrain.experimental.space.utils import systems_to_batch
 from metatrain.pet.modules.finetuning import compute_stale_targets
+from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
@@ -36,7 +38,6 @@ from metatrain.utils.data.atomic_basis_helpers import (
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
 
 from . import checkpoints
 
@@ -156,7 +157,8 @@ class SPACE(ModelInterface[ModelHypers]):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(hypers={}, dataset_info=train_dataset_info)
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=train_dataset_info)
 
         self.single_label = Labels.single()
 
@@ -487,7 +489,7 @@ class SPACE(ModelInterface[ModelHypers]):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(
+            return_dict = self.scaler.apply_scales(
                 systems,
                 return_dict,
                 selected_atoms=selected_atoms,

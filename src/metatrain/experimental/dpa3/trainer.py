@@ -8,6 +8,7 @@ import torch.distributed
 from torch.utils.data import DistributedSampler
 
 from metatrain.composition import train_or_load_composition_model
+from metatrain.scaler import train_or_load_scaler
 from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
 from metatrain.utils.data import (
@@ -161,12 +162,24 @@ class Trainer(TrainerInterface[TrainerHypers]):
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
 
+        atomic_baseline = self.hypers["fixed_composition_weights"]
+        if isinstance(atomic_baseline, str):
+            if model.get_fixed_composition_weights():
+                raise ValueError(
+                    "The loaded DPA3 model provides its own atomic baselines, "
+                    "which cannot be combined with a composition model "
+                    "checkpoint passed as `atomic_baseline`. Use the dict form "
+                    "of `atomic_baseline` instead."
+                )
+        else:
+            atomic_baseline = {
+                **model.get_fixed_composition_weights(),
+                **atomic_baseline,
+            }
+
         train_or_load_composition_model(
             composition_model=model.additive_models[0],
-            atomic_baseline={
-                **model.get_fixed_composition_weights(),
-                **self.hypers["fixed_composition_weights"],
-            },
+            atomic_baseline=atomic_baseline,
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
             batch_size=self.hypers["batch_size"],
@@ -175,13 +188,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
 
         if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets,
-                model.additive_models,
-                self.hypers["batch_size"],
-                is_distributed,
-                model.get_fixed_scaling_weights(),
+            train_or_load_scaler(
+                scaler=model.scaler,
+                fixed_weights=model.get_fixed_scaling_weights(),
+                train_datasets=train_datasets,
+                additive_models=model.additive_models,
+                batch_size=self.hypers["batch_size"],
+                is_distributed=is_distributed,
+                checkpoint_dir=checkpoint_dir,
                 per_structure_targets=self.hypers["per_structure_targets"],
             )
 
@@ -356,7 +370,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # not per-property. This transformation only applies to targets with
                 # per-property scales (i.e. multiple blocks or multiple properties), and
                 # leaves the others unchanged.
-                predictions = (model.module if is_distributed else model).scaler(
+                predictions = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(
                     systems,
                     predictions,
                     remove=False,
@@ -379,10 +395,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
                     scaled_predictions = (
                         model.module if is_distributed else model
-                    ).scaler(systems, predictions)
-                    scaled_targets = (model.module if is_distributed else model).scaler(
-                        systems, targets
-                    )
+                    ).scaler.apply_scales(systems, predictions)
+                    scaled_targets = (
+                        model.module if is_distributed else model
+                    ).scaler.apply_scales(systems, targets)
                     train_rmse_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )
@@ -441,7 +457,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # not per-property. This transformation only applies to targets with
                 # per-property scales (i.e. multiple blocks or multiple properties), and
                 # leaves the others unchanged.
-                predictions = (model.module if is_distributed else model).scaler(
+                predictions = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(
                     systems,
                     predictions,
                     remove=False,
@@ -459,12 +477,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # Reapply scales and accumulate quantities for computing val
                 # metrics. This is done for every epoch as validation metrics are
                 # needed for model selection
-                scaled_predictions = (model.module if is_distributed else model).scaler(
-                    systems, predictions
-                )
-                scaled_targets = (model.module if is_distributed else model).scaler(
-                    systems, targets
-                )
+                scaled_predictions = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(systems, predictions)
+                scaled_targets = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(systems, targets)
 
                 val_rmse_calculator.update(
                     scaled_predictions, scaled_targets, extra_data
