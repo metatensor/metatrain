@@ -1,9 +1,7 @@
-import itertools
 import logging
 import warnings
 from typing import Dict, List, Literal, Optional, Union
 
-import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import (
@@ -31,7 +29,7 @@ from .utils.samples import get_samples_labels
 
 
 class Scaler(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -101,11 +99,12 @@ class Scaler(ModelInterface[ModelHypers]):
 
         train_or_load_scaler(
             scaler=self,
-            fixed_weights=fixed_weights if fixed_weights is not None else {},
             train_datasets=datasets,
             additive_models=additive_models,
+            device=self.dummy_buffer.device,
             batch_size=batch_size,
             is_distributed=is_distributed,
+            fixed_weights=fixed_weights if fixed_weights is not None else {},
         )
 
     def restart(self, dataset_info: DatasetInfo) -> "Scaler":
@@ -137,9 +136,8 @@ class Scaler(ModelInterface[ModelHypers]):
 
         # register new outputs
         self.new_outputs = []
-        buffer_names = [n for n, _ in self.named_buffers()]
         for target_name, target_info in self.target_infos.items():
-            if target_name + "_scaler_buffer" in buffer_names:
+            if target_name in self.model.scales:
                 continue
             self.new_outputs.append(target_name)
             self.model.add_output(target_name, target_info.layout)
@@ -213,11 +211,6 @@ class Scaler(ModelInterface[ModelHypers]):
         """
         if len(outputs) == 0:
             return {}
-
-        device = list(outputs.values())[0][0].values.device
-        dtype = list(outputs.values())[0][0].values.dtype
-
-        self.scales_to(device, dtype)
 
         scaled_outputs = self.model.forward(
             systems,
@@ -325,92 +318,15 @@ class Scaler(ModelInterface[ModelHypers]):
             ],
         ]
 
-        if layout.sample_names == valid_sample_names[0]:
-            samples = Labels(["atomic_type"], torch.tensor([[-1]]))
-
-        elif layout.sample_names == valid_sample_names[1]:
-            samples = Labels(
-                ["atomic_type"], torch.arange(len(self.atomic_types)).reshape(-1, 1)
-            )
-
-        elif layout.sample_names == valid_sample_names[2]:
-            index_pairs = list(
-                itertools.product(range(len(self.atomic_types)), repeat=2)
-            )
-            samples = Labels(
-                ["first_atomic_type", "second_atomic_type"],
-                torch.tensor(index_pairs, dtype=torch.int32),
-            )
-
+        if layout.sample_names in valid_sample_names:
+            # all good
+            pass
         else:
             raise ValueError(
                 "unknown sample kind. TensorMap has sample names"
                 f" {layout.sample_names} but expected one of "
                 f"{valid_sample_names}."
             )
-
-        fake_scales = TensorMap(
-            keys=layout.keys,
-            blocks=[
-                TensorBlock(
-                    values=torch.ones(  # important when scale_targets=False
-                        len(samples),
-                        len(block.properties),
-                        dtype=torch.float64,
-                    ),
-                    samples=samples,
-                    components=[],
-                    properties=block.properties,
-                )
-                for block in layout.blocks()
-            ],
-        )
-        self.register_buffer(
-            target_name + "_scaler_buffer",
-            mts.save_buffer(mts.make_contiguous(fake_scales)),
-        )
-
-        fake_scales_per_target = TensorMap(
-            keys=layout.keys,
-            blocks=[
-                TensorBlock(
-                    values=torch.ones(
-                        len(samples),
-                        len(block.properties),
-                        dtype=torch.float64,
-                    ),
-                    samples=samples,
-                    components=[],
-                    properties=block.properties,
-                )
-                for block in layout.blocks()
-            ],
-        )
-        self.register_buffer(
-            target_name + "_per_target_scaler_buffer",
-            mts.save_buffer(mts.make_contiguous(fake_scales_per_target)),
-        )
-
-        fake_scales_per_property = TensorMap(
-            keys=layout.keys,
-            blocks=[
-                TensorBlock(
-                    values=torch.ones(
-                        len(samples),
-                        len(block.properties),
-                        dtype=torch.float64,
-                    ),
-                    samples=samples,
-                    components=[],
-                    properties=block.properties,
-                )
-                for block in layout.blocks()
-            ],
-        )
-        self.register_buffer(
-            target_name + "_per_property_scaler_buffer",
-            mts.save_buffer(mts.make_contiguous(fake_scales_per_property)),
-        )
 
     def remove_output(self, target_name: str) -> None:
         """
@@ -421,81 +337,6 @@ class Scaler(ModelInterface[ModelHypers]):
         self.outputs.pop(target_name, None)
         self.dataset_info.targets.pop(target_name, None)
         self.model.remove_output(target_name)
-        for suffix in (
-            "_scaler_buffer",
-            "_per_target_scaler_buffer",
-            "_per_property_scaler_buffer",
-        ):
-            buffer_name = target_name + suffix
-            if hasattr(self, buffer_name):
-                delattr(self, buffer_name)
-
-    def scales_to(self, device: torch.device, dtype: torch.dtype) -> None:
-        if len(self.model.scales) != 0:
-            if self.model.scales[list(self.model.scales.keys())[0]].device != device:
-                self.model.scales = {
-                    k: v.to(device) for k, v in self.model.scales.items()
-                }
-            if self.model.scales[list(self.model.scales.keys())[0]].dtype != dtype:
-                self.model.scales = {
-                    k: v.to(dtype) for k, v in self.model.scales.items()
-                }
-        if len(self.model.per_target_scales) != 0:
-            if (
-                self.model.per_target_scales[
-                    list(self.model.per_target_scales.keys())[0]
-                ].device
-                != device
-            ):
-                self.model.per_target_scales = {
-                    k: v.to(device) for k, v in self.model.per_target_scales.items()
-                }
-            if (
-                self.model.per_target_scales[
-                    list(self.model.per_target_scales.keys())[0]
-                ].dtype
-                != dtype
-            ):
-                self.model.per_target_scales = {
-                    k: v.to(dtype) for k, v in self.model.per_target_scales.items()
-                }
-        if len(self.model.per_property_scales) != 0:
-            if (
-                self.model.per_property_scales[
-                    list(self.model.per_property_scales.keys())[0]
-                ].device
-                != device
-            ):
-                self.model.per_property_scales = {
-                    k: v.to(device) for k, v in self.model.per_property_scales.items()
-                }
-            if (
-                self.model.per_property_scales[
-                    list(self.model.per_property_scales.keys())[0]
-                ].dtype
-                != dtype
-            ):
-                self.model.per_property_scales = {
-                    k: v.to(dtype) for k, v in self.model.per_property_scales.items()
-                }
-
-        self.model._sync_device_dtype(device, dtype)
-
-    def sync_tensor_maps(self) -> None:
-        # Reload the scales of the (old) targets, which are not stored in the model
-        # state_dict, from the buffers
-        for k in self.dataset_info.targets:
-            buffer = self.__getattr__(k + "_scaler_buffer")
-            weights = mts.load_buffer(buffer.to(device="cpu"))
-            self.model.scales[k] = weights.to(device=buffer.device)
-
-            buffer = self.__getattr__(k + "_per_target_scaler_buffer")
-            weights = mts.load_buffer(buffer.to(device="cpu"))
-            self.model.per_target_scales[k] = weights.to(device=buffer.device)
-
-            buffer = self.__getattr__(k + "_per_property_scaler_buffer")
-            weights = mts.load_buffer(buffer.to(device="cpu"))
-            self.model.per_property_scales[k] = weights.to(device=buffer.device)
 
     def get_checkpoint(self) -> Dict:
         model_state_dict = self.state_dict()
@@ -539,11 +380,7 @@ class Scaler(ModelInterface[ModelHypers]):
             dataset_info=model_data["dataset_info"],
         )
 
-        dtype = model_state_dict["dummy_buffer"].dtype
-        model.to(dtype)
-
         model.load_state_dict(model_state_dict)
-        model.sync_tensor_maps()
 
         model.training_additive_models = checkpoint["training_additive_models"]
 
@@ -574,15 +411,10 @@ class Scaler(ModelInterface[ModelHypers]):
         if dtype not in self.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {dtype} for scaler")
 
-        self.to(dtype)
-        self.scales_to(torch.device("cpu"), torch.float64)
-
-        interaction_range = 0.0
-
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=self.atomic_types,
-            interaction_range=interaction_range,
+            interaction_range=0.0,
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
             dtype=dtype_to_str(dtype),

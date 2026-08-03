@@ -10,12 +10,13 @@ from typing import Dict, List, Optional, Tuple, Union
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
+from metatensor.torch.learn import nn
 from metatomic.torch import ModelOutput, System
 
 from .documentation import FixedCompositionWeights  # noqa: F401
 
 
-class BaseCompositionModel(torch.nn.Module):
+class BaseCompositionModel(nn.Module):
     """
     Fits a composition model for a dict of targets.
 
@@ -88,9 +89,11 @@ class BaseCompositionModel(torch.nn.Module):
         self.atomic_types = torch.as_tensor(atomic_types, dtype=torch.int32)
         self.target_names = []
         self.sample_kinds = {}
-        self.XTX = {}
-        self.XTY = {}
-        self.weights = {}
+        # `XTX` and `XTY` are only used during fitting, not at inference, so they
+        # are registered as non-persistent buffers to keep them out of the state_dict.
+        self.register_buffer("XTX", {}, persistent=False)
+        self.register_buffer("XTY", {}, persistent=False)
+        self.register_buffer("weights", {})
 
         # go from an atomic type to its position in `self.atomic_types`
         self.register_buffer(
@@ -167,7 +170,6 @@ class BaseCompositionModel(torch.nn.Module):
                     values=torch.zeros(
                         len(self.atomic_types),
                         len(self.atomic_types),
-                        dtype=torch.float64,
                     ),
                     samples=Labels(["center_type"], self.atomic_types.reshape(-1, 1)),
                     components=[],
@@ -186,7 +188,6 @@ class BaseCompositionModel(torch.nn.Module):
                         len(self.atomic_types),
                         *[len(c) for c in block.components],
                         len(block.properties),
-                        dtype=torch.float64,
                     ),
                     samples=Labels(["center_type"], self.atomic_types.reshape(-1, 1)),
                     components=block.components,
@@ -203,7 +204,6 @@ class BaseCompositionModel(torch.nn.Module):
                         len(self.atomic_types),
                         *[len(c) for c in block.components],
                         len(block.properties),
-                        dtype=torch.float64,
                     ),
                     samples=Labels(["center_type"], self.atomic_types.reshape(-1, 1)),
                     components=block.components,
@@ -239,10 +239,15 @@ class BaseCompositionModel(torch.nn.Module):
         :param targets: Dict of target names to :py:class:`TensorMap` containing
             the target values for each system in the batch.
         """
-
         device = systems[0].positions.device
         dtype = systems[0].positions.dtype
-        self._sync_device_dtype(device, dtype)
+
+        if dtype != torch.float64:
+            raise ValueError(
+                "Composition model accumulation must be done in float64. "
+                f"Got systems with dtype {dtype}. Please move the systems to "
+                "float64 before accumulating."
+            )
 
         # check that the systems contain no unexpected atom types
         for system in systems:
@@ -386,6 +391,15 @@ class BaseCompositionModel(torch.nn.Module):
         if targets_to_fit is None:
             targets_to_fit = self.target_names
 
+        if len(targets_to_fit) > 0:
+            dtype = self.XTX[targets_to_fit[0]].block(0).values.dtype
+            if dtype != torch.float64:
+                raise ValueError(
+                    "Composition model fitting must be done in float64. "
+                    f"Got dtype {dtype}. Please move the model to "
+                    "float64 before fitting (e.g. `model.to(dtype=torch.float64)`)."
+                )
+
         sanitized_fixed_weights = self._sanitize_fixed_weights(fixed_weights)
 
         # fit
@@ -486,10 +500,7 @@ class BaseCompositionModel(torch.nn.Module):
         :raises ValueError: If no weights have been computed or if `outputs` keys
             contain unsupported keys.
         """
-
         device = systems[0].positions.device
-        dtype = systems[0].positions.dtype
-        self._sync_device_dtype(device, dtype)
 
         # Build the sample labels that are required
         _, sample_labels = _get_system_indices_and_labels(systems, device)
@@ -615,32 +626,6 @@ class BaseCompositionModel(torch.nn.Module):
             all_types_as_indices, num_classes=len(center_types)
         )
         return one_hot_encoding.to(dtype)
-
-    def _sync_device_dtype(self, device: torch.device, dtype: torch.dtype) -> None:
-        """
-        Move the accumulated quantities and the fitted weights to the given
-        device and dtype.
-
-        Needed because they are stored as ``TensorMap`` dicts, which
-        ``torch.nn.Module.to`` does not move.
-
-        :param device: Device to move the quantities to.
-        :param dtype: Dtype to convert the quantities to.
-        """
-        self.atomic_types = self.atomic_types.to(device=device)
-        self.type_to_index = self.type_to_index.to(device=device)
-        self.XTX = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.XTX.items()
-        }
-        self.XTY = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.XTY.items()
-        }
-        self.weights = {
-            target_name: tm.to(device=device, dtype=dtype)
-            for target_name, tm in self.weights.items()
-        }
 
 
 def _include_key(key: LabelsEntry) -> bool:

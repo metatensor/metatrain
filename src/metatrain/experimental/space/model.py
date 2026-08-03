@@ -58,7 +58,7 @@ class SPACE(ModelInterface[ModelHypers]):
     """SPACE model: metatomic-based wrapper around ``BaseModel``
     and/or ``GradientModel``."""
 
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(references={})
@@ -580,8 +580,6 @@ class SPACE(ModelInterface[ModelHypers]):
         next(state_dict_iterator)  # skip another int tensor
         dtype = next(state_dict_iterator).dtype
         model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -606,10 +604,6 @@ class SPACE(ModelInterface[ModelHypers]):
         # For example, after training, the additive models could still be in
         # float64
         self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
         for additive_model in self.additive_models:

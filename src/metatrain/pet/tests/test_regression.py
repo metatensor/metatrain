@@ -314,8 +314,8 @@ def test_regression_energy_non_conservative_stress(batch_size):
     energy_output = outputs["energy"].block().values
     stress_output = outputs["non_conservative_stress"].block().values
 
-    expected_energy_scale = torch.tensor(2.6457513110645907, dtype=torch.float64)
-    expected_stress_scale = torch.tensor(3.1622776601683795, dtype=torch.float64)
+    expected_energy_scale = torch.tensor(2.6457513110645907, dtype=torch.float32)
+    expected_stress_scale = torch.tensor(3.1622776601683795, dtype=torch.float32)
     expected_energy_output = torch.tensor(
         [[40.56496047973633], [162.2603759765625], [0.08803563565015793]],
         dtype=torch.float32,
