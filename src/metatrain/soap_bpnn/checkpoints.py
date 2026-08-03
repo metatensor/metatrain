@@ -249,6 +249,17 @@ def model_update_v8_v9(checkpoint: dict) -> None:
     update_per_property_scales(checkpoint)
 
 
+def model_update_v9_v10(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 9 to version 10.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # nothing to update, the new metatensor-learn version just no longer include some
+    # empty keys from the checkpoint, but they where not used anyway, so we just ignore
+    # them here.
+
+
 ###########################
 # TRAINER #################
 ###########################
