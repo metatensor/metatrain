@@ -1,4 +1,3 @@
-import contextlib
 from pathlib import Path
 
 import ase.io
@@ -40,19 +39,12 @@ class TestFoundation(MACETests):
         )
         atoms = ase.io.read(periodic_water_file, format="lammps-data")
 
-        head_present = head_name in _available_heads(mace_model_path)
-        load_ctx = (
-            contextlib.nullcontext()
-            if head_present
-            else pytest.warns(UserWarning, match="only one head")
+        model = load_mace_model_file(
+            mace_model_path,
+            mace_head_target="energy",
+            device=device,
+            mace_head_name=head_name,
         )
-        with load_ctx:
-            model = load_mace_model_file(
-                mace_model_path,
-                mace_head_target="energy",
-                device=device,
-                mace_head_name=head_name,
-            )
         atoms.calc = MetatomicCalculator(model.export(), device=device)
         mta_energy = atoms.get_potential_energy()
         mta_forces = atoms.get_forces()
