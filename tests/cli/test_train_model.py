@@ -702,7 +702,7 @@ def test_no_final_eval(caplog, monkeypatch, tmp_path, options):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     options["final_eval"] = False
-    
+
     train_model(options)
 
     log_text = caplog.text
@@ -710,7 +710,7 @@ def test_no_final_eval(caplog, monkeypatch, tmp_path, options):
     assert "Evaluating training dataset" not in log_text
     assert Path("model.pt").exists()
 
-    
+
 def test_no_print_stats(caplog, monkeypatch, tmp_path, options):
     """Tests that the dataset statistics can be disabled."""
     monkeypatch.chdir(tmp_path)
