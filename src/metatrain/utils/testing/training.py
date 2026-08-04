@@ -22,6 +22,55 @@ class TrainingTests(ArchitectureTests):
 
     check_gradients: bool = True
 
+    def test_train(
+        self,
+        monkeypatch: Any,
+        tmp_path: Path,
+        dataset_path: str,
+        dataset_targets: dict[str, dict],
+        default_hypers: dict[str, Any],
+        model_hypers: dict[str, Any],
+        dtype: torch.dtype = torch.float32,
+    ) -> None:
+        """Tests that a model can be trained.
+
+        :param monkeypatch: Pytest fixture to modify the current working
+            directory.
+        :param tmp_path: Temporary path to use for saving checkpoints.
+        :param dataset_path: Path to the dataset to use for training.
+        :param dataset_targets: Target hypers for the targets in the dataset.
+        :param default_hypers: Default hyperparameters for the architecture.
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dtype: Data type to use for training.
+        """
+        monkeypatch.chdir(tmp_path)
+
+        dataset, targets_info, dataset_info = self.get_dataset(
+            dataset_targets, dataset_path
+        )
+
+        model = self.model_cls(model_hypers, dataset_info)
+
+        hypers = copy.deepcopy(default_hypers)
+        if "num_epochs" in hypers["training"]:
+            hypers["training"]["num_epochs"] = 0
+        if "loss" in hypers["training"]:
+            loss_conf = OmegaConf.create(
+                {k: init_with_defaults(LossSpecification) for k in dataset_targets}
+            )
+            OmegaConf.resolve(loss_conf)
+            hypers["training"]["loss"] = loss_conf
+
+        trainer = self.trainer_cls(hypers["training"])
+        trainer.train(
+            model=model,
+            dtype=dtype,
+            devices=[torch.device("cpu")],
+            train_datasets=[dataset],
+            val_datasets=[dataset],
+            checkpoint_dir=".",
+        )
+
     def test_continue(
         self,
         monkeypatch: Any,

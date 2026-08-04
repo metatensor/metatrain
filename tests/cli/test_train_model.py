@@ -702,13 +702,36 @@ def test_no_final_eval(caplog, monkeypatch, tmp_path, options):
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
     options["final_eval"] = False
-
+    
     train_model(options)
 
     log_text = caplog.text
     assert "Skipping final evaluation." in log_text
     assert "Evaluating training dataset" not in log_text
     assert Path("model.pt").exists()
+
+    
+def test_no_print_stats(caplog, monkeypatch, tmp_path, options):
+    """Tests that the dataset statistics can be disabled."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    systems_qm9 = ase.io.read(DATASET_PATH_QM9, ":")
+
+    options = copy.deepcopy(options)
+
+    ase.io.write("qm9_reduced_100.xyz", systems_qm9[:2])
+
+    options["architecture"]["training"]["num_epochs"] = 1
+    options["architecture"]["training"]["batch_size"] = 2
+    options["validation_set"] = {"indices": [0, 1]}
+    options["test_set"] = {"indices": [0, 1]}
+    options["print_stats"] = False
+
+    train_model(options)
+
+    log_text = caplog.text
+    assert "Skipping dataset statistics." in log_text
 
 
 def test_restart(options, monkeypatch, tmp_path, MODEL_PATH_64_BIT):

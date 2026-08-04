@@ -61,10 +61,14 @@ to skip them.
 .. code-block:: yaml
 
     final_eval: true
+    print_stats: auto
 
 .. container:: mtt-hypers-remove-classname
 
     .. autoattribute:: metatrain.share.base_hypers.BaseHypers.final_eval
+        :no-index:
+
+    .. autoattribute:: metatrain.share.base_hypers.BaseHypers.print_stats
         :no-index:
 
 .. _architecture-section:

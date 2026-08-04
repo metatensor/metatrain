@@ -20,13 +20,14 @@ from metatomic.torch import (
 )
 
 from metatrain.composition import CompositionModel
+from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
@@ -182,7 +183,8 @@ class DPA3(ModelInterface[ModelHypers]):
                 self.model = get_standard_model(deepmd_hypers)
             _register_untracked_tensors(self.model)
 
-        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
         self.outputs: Dict[str, ModelOutput] = {}
         self.single_label = Labels.single()
 
@@ -366,7 +368,7 @@ class DPA3(ModelInterface[ModelHypers]):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(
+            return_dict = self.scaler.apply_scales(
                 systems,
                 return_dict,
                 selected_atoms=selected_atoms,

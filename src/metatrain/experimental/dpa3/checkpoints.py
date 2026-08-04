@@ -1,4 +1,4 @@
-from metatrain.utils.scaler.checkpoints import update_per_property_scales
+from metatrain.scaler.checkpoints import update_per_property_scales
 
 
 ###########################
