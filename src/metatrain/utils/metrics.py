@@ -128,7 +128,7 @@ class RMSEAccumulator:
                             ** 2
                         )
                         .sum()
-                        .item()
+                        .detach()
                     )
                 else:
                     mask_as_tensor = mask.block(block_key).values
@@ -141,12 +141,12 @@ class RMSEAccumulator:
                             ** 2
                         )
                         .sum()
-                        .item()
+                        .detach()
                     )
 
                 self.information[key_to_write] = (
                     self.information[key_to_write][0] + rmse_value,
-                    self.information[key_to_write][1] + mask_as_tensor.sum().item(),
+                    self.information[key_to_write][1] + mask_as_tensor.sum(),
                 )
 
                 for gradient_name, target_gradient in target_block.gradients():
@@ -171,7 +171,7 @@ class RMSEAccumulator:
                                 ** 2
                             )
                             .sum()
-                            .item()
+                            .detach()
                         )
                     else:
                         mask_as_tensor = (
@@ -186,13 +186,13 @@ class RMSEAccumulator:
                                 ** 2
                             )
                             .sum()
-                            .item()
+                            .detach()
                         )
                     self.information[f"{key_to_write}_{gradient_name}_gradients"] = (
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][0]
                         + gradient_rmse_value,
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][1]
-                        + mask_as_tensor.sum().item(),
+                        + mask_as_tensor.sum(),
                     )
 
     def finalize(
@@ -222,16 +222,25 @@ class RMSEAccumulator:
             # different keys than others
             sorted_global_keys = _get_global_keys(list(self.information.keys()))
 
+            # One all_reduce per (key, tensor) pair, in sorted key order —
+            # this collective protocol is pinned by the distributed tests.
+            def _as_scalar(value: Any) -> torch.Tensor:
+                if isinstance(value, torch.Tensor):
+                    return value.detach().to(device=device, dtype=torch.float64)
+                return torch.tensor(float(value), device=device, dtype=torch.float64)
+
+            reduced_information: Dict[str, Tuple[float, int]] = {}
             for key in sorted_global_keys:
                 if key in self.information:
-                    sse = torch.tensor(self.information[key][0], device=device)
-                    n_elems = torch.tensor(self.information[key][1], device=device)
+                    error_sum = _as_scalar(self.information[key][0])
+                    n_elems = _as_scalar(self.information[key][1])
                 else:
-                    sse = torch.tensor(0.0, device=device)
-                    n_elems = torch.tensor(0, device=device)
-                torch.distributed.all_reduce(sse)
+                    error_sum = torch.zeros((), device=device, dtype=torch.float64)
+                    n_elems = torch.zeros((), device=device, dtype=torch.float64)
+                torch.distributed.all_reduce(error_sum)
                 torch.distributed.all_reduce(n_elems)
-                self.information[key] = (sse.item(), n_elems.item())
+                reduced_information[key] = (error_sum.item(), int(n_elems.item()))
+            self.information = reduced_information
 
         finalized_info = {}
         for key, value in self.information.items():
@@ -239,7 +248,7 @@ class RMSEAccumulator:
                 out_key = f"{key} RMSE"
             else:
                 out_key = f"{key} RMSE (per atom)"
-            finalized_info[out_key] = (value[0] / value[1]) ** 0.5
+            finalized_info[out_key] = (float(value[0]) / float(value[1])) ** 0.5
 
         return finalized_info
 
@@ -322,7 +331,7 @@ class MAEAccumulator:
                         )
                         .abs()
                         .sum()
-                        .item()
+                        .detach()
                     )
                 else:
                     mask_as_tensor = mask.block(block_key).values
@@ -333,12 +342,12 @@ class MAEAccumulator:
                         )
                         .abs()
                         .sum()
-                        .item()
+                        .detach()
                     )
 
                 self.information[key_to_write] = (
                     self.information[key_to_write][0] + mae_value,
-                    self.information[key_to_write][1] + mask_as_tensor.sum().item(),
+                    self.information[key_to_write][1] + mask_as_tensor.sum(),
                 )
 
                 for gradient_name, target_gradient in target_block.gradients():
@@ -361,7 +370,7 @@ class MAEAccumulator:
                             )
                             .abs()
                             .sum()
-                            .item()
+                            .detach()
                         )
                     else:
                         mask_as_tensor = (
@@ -374,14 +383,14 @@ class MAEAccumulator:
                             )
                             .abs()
                             .sum()
-                            .item()
+                            .detach()
                         )
 
                     self.information[f"{key_to_write}_{gradient_name}_gradients"] = (
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][0]
                         + gradient_mae_value,
                         self.information[f"{key_to_write}_{gradient_name}_gradients"][1]
-                        + mask_as_tensor.sum().item(),
+                        + mask_as_tensor.sum(),
                     )
 
     def finalize(
@@ -411,16 +420,25 @@ class MAEAccumulator:
             # different keys than others
             sorted_global_keys = _get_global_keys(list(self.information.keys()))
 
+            # One all_reduce per (key, tensor) pair, in sorted key order —
+            # this collective protocol is pinned by the distributed tests.
+            def _as_scalar(value: Any) -> torch.Tensor:
+                if isinstance(value, torch.Tensor):
+                    return value.detach().to(device=device, dtype=torch.float64)
+                return torch.tensor(float(value), device=device, dtype=torch.float64)
+
+            reduced_information: Dict[str, Tuple[float, int]] = {}
             for key in sorted_global_keys:
                 if key in self.information:
-                    sae = torch.tensor(self.information[key][0], device=device)
-                    n_elems = torch.tensor(self.information[key][1], device=device)
+                    error_sum = _as_scalar(self.information[key][0])
+                    n_elems = _as_scalar(self.information[key][1])
                 else:
-                    sae = torch.tensor(0.0, device=device)
-                    n_elems = torch.tensor(0, device=device)
-                torch.distributed.all_reduce(sae)
+                    error_sum = torch.zeros((), device=device, dtype=torch.float64)
+                    n_elems = torch.zeros((), device=device, dtype=torch.float64)
+                torch.distributed.all_reduce(error_sum)
                 torch.distributed.all_reduce(n_elems)
-                self.information[key] = (sae.item(), n_elems.item())
+                reduced_information[key] = (error_sum.item(), int(n_elems.item()))
+            self.information = reduced_information
 
         finalized_info = {}
         for key, value in self.information.items():
@@ -428,7 +446,7 @@ class MAEAccumulator:
                 out_key = f"{key} MAE"
             else:
                 out_key = f"{key} MAE (per atom)"
-            finalized_info[out_key] = value[0] / value[1]
+            finalized_info[out_key] = float(value[0]) / float(value[1])
 
         return finalized_info
 
