@@ -339,7 +339,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
                 val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
-            train_loss = 0.0
+            train_loss_sum = torch.zeros((), device=device)
 
             for batch in train_dataloader:
                 optimizer.zero_grad()
@@ -389,10 +389,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 optimizer.step()
                 lr_scheduler.step()
 
-                if is_distributed:
-                    # sum the loss over all processes
-                    torch.distributed.all_reduce(train_loss_batch)
-                train_loss += train_loss_batch.item()
+                # accumulate on device; summed across processes and synced to the
+                # host only once per epoch to avoid a blocking sync every batch
+                train_loss_sum += train_loss_batch.detach()
 
                 # Reapply scales and accumulate quantities for computing train metrics,
                 # but only if this is an epoch to log
@@ -437,6 +436,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                             scaled_predictions, scaled_targets, extra_data
                         )
 
+            if is_distributed:
+                # sum the loss over all processes
+                torch.distributed.all_reduce(train_loss_sum)
+            train_loss = train_loss_sum.item()
+
             # Compute train metrics if they are to be logged this epoch:
             if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
                 finalized_train_info = train_rmse_calculator.finalize(
@@ -457,7 +461,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             with torch.set_grad_enabled(
                 any(target_info.gradients for target_info in train_targets.values())
             ):  # keep gradients on if any of the targets require them
-                val_loss = 0.0
+                val_loss_sum = torch.zeros((), device=device)
                 for batch in val_dataloader:
                     systems, targets, extra_data = unpack_batch(batch)
                     systems, targets, extra_data = batch_to(
@@ -496,10 +500,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                     val_loss_batch = loss_fn(predictions, targets, extra_data)
 
-                    if is_distributed:
-                        # sum the loss over all processes
-                        torch.distributed.all_reduce(val_loss_batch)
-                    val_loss += val_loss_batch.item()
+                    val_loss_sum += val_loss_batch.detach()
 
                     # Reapply scales and accumulate quantities for computing val
                     # metrics. This is done for every epoch as validation metrics are
@@ -543,6 +544,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         val_mae_calculator.update(
                             scaled_predictions, scaled_targets, extra_data
                         )
+
+            if is_distributed:
+                # sum the loss over all processes
+                torch.distributed.all_reduce(val_loss_sum)
+            val_loss = val_loss_sum.item()
 
             # Compute val metrics:
             finalized_val_info = val_rmse_calculator.finalize(
