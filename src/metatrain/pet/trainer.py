@@ -524,12 +524,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
                 val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
-            train_loss = 0.0
+            train_loss_sum = torch.zeros((), device=device)
             # raw (unweighted-by-variance_weight) [mse_sum, variance_sum] per target
             # using the on-line equivariance penalty, logged alongside "loss" below
             train_equivariance_components: Dict[str, List[float]] = {
                 name: [0.0, 0.0] for name in equivariance_penalty_losses
             }
+
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
@@ -577,10 +578,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 optimizer.step()
                 lr_scheduler.step()
 
-                if is_distributed:
-                    # sum the loss over all processes
-                    torch.distributed.all_reduce(train_loss_batch)
-                train_loss += train_loss_batch.item()
+                # accumulate on device; summed across processes and synced to the
+                # host only once per epoch to avoid a blocking sync every batch
+                train_loss_sum += train_loss_batch.detach()
 
                 for name, penalty_loss in equivariance_penalty_losses.items():
                     mse_component, variance_component = penalty_loss.compute_components(
@@ -635,6 +635,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                             scaled_predictions, scaled_targets, extra_data
                         )
 
+            if is_distributed:
+                # sum the loss over all processes
+                torch.distributed.all_reduce(train_loss_sum)
+            train_loss = train_loss_sum.item()
+
             # Compute train metrics if they are to be logged this epoch:
             if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
                 finalized_train_info = train_rmse_calculator.finalize(
@@ -655,7 +660,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             with torch.set_grad_enabled(
                 any(target_info.gradients for target_info in train_targets.values())
             ):  # keep gradients on if any of the targets require them
-                val_loss = 0.0
+                val_loss_sum = torch.zeros((), device=device)
                 val_equivariance_components: Dict[str, List[float]] = {
                     name: [0.0, 0.0] for name in equivariance_penalty_losses
                 }
@@ -691,10 +696,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                     val_loss_batch = loss_fn(predictions, targets, extra_data)
 
-                    if is_distributed:
-                        # sum the loss over all processes
-                        torch.distributed.all_reduce(val_loss_batch)
-                    val_loss += val_loss_batch.item()
+                    val_loss_sum += val_loss_batch.detach()
 
                     for name, penalty_loss in equivariance_penalty_losses.items():
                         mse_component, variance_component = (
@@ -750,6 +752,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         val_mae_calculator.update(
                             scaled_predictions, scaled_targets, extra_data
                         )
+
+            if is_distributed:
+                # sum the loss over all processes
+                torch.distributed.all_reduce(val_loss_sum)
+            val_loss = val_loss_sum.item()
 
             # Compute val metrics:
             finalized_val_info = val_rmse_calculator.finalize(
