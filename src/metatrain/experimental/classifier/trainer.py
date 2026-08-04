@@ -185,8 +185,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 sampler.set_epoch(epoch)
             # Training
             model.train()
-            train_loss = 0.0
-            train_correct = 0
+            train_loss_sum = torch.zeros((), device=device)
+            train_correct = torch.zeros((), device=device)
             train_total = 0
 
             for batch in train_dataloader:
@@ -219,21 +219,23 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 optimizer.step()
                 lr_scheduler.step()
 
-                train_loss += loss.item()
+                # accumulate on device; synced to the host only once per epoch
+                # to avoid a blocking sync every batch
+                train_loss_sum += loss.detach()
                 # For accuracy, compare predicted class with target's most likely class
                 probabilities = torch.nn.functional.softmax(logits, dim=-1)
                 _, predicted = torch.max(probabilities, 1)
                 _, target_class = torch.max(target_probs, 1)
                 train_total += target_class.size(0)
-                train_correct += (predicted == target_class).sum().item()
+                train_correct += (predicted == target_class).sum()
 
-            train_loss /= len(train_dataloader)
-            train_acc = train_correct / train_total
+            train_loss = train_loss_sum.item() / len(train_dataloader)
+            train_acc = train_correct.item() / train_total
 
             # Validation
             model.eval()
-            val_loss = 0.0
-            val_correct = 0
+            val_loss_sum = torch.zeros((), device=device)
+            val_correct = torch.zeros((), device=device)
             val_total = 0
 
             with torch.no_grad():
@@ -262,16 +264,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     target_probs = targets[target_name].block().values
                     loss = loss_fn(logits, target_probs)
 
-                    val_loss += loss.item()
+                    val_loss_sum += loss.detach()
                     # For accuracy, compare predicted with target's most likely class
                     probabilities = torch.nn.functional.softmax(logits, dim=-1)
                     _, predicted = torch.max(probabilities, 1)
                     _, target_class = torch.max(target_probs, 1)
                     val_total += target_class.size(0)
-                    val_correct += (predicted == target_class).sum().item()
+                    val_correct += (predicted == target_class).sum()
 
-            val_loss /= len(val_dataloader)
-            val_acc = val_correct / val_total if val_total > 0 else 0.0
+            val_loss = val_loss_sum.item() / len(val_dataloader)
+            val_acc = val_correct.item() / val_total if val_total > 0 else 0.0
 
             # Prepare metrics for logging
             finalized_train_info = {
