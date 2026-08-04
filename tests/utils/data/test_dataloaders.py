@@ -11,13 +11,16 @@ enough: it removes the duplication without losing coverage.
 
 from pathlib import Path
 
+import torch
 from metatensor.learn.data import Dataset
+from metatomic.torch import NeighborListOptions
 from omegaconf import OmegaConf
 
 from metatrain.utils.data import build_train_dataloaders, build_val_dataloaders
 from metatrain.utils.data.dataset import CollateFn, unpack_batch
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.samplers import MaxAtomDistributedBatchSampler
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
 RESOURCES_PATH = Path(__file__).resolve().parents[2] / "resources"
@@ -106,3 +109,67 @@ def test_max_atoms_per_batch_end_to_end():
     for batch in val_batch_sampler.all_batches:
         atom_count = sum(len(dataset[i].system) for i in batch)
         assert atom_count <= 20
+
+
+def test_worker_round_trip_is_lossless():
+    """Batches collated in dataloader worker processes must decode to the same
+    systems and targets as in-process collation: the packed raw-tensor
+    transport carries positions, types, cells, pbc, and neighbor lists across
+    the process boundary without loss, and the persistent workers keep doing
+    so on a second epoch."""
+    systems = read_systems(DATASET_PATH)[:10]
+    nl_options = NeighborListOptions(cutoff=3.0, full_list=True, strict=True)
+    systems = [get_system_with_neighbor_lists(s, [nl_options]) for s in systems]
+    conf = {
+        "energy": {
+            "quantity": "energy",
+            "read_from": DATASET_PATH,
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "type": "scalar",
+            "sample_kind": "system",
+            "num_subtargets": 1,
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets, _ = read_targets(OmegaConf.create(conf))
+    dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"][:10]})
+    collate_fn = CollateFn(target_keys=["energy"])
+
+    def build(num_workers):
+        return build_val_dataloaders(
+            val_datasets=[dataset],
+            val_distributed_samplers=[None],
+            collate_fn_val=collate_fn,
+            batch_size=4,
+            max_atoms_per_batch=None,
+            num_workers=num_workers,
+            persistent_workers=num_workers > 0,
+        )[0]
+
+    reference_loader = build(0)
+    worker_loader = build(2)
+
+    for _epoch in range(2):  # second epoch exercises the persistent workers
+        for ref_batch, worker_batch in zip(
+            reference_loader, worker_loader, strict=True
+        ):
+            ref_systems, ref_targets, _ = unpack_batch(ref_batch)
+            got_systems, got_targets, _ = unpack_batch(worker_batch)
+            for ref, got in zip(ref_systems, got_systems, strict=True):
+                assert torch.equal(ref.positions, got.positions)
+                assert torch.equal(ref.types, got.types)
+                assert torch.equal(ref.cell, got.cell)
+                assert torch.equal(ref.pbc, got.pbc)
+                assert got.known_neighbor_lists() == [nl_options]
+                ref_nl = ref.get_neighbor_list(nl_options)
+                got_nl = got.get_neighbor_list(nl_options)
+                assert torch.equal(ref_nl.samples.values, got_nl.samples.values)
+                assert torch.equal(ref_nl.values, got_nl.values)
+            assert torch.equal(
+                ref_targets["energy"].block().values,
+                got_targets["energy"].block().values,
+            )
