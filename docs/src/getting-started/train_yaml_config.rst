@@ -47,6 +47,25 @@ The computational parameters define the computational ``device``, ``base_precisi
     .. autoattribute:: metatrain.share.base_hypers.BaseHypers.seed
         :no-index:
 
+.. _logging-section:
+
+Logging
+=======
+
+These parameters control the logs of the ``mtt train`` command.
+Apart from training, the command does some additional steps to produce helpful
+logs. However, these steps can sometimes be expensive and users might prefer
+to skip them.
+
+.. code-block:: yaml
+
+    print_stats: auto
+
+.. container:: mtt-hypers-remove-classname
+
+    .. autoattribute:: metatrain.share.base_hypers.BaseHypers.print_stats
+        :no-index:
+
 .. _architecture-section:
 
 Architecture
