@@ -5,6 +5,7 @@ import os
 import sys
 import warnings
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
@@ -18,17 +19,15 @@ from metatensor.torch import (
     TensorMap,
     load_buffer,
     make_contiguous,
-    make_contiguous_block,
     save_buffer,
 )
 from metatomic.torch import (
     ModelCapabilities,
     ModelOutput,
+    NeighborListOptions,
     System,
     load_system,
-    load_system_buffer,
 )
-from metatomic.torch import save_buffer as save_system_buffer
 from omegaconf import DictConfig
 from torch.utils.data import Dataset as TorchDataset
 from torch.utils.data import Subset
@@ -45,6 +44,26 @@ from metatrain.utils.data.target_info import (
 )
 from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.units import get_gradient_units
+
+
+class RawExtraPayload:
+    """Marker base class for non-TensorMap extra-data payloads.
+
+    Entries in a batch's ``extra`` dictionary that subclass this are carried
+    RAW through the dataloader worker boundary (as plain tensors via shared
+    memory) instead of being serialised with ``save_buffer``. Subclasses must
+    implement ``to(dtype=..., device=..., non_blocking=...)`` so the trainer
+    can move them alongside the rest of the batch.
+    """
+
+    def to(self, *args: Any, **kwargs: Any) -> "RawExtraPayload":
+        """Move the payload's tensors to a dtype/device; subclasses override.
+
+        :param *args: Forwarded to the tensors' ``to()``.
+        :param **kwargs: Forwarded to the tensors' ``to()``.
+        :return: The moved payload.
+        """
+        raise NotImplementedError
 
 
 def _set(values: List[int]) -> List[int]:
@@ -378,6 +397,150 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     return sorted(set(target_names))
 
 
+@dataclass
+class _PackedSystems:
+    """Raw-tensor transport of a batch of ``System`` objects.
+
+    ``save_buffer``/``load_buffer`` round-trips cost ~150 MB/s on the
+    neighbor-list-dominated payload and the load half runs serially in the
+    main process; plain tensors instead cross the dataloader worker boundary
+    through shared memory at memcpy speed. Only the (small, rare) extra data
+    blocks keep the buffer encoding.
+
+    :param n_atoms: Atoms per system.
+    :param positions: Concatenated positions, ``(sum(n_atoms), 3)``.
+    :param types: Concatenated atomic types, ``(sum(n_atoms),)``.
+    :param cells: Stacked cells, ``(n_systems, 3, 3)``.
+    :param pbc: Stacked periodic-boundary flags, ``(n_systems, 3)``.
+    :param nl_options: One ``(cutoff, full_list, strict)`` per neighbor list.
+    :param nl_samples: Per neighbor list, concatenated samples
+        ``(sum(pairs), 5)``.
+    :param nl_values: Per neighbor list, concatenated distance vectors
+        ``(sum(pairs), 3, 1)``.
+    :param nl_counts: Per neighbor list, pairs per system.
+    :param data_names: Names of per-system extra data blocks.
+    :param data_buffers: ``save_buffer`` blobs, one list per data name with one
+        entry per system.
+    """
+
+    n_atoms: List[int]
+    positions: torch.Tensor
+    types: torch.Tensor
+    cells: torch.Tensor
+    pbc: torch.Tensor
+    nl_options: List[Tuple[float, bool, bool]]
+    nl_samples: List[torch.Tensor]
+    nl_values: List[torch.Tensor]
+    nl_counts: List[List[int]]
+    data_names: List[str]
+    data_buffers: List[List[torch.Tensor]]
+
+
+_NL_SAMPLE_NAMES = [
+    "first_atom",
+    "second_atom",
+    "cell_shift_a",
+    "cell_shift_b",
+    "cell_shift_c",
+]
+
+
+def _pack_systems(systems: List[System]) -> _PackedSystems:
+    """Pack systems (with their neighbor lists and data) into raw tensors.
+
+    :param systems: Systems of one batch.
+    :return: The packed representation.
+    """
+    nl_options_objects = systems[0].known_neighbor_lists()
+    nl_options = [(o.cutoff, o.full_list, o.strict) for o in nl_options_objects]
+    nl_samples = []
+    nl_values = []
+    nl_counts = []
+    for options in nl_options_objects:
+        samples = []
+        values = []
+        counts = []
+        for system in systems:
+            nl = system.get_neighbor_list(options)
+            samples.append(nl.samples.values)
+            values.append(nl.values)
+            counts.append(nl.values.shape[0])
+        nl_samples.append(torch.cat(samples).contiguous())
+        nl_values.append(torch.cat(values).contiguous())
+        nl_counts.append(counts)
+
+    data_names = list(systems[0].known_data())
+    data_buffers = [
+        [save_buffer(make_contiguous(system.get_data(name))) for system in systems]
+        for name in data_names
+    ]
+
+    return _PackedSystems(
+        n_atoms=[len(system) for system in systems],
+        positions=torch.cat([system.positions for system in systems]).contiguous(),
+        types=torch.cat([system.types for system in systems]).contiguous(),
+        cells=torch.stack([system.cell for system in systems]).contiguous(),
+        pbc=torch.stack([system.pbc for system in systems]).contiguous(),
+        nl_options=nl_options,
+        nl_samples=nl_samples,
+        nl_values=nl_values,
+        nl_counts=nl_counts,
+        data_names=data_names,
+        data_buffers=data_buffers,
+    )
+
+
+def _unpack_systems(packed: _PackedSystems) -> List[System]:
+    """Rebuild the ``System`` objects from their packed representation.
+
+    :param packed: The packed batch.
+    :return: The rebuilt systems.
+    """
+    positions = torch.split(packed.positions, packed.n_atoms)
+    types = torch.split(packed.types, packed.n_atoms)
+    systems = [
+        System(
+            positions=p,
+            types=t,
+            cell=packed.cells[i],
+            pbc=packed.pbc[i],
+        )
+        for i, (p, t) in enumerate(zip(positions, types, strict=True))
+    ]
+
+    xyz = Labels(["xyz"], torch.tensor([[0], [1], [2]], dtype=torch.int32))
+    distance = Labels(["distance"], torch.tensor([[0]], dtype=torch.int32))
+    for (cutoff, full_list, strict), samples, values, counts in zip(
+        packed.nl_options,
+        packed.nl_samples,
+        packed.nl_values,
+        packed.nl_counts,
+        strict=True,
+    ):
+        options = NeighborListOptions(cutoff=cutoff, full_list=full_list, strict=strict)
+        for system, s, v in zip(
+            systems,
+            torch.split(samples, counts),
+            torch.split(values, counts),
+            strict=True,
+        ):
+            system.add_neighbor_list(
+                options,
+                TensorBlock(
+                    values=v,
+                    samples=Labels(_NL_SAMPLE_NAMES, s),
+                    components=[xyz],
+                    properties=distance,
+                ),
+            )
+
+    for name, buffers in zip(packed.data_names, packed.data_buffers, strict=True):
+        for system, buffer in zip(systems, buffers, strict=True):
+            system.add_data(name, load_buffer(buffer))
+
+    return systems
+
+
 class CollateFn:
     def __init__(
         self,
@@ -392,16 +555,26 @@ class CollateFn:
     def __call__(
         self,
         batch: List[Dict[str, Any]],
-    ) -> Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]:
+    ) -> Tuple[
+        torch.Tensor,
+        "_PackedSystems",
+        List[str],
+        List[int],
+        List[str],
+        List[int],
+        Dict[str, Any],
+    ]:
         """
         :param batch: A batch
         :return: A tuple containing:
-            - a single tensor containing all systems, targets and extra data
+            - a single tensor containing all systems, targets and serialised extra data
             - a list with the sizes of each system buffer
             - a list with the names of each target
             - a list with the sizes of each target buffer
-            - a list with the names of each extra data
-            - a list with the sizes of each extra data buffer
+            - a list with the names of each serialised extra data
+            - a list with the sizes of each serialised extra data buffer
+            - a dict of raw (non-serialised) extra entries, e.g. ragged metric matrices,
+              carried alongside the blob and reattached by ``unpack_batch``
         """
         # group & join
         collated = group_and_join(batch, join_kwargs=self.join_kwargs)
@@ -424,11 +597,20 @@ class CollateFn:
             systems, targets, extra = callable(systems, targets, extra)
 
         target_names = list(targets.keys())
-        extra_names = list(extra.keys())
+        # Partition extra data. TensorMaps are serialised into the blob via
+        # save_buffer (float64 only). RawExtraPayload entries (e.g. the ragged
+        # metric matrices and per-batch rotation info used by density losses)
+        # are carried RAW alongside the blob: this avoids save_buffer's
+        # float64-only constraint and the padding/extra copy, and lets them
+        # ride through the worker boundary as plain tensors.
+        raw_extra = {
+            name: value
+            for name, value in extra.items()
+            if isinstance(value, RawExtraPayload)
+        }
+        extra_names = [name for name in extra if name not in raw_extra]
 
-        system_buffers = [
-            save_system_buffer(_make_system_contiguous(s)) for s in systems
-        ]
+        packed_systems = _pack_systems(systems)
         target_buffers = [
             save_buffer(make_contiguous(targets[name])) for name in target_names
         ]
@@ -436,13 +618,26 @@ class CollateFn:
             save_buffer(make_contiguous(extra[name])) for name in extra_names
         ]
 
-        system_sizes = [len(b) for b in system_buffers]
         target_sizes = [len(b) for b in target_buffers]
         extra_sizes = [len(b) for b in extra_buffers]
 
-        blob = torch.concatenate(system_buffers + target_buffers + extra_buffers)
+        all_buffers = target_buffers + extra_buffers
+        # e.g. evaluation without targets: nothing to serialise
+        blob = (
+            torch.concatenate(all_buffers)
+            if all_buffers
+            else torch.zeros(0, dtype=torch.uint8)
+        )
 
-        return blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes
+        return (
+            blob,
+            packed_systems,
+            target_names,
+            target_sizes,
+            extra_names,
+            extra_sizes,
+            raw_extra,
+        )
 
 
 def unpack_batch(
@@ -454,15 +649,23 @@ def unpack_batch(
     :param batch: The batch to unpack.
     :return: A tuple with the unpacked batch
     """
-    blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes = batch
+    (
+        blob,
+        packed_systems,
+        target_names,
+        target_sizes,
+        extra_names,
+        extra_sizes,
+        raw_extra,
+    ) = batch
 
-    all_buffers = torch.split(blob, system_sizes + target_sizes + extra_sizes)
-    systems = all_buffers[: len(system_sizes)]
+    systems = _unpack_systems(packed_systems)
+    all_buffers = torch.split(blob, target_sizes + extra_sizes)
     targets = {
         name: buf
         for name, buf in zip(
             target_names,
-            all_buffers[len(system_sizes) : len(system_sizes) + len(target_names)],
+            all_buffers[: len(target_names)],
             strict=True,
         )
     }
@@ -470,14 +673,15 @@ def unpack_batch(
         name: buf
         for name, buf in zip(
             extra_names,
-            all_buffers[len(system_sizes) + len(target_names) :],
+            all_buffers[len(target_names) :],
             strict=True,
         )
     }
 
-    systems = list(load_system_buffer(s) for s in systems)
     targets = {key: load_buffer(t) for key, t in targets.items()}
     extra_data = {key: load_buffer(t) for key, t in extra_data.items()}
+    # Reattach raw (non-serialised) extra entries, e.g. ragged metric matrices.
+    extra_data.update(raw_extra)
     return systems, targets, extra_data
 
 
@@ -1203,31 +1407,6 @@ def validate_num_workers(num_workers: int) -> None:
             "start method, which is only available on Linux. On this "
             "platform, num_workers must be set to 0."
         )
-
-
-def _make_system_contiguous(system: System) -> System:
-    """
-    Return a copy of a ``System`` object with contiguous arrays.
-
-    :param system: The system to make contiguous.
-    :return: A copy of the system with contiguous arrays.
-    """
-    new_system = System(
-        positions=system.positions.contiguous(),
-        types=system.types.contiguous(),
-        cell=system.cell.contiguous(),
-        pbc=system.pbc.contiguous(),
-    )
-    for nl_options in system.known_neighbor_lists():
-        nl = system.get_neighbor_list(nl_options)
-        new_system.add_neighbor_list(
-            nl_options,
-            make_contiguous_block(nl),
-        )
-    for key in system.known_data():
-        data = system.get_data(key)
-        new_system.add_data(key, make_contiguous(data))
-    return new_system
 
 
 class MemmapArray:
