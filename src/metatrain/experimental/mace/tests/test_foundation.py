@@ -11,11 +11,6 @@ from metatrain.experimental.mace.utils._load_model_file import load_mace_model_f
 from .test_basic import MACETests
 
 
-def _available_heads(path: Path) -> list[str]:
-    """Head names present in a saved MACE model (empty for old headless models)."""
-    return list(getattr(torch.load(path, weights_only=False), "heads", []))
-
-
 class TestFoundation(MACETests):
     """Tests for MACE foundational models."""
 
