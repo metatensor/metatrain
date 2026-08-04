@@ -333,6 +333,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
             max_atoms_per_batch=max_atoms,
             min_atoms_per_batch=self.hypers["min_atoms_per_batch"],
             num_workers=num_workers,
+            # keep workers (and their per-worker caches, e.g. the density
+            # metric-matrix cache) alive across epochs
+            persistent_workers=num_workers > 0,
         )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
@@ -344,6 +347,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             batch_size=self.hypers["batch_size"],
             max_atoms_per_batch=max_atoms,
             num_workers=num_workers,
+            persistent_workers=num_workers > 0,
         )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
