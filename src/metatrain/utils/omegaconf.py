@@ -139,6 +139,7 @@ BASE_OPTIONS = OmegaConf.create(
         "device": "${default_device:}",
         "base_precision": "${default_precision:}",
         "seed": "${default_random_seed:}",
+        "final_eval": True,
         "print_stats": "auto",
         "test_set": 0.0,
     }
