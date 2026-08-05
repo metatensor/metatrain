@@ -33,11 +33,17 @@ import functools
 import importlib
 from collections.abc import Callable, Mapping
 from functools import lru_cache
-from typing import TYPE_CHECKING, Dict, List, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
+
+from .data.byte_budget_cache import (
+    ByteBudgetCache,
+    batch_system_ids,
+    collate_cache_max_bytes,
+)
 
 
 if TYPE_CHECKING:
@@ -320,6 +326,63 @@ def unpack_metric_matrices(packed: TensorMap) -> List[torch.Tensor]:
     return [packed.block(i).values for i in range(len(packed))]
 
 
+# ── Caching ───────────────────────────────────────────────────────────────────
+
+
+_METRIC_MATRIX_CACHE: Optional[ByteBudgetCache] = None
+
+
+def _metric_matrix_cache() -> ByteBudgetCache:
+    """The per-process metric-matrix cache, created on first use.
+
+    The collate transforms run inside the dataloader workers, which are kept
+    alive between epochs (``persistent_workers``), so the cache survives across
+    epochs. It is keyed by ``(aux_basis, metric, system id)`` on the
+    *unaugmented* geometry -- the transforms run before the augmenter -- which
+    is identical every epoch, so entries never go stale.
+
+    :return: The cache.
+    """
+    global _METRIC_MATRIX_CACHE
+    if _METRIC_MATRIX_CACHE is None:
+        _METRIC_MATRIX_CACHE = ByteBudgetCache(collate_cache_max_bytes())
+    return _METRIC_MATRIX_CACHE
+
+
+def _batch_metric_matrices(
+    systems: List[System],
+    system_ids: Optional[List[int]],
+    aux_basis: str,
+    metric: str,
+) -> List[torch.Tensor]:
+    """Metric matrices for one batch, through the cache when ids are available.
+
+    Without native system ids there is no stable cache key, so the matrices
+    are recomputed -- correct, just slower.
+
+    :param systems: The batch's systems, in batch order.
+    :param system_ids: Native dataset ids of those systems, or ``None``.
+    :param aux_basis: Auxiliary basis name.
+    :param metric: ``"overlap"`` or ``"coulomb"``.
+    :return: One dense square matrix per system, in batch order.
+    """
+    if system_ids is None:
+        return [compute_metric_matrix(system, aux_basis, metric) for system in systems]
+    cache = _metric_matrix_cache()
+    matrices = []
+    for system, system_id in zip(systems, system_ids, strict=True):
+        # The metric belongs in the key: a future metric variant (e.g. with a
+        # long-range or charge-penalty term) must not silently reuse matrices
+        # built for a different one.
+        key = (aux_basis, metric, system_id)
+        matrix = cache.get(key)
+        if matrix is None:
+            matrix = compute_metric_matrix(system, aux_basis, metric)
+            cache.put(key, matrix)
+        matrices.append(matrix)
+    return matrices
+
+
 # ── Collate transforms ────────────────────────────────────────────────────────
 
 
@@ -330,11 +393,12 @@ def _metric_matrices_transform(
     targets: Dict[str, TensorMap],
     extra: Dict[str, TensorMap],
 ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+    system_ids = batch_system_ids(extra)
     packed_by_basis: Dict[str, TensorMap] = {}
     for target_name, aux_basis in target_to_aux_basis.items():
         if aux_basis not in packed_by_basis:
             packed_by_basis[aux_basis] = pack_metric_matrices(
-                [compute_metric_matrix(system, aux_basis, metric) for system in systems]
+                _batch_metric_matrices(systems, system_ids, aux_basis, metric)
             )
         extra[metric_matrix_name(target_name, metric)] = packed_by_basis[aux_basis]
     return systems, targets, extra
@@ -353,10 +417,11 @@ def get_metric_matrices_transform(
     :attr:`~metatrain.utils.loss.LossInterface.evaluate_in_original_frame`) rather
     than the augmented one.
 
-    The matrices are recomputed for every batch. They depend only on the unaugmented
-    geometry, so they could in principle be cached across epochs, but doing that well
-    is a memory- and dataloader-topology problem rather than a scientific one, and is
-    deliberately left out of this module.
+    The matrices depend only on the unaugmented geometry, which is identical every
+    epoch, so they are cached across epochs in a per-worker, byte-budgeted LRU cache
+    (see :func:`_metric_matrix_cache`) keyed by the batch's native system ids
+    (``mtt::aux::system_index``). Batches without such ids fall back to recomputing
+    every time.
 
     Targets sharing an auxiliary basis share one computation per batch.
 

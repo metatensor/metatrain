@@ -201,6 +201,7 @@ def _pad_block(
             (len(samples), *[len(c) for c in block.components], len(properties)),
             fill_value=fill_value,
             dtype=block.values.dtype,
+            device=block.values.device,
         )
         intersection = properties.intersection(block.properties)
         idxs_padded = properties.select(intersection)
@@ -229,6 +230,7 @@ def _pad_samples_per_atom_atomic_basis_target(
             (len(sample_labels), *block.values.shape[1:]),
             fill_value=torch.nan,
             dtype=block.values.dtype,
+            device=block.values.device,
         )
         sample_mask = sample_labels.select(block.samples)
         new_vals[sample_mask] = block.values

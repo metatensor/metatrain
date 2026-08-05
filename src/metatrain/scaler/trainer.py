@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Sequence, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Union, cast
 
 import metatensor.torch as mts
 import torch
@@ -48,6 +48,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
+        metrics: Optional[Dict[str, Any]] = None,
     ) -> None:
         from .model import Scaler
 
