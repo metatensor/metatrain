@@ -15,6 +15,7 @@ from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import Subset
 
 from metatrain.utils.data import Dataset
+from metatrain.utils.reported_metrics import parse_metrics
 
 from ..utils.abc import ModelInterface, TrainerInterface
 from ..utils.architectures import (
@@ -705,6 +706,12 @@ def train_model(
             train_datasets=train_datasets,
             val_datasets=val_datasets,
             checkpoint_dir=str(checkpoint_dir),
+            metrics=parse_metrics(
+                OmegaConf.to_container(options["metrics"])
+                if "metrics" in options
+                else None,
+                dataset_info.targets,
+            ),
         )
     except torch.cuda.OutOfMemoryError as e:
         raise ArchitectureError(OutOfMemoryError(e)) from e
@@ -799,6 +806,13 @@ def train_model(
     else:
         logging.info(f"Running final evaluation with batch size {batch_size}")
 
+    # One `metrics` block serves the epoch loop and the evaluations below; each
+    # dataset is told which subset it is, so `subsets.eval` can filter.
+    final_metrics = parse_metrics(
+        OmegaConf.to_container(options["metrics"]) if "metrics" in options else None,
+        dataset_info.targets,
+    )
+
     for i, train_dataset in enumerate(train_datasets):
         if len(train_datasets) == 1:
             extra_log_message = ""
@@ -811,6 +825,8 @@ def train_model(
             train_dataset,
             dataset_info.targets,
             batch_size=batch_size,
+            metrics=final_metrics,
+            subset="training",
         )
 
     for i, val_dataset in enumerate(val_datasets):
@@ -825,6 +841,8 @@ def train_model(
             val_dataset,
             dataset_info.targets,
             batch_size=batch_size,
+            metrics=final_metrics,
+            subset="validation",
         )
 
     for i, test_dataset in enumerate(test_datasets):
@@ -839,6 +857,8 @@ def train_model(
             test_dataset,
             dataset_info.targets,
             batch_size=batch_size,
+            metrics=final_metrics,
+            subset="test",
         )
 
 
