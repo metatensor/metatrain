@@ -820,3 +820,21 @@ def test_periodic_systems_are_rejected():
     )
     with pytest.raises(NotImplementedError, match="non-periodic"):
         compute_metric_matrix(periodic, AUX_BASIS, "overlap")
+
+
+def test_eval_options_accept_a_metrics_block():
+    """``mtt eval`` takes the same ``metrics`` block that ``mtt train`` does."""
+    from metatrain.utils.pydantic import validate_eval_options
+
+    options = validate_eval_options(
+        {
+            "systems": "systems.xyz",
+            "metrics": {
+                TARGET: [
+                    "rmse",
+                    {"type": "density_mse_via_c", "aux_basis": AUX_BASIS},
+                ]
+            },
+        }
+    )
+    assert options["metrics"][TARGET][1]["aux_basis"] == AUX_BASIS

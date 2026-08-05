@@ -2,7 +2,16 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Union,
+    cast,
+)
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
@@ -41,13 +50,22 @@ from metatrain.utils.distributed.slurm import (
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import LossAggregator, LossSpecification
-from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
+from metatrain.utils.loss import (
+    LossAggregator,
+    LossSpecification,
+    build_reported_losses,
+)
+from metatrain.utils.metrics import (
+    MAEAccumulator,
+    RMSEAccumulator,
+    get_selected_metric,
+)
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists_transform,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.reported_metrics import metrics_for
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.system_data import get_system_data_transform
 from metatrain.utils.transfer import batch_to
@@ -113,6 +131,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
+        metrics: Optional[Dict[str, Any]] = None,
     ) -> None:
         assert dtype in PET.__supported_dtypes__
 
@@ -290,8 +309,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         target_keys = list(train_targets.keys())
 
+        # Extra metrics from the top-level `metrics` block, reported on validation
+        # alongside RMSE and MAE. Never trained on.
+        extra_metrics = dict(metrics or {})
+        for name, spec in extra_metrics.items():
+            logging.info(f"Reporting {spec['type']} on {name}")
+
         # Hooks for on-the-fly computations to support density learning
-        density = get_density_hooks(self.hypers["loss"])
+        density = get_density_hooks(self.hypers["loss"], extra_metrics)
 
         # Define the targets whose losses must be evaluated in the original
         # (un-transformed) frame
@@ -314,7 +339,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             target_keys=target_keys,
             callables=[
                 atomic_basis_transform,
-                *density.collate_transforms(),
+                *density.training_collate_transforms(),
                 augmentation_callable,
                 *base_callables,
             ],
@@ -323,7 +348,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             target_keys=target_keys,
             callables=[  # no augmentation for validation
                 atomic_basis_transform,
-                *density.collate_transforms(),
+                *density.validation_collate_transforms(),
                 *base_callables,
             ],
         )
@@ -377,6 +402,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Create a loss function:
         loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
         loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
+        # Metrics configured in the top-level `metrics` block. RMSE and MAE are
+        # accumulated below as before; the rest are loss-backed and evaluated here.
+
         logging.info("Using the following loss functions:")
         for name, info in loss_fn.metadata.items():
             logging.info(f"{name}:")
@@ -569,6 +597,18 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 any(target_info.gradients for target_info in train_targets.values())
             ):  # keep gradients on if any of the targets require them
                 val_loss_sum = torch.zeros((), device=device)
+                # Counted from the first epoch of the run, so every metric is
+                # reported on the epoch the metric logger is set up from.
+                due = metrics_for(extra_metrics, "validation", epoch - start_epoch)
+                val_extra = build_reported_losses(due, train_targets)
+                # Accumulated on device and reduced once at the end of the epoch:
+                # summing `.item()` per batch would sync every batch, and would
+                # report only this rank's shard under DDP.
+                val_extra_totals = {
+                    name: torch.zeros((), device=device) for name in val_extra
+                }
+                val_extra_systems = torch.zeros((), device=device)
+
                 for batch in val_dataloader:
                     systems, targets, extra_data = unpack_batch(batch)
                     systems, targets, extra_data = batch_to(
@@ -630,6 +670,21 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         use_per_property_scales=False,
                     )
 
+                    # Evaluated on the *rescaled* tensors, i.e. the same ones RMSE
+                    # and MAE see, so that a metric reported here means the same
+                    # thing as the one `mtt eval` reports. `predictions` and
+                    # `targets` are still divided by the per-target scale at this
+                    # point, which would report the metric in the model's internal
+                    # units instead.
+                    val_extra_systems += len(systems)
+                    for name, metric_fn in val_extra.items():
+                        val_extra_totals[name] += (
+                            len(systems)
+                            * metric_fn(
+                                scaled_predictions, scaled_targets, extra_data
+                            ).detach()
+                        )
+
                     if self.hypers["log_separate_blocks"]:
                         # if any atomic basis outputs are present and metrics are to be
                         # reported per-block, reverse the transform (i.e. sparsify)
@@ -677,8 +732,26 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     "loss": train_loss,
                     **finalized_train_info,
                 }
+            # `MetricLogger` reads the target name from the first whitespace-
+            # separated token, so each reports under its target. A metric that is
+            # not due this epoch still reports, as NaN, so the logged columns never
+            # change shape.
+            if is_distributed and val_extra:
+                torch.distributed.all_reduce(val_extra_systems)
+                for total in val_extra_totals.values():
+                    torch.distributed.all_reduce(total)
+            n_seen = float(val_extra_systems)
+            extra_metric_info = {
+                f"{name} {spec['type']}": (
+                    float(val_extra_totals[name]) / n_seen
+                    if name in val_extra and n_seen
+                    else float("nan")
+                )
+                for name, spec in extra_metrics.items()
+            }
             finalized_val_info = {
                 "loss": val_loss,
+                **extra_metric_info,
                 **finalized_val_info,
             }
 

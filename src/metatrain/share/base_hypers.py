@@ -462,6 +462,26 @@ class EvalDatasetDictHypers(TypedDict):
     text file containing one index per line. When specified, only the structures
     at these indices will be used from the dataset.
     """
+    metrics: NotRequired[dict[str, Any]]
+    """Metrics to report for each target, keyed by target name.
+
+    Each target takes a list of metrics. An entry is either a bare name (``rmse``,
+    ``mae``, or any loss type) or a mapping with a ``type`` and that metric's own
+    parameters. Two further sub-keys control when it is reported: ``subsets``, which
+    names the datasets it applies to for each mechanism (``train`` for the per-epoch
+    loop, ``eval`` for the final evaluation and ``mtt eval``), and ``log_interval``,
+    in epochs. A target that is not listed reports RMSE and MAE.
+
+    .. code-block:: yaml
+
+        metrics:
+          mtt::rho:
+            - rmse
+            - type: density_mse_via_c
+              aux_basis: def2-universal-jfit
+              log_interval: 5
+              subsets: {train: [validation], eval: [test]}
+    """
 
 
 EvalHypers = EvalDatasetDictHypers | list[EvalDatasetDictHypers]
@@ -476,6 +496,27 @@ class BaseHypers(TypedDict):
 
     architecture: ArchitectureBaseHypers
     """Architecture-specific hyperparameters."""
+
+    metrics: NotRequired[dict[str, Any]]
+    """Metrics to report for each target, keyed by target name.
+
+    Each target takes a list of metrics. An entry is either a bare name (``rmse``,
+    ``mae``, or any loss type) or a mapping with a ``type`` and that metric's own
+    parameters. Two further sub-keys control when it is reported: ``subsets``, which
+    names the datasets it applies to for each mechanism (``train`` for the per-epoch
+    loop, ``eval`` for the final evaluation and ``mtt eval``), and ``log_interval``,
+    in epochs. A target that is not listed reports RMSE and MAE.
+
+    .. code-block:: yaml
+
+        metrics:
+          mtt::rho:
+            - rmse
+            - type: density_mse_via_c
+              aux_basis: def2-universal-jfit
+              log_interval: 5
+              subsets: {train: [validation], eval: [test]}
+    """
 
     device: NotRequired[str]
     """The computational device used for model training. If not provided, ``metatrain``
