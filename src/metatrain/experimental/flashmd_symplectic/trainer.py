@@ -102,6 +102,7 @@ class Trainer(TrainerInterface):
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
+        metrics: Optional[Dict[str, Any]] = None,
     ):
         assert dtype in FlashMDSymplectic.__supported_dtypes__
 

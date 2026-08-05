@@ -278,6 +278,7 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
+        metrics: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Train the ``model`` using the ``train_datasets``. How to train the model is left
@@ -291,6 +292,10 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
         :param train_datasets: datasets to use to train the model
         :param val_datasets: datasets to use for model validation
         :param checkpoint_dir: directory where checkpoints shoudl be saved
+        :param metrics: the top-level ``metrics`` block, keyed by target name,
+            for extra metrics to report on validation alongside RMSE and MAE.
+            Never trained on; architectures that do not report extra metrics
+            may ignore it.
         """
 
     @abstractmethod

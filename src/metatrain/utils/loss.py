@@ -1646,6 +1646,35 @@ class LossType(Enum):
         raise ValueError(f"Unknown loss '{key}'. Valid types: {valid_keys}")
 
 
+def build_reported_losses(
+    specs: Dict[str, Any],
+    targets: Dict[str, TargetInfo],
+) -> Dict[str, "LossAggregator"]:
+    """
+    Build losses that are evaluated and reported, but never trained on.
+
+    One aggregator is built per target rather than one for all of them, so that each
+    is reported under its own name.
+
+    :param specs: Loss specifications keyed by target name.
+    :param targets: Target information, used to build the losses.
+    :return: Mapping from target name to the aggregator reporting on it.
+    """
+    aggregators = {}
+    for target_name, spec in specs.items():
+        # These specifications are not reached by the hypers machinery that fills in
+        # defaults for the top-level ones, so complete them here.
+        complete = LossSpecification(
+            {"type": "mse", "weight": 1.0, "reduction": "mean", "gradients": {}}
+        )
+        complete.update(spec)
+        aggregators[target_name] = LossAggregator(
+            targets={target_name: targets[target_name]},
+            config={target_name: complete},
+        )
+    return aggregators
+
+
 def create_loss(
     loss_type: str,
     *,
