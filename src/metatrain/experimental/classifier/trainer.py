@@ -2,7 +2,7 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import metatensor.torch as mts
 import torch
@@ -39,6 +39,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
+        metrics: Optional[Dict[str, Any]] = None,
     ) -> None:
         # Load the wrapped model from checkpoint and set it as the wrapped model of the
         # Classifier model:

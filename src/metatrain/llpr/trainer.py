@@ -2,7 +2,15 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Union,
+    cast,
+)
 
 import torch
 from metatensor.torch import TensorBlock, TensorMap
@@ -101,6 +109,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
+        metrics: Optional[Dict[str, Any]] = None,
     ) -> None:
         # we begin by loading start_epoch to determine if restarting or not
         start_epoch = 0 if self.epoch is None else self.epoch + 1

@@ -25,6 +25,7 @@ from metatrain.utils.data import (
     read_systems,
     unpack_batch,
 )
+from metatrain.utils.data.atomic_basis_helpers import prepare_atomic_basis_targets
 from metatrain.utils.data.readers import read_extra_data
 from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.data.writers import (
@@ -33,11 +34,13 @@ from metatrain.utils.data.writers import (
     Writer,
     get_writer,
 )
+from metatrain.utils.density_hooks import get_density_hooks
 from metatrain.utils.devices import pick_devices
 from metatrain.utils.errors import ArchitectureError
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import load_model
 from metatrain.utils.logging import MetricLogger
+from metatrain.utils.loss import build_reported_losses
 from metatrain.utils.metrics import (
     EquivarianceAccumulator,
     MAEAccumulator,
@@ -50,6 +53,7 @@ from metatrain.utils.neighbor_lists import (
 from metatrain.utils.omegaconf import expand_dataset_config
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.pydantic import validate_eval_options
+from metatrain.utils.reported_metrics import metrics_for, parse_metrics
 from metatrain.utils.system_data import get_system_data_transform
 from metatrain.utils.transfer import batch_to
 
@@ -326,6 +330,8 @@ def _eval_targets(
     equivariance: Optional[Dict] = None,
     equivariance_writer: Optional[Writer] = None,
     log_separate_blocks: bool = False,
+    metrics: Optional[Dict[str, Dict]] = None,
+    subset: Optional[str] = None,
 ) -> None:
     """
     Evaluate `model` on `dataset`, accumulate RMSE/MAE, and (if `writer` is provided)
@@ -348,6 +354,11 @@ def _eval_targets(
         each target (including, if ``equivariance`` is enabled, the equivariance
         and O(3)-averaged/oriented metrics), in addition to the metrics
         aggregated over the whole target.
+    :param metrics: Extra metrics to report alongside RMSE and MAE, from
+        :func:`~metatrain.utils.reported_metrics.parse_metrics`.
+    :param subset: Which dataset this is (``"training"``, ``"validation"`` or
+        ``"test"``), used to honour each metric's ``subsets``. ``None`` applies every
+        metric, which is what a standalone ``mtt eval`` wants.
     """
     # Disable static fusion. Besides the fact that atomistic batches have variable
     # sizes, statically fused CUDA kernels cannot allocate new tensors at runtime,
@@ -391,6 +402,13 @@ def _eval_targets(
     ]
     if requested_inputs:
         callables.append(get_system_data_transform(requested_inputs))
+
+    # Extra metrics reported alongside RMSE/MAE. Some need per-batch data built from
+    # the geometry (a density loss needs its metric matrices); the hooks attach it.
+    selected = metrics_for(metrics or {}, subset)
+    loss_fns = build_reported_losses(selected, options)
+    callables += get_density_hooks(selected).validation_collate_transforms()
+
     collate_fn = CollateFn(target_keys, callables=callables)
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, collate_fn=collate_fn, shuffle=False
@@ -398,6 +416,15 @@ def _eval_targets(
 
     rmse_acc = RMSEAccumulator(separate_blocks=log_separate_blocks)
     mae_acc = MAEAccumulator(separate_blocks=log_separate_blocks)
+    loss_totals = {name: 0.0 for name in loss_fns}
+    n_systems_seen = 0
+    # Atomic-basis targets and predictions reach here *sparse*, one block per
+    # (o3_lambda, o3_sigma, atom_type), whereas losses are defined on the densified
+    # layout the trainer's collate produces. Densify for these metrics only, so RMSE
+    # and MAE keep reading exactly what they read before.
+    atomic_basis_losses = [
+        name for name in loss_fns if getattr(options[name], "is_atomic_basis", False)
+    ]
 
     not_per_atom = ["positions_gradients"]
 
@@ -560,6 +587,37 @@ def _eval_targets(
                 )
                 checked_grid_convergence = True
 
+        if loss_fns:
+            loss_targets = dict(batch_targets)
+            loss_predictions = dict(batch_predictions)
+            for name in atomic_basis_losses:
+                # Densify in the layout's precision: the padding comes from the
+                # layout, and a TensorMap cannot mix dtypes across blocks. The
+                # layout lives on CPU while the batch is already on the eval
+                # device, and metatensor refuses cross-device Labels selection,
+                # so move the (metadata-sized) layout rather than the batch.
+                layout = options[name].layout.to(device=device)
+                layout_dtype = layout.block(0).values.dtype
+                for source in (loss_targets, loss_predictions):
+                    # The two sides are numbered differently -- predictions are
+                    # batch-local, targets keep the dataset's own indices -- so each
+                    # is told the ids it actually carries.
+                    source[name] = prepare_atomic_basis_targets(
+                        systems,
+                        torch.unique(source[name].block(0).samples.column("system")),
+                        source[name].to(dtype=layout_dtype),
+                        layout,
+                        None,
+                        fill_value=torch.nan,
+                    ).to(dtype=dtype)
+            # Weight by batch size and divide by the total below, so the reported
+            # number does not depend on `batch_size`.
+            n_systems_seen += len(systems)
+            for name, loss_fn in loss_fns.items():
+                loss_totals[name] += len(systems) * float(
+                    loss_fn(loss_predictions, loss_targets, batch_extra_data)
+                )
+
         # Write out each sample if a writer is configured
         if writer:
             writer.write(systems, batch_predictions)
@@ -576,11 +634,10 @@ def _eval_targets(
         equivariance_writer.finish()
 
     # Finalize metrics and log
-    rmse_vals = rmse_acc.finalize(not_per_atom=not_per_atom)
-    mae_vals = mae_acc.finalize(not_per_atom=not_per_atom)
-    metrics = {**rmse_vals, **mae_vals}
+    reported = rmse_acc.finalize(not_per_atom=not_per_atom)
+    reported.update(mae_acc.finalize(not_per_atom=not_per_atom))
     if symmetrized_model is not None:
-        metrics.update(
+        reported.update(
             _equivariance_metrics(
                 equivariance_acc,
                 averaged_rmse_acc,
@@ -588,10 +645,19 @@ def _eval_targets(
                 not_per_atom=not_per_atom,
             )
         )
-    metric_logger = MetricLogger(
-        log_obj=logger, dataset_info=model.capabilities(), initial_metrics=metrics
+    # `MetricLogger` reads the target name from the first whitespace-separated token,
+    # so each reports under the target it was computed for.
+    reported.update(
+        {
+            f"{name} {loss_fn.metadata[name]['type']}": loss_totals[name]
+            / n_systems_seen
+            for name, loss_fn in loss_fns.items()
+        }
     )
-    metric_logger.log(metrics)
+    metric_logger = MetricLogger(
+        log_obj=logger, dataset_info=model.capabilities(), initial_metrics=reported
+    )
+    metric_logger.log(reported)
 
     # Log timings
     timings_per_atom = np.array(timings_per_atom)
@@ -712,6 +778,12 @@ def eval_model(
                 equivariance=equivariance_options,
                 equivariance_writer=equivariance_writer,
                 log_separate_blocks=options.get("log_separate_blocks", False),
+                metrics=parse_metrics(
+                    OmegaConf.to_container(options["metrics"])
+                    if "metrics" in options
+                    else None,
+                    eval_info_dict,
+                ),
             )
         except Exception as e:
             raise ArchitectureError(e)
