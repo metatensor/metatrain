@@ -195,7 +195,7 @@ class PET(ModelInterface[ModelHypers]):
 
         # scaler: this is also handled by the trainer at training time
         scaler_hypers = get_default_hypers("scaler")["model"]
-        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=train_dataset_info)
+        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
 
@@ -254,7 +254,7 @@ class PET(ModelInterface[ModelHypers]):
                 },
             ),
         )
-        self.scaler = self.scaler.restart(train_dataset_info)
+        self.scaler = self.scaler.restart(dataset_info)
 
         # Actual removal (if any) is deferred to ``apply_finetuning_strategy``
         # (called later, once training starts), since ``inherit_heads`` needs these

@@ -304,7 +304,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         self.additive_models = torch.nn.ModuleList([composition_model])
 
         scaler_hypers = get_default_hypers("scaler")["model"]
-        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=train_dataset_info)
+        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
         self.finetune_config: Dict[str, Any] = {}
 
@@ -351,7 +351,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 },
             ),
         )
-        self.scaler = self.scaler.restart(train_dataset_info)
+        self.scaler = self.scaler.restart(dataset_info)
 
         return self
 

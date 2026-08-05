@@ -420,7 +420,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
 
         # scaler: this is also handled by the trainer at training time
         scaler_hypers = get_default_hypers("scaler")["model"]
-        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=train_dataset_info)
+        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -466,7 +466,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 },
             ),
         )
-        self.scaler = self.scaler.restart(train_dataset_info)
+        self.scaler = self.scaler.restart(dataset_info)
 
         return self
 
