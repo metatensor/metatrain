@@ -1,3 +1,9 @@
+from metatrain.composition.checkpoints import (
+    model_update_v1_v2 as composition_update_v1_v2,
+)
+from metatrain.scaler.checkpoints import (
+    model_update_v1_v2 as scaler_update_v1_v2,
+)
 from metatrain.scaler.checkpoints import update_per_property_scales
 
 
@@ -13,6 +19,20 @@ def model_update_v1_v2(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     update_per_property_scales(checkpoint)
+
+
+def model_update_v2_v3(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 2 to version 3.
+
+    The embedded composition model and scaler now use
+    ``metatensor.torch.learn.nn.Module`` with ``register_buffer`` instead of
+    manually tracked buffers.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    composition_update_v1_v2(checkpoint, prefix="additive_models.0.")
+    scaler_update_v1_v2(checkpoint, prefix="scaler.")
 
 
 ###########################

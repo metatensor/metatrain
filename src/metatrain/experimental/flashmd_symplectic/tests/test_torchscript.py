@@ -131,8 +131,6 @@ def test_torchscript_save_load(tmpdir):
     )
     model = FlashMDSymplectic(MODEL_HYPERS, dataset_info)
     model.to(torch.float64)
-    model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
-    model.scaler.scales_to(device="cpu", dtype=torch.float64)
 
     with tmpdir.as_cwd():
         torch.jit.save(torch.jit.script(model), "model.pt")

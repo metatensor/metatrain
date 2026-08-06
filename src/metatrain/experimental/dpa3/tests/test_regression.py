@@ -124,24 +124,24 @@ def test_regression_energies_forces_train():
 
     expected_output = torch.tensor(
         [
-            [1.159545063972],
-            [1.186555385590],
-            [1.196010828018],
-            [1.124937891960],
-            [1.161755204201],
+            [1.159827351570],
+            [1.186836123466],
+            [1.196291685104],
+            [1.125221848488],
+            [1.162037134171],
         ],
         dtype=torch.float64,
     )
 
     expected_gradients_output = torch.tensor(
-        [7.167162038968e-06, -6.548931468501e-03, 6.634737014065e-02],
+        [6.975085852901e-06, -6.548505446347e-03, 6.634686217694e-02],
         dtype=torch.float64,
     )
 
     # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["energy"].block().values)
-    print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
+    # torch.set_printoptions(precision=12)
+    # print(output["energy"].block().values)
+    # print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
 
     # Training is done in float32, so float64-default atol=1e-7 is too tight.
     torch.testing.assert_close(

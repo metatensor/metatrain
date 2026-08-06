@@ -2,9 +2,8 @@ import logging
 import warnings
 from typing import Dict, List, Literal, Optional, Union
 
-import metatensor.torch as mts
 import torch
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import Labels, TensorMap
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -28,7 +27,6 @@ from . import checkpoints
 from ._base_composition import (
     BaseCompositionModel,
     FixedCompositionWeights,
-    _include_key,
 )
 from .documentation import ModelHypers
 
@@ -46,7 +44,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
         model.
     """
 
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -114,7 +112,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
 
         self.outputs: Dict[str, ModelOutput] = {}
 
-        self.register_buffer("dummy_buffer", torch.randn(1, dtype=torch.float64))
+        self.register_buffer("dummy_buffer", torch.randn(1))
 
         self._new_outputs = []
         for target_name in self.dataset_info.targets:
@@ -266,9 +264,8 @@ class CompositionModel(ModelInterface[ModelHypers]):
         self.dataset_info = merged_info
 
         self._new_outputs = []
-        buffer_names = [n for n, _ in self.named_buffers()]
         for target_name, target_info in self.target_infos.items():
-            if target_name + "_composition_buffer" in buffer_names:
+            if target_name in self.model.weights:
                 continue
             self._new_outputs.append(target_name)
             self.model.add_output(target_name, target_info.layout)
@@ -298,11 +295,6 @@ class CompositionModel(ModelInterface[ModelHypers]):
         :return: A dictionary mapping each requested output name to the
             corresponding ``TensorMap`` containing the computed values.
         """
-        dtype = systems[0].positions.dtype
-        device = systems[0].positions.device
-
-        self.weights_to(device, dtype)
-
         for output_name in outputs.keys():
             if output_name not in self.outputs:
                 raise ValueError(
@@ -349,43 +341,6 @@ class CompositionModel(ModelInterface[ModelHypers]):
             description=target_info.description,
         )
 
-        layout = mts.filter_blocks(
-            target_info.layout,
-            Labels(
-                target_info.layout.keys.names,
-                torch.vstack(
-                    [key.values for key in target_info.layout.keys if _include_key(key)]
-                ),
-                assume_unique=True,
-            ),
-        )
-
-        fake_weights = TensorMap(
-            keys=layout.keys,
-            blocks=[
-                TensorBlock(
-                    values=torch.zeros(
-                        (len(self.atomic_types),) + b.values.shape[1:],
-                        dtype=torch.float64,
-                    ),
-                    samples=Labels(
-                        names=["center_type"],
-                        values=torch.tensor(self.atomic_types, dtype=torch.int).reshape(
-                            -1, 1
-                        ),
-                        assume_unique=True,
-                    ),
-                    components=b.components,
-                    properties=b.properties,
-                )
-                for b in layout.blocks()
-            ],
-        )
-        self.register_buffer(
-            target_name + "_composition_buffer",
-            mts.save_buffer(mts.make_contiguous(fake_weights)),
-        )
-
     def remove_output(self, target_name: str) -> None:
         """
         Remove a previously registered output target, mirroring ``_add_output``.
@@ -395,32 +350,6 @@ class CompositionModel(ModelInterface[ModelHypers]):
         self.outputs.pop(target_name, None)
         self.dataset_info.targets.pop(target_name, None)
         self.model.remove_output(target_name)
-        buffer_name = target_name + "_composition_buffer"
-        if hasattr(self, buffer_name):
-            delattr(self, buffer_name)
-
-    def weights_to(self, device: torch.device, dtype: torch.dtype) -> None:
-        """
-        Move the fitted weights and the accumulated quantities to the given
-        device and dtype.
-
-        Needed because they are stored as ``TensorMap`` attributes, which
-        ``torch.nn.Module.to`` does not move.
-
-        :param device: Device to move the weights to.
-        :param dtype: Dtype to convert the weights to.
-        """
-        if len(self.model.weights) != 0:
-            if self.model.weights[list(self.model.weights.keys())[0]].device != device:
-                self.model.weights = {
-                    k: v.to(device) for k, v in self.model.weights.items()
-                }
-            if self.model.weights[list(self.model.weights.keys())[0]].dtype != dtype:
-                self.model.weights = {
-                    k: v.to(dtype) for k, v in self.model.weights.items()
-                }
-
-        self.model._sync_device_dtype(device, dtype)
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
@@ -471,21 +400,6 @@ class CompositionModel(ModelInterface[ModelHypers]):
                     return False
 
         return True
-
-    def sync_tensor_maps(self) -> None:
-        """
-        Reload the weight ``TensorMap`` objects from the registered buffers.
-
-        Must be called after the buffers change through means that bypass the
-        model, e.g. ``load_state_dict``.
-        """
-        for k in self.dataset_info.targets:
-            buffer = self.__getattr__(k + "_composition_buffer")
-            # ``mts.load_buffer`` dereferences the buffer on the host, so it
-            # segfaults on a GPU buffer: deserialize on the CPU and move the
-            # weights back to the buffer's device.
-            weights = mts.load_buffer(buffer.to(device="cpu"))
-            self.model.weights[k] = weights.to(device=buffer.device)
 
     def get_checkpoint(self) -> Dict:
         """
@@ -543,7 +457,6 @@ class CompositionModel(ModelInterface[ModelHypers]):
         )
 
         model.load_state_dict(model_state_dict)
-        model.sync_tensor_maps()
 
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
 
@@ -587,14 +500,11 @@ class CompositionModel(ModelInterface[ModelHypers]):
             raise ValueError(f"unsupported dtype {dtype} for composition model")
 
         self.to(dtype)
-        self.weights_to(torch.device("cpu"), torch.float64)
-
-        interaction_range = 0.0
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=self.atomic_types,
-            interaction_range=interaction_range,
+            interaction_range=0.0,
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
             dtype=dtype_to_str(dtype),

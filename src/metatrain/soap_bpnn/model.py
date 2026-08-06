@@ -190,7 +190,7 @@ def concatenate_structures(
 
 
 class SoapBpnn(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 9
+    __checkpoint_version__ = 10
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -969,8 +969,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         next(iterator)  # skip types buffer (int dtype)
         dtype = next(iterator).dtype
         model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -986,10 +984,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         # For example, after training, the additive models could still be in
         # float64
         self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This funciton moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         interaction_ranges = [self.hypers["soap"]["cutoff"]["radius"]]
         for additive_model in self.additive_models:

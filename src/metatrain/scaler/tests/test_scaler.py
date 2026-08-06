@@ -131,6 +131,7 @@ class TestScaler(ScalerTests):
             scaler,
             train_datasets=dataset,
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
             fixed_weights=({"energy": 0.1} if fixed_scaling_weights else None),
@@ -146,6 +147,7 @@ class TestScaler(ScalerTests):
             scaler2,
             train_datasets=[dataset, dataset],
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
             fixed_weights=({"energy": 0.1} if fixed_scaling_weights else None),
@@ -161,6 +163,7 @@ class TestScaler(ScalerTests):
             scaler3,
             train_datasets=[dataset, dataset, dataset],
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
             fixed_weights=({"energy": 0.1} if fixed_scaling_weights else None),
@@ -313,6 +316,7 @@ class TestScaler(ScalerTests):
             scaler,
             dataset,
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
         )
@@ -327,6 +331,7 @@ class TestScaler(ScalerTests):
             scaler2,
             [dataset, dataset],
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
         )
@@ -341,6 +346,7 @@ class TestScaler(ScalerTests):
             scaler3,
             [dataset, dataset, dataset],
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
         )
@@ -421,6 +427,7 @@ class TestScaler(ScalerTests):
             scaler,
             dataset,
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=2,
             is_distributed=False,
             per_structure_targets=["non_conservative_stress"],
@@ -493,6 +500,7 @@ class TestScaler(ScalerTests):
             scaler_raw,
             dataset,
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
             per_structure_targets=["non_conservative_stress"],
@@ -501,6 +509,7 @@ class TestScaler(ScalerTests):
             scaler_per_atom,
             dataset,
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
             per_structure_targets=[],
@@ -595,6 +604,7 @@ class TestScaler(ScalerTests):
             scaler,
             dataset,
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
             per_structure_targets=["non_conservative_stress"],
@@ -745,6 +755,7 @@ class TestScaler(ScalerTests):
             scaler,
             dataset,
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
             fixed_weights={"forces": {1: 0.2, 8: 0.1}}
@@ -762,6 +773,7 @@ class TestScaler(ScalerTests):
             scaler2,
             [dataset, dataset],
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
             fixed_weights={"forces": {1: 0.2, 8: 0.1}}
@@ -779,6 +791,7 @@ class TestScaler(ScalerTests):
             scaler3,
             [dataset, dataset, dataset],
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
             fixed_weights={"forces": {1: 0.2, 8: 0.1}}
@@ -980,6 +993,7 @@ class TestScaler(ScalerTests):
             scaler,
             dataset,
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
         )
@@ -999,6 +1013,7 @@ class TestScaler(ScalerTests):
             scaler2,
             [dataset, dataset],
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
         )
@@ -1018,6 +1033,7 @@ class TestScaler(ScalerTests):
             scaler3,
             [dataset, dataset, dataset],
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
         )
@@ -1175,6 +1191,7 @@ class TestScaler(ScalerTests):
             scaler,
             dataset,
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
         )
@@ -1473,6 +1490,7 @@ class TestScaler(ScalerTests):
             scaler,
             dataset,
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
         )
@@ -1723,6 +1741,7 @@ class TestScaler(ScalerTests):
             scaler,
             dataset,
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=batch_size,
             is_distributed=False,
         )
@@ -1847,6 +1866,7 @@ class TestScaler(ScalerTests):
             scaler,
             dataset,
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=1,
             is_distributed=False,
         )
@@ -1880,6 +1900,7 @@ class TestScaler(ScalerTests):
                 scaler_rotated,
                 dataset_rotated,
                 additive_models=[],
+                device=torch.device("cpu"),
                 batch_size=1,
                 is_distributed=False,
             )
@@ -2031,6 +2052,7 @@ class TestScaler(ScalerTests):
                 sc,
                 dset,
                 additive_models=[],
+                device=torch.device("cpu"),
                 batch_size=batch_size,
                 is_distributed=False,
             )
@@ -2144,7 +2166,12 @@ class TestScaler(ScalerTests):
         )
         scaler = Scaler(hypers={}, dataset_info=dataset_info).to(torch.float64)
         train_or_load_scaler(
-            scaler, dataset, additive_models=[], batch_size=1, is_distributed=False
+            scaler,
+            dataset,
+            additive_models=[],
+            device=torch.device("cpu"),
+            batch_size=1,
+            is_distributed=False,
         )
 
         rotational_augmenter = O3Augmenter(
@@ -2170,6 +2197,7 @@ class TestScaler(ScalerTests):
                 scaler_rot,
                 dataset_rot,
                 additive_models=[],
+                device=torch.device("cpu"),
                 batch_size=1,
                 is_distributed=False,
             )
@@ -2317,7 +2345,12 @@ class TestScaler(ScalerTests):
             hypers={"densify_atomic_basis": False}, dataset_info=dataset_info
         ).to(torch.float64)
         train_or_load_scaler(
-            scaler, dataset, additive_models=[], batch_size=1, is_distributed=False
+            scaler,
+            dataset,
+            additive_models=[],
+            device=torch.device("cpu"),
+            batch_size=1,
+            is_distributed=False,
         )
 
         o_11_all = torch.cat([sys0_vals_11_O.flatten(), sys1_vals_11_O.flatten()])
@@ -2496,7 +2529,12 @@ class TestScaler(ScalerTests):
             hypers={"densify_atomic_basis": False}, dataset_info=dataset_info
         ).to(torch.float64)
         train_or_load_scaler(
-            scaler, dataset, additive_models=[], batch_size=1, is_distributed=False
+            scaler,
+            dataset,
+            additive_models=[],
+            device=torch.device("cpu"),
+            batch_size=1,
+            is_distributed=False,
         )
 
         for _ in range(num_checks):
@@ -2523,6 +2561,7 @@ class TestScaler(ScalerTests):
                 scaler_rot,
                 dataset_rot,
                 additive_models=[],
+                device=torch.device("cpu"),
                 batch_size=1,
                 is_distributed=False,
             )
@@ -2546,6 +2585,7 @@ class TestScaler(ScalerTests):
                 scaler,
                 train_datasets=[],
                 additive_models=[],
+                device=torch.device("cpu"),
                 batch_size=1,
                 is_distributed=False,
                 fixed_weights={"energy": 0.1},
@@ -2634,6 +2674,7 @@ def test_scaler_with_neighbor_list_additive_model():
         scaler,
         train_datasets=[dataset],
         additive_models=[zbl],
+        device=torch.device("cpu"),
         batch_size=1,
         is_distributed=False,
     )
@@ -2679,6 +2720,7 @@ def test_scaler_atom_pair_default_scale_is_one():
     atomic_types = [1, 6, 8]
     target_name, dataset_info = _atom_pair_dataset_info(atomic_types)
     scaler = Scaler(hypers={}, dataset_info=dataset_info)
+    scaler.to(dtype=torch.float64)
 
     # `fit()` never accumulates atom-pair data (see `BaseScaler.accumulate`), so
     # this should leave the scale untouched at its identity default.
@@ -2702,6 +2744,7 @@ def test_scaler_atom_pair_fixed_weights_raises(weights):
             scaler,
             train_datasets=[],
             additive_models=[],
+            device=torch.device("cpu"),
             batch_size=1,
             is_distributed=False,
             fixed_weights={target_name: weights},
