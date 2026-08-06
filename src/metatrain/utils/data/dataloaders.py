@@ -45,6 +45,10 @@ def build_train_dataloaders(
     """
     dataloaders: List[DataLoader] = []
     epoch_samplers: List[Any] = []
+    # request fork explicitly: the default start method is "forkserver" on
+    # Python >= 3.14, but our datasets and collate functions rely on fork's
+    # memory sharing and are not picklable
+    mp_context = "fork" if num_workers > 0 else None
     for train_dataset, train_sampler in zip(
         train_datasets, train_distributed_samplers, strict=True
     ):
@@ -67,6 +71,7 @@ def build_train_dataloaders(
                     batch_sampler=batch_sampler,
                     collate_fn=collate_fn_train,
                     num_workers=num_workers,
+                    multiprocessing_context=mp_context,
                 )
             )
         else:
@@ -88,6 +93,7 @@ def build_train_dataloaders(
                     drop_last=(train_sampler is None),
                     collate_fn=collate_fn_train,
                     num_workers=num_workers,
+                    multiprocessing_context=mp_context,
                 )
             )
     return dataloaders, epoch_samplers
@@ -123,6 +129,10 @@ def build_val_dataloaders(
     :return: One ``DataLoader`` per dataset in ``val_datasets``.
     """
     dataloaders: List[DataLoader] = []
+    # request fork explicitly: the default start method is "forkserver" on
+    # Python >= 3.14, but our datasets and collate functions rely on fork's
+    # memory sharing and are not picklable
+    mp_context = "fork" if num_workers > 0 else None
     for val_dataset, val_sampler in zip(
         val_datasets, val_distributed_samplers, strict=True
     ):
@@ -142,6 +152,7 @@ def build_val_dataloaders(
                     batch_sampler=batch_sampler,
                     collate_fn=collate_fn_val,
                     num_workers=num_workers,
+                    multiprocessing_context=mp_context,
                 )
             )
         else:
@@ -154,6 +165,7 @@ def build_val_dataloaders(
                     drop_last=False,
                     collate_fn=collate_fn_val,
                     num_workers=num_workers,
+                    multiprocessing_context=mp_context,
                 )
             )
     return dataloaders
