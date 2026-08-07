@@ -4,12 +4,7 @@ import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
-from metatomic.torch.o3 import (
-    O3Transformation,
-    random_transformations,
-    transform_system,
-    transform_tensor,
-)
+from metatomic.torch.o3 import O3Transformations, random_transformations
 
 from metatrain.utils.augmentation import O3Augmenter
 from metatrain.utils.data import DatasetInfo, DiskDataset
@@ -230,8 +225,8 @@ def test_rotation_per_atom_spherical(batch_size, device):
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_distinct_transformations_per_system(device):
     """Tests that each system's target rows are transformed by that system's own
-    matrix. metatomic's ``transform_tensor`` pairs ``system_ids[i]`` positionally
-    with ``transformations[i]``, so this only holds if the ids recovered from the
+    matrix. metatomic's ``transform_tensormap`` pairs ``system_ids[i]`` positionally
+    with operation ``i``, so this only holds if the ids recovered from the
     tensor come out in the same order as the ``systems`` list. Every other test
     applies the same matrix to all systems and would not notice a mix-up.
     """
@@ -276,13 +271,14 @@ def test_distinct_transformations_per_system(device):
 
 def test_rotation_atom_pair():
     """Tests that O3Augmenter correctly wires an atom-pair-sampled target through to
-    metatomic's ``transform_tensor``: recovering non-contiguous "system" ids (via
+    metatomic's ``transform_tensormap``: recovering non-contiguous "system" ids (via
     ``_tensor_system_ids``) and routing each system's own transformation to its own
     pair rows, exactly as it already does for per-atom targets (see
     ``test_distinct_transformations_per_system``). Rotation correctness itself is
-    metatomic's responsibility (see its ``tests/o3.py::test_pair_samples_routing``);
+    metatomic's responsibility (see its
+    ``tests/o3/transformations.py::test_pair_samples_routing``);
     this only checks metatrain's own plumbing for the atom-pair sample kind, by
-    comparing against a direct call to ``transform_tensor`` rather than re-deriving
+    comparing against a direct call to ``transform_tensormap`` rather than re-deriving
     the expected rotated values by hand."""
     target_name = "mtt::pair_target"
 
@@ -342,12 +338,9 @@ def test_rotation_atom_pair():
         systems, {target_name: target}, transformations, extra_data={}
     )
 
-    expected = transform_tensor(
-        target,
-        systems,
-        [O3Transformation(t, max_angular_momentum=1) for t in transformations],
-        system_ids=system_ids,
-    )
+    expected = O3Transformations(
+        torch.stack(transformations), max_angular_momentum=1
+    ).transform_tensormap(target, system_ids=system_ids)
     mts.allclose_raise(RfX[target_name], expected)
 
 
@@ -358,7 +351,7 @@ def test_rotation_atom_pair_scalar():
     ``test_rotation_atom_pair``). A scalar has no components, so
     ``_contract_component_axes`` is a no-op for every row regardless of which
     system's transformation it is paired with; this test pins that down explicitly
-    rather than only cross-checking against ``transform_tensor``."""
+    rather than only cross-checking against ``transform_tensormap``."""
     target_name = "mtt::pair_scalar"
 
     # Absolute dataset ids, deliberately not 0, ..., n-1
@@ -425,7 +418,7 @@ def test_rotation_atom_pair_cartesian():
     (see ``test_cartesian_rank3``), with routing recovered from non-contiguous
     "system" ids via ``_tensor_system_ids``. The expected values are derived by hand
     (one row rotated, one left alone) rather than by cross-checking against
-    ``transform_tensor``."""
+    ``transform_tensormap``."""
     target_name = "mtt::pair_vector"
 
     systems = [
@@ -491,7 +484,8 @@ def test_apply_random_augmentations():
     """Tests the entry point the trainers actually use. Seeding ``torch`` and
     replaying the same ``random_transformations`` draw must reproduce exactly what
     ``apply_random_augmentations`` does: the augmented systems and targets equal
-    ``transform_system``/``transform_tensor`` under the reconstructed transformations,
+    ``transform_systems``/``transform_tensormap`` under the reconstructed
+    transformations,
     and the augmented targets keep their metadata and leave invariant
     (``o3_lambda=0``) blocks untouched."""
     target_name = "mtt::electron_density_basis_projs"
@@ -512,7 +506,7 @@ def test_apply_random_augmentations():
         3,
         device=torch.device("cpu"),
         dtype=torch.float64,
-        include_inversions=True,
+        add_inversions=True,
     )
     torch.manual_seed(42)
     new_systems, new_targets, _ = rotational_augmenter.apply_random_augmentations(
@@ -521,13 +515,10 @@ def test_apply_random_augmentations():
     RfX = new_targets[target_name]
 
     # the augmented systems/targets match the reconstructed transformations exactly
-    for system, new_system, transformation in zip(
-        X, new_systems, transformations, strict=True
-    ):
-        torch.testing.assert_close(
-            new_system.positions, transform_system(system, transformation).positions
-        )
-    mts.allclose_raise(RfX, transform_tensor(fX, X, transformations))
+    expected_systems = transformations.transform_systems(X)
+    for new_system, expected_system in zip(new_systems, expected_systems, strict=True):
+        torch.testing.assert_close(new_system.positions, expected_system.positions)
+    mts.allclose_raise(RfX, transformations.transform_tensormap(fX))
 
     assert RfX.keys == fX.keys
     for key, block in fX.items():
@@ -721,7 +712,7 @@ def test_rotation_per_atom_spherical_atomicbasis(batch_size, device):
     """Tests that the rotational augmenter rotates a Hamiltonian in the coupled basis
     (rank-1 tensors with an atomic basis) consistent with targets computed from DFT.
 
-    Previously this raised ValueError; metatomic's transform_tensor now handles
+    Previously this raised ValueError; metatomic's transform_tensormap now handles
     atomic basis targets via per-block row-index indexing.
     """
     if device == "cuda" and not torch.cuda.is_available():
@@ -820,7 +811,7 @@ def test_rotation_per_atom_spherical_rank2(batch_size, device):
     """Tests that the rotational augmenter rotates a Hamiltonian in the uncoupled basis
     (rank-2 tensors with an atomic basis) consistent with targets computed from DFT.
 
-    Previously this raised ValueError; metatomic's transform_tensor now handles
+    Previously this raised ValueError; metatomic's transform_tensormap now handles
     atomic basis targets via per-block row-index indexing.
     """
     if device == "cuda" and not torch.cuda.is_available():
