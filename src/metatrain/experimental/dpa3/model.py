@@ -27,6 +27,7 @@ from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
@@ -393,7 +394,13 @@ class DPA3(ModelInterface[ModelHypers]):
 
         return return_dict
 
-    def restart(self, dataset_info: DatasetInfo) -> "DPA3":
+    def restart(
+        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+    ) -> "DPA3":
+
+        if model_hypers is not None:
+            raise_if_hypers_mismatch(self.hypers, model_hypers)
+
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
