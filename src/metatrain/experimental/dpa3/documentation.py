@@ -57,6 +57,37 @@ weights instead of training from scratch:
 Energy biases and standard deviations are extracted from the loaded model and
 handed to metatrain's composition model and scaler automatically.
 
+Exporting a foundation DPA3 model
+---------------------------------
+
+As it is now, exporting a foundation DPA3 model from one of the `provided model
+files <https://huggingface.co/deepmodelingcommunity>`_ involves using ``mtt train`` with
+0 epochs. To do so, use the following ``options.yaml`` file:
+
+.. code-block:: yaml
+
+    architecture:
+        name: experimental.dpa3
+        model:
+            dpa3_model: path/to/deepmd-model.pt
+            dpa3_model_branch: OMol25
+        training:
+            num_epochs: 0
+            batch_size: 1
+
+    training_set: ./dummy_dataset.xyz
+    validation_set: ./dummy_dataset.xyz
+
+with ``dummy_dataset.xyz`` being any dataset containing at least one structure with just
+the ``energy`` property. For example, you can use:
+
+.. code-block::
+
+    2
+    Properties=species:S:1:pos:R:3:forces:R:3 energy=-2.1
+    H 0.0 0.0 0.0 0.0 0.0 0.0
+    H 1.0 0.0 0.0 0.0 0.0 0.0
+
 {{SECTION_MODEL_HYPERS}}
 
 with the following definitions needed to fully understand some of the parameters:
@@ -207,6 +238,9 @@ class ModelHypers(TypedDict):
     deviations stored in the deepmd-kit model are extracted and handed to
     metatrain's ``CompositionModel`` and ``Scaler`` so that fine-tuning starts
     from the pretrained values."""
+    dpa3_model_branch: Optional[str] = None
+    """Branch name for the pretrained DPA3 model.  If not provided, and the
+    model has multiple branches, an error will be raised."""
     descriptor: DescriptorHypers = init_with_defaults(DescriptorHypers)
     """Descriptor configuration (RepFlow block and related settings)."""
     fitting_net: FittingNetHypers = init_with_defaults(FittingNetHypers)

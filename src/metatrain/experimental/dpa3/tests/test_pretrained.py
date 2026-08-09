@@ -106,8 +106,9 @@ def test_pretrained_fixed_weights():
         assert comp_weights == {}
 
     if has_std:
-        assert "mtt::U0" in scale_weights
-        assert set(scale_weights["mtt::U0"].keys()) == {1, 6, 7, 8}
+        # Uniform per-type std is collapsed to a scalar (the Scaler only
+        # accepts scalars for per-structure targets).
+        assert scale_weights["mtt::U0"] == 1.0
     else:
         assert scale_weights == {}
 
@@ -164,14 +165,17 @@ def test_pretrained_checkpoint_roundtrip():
     # get_checkpoint should succeed (no pickle errors from dpa3_model)
     checkpoint = pretrained.get_checkpoint()
 
-    # dpa3_model should be stripped from the saved hypers
-    assert "dpa3_model" not in checkpoint["model_data"]["model_hypers"]
+    # The Module cannot be pickled, so it is replaced by the deepmd-kit config
+    # it was built from: that config is what rebuilds the exact same structure.
+    assert isinstance(checkpoint["model_data"]["model_hypers"]["dpa3_model"], dict)
 
     # Round-trip: load the checkpoint
     reloaded = DPA3.load_checkpoint(checkpoint, context="restart")
-
-    # The reloaded model should NOT have loaded_dpa3 set (built from hypers)
-    assert reloaded.loaded_dpa3 is False
+    # The structure comes from the stored config, not from the metatrain hypers
+    assert reloaded.loaded_dpa3 is True
+    # Bias/std were already moved to the composition model and scaler before the
+    # checkpoint was written; re-extracting them here would zero them out.
+    assert reloaded._loaded_out_bias is None
     systems = read_systems(DATASET_PATH)[:2]
     systems = [s.to(torch.float64) for s in systems]
     for s in systems:
