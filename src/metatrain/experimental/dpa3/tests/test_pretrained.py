@@ -1,7 +1,11 @@
 """Tests for loading a pretrained DPA3 model via the ``dpa3_model`` hyper."""
 
+import collections
 import copy
+import json
+import re
 
+import pytest
 import torch
 from metatomic.torch import ModelOutput
 
@@ -12,6 +16,7 @@ from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH, MODEL_HYPERS
+from .test_basic import _minimal_hypers
 
 
 def _make_dataset_info():
@@ -29,6 +34,108 @@ def _build_base_model():
     """Build a DPA3 model from hypers (the normal path)."""
     dataset_info = _make_dataset_info()
     return DPA3(MODEL_HYPERS, dataset_info)
+
+
+def _small_pretrained_checkpoint(path, branches=None):
+    """Write a small model using deepmd-kit's own checkpoint layout.
+
+    deepmd-kit stores weights under one key per task (``model.<TASK>.``) and the
+    model configuration in ``_extra_state``. Passing ``branches`` produces the
+    multi-task layout used by the pretrained DPA3 models; leaving it out
+    produces the single-task layout, whose task is always called ``Default``.
+
+    The model is deliberately smaller than the default hypers: a model rebuilt
+    from those hypers instead of the stored configuration would not have these
+    dimensions, and would fail to load the weights.
+
+    :param path: Where to write the checkpoint.
+    :param branches: Task names to store the weights under, or ``None`` for a
+        single-task checkpoint.
+    :return: The model the checkpoint was written from.
+    """
+    base = DPA3(_minimal_hypers("experimental.dpa3"), _make_dataset_info())
+    config = json.loads(base.model.get_model_def_script())
+
+    state = collections.OrderedDict()
+    for prefix in [f"model.{task}." for task in branches or ["Default"]]:
+        for key, value in base.model.state_dict().items():
+            state[prefix + key] = value
+
+    state["_extra_state"] = {
+        "model_params": (
+            {"model_dict": {branch: config for branch in branches}}
+            if branches
+            else config
+        ),
+        "train_infos": {"lr": 0, "step": 0},
+    }
+    torch.save({"model": state}, path)
+
+    return base
+
+
+def _hypers_for(checkpoint_path, branch=None):
+    """Default-sized hypers pointing at a checkpoint, so that anything taken
+    from the loaded model is distinguishable from the hypers."""
+    hypers = copy.deepcopy(MODEL_HYPERS)
+    hypers["dpa3_model"] = str(checkpoint_path)
+    hypers["dpa3_model_branch"] = branch
+    return hypers
+
+
+def test_multi_task_branch_loading(tmp_path):
+    """One branch of a multi-task checkpoint is loaded as a standalone model."""
+    path = tmp_path / "multi_task.pt"
+    base = _small_pretrained_checkpoint(path, branches=["Alpha", "Beta"])
+
+    pretrained = DPA3(_hypers_for(path, "Beta"), _make_dataset_info())
+
+    # The structure comes from the branch configuration, not from the hypers
+    base_state = base.model.state_dict()
+    loaded_state = pretrained.model.state_dict()
+    assert set(loaded_state) == set(base_state)
+    for key, value in base_state.items():
+        torch.testing.assert_close(loaded_state[key], value)
+
+
+def test_single_task_loading(tmp_path):
+    """A single-task checkpoint is loaded without asking for a branch."""
+    path = tmp_path / "single_task.pt"
+    base = _small_pretrained_checkpoint(path)
+
+    pretrained = DPA3(_hypers_for(path), _make_dataset_info())
+
+    assert pretrained.loaded_dpa3 is True
+    torch.testing.assert_close(
+        pretrained.model.state_dict(), base.model.state_dict(), rtol=0, atol=0
+    )
+
+
+def test_multi_task_requires_a_branch(tmp_path):
+    """A multi-task checkpoint without a branch names the available ones."""
+    path = tmp_path / "multi_task.pt"
+    _small_pretrained_checkpoint(path, branches=["Alpha", "Beta"])
+
+    message = (
+        "The pretrained DPA3 model has multiple branches. Please specify the "
+        "branch to load via the 'dpa3_model_branch' hyperparameter. "
+        "Available branches: Alpha, Beta"
+    )
+    with pytest.raises(ValueError, match=message):
+        DPA3(_hypers_for(path), _make_dataset_info())
+
+
+def test_multi_task_unknown_branch(tmp_path):
+    """An unknown branch is rejected, again listing the available ones."""
+    path = tmp_path / "multi_task.pt"
+    _small_pretrained_checkpoint(path, branches=["Alpha", "Beta"])
+
+    message = (
+        "The specified branch 'Gamma' is not available in the pretrained DPA3 "
+        "model. Available branches: Alpha, Beta"
+    )
+    with pytest.raises(ValueError, match=message):
+        DPA3(_hypers_for(path, "Gamma"), _make_dataset_info())
 
 
 def test_pretrained_module_loading():

@@ -124,11 +124,6 @@ class DPA3(ModelInterface[ModelHypers]):
             )
         self.dtype: torch.dtype = _PRECISION_INT_TO_DTYPE[desc_prec]
 
-        self.requested_nl = NeighborListOptions(
-            cutoff=self.hypers["descriptor"]["repflow"]["e_rcut"],
-            full_list=True,
-            strict=True,
-        )
         self.targets_keys = list(dataset_info.targets.keys())[0]
 
         # Pretrained model loading: if dpa3_model is provided, load it
@@ -270,6 +265,11 @@ class DPA3(ModelInterface[ModelHypers]):
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
 
+        self.requested_nl = NeighborListOptions(
+            cutoff=self.hypers["descriptor"]["repflow"]["e_rcut"],
+            full_list=True,
+            strict=True,
+        )
         composition_model = CompositionModel.from_valid_targets(
             dataset_info, self.atomic_types
         )
