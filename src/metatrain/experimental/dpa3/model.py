@@ -166,14 +166,13 @@ class DPA3(ModelInterface[ModelHypers]):
                             )
                         cfg = params["model_dict"][branch]
                         prefix = f"model.{branch}."
-                    self._deepmd_cfg = cfg
                     with _build_on_cpu():
-                        self.model = get_standard_model(self._deepmd_cfg)
+                        self.model = get_standard_model(cfg)
                     # Update the atomic types extracted from the dataset with the types
                     # from the pretrained model
                     dataset_info.atomic_types = [
                         ase.data.atomic_numbers[element]
-                        for element in self._deepmd_cfg["type_map"]
+                        for element in cfg["type_map"]
                     ]
                     self.atomic_types = dataset_info.atomic_types
                     branch_sd = {
