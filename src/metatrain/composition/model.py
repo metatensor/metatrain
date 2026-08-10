@@ -343,7 +343,6 @@ class CompositionModel(ModelInterface[ModelHypers]):
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         self.outputs[target_name] = ModelOutput(
-            quantity=target_info.quantity,
             unit=target_info.unit,
             sample_kind="atom",
             description=target_info.description,

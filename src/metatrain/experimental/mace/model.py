@@ -284,7 +284,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
         targets = dataset_info.targets
         self.outputs = {
             k: ModelOutput(
-                quantity=targets[k].quantity if k in targets else "",
                 unit=targets[k].unit if k in targets else "",
                 sample_kind="atom",
             )

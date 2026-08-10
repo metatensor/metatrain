@@ -198,8 +198,6 @@ filterwarnings = [
     "ignore:The TorchScript type system doesn't support instance-level annotations on empty non-base types",
     # Sphericart double backward warning
     "ignore:Second derivatives of the spherical harmonics with respect to the Cartesian coordinates were not requested at class creation.",
-    # Multi-threaded tests clash with multi-process data-loading
-    "ignore:This process \\(pid=\\d+\\) is multi-threaded, use of fork\\(\\) may lead to deadlocks in the child.:DeprecationWarning",
     # Initialization of tensors of zero size
     "ignore:Initializing zero-element tensors is a no-op:UserWarning",
     # MACE warning with newer versions of pytorch (because they use e3nn==0.4.4)

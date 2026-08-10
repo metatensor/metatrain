@@ -73,7 +73,6 @@ class GAP(ModelInterface[ModelHypers]):
 
         self.outputs = {
             key: ModelOutput(
-                quantity=value.quantity,
                 unit=value.unit,
                 sample_kind="system",
                 description=value.description,

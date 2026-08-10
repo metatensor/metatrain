@@ -398,8 +398,20 @@ def setup_logging(
         formatter = logging.Formatter(format, datefmt="%Y-%m-%d %H:%M:%S", style="{")
         handlers: List[Union[logging.StreamHandler, logging.FileHandler]] = []
 
+        class HideWarnings(logging.Filter):
+            messages_to_hide = [
+                "is multi-threaded, use of fork() may lead to deadlocks in the child",
+            ]
+
+            def filter(self, record: logging.LogRecord) -> bool:
+                for message in self.messages_to_hide:
+                    if message in record.getMessage():
+                        return False
+                return True
+
         stream_handler = logging.StreamHandler(sys.stdout)
         stream_handler.setFormatter(formatter)
+        stream_handler.addFilter(HideWarnings())
         handlers.append(stream_handler)
 
         if log_file and is_main_process():

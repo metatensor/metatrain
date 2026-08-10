@@ -58,7 +58,6 @@ def _get_requested_outputs(targets, target_info_dict):
     requested_outputs = {}
     for name, target in targets.items():
         requested_outputs[name] = ModelOutput(
-            quantity=target_info_dict[name].quantity,
             unit=target_info_dict[name].unit,
             sample_kind=target_info_dict[name].sample_kind,
             explicit_gradients=target.block(0).gradients_list(),

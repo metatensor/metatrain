@@ -1232,7 +1232,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         ]
 
         self.outputs[target_name] = ModelOutput(
-            quantity=target.quantity,
             unit=target.unit,
             sample_kind="atom",
             description=target.description,

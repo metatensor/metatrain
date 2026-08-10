@@ -44,7 +44,7 @@ def test_regression_init():
 
     output = model(
         systems,
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind="system")},
+        {"mtt::U0": ModelOutput(unit="", sample_kind="system")},
     )
 
     expected_output = torch.tensor(

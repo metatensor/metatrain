@@ -288,10 +288,8 @@ class FlashMDSymplectic(ModelInterface):
 
     def requested_inputs(self) -> Dict[str, ModelOutput]:
         return {
-            "momentum": ModelOutput(
-                quantity="momentum", unit="(eV*u)^(1/2)", sample_kind="atom"
-            ),
-            "mass": ModelOutput(quantity="mass", unit="u", sample_kind="atom"),
+            "momentum": ModelOutput(unit="(eV*u)^(1/2)", sample_kind="atom"),
+            "mass": ModelOutput(unit="u", sample_kind="atom"),
         }
 
     def forward(
