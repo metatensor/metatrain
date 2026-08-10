@@ -281,7 +281,7 @@ def sanitize_architecture_hypers(
     """
     training_hypers = hypers.get("training", {})
 
-    if isinstance(training_hypers.get("distributed"), bool):
+    if "distributed" in training_hypers:
         warnings.warn(
             "DEPRECATED[distributed]: The `distributed` option is deprecated "
             "and will be removed at some point. When it is not set, "
