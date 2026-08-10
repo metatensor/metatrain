@@ -96,7 +96,7 @@ Changed
 - The composition model moved from ``metatrain.utils.additive.CompositionModel`` to
   ``metatrain.composition.CompositionModel``.
 - O(3) data augmentation is delegated to the ``metatomic.torch.o3`` module, requiring
-  ``metatomic-torch >= 0.1.16``. Random transformations are now drawn from the torch
+  ``metatomic-torch >= 0.1.17``. Random transformations are now drawn from the torch
   RNG instead of scipy/numpy, which changes fixed-seed training trajectories.
 - ``RotationalAugmenter`` is now ``O3Augmenter``, with a ``group`` option selecting
   the transformations to sample (``"O3"`` or ``"inversions"``). The PhACE

@@ -5,7 +5,7 @@ import metatensor.torch as mts
 import pytest
 import torch
 from metatomic.torch import ModelOutput, System, systems_to_torch
-from metatomic.torch.o3 import random_transformations, transform_system
+from metatomic.torch.o3 import random_transformations
 
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.readers import (
@@ -917,8 +917,8 @@ class OutputTests(ArchitectureTests):
             ell,
             device=original_system.positions.device,
             dtype=original_system.positions.dtype,
-        )[0]
-        rotated_system = transform_system(original_system, transformation)
+        )
+        rotated_system = transformation.transform_systems([original_system])[0]
 
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         original_system = get_system_with_neighbor_lists(
@@ -941,7 +941,8 @@ class OutputTests(ArchitectureTests):
 
         original_values = original_output["spherical_target"].block().values.detach()
         expected_values = (
-            original_values.swapaxes(-1, -2) @ transformation.wigner_D_matrix(ell).T
+            original_values.swapaxes(-1, -2)
+            @ transformation.wigner_D_matrices(ell)[0].T
         ).swapaxes(-1, -2)
         torch.testing.assert_close(
             rotated_output["spherical_target"].block().values.detach(),
