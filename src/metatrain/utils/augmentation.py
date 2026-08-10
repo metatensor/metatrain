@@ -84,7 +84,7 @@ class O3Augmenter:
         self,
         n_systems: int,
         dtype: torch.dtype,
-    ) -> List[O3Transformation]:
+    ) -> O3Transformations:
         """
         Draws one random transformation per system from the configured group.
 
@@ -96,16 +96,12 @@ class O3Augmenter:
 
         :param n_systems: Number of transformations to draw.
         :param dtype: Floating point dtype of the transformation matrices.
-        :return: One transformation per system.
+        :return: One transformation per system, as a single batch.
         """
         if self._group == "inversions":
             signs = torch.randint(0, 2, (n_systems,)) * 2 - 1
-            return [
-                O3Transformation(
-                    sign * torch.eye(3, dtype=dtype), self._max_angular_momentum
-                )
-                for sign in signs
-            ]
+            matrices = signs.reshape(-1, 1, 1) * torch.eye(3, dtype=dtype)
+            return O3Transformations(matrices, self._max_angular_momentum)
         return random_transformations(
             n_systems,
             self._max_angular_momentum,
@@ -155,16 +151,13 @@ class O3Augmenter:
         """
         dtype = systems[0].positions.dtype
         transformations = self.sample_transformations(len(systems), dtype=dtype)
-        new_systems = [
-            transform_system(system, transformation)
-            for system, transformation in zip(systems, transformations, strict=True)
-        ]
+        new_systems = transformations.transform_systems(systems)
 
         n_systems = len(systems)
 
         def _transform(tmap: TensorMap) -> TensorMap:
-            return transform_tensor(
-                tmap, systems, transformations, _tensor_system_ids(tmap, n_systems)
+            return transformations.transform_tensormap(
+                tmap, _tensor_system_ids(tmap, n_systems)
             )
 
         new_targets = {
@@ -183,7 +176,7 @@ class O3Augmenter:
                 new_extra_data[name] = tmap
 
         new_extra_data[AUGMENTATION_NAME] = _pack_transformations(
-            [transformation.matrix for transformation in transformations]
+            list(transformations.matrices)
         )
         return new_systems, new_targets, new_extra_data
 
@@ -222,17 +215,15 @@ class O3Augmenter:
         matrices = _unpack_transformations(extra_data[AUGMENTATION_NAME]).to(
             dtype=reference.dtype, device=reference.device
         )
-        # O(3) matrices are orthogonal, so the inverse is the transpose. This holds
-        # for improper rotations too, so reflections need no special handling.
-        inverse = [
-            O3Transformation(matrix.T.contiguous(), self._max_angular_momentum)
-            for matrix in matrices
-        ]
+        # The recorded matrices are the forward ones; the batch's own
+        # inverse_transform_* methods apply their inverse, sharing the forward
+        # kernel with transposed matrices and Wigner-D matrices.
+        transformations = O3Transformations(matrices, self._max_angular_momentum)
         n_systems = len(systems)
         return {
             name: (
-                transform_tensor(
-                    tmap, systems, inverse, _tensor_system_ids(tmap, n_systems)
+                transformations.inverse_transform_tensormap(
+                    tmap, _tensor_system_ids(tmap, n_systems)
                 )
                 if name in original_frame
                 else tmap
