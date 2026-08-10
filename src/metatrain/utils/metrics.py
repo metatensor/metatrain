@@ -4,6 +4,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch.distributed
 from metatensor.torch import TensorMap
+from metatomic.torch import System
+
+from .per_atom import is_already_per_atom
 
 
 def _block_missing_from_prediction(
@@ -426,6 +429,103 @@ class MAEAccumulator:
             else:
                 out_key = f"{key} MAE (per atom)"
             finalized_info[out_key] = value[0] / value[1]
+
+        return finalized_info
+
+
+class EquivarianceAccumulator:
+    """Accumulates the O(3) equivariance error of a model over a dataset.
+
+    This consumes the ``o3::variance::<name>`` outputs of a metatomic
+    ``SymmetrizedModel``, which hold, for every sample, the variance of the
+    back-rotated predictions over a rotation grid, averaged over the components
+    of each block. Pooling them with the same normalization as
+    :class:`RMSEAccumulator` gives an error in the same units as the accuracy
+    RMSE of the target, and a lower bound on it.
+
+    metatomic expresses the variance in the spherical basis, so a Cartesian
+    target is split over several ``o3_lambda`` blocks. That decomposition is
+    orthonormal, so weighting each block by its number of components
+    ``2 * o3_lambda + 1`` recovers the element-wise squared error over the
+    original Cartesian tensor, with no per-quantity recombination.
+    """
+
+    def __init__(self) -> None:
+        self.information: Dict[str, Tuple[float, int]] = {}
+        """A dictionary mapping each target key to a tuple containing the sum of
+        the variances and the number of elements over which it was accumulated."""
+
+    def update(self, variances: Dict[str, TensorMap], systems: List[System]) -> None:
+        """Updates the accumulator with the variances of a new batch.
+
+        :param variances: a dictionary mapping each target name to the
+            ``o3::variance::<name>`` output of a ``SymmetrizedModel``, evaluated
+            on ``systems``.
+        :param systems: the systems of the batch, used to normalize
+            per-structure targets by the number of atoms.
+        """
+        num_atoms = torch.tensor(
+            [len(system) for system in systems],
+            device=systems[0].positions.device,
+        )
+
+        for key, variance in variances.items():
+            if key not in self.information:  # create key if not present
+                self.information[key] = (0.0, 0)
+            sum_of_variances, n_elems = self.information[key]
+
+            # the irrep columns are appended after any pre-existing ones, so the
+            # position of "o3_lambda" is not fixed and it is absent altogether
+            # for targets metatomic does not decompose
+            key_names = list(variance.keys.names)
+            lambda_index = (
+                key_names.index("o3_lambda") if "o3_lambda" in key_names else None
+            )
+
+            for block_key, block in variance.items():
+                if lambda_index is None:
+                    # every block of an undecomposed target shares the same
+                    # number of components, so the weight cancels out
+                    multiplicity = 1
+                else:
+                    multiplicity = 2 * int(block_key.values[lambda_index]) + 1
+
+                values = block.values
+                if not is_already_per_atom(block):
+                    # per-structure targets are compared per atom, as in
+                    # ``average_by_num_atoms``; a variance is squared, so the
+                    # number of atoms enters squared as well
+                    rows = block.samples.column("system").to(torch.long)
+                    scale = num_atoms.to(values.dtype)[rows]
+                    values = values / scale.view(-1, *[1] * (values.dim() - 1)) ** 2
+
+                sum_of_variances += multiplicity * float(values.sum().item())
+                n_elems += multiplicity * values.shape[0] * values.shape[-1]
+
+            self.information[key] = (sum_of_variances, n_elems)
+
+    def finalize(self, not_per_atom: List[str]) -> Dict[str, float]:
+        """Finalizes the accumulator and returns the equivariance error per key.
+
+        All keys will be returned as "{key} equivariance RMSE (per atom)" in the
+        output dictionary, unless ``key`` contains one or more of the strings in
+        ``not_per_atom``, in which case "{key} equivariance RMSE" will be
+        returned.
+
+        :param not_per_atom: a list of strings. If any of these strings are
+            present in a key, the metric will not be labeled as "(per atom)".
+
+        :return: The equivariance error for each key.
+        """
+        finalized_info = {}
+        for key, value in self.information.items():
+            if any([s in key for s in not_per_atom]):
+                out_key = f"{key} equivariance RMSE"
+            else:
+                out_key = f"{key} equivariance RMSE (per atom)"
+            # the variance of a nearly-equivariant model is dominated by the
+            # round-off of the quadrature and can come out slightly negative
+            finalized_info[out_key] = (max(value[0], 0.0) / value[1]) ** 0.5
 
         return finalized_info
 
