@@ -2,8 +2,10 @@ import numpy as np
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import System
 
 from metatrain.utils.metrics import (
+    EquivarianceAccumulator,
     MAEAccumulator,
     RMSEAccumulator,
     _get_global_keys,
@@ -525,3 +527,108 @@ def test_finalize_distributed_separate_blocks_missing_block_on_local_rank(
     assert (
         abs(result[f"energy (label_name=1) {metric_suffix}"] - expected_block1) < 1e-6
     )
+
+
+def _variance_block(values, samples):
+    return TensorBlock(
+        values=values,
+        samples=samples,
+        components=[],
+        properties=Labels(["p"], torch.tensor([[0]])),
+    )
+
+
+def _systems(*sizes):
+    return [
+        System(
+            positions=torch.zeros((n_atoms, 3), dtype=torch.float64),
+            types=torch.ones(n_atoms, dtype=torch.int32),
+            cell=torch.zeros((3, 3), dtype=torch.float64),
+            pbc=torch.tensor([False, False, False]),
+        )
+        for n_atoms in sizes
+    ]
+
+
+def test_equivariance_accumulator():
+    """Pools O(3) variances weighted by ``2 * o3_lambda + 1``, per-structure
+    targets additionally per atom, against hand-computed values."""
+    systems = _systems(2, 4)
+
+    # a per-structure target spread over an o3_lambda=0 and an o3_lambda=2 block
+    per_structure = TensorMap(
+        Labels(["o3_lambda", "o3_sigma"], torch.tensor([[0, 1], [2, 1]])),
+        [
+            _variance_block(
+                torch.tensor([[1.0], [2.0]], dtype=torch.float64),
+                Labels(["system"], torch.tensor([[0], [1]])),
+            ),
+            _variance_block(
+                torch.tensor([[0.5], [1.5]], dtype=torch.float64),
+                Labels(["system"], torch.tensor([[0], [1]])),
+            ),
+        ],
+    )
+    # a per-atom target, which must not be divided by the number of atoms
+    per_atom = TensorMap(
+        Labels(["o3_lambda", "o3_sigma"], torch.tensor([[1, 1]])),
+        [
+            _variance_block(
+                torch.full((6, 1), 2.0, dtype=torch.float64),
+                Labels(
+                    ["system", "atom"],
+                    torch.tensor([[0, 0], [0, 1], [1, 0], [1, 1], [1, 2], [1, 3]]),
+                ),
+            )
+        ],
+    )
+
+    accumulator = EquivarianceAccumulator()
+    accumulator.update(
+        {"mtt::per_structure": per_structure, "mtt::per_atom": per_atom}, systems
+    )
+
+    # (2*0+1) * 2 rows + (2*2+1) * 2 rows
+    assert accumulator.information["mtt::per_structure"][1] == 12
+    # (2*1+1) * 6 rows
+    assert accumulator.information["mtt::per_atom"][1] == 18
+
+    metrics = accumulator.finalize(not_per_atom=["per_atom"])
+    # (2*0+1) * (1.0/2**2 + 2.0/4**2) + (2*2+1) * (0.5/2**2 + 1.5/4**2), over 12
+    assert metrics["mtt::per_structure equivariance RMSE (per atom)"] == pytest.approx(
+        (1.46875 / 12) ** 0.5
+    )
+    # "per_atom" appears in the key, so it is not labelled "(per atom)"
+    assert metrics["mtt::per_atom equivariance RMSE"] == pytest.approx(2.0**0.5)
+
+
+def test_equivariance_accumulator_without_o3_lambda():
+    """Targets that metatomic does not decompose carry no ``o3_lambda`` key, and
+    every block has the same number of components, so the weight cancels."""
+    systems = _systems(3)
+    variance = TensorMap(
+        Labels(["_"], torch.tensor([[0]])),
+        [
+            _variance_block(
+                torch.full((3, 1), 4.0, dtype=torch.float64),
+                Labels(["system", "atom"], torch.tensor([[0, 0], [0, 1], [0, 2]])),
+            )
+        ],
+    )
+
+    accumulator = EquivarianceAccumulator()
+    accumulator.update({"mtt::custom": variance}, systems)
+
+    assert accumulator.information["mtt::custom"][1] == 3
+    metrics = accumulator.finalize(not_per_atom=[])
+    assert metrics["mtt::custom equivariance RMSE (per atom)"] == pytest.approx(2.0)
+
+
+def test_equivariance_accumulator_negative_variance():
+    """A model that is equivariant leaves round-off in the variance, which the
+    quadrature can make slightly negative; the error stays real and zero."""
+    accumulator = EquivarianceAccumulator()
+    accumulator.information["mtt::round_off"] = (-1e-30, 4)
+
+    metrics = accumulator.finalize(not_per_atom=[])
+    assert metrics["mtt::round_off equivariance RMSE (per atom)"] == 0.0

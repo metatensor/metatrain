@@ -56,6 +56,12 @@ Fixed
 Added
 #####
 
+- ``mtt eval`` can now measure the O(3) equivariance error of a model, with an
+  ``equivariance`` section in the eval options file. For every target it reports the
+  equivariance error in the units of the accuracy RMSE and as a lower bound on it, the
+  accuracy of the O(3)-averaged predictions, and their combination. Setting
+  ``equivariance: {output: ...}`` also saves those predictions and their variance over
+  the orientations, the latter under ``o3::variance::<target>``.
 - ``mtt train`` now fails early when launched with more than one SLURM task
   while distributed training is disabled or not supported by the architecture,
   instead of silently running one full copy of the training per task.
