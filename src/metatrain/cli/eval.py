@@ -318,6 +318,30 @@ def _check_grid_convergence(
             )
 
 
+def _native_system_ids(
+    extra: Dict[str, TensorMap], device: torch.device
+) -> torch.Tensor:
+    """The dataset's own id of each system in a batch, in batch order.
+
+    Atomic-basis targets keep these ids in their samples, and the collate
+    transform that pads them during training reads the same field, so the two
+    paths cannot drift apart.
+
+    :param extra: The batch's extra data.
+    :param device: Device to place the ids on.
+    :return: One id per system, in batch order.
+    :raises ValueError: If the batch carries no ids, which means the dataset was
+        not read from disk.
+    """
+    index_map = extra.get("mtt::aux::system_index")
+    if index_map is None:
+        raise ValueError(
+            "evaluating an atomic-basis loss needs the 'mtt::aux::system_index' "
+            "extra data, which only a DiskDataset provides."
+        )
+    return index_map[0].values[:, 0].to(dtype=torch.int64, device=device)
+
+
 def _eval_targets(
     model: Union[AtomisticModel, torch.jit.RecursiveScriptModule],
     dataset: Dataset,
@@ -591,13 +615,25 @@ def _eval_targets(
                 # so move the (metadata-sized) layout rather than the batch.
                 layout = options[name].layout.to(device=device)
                 layout_dtype = layout.block(0).values.dtype
-                for source in (loss_targets, loss_predictions):
-                    # The two sides are numbered differently -- predictions are
-                    # batch-local, targets keep the dataset's own indices -- so each
-                    # is told the ids it actually carries.
+                # The two sides are numbered differently -- predictions are
+                # batch-local, targets keep the dataset's own indices -- so each
+                # is told the ids it actually carries, **in batch order**. The
+                # ids are paired with `systems` positionally downstream, so any
+                # reordering here silently attaches an id to the wrong system:
+                # the (system, atom) pairs then do not exist, and the padding
+                # fails with a shape mismatch. Deriving them from the samples
+                # with `torch.unique` did exactly that, because it sorts, and a
+                # batch is only in ascending id order when the split file
+                # happens to be sorted.
+                native_ids = _native_system_ids(batch_extra_data, device)
+                local_ids = torch.arange(len(systems), device=device)
+                for source, ids in (
+                    (loss_targets, native_ids),
+                    (loss_predictions, local_ids),
+                ):
                     source[name] = prepare_atomic_basis_targets(
                         systems,
-                        torch.unique(source[name].block(0).samples.column("system")),
+                        ids,
                         source[name].to(dtype=layout_dtype),
                         layout,
                         None,
