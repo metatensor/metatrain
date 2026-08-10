@@ -409,15 +409,18 @@ def setup_logging(
                         return False
                 return True
 
+        warnings_filter = HideWarnings()
+
         stream_handler = logging.StreamHandler(sys.stdout)
         stream_handler.setFormatter(formatter)
-        stream_handler.addFilter(HideWarnings())
+        stream_handler.addFilter(warnings_filter)
         handlers.append(stream_handler)
 
         if log_file and is_main_process():
             log_file = check_file_extension(filename=log_file, extension=".log")
             file_handler = logging.FileHandler(filename=str(log_file), encoding="utf-8")
             file_handler.setFormatter(formatter)
+            file_handler.addFilter(warnings_filter)
             handlers.append(file_handler)
 
             csv_file = Path(log_file).with_suffix(".csv")

@@ -22,11 +22,13 @@ from omegaconf import OmegaConf
 
 import metatrain.soap_bpnn
 from metatrain import RANDOM_SEED
-from metatrain.cli.train import _process_restart_from, train_model
+from metatrain.cli.train import _process_restart_from
+from metatrain.cli.train import train_model as raw_train_model
 from metatrain.utils.data import build_train_dataloaders, build_val_dataloaders
 from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
+from metatrain.utils.logging import ROOT_LOGGER, setup_logging
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.pydantic import MetatrainValidationError
 from metatrain.utils.testing._utils import WANDB_AVAILABLE
@@ -65,6 +67,11 @@ def options_extra():
 @pytest.fixture(scope="function")
 def options_spherical():
     return OmegaConf.load(OPTIONS_SPHERICAL_PATH)
+
+
+def train_model(*args, **kwargs):
+    with setup_logging(ROOT_LOGGER, log_file=None, level=logging.INFO):
+        return raw_train_model(*args, **kwargs)
 
 
 @pytest.mark.parametrize("output", [None, "mymodel.pt"])
