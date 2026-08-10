@@ -394,7 +394,7 @@ def test_original_frame_evaluation_matches_rotated_metric(metric, determinant):
     augmenter = O3Augmenter(target_info_dict=_target_info(target))
 
     matrix = _rotation(1.1, determinant)
-    extra = {AUGMENTATION_NAME: _pack_transformations(torch.stack([matrix]))}
+    extra = {AUGMENTATION_NAME: _pack_transformations([matrix])}
 
     # Reference: the same transformation applied to everything, metric built on the
     # augmented geometry, loss taken there.

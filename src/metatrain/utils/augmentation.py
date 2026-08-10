@@ -96,11 +96,11 @@ class O3Augmenter:
 
         :param n_systems: Number of transformations to draw.
         :param dtype: Floating point dtype of the transformation matrices.
-        :return: The batch of ``n_systems`` transformations, one per system.
+        :return: One transformation per system, as a single batch.
         """
         if self._group == "inversions":
             signs = torch.randint(0, 2, (n_systems,)) * 2 - 1
-            matrices = torch.stack([sign * torch.eye(3, dtype=dtype) for sign in signs])
+            matrices = signs.reshape(-1, 1, 1) * torch.eye(3, dtype=dtype)
             return O3Transformations(matrices, self._max_angular_momentum)
         return random_transformations(
             n_systems,
@@ -176,7 +176,7 @@ class O3Augmenter:
                 new_extra_data[name] = tmap
 
         new_extra_data[AUGMENTATION_NAME] = _pack_transformations(
-            transformations.matrices
+            list(transformations.matrices)
         )
         return new_systems, new_targets, new_extra_data
 
@@ -215,6 +215,9 @@ class O3Augmenter:
         matrices = _unpack_transformations(extra_data[AUGMENTATION_NAME]).to(
             dtype=reference.dtype, device=reference.device
         )
+        # The recorded matrices are the forward ones; the batch's own
+        # inverse_transform_* methods apply their inverse, sharing the forward
+        # kernel with transposed matrices and Wigner-D matrices.
         transformations = O3Transformations(matrices, self._max_angular_momentum)
         n_systems = len(systems)
         return {
@@ -412,17 +415,16 @@ def get_augmentation_transform(
     )
 
 
-def _pack_transformations(matrices: torch.Tensor) -> TensorMap:
+def _pack_transformations(matrices: List[torch.Tensor]) -> TensorMap:
     """Store one 3x3 transformation per system as a flat, invariant payload.
 
     Kept without a component axis so that it is inert to any further augmentation:
     it describes a transformation, and is not itself a physical quantity to rotate.
 
-    :param matrices: ``(n_systems, 3, 3)`` orthogonal matrices, one per system
-        (e.g. an :class:`~metatomic.torch.o3.O3Transformations`'s ``.matrices``).
+    :param matrices: One 3x3 orthogonal matrix per system.
     :return: A :class:`TensorMap` with one ``(n_systems, 9)`` block.
     """
-    values = matrices.reshape(matrices.shape[0], -1)
+    values = torch.stack([matrix.reshape(-1) for matrix in matrices])
     n_systems = values.shape[0]
     return TensorMap(
         Labels.single().to(device=values.device),
