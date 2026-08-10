@@ -5,6 +5,19 @@ from metatensor.torch import TensorBlock, TensorMap
 from metatomic.torch import System
 
 
+def is_already_per_atom(block: TensorBlock) -> bool:
+    """Whether the values of a block already refer to single atoms or atom pairs.
+
+    Such blocks (atomic energies, position gradients, atom-pair targets) are not
+    divided by the number of atoms when a target is compared per atom.
+
+    :param block: The block to inspect.
+
+    :return: Whether the block is already per atom.
+    """
+    return "atom" in block.samples.names or "first_atom" in block.samples.names
+
+
 def average_by_num_atoms(
     tensor_map_dict: Dict[str, TensorMap],
     systems: List[System],
@@ -56,7 +69,7 @@ def divide_by_num_atoms(tensor_map: TensorMap, num_atoms: torch.Tensor) -> Tenso
 
     blocks = []
     for block in tensor_map.blocks():
-        if "atom" in block.samples.names or "first_atom" in block.samples.names:
+        if is_already_per_atom(block):
             new_block = block.copy(deep=False)
         else:
             values = block.values / num_atoms.view(
