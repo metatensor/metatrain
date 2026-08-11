@@ -182,6 +182,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                             target_name: model.target_infos[target_name]
                             for target_name in targets
                         },
+                        extra_data=extra_data,
                     )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 model.model.accumulate(systems, targets, extra_data)
@@ -256,6 +257,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                             target_name: model.target_infos[target_name]
                             for target_name in targets
                         },
+                        extra_data=extra_data
                     )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
                 model.model.accumulate_per_property(systems, targets, extra_data)

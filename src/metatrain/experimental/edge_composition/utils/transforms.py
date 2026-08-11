@@ -85,7 +85,7 @@ def batch_neighborlist(
         for key, mask in masks.items():
             edge_type_vs = system_vs[mask]
             samples_values = neighbor_list.samples.values[mask]
-            system_samples = torch.full((samples_values.shape[0], 1), i_system)
+            system_samples = torch.full((samples_values.shape[0], 1), i_system, device=samples_values.device)
             samples_values = torch.concatenate([system_samples, samples_values], dim=1)
             if key not in all_vs:
                 all_vs[key] = edge_type_vs

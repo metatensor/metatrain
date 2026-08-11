@@ -59,8 +59,8 @@ class Scaler(ModelInterface[ModelHypers]):
             dataset_info = densify_atomic_basis_dataset_info(dataset_info)
 
         self.target_infos = {
-            target_name: target_info
-            for target_name, target_info in dataset_info.targets.items()
+            k: v for k, v in dataset_info.targets.items()
+            if v.sample_kind != "atom_pair"
         }
 
         # Initialize the scaler model

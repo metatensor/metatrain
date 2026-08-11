@@ -38,7 +38,7 @@ def remove_additive(
             "require grad and does not have a grad_fn"
         ),
     )
-    if isinstance(additive_model, EdgeCompositionModel):
+    if True or isinstance(additive_model, EdgeCompositionModel):
         additive_model.eval()
     else:
         # The additive model's output layout follows its module mode (additive models
@@ -79,6 +79,9 @@ def remove_additive(
     additive_contribution.update(
         match_samples(atom_pair_contribs, targets, extra_data, which_samples="targets")
     )
+
+    if False and not isinstance(additive_model, EdgeCompositionModel):
+        additive_model.train(was_training)
 
     for target_key in additive_contribution.keys():
         # note that we loop over the keys of additive_contribution, not targets,

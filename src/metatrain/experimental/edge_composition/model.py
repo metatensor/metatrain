@@ -334,6 +334,9 @@ class EdgeCompositionModel(ModelInterface[ModelHypers]):
         )
 
         return capabilities
+    
+    def requested_inputs(self, *args, **kwargs):
+        return {}
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = next(self.parameters()).dtype

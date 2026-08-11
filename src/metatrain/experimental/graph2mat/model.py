@@ -541,10 +541,11 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
                     if search_k in additive_contributions[name].keys:
                         additive_block = additive_contributions[name].block(k)
                         
-                        if isinstance(k, dict) and "first_atom_type" in k:
+                        if "first_atom_type" in values[name].keys.names:
                             # Sort samples in both blocks to make sure they are in the same order
                             b = sort_block(b, axes="samples")
                             additive_block = sort_block(additive_block, axes="samples")
+                            assert torch.all(b.samples.values == additive_block.samples.values)
 
                         output_blocks.append(
                             _add_block_block(
