@@ -97,6 +97,10 @@ from ``atoms.info``:
 
 {{SECTION_DEFAULT_HYPERS}}
 
+{{SECTION_MODEL_HYPERS}}
+
+{{SECTION_TRAINER_HYPERS}}
+
 Tuning hyperparameters
 ----------------------
 
@@ -138,6 +142,8 @@ important** (in decreasing order of importance):
 
   .. autoattribute:: {{model_hypers_path}}.long_range
       :no-index:
+
+{{SECTION_REFERENCES}}
 """
 
 from typing import Literal, Optional

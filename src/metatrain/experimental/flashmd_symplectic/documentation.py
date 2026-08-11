@@ -7,6 +7,12 @@ The symplectic variant of :ref:`FlashMD <arch-flashmd>`.
 {{SECTION_INSTALLATION}}
 
 {{SECTION_DEFAULT_HYPERS}}
+
+{{SECTION_MODEL_HYPERS}}
+
+{{SECTION_TRAINER_HYPERS}}
+
+{{SECTION_REFERENCES}}
 """
 
 from typing import Literal, Optional

@@ -7,6 +7,16 @@ It is meant to be used as a preprocessing step for other architectures, so that 
 are standardized before being fed to the main model.
 
 See :ref:`scale-targets` for more details.
+
+{{SECTION_INSTALLATION}}
+
+{{SECTION_DEFAULT_HYPERS}}
+
+{{SECTION_MODEL_HYPERS}}
+
+{{SECTION_TRAINER_HYPERS}}
+
+{{SECTION_REFERENCES}}
 """
 
 from typing import Dict, Optional, Union

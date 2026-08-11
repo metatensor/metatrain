@@ -23,6 +23,10 @@ Additional outputs
 
 {{SECTION_DEFAULT_HYPERS}}
 
+{{SECTION_MODEL_HYPERS}}
+
+{{SECTION_TRAINER_HYPERS}}
+
 Tuning hyperparameters
 ----------------------
 
@@ -43,6 +47,8 @@ might have different default values.
 
         .. autoattribute:: {{trainer_hypers_path}}.masses
             :no-index:
+
+{{SECTION_REFERENCES}}
 """
 
 from typing import Literal, Optional
