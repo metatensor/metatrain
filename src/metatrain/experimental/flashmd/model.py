@@ -306,10 +306,8 @@ class FlashMD(ModelInterface[ModelHypers]):
 
     def requested_inputs(self) -> Dict[str, ModelOutput]:
         return {
-            "momentum": ModelOutput(
-                quantity="momentum", unit="(eV*u)^(1/2)", sample_kind="atom"
-            ),
-            "mass": ModelOutput(quantity="mass", unit="u", sample_kind="atom"),
+            "momentum": ModelOutput(unit="(eV*u)^(1/2)", sample_kind="atom"),
+            "mass": ModelOutput(unit="u", sample_kind="atom"),
         }
 
     def forward(
@@ -1256,7 +1254,6 @@ class FlashMD(ModelInterface[ModelHypers]):
             ] + [len(block.properties.values)]
 
         self.outputs[target_name] = ModelOutput(
-            quantity=target_info.quantity,
             unit=target_info.unit,
             sample_kind="atom",
             description=target_info.description,

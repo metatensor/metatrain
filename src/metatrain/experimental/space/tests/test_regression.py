@@ -61,7 +61,7 @@ def test_regression_init():
 
     output = model(
         systems,
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind="system")},
+        {"mtt::U0": ModelOutput(unit="", sample_kind="system")},
     )
 
     expected_output = torch.tensor(
@@ -158,7 +158,7 @@ def test_regression_train():
     model = torch.jit.script(model)
     output = model(
         systems[:5],
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind="system")},
+        {"mtt::U0": ModelOutput(unit="", sample_kind="system")},
     )
 
     expected_output = torch.tensor(
@@ -258,11 +258,7 @@ def test_regression_train_spherical(device):
     ]
     output = model(
         systems,
-        {
-            "mtt::electron_density_basis": ModelOutput(
-                quantity="", unit="", sample_kind="atom"
-            )
-        },
+        {"mtt::electron_density_basis": ModelOutput(unit="", sample_kind="atom")},
     )
 
     expected_output = torch.tensor(

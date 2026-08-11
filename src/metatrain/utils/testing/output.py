@@ -645,7 +645,6 @@ class OutputTests(ArchitectureTests):
         )
 
         features_output_options = ModelOutput(
-            quantity="",
             unit="",
             sample_kind=sample_kind,
         )
@@ -730,7 +729,6 @@ class OutputTests(ArchitectureTests):
 
         # last-layer features per atom:
         ll_output_options = ModelOutput(
-            quantity="",
             unit="",
             sample_kind=sample_kind,
         )

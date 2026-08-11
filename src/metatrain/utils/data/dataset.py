@@ -95,7 +95,7 @@ class DatasetInfo:
     ):
         # verify that `length_unit` and `atomic_types` are valid for metatomic
         _ = ModelCapabilities(
-            outputs={"energy": ModelOutput()},
+            outputs={"energy": ModelOutput(unit="eV")},
             length_unit=length_unit,
             atomic_types=atomic_types,
         )

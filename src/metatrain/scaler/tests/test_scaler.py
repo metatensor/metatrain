@@ -2640,7 +2640,6 @@ def test_scaler_with_neighbor_list_additive_model():
 
     outputs = {
         "energy": ModelOutput(
-            quantity="",
             unit="",
             sample_kind="system",
         )

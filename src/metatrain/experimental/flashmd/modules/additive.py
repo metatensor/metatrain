@@ -41,7 +41,6 @@ class PositionAdditive(torch.nn.Module):
                 # skip momenta targets unless `also_momenta` is True
                 continue
             self.outputs[key] = ModelOutput(
-                quantity=value.quantity,
                 unit=value.unit,
                 sample_kind="atom",
                 description=value.description,
@@ -63,7 +62,6 @@ class PositionAdditive(torch.nn.Module):
                 # skip momenta targets unless `also_momenta` is True
                 continue
             self.outputs[key] = ModelOutput(
-                quantity=value.quantity,
                 unit=value.unit,
                 sample_kind="atom",
                 description=value.description,

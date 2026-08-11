@@ -57,7 +57,6 @@ class ZBL(torch.nn.Module):
 
         self.outputs = {
             key: ModelOutput(
-                quantity=value.quantity,
                 unit=value.unit,
                 sample_kind="atom",
                 description=value.description,

@@ -214,7 +214,6 @@ class DPA3(ModelInterface[ModelHypers]):
             block.properties for block in target.layout.blocks()
         ]
         self.outputs[target_name] = ModelOutput(
-            quantity=target.quantity,
             unit=target.unit,
             sample_kind="atom",
         )
