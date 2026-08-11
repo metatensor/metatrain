@@ -99,6 +99,8 @@ conda install -c conda-forge metatrain
 > ⚠️ The conda installation does not install model-specific dependencies and will only
 > work for architectures without optional dependencies such as PET.
 
+> ⚠️ Python 3.14 is currently not supported. PyTorch JIT operations used by metatrain are not compatible with Python 3.14 yet, which can cause errors when exporting models or loading checkpoints. Please use Python 3.10–3.13.
+
 After installation, you can use mtt from the command line to train your models!
 
 <!-- marker-quickstart -->
