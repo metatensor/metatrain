@@ -27,6 +27,21 @@ Unreleased
 Fixed
 #####
 
+Added
+#####
+
+Changed
+#######
+
+Removed
+#######
+
+Version 2026.4 - 2026-08-11
+-----------------------------
+
+Fixed
+#####
+
 - The distributed composition fit no longer sees duplicated samples on shards of uneven
   size, which slightly biased the fitted weights whenever the dataset size was not
   divisible by the number of ranks.
