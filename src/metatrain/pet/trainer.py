@@ -87,7 +87,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 14
+    __checkpoint_version__ = 15
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)

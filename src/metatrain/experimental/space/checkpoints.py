@@ -59,3 +59,16 @@ def trainer_update_v2_v3(checkpoint: dict) -> None:
             "config": {},
             "inherit_heads": {},
         }
+
+
+def trainer_update_v3_v4(checkpoint: dict) -> None:
+    """
+    Deprecate the ``distributed`` hyperparameter.
+
+    So that it doesn't show up in the restarting options.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    train_hypers = checkpoint["train_hypers"]
+    if "distributed" in train_hypers and train_hypers["distributed"] is None:
+        train_hypers.pop("distributed")

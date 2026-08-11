@@ -61,7 +61,7 @@ def _get_raw_model(model: Union[DPA3, DistributedDataParallel], is_distributed: 
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
 
     def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)

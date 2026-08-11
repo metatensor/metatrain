@@ -136,7 +136,7 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for training SOAP BPNN models."""
 
-    distributed: NotRequired[Optional[bool]] = None
+    distributed: NotRequired[bool]
     """Whether to use distributed training. When not set, distributed training
     is enabled automatically when running under more than one SLURM task.
     Setting this option explicitly is deprecated."""
