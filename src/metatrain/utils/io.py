@@ -295,7 +295,18 @@ def trainer_from_checkpoint(
         trainer_ckpt_version = 1
         checkpoint["trainer_ckpt_version"] = trainer_ckpt_version
 
-    if trainer_ckpt_version != architecture.__trainer__.__checkpoint_version__:
+    current_trainer_version = architecture.__trainer__.__checkpoint_version__
+    if trainer_ckpt_version > current_trainer_version:
+        raise RuntimeError(
+            f"Unable to load the trainer checkpoint for the '{architecture_name}' "
+            f"architecture: the checkpoint uses checkpoint format version "
+            f"{trainer_ckpt_version}, but the installed '{architecture_name}' "
+            f"architecture only supports up to version "
+            f"{current_trainer_version}. You are using "
+            f"metatrain version {__version__}, which is too old to read this "
+            "checkpoint. Please upgrade metatrain to a newer version."
+        )
+    elif trainer_ckpt_version != current_trainer_version:
         try:
             if ckpt_before_versioning:
                 warnings.warn(
@@ -310,7 +321,7 @@ def trainer_from_checkpoint(
                 f"Unable to load the trainer checkpoint for "
                 f"the '{architecture_name}' architecture: the checkpoint is using "
                 f"version {trainer_ckpt_version}, while the current version is "
-                f"{architecture.__trainer__.__checkpoint_version__}; and trying to "
+                f"{current_trainer_version}; and trying to "
                 "upgrade the checkpoint failed."
             ) from e
 
