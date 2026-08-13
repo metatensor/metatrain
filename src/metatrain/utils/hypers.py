@@ -106,17 +106,29 @@ def get_hypers_diff(
 ) -> dict[str, tuple[Any, Any]]:
     """Get the difference between two hypers dictionaries.
 
+    Only keys present in ``new_hypers`` are compared. Missing keys are treated
+    as "keep the checkpoint value". Nested mappings are compared the same way,
+    so a partial YAML block such as ``soap: {max_radial: 4}`` does not mismatch
+    a checkpoint that also stores ``cutoff``.
+
     :param old_hypers: The old hyperparameters.
     :param new_hypers: The new hyperparameters.
 
-    :return: A dict with the hyperparameters that are different in the new
-        hypers compared to the old hypers. It is assumed that every key in
-        the new hypers is also present in the old hypers.
+    :return: A dict of dotted paths to ``(old, new)`` pairs that differ.
+        A missing old key is reported as ``"<not present>"``.
     """
-    diff = {}
+    diff: dict[str, tuple[Any, Any]] = {}
     for key, new_value in new_hypers.items():
+        if key not in old_hypers:
+            diff[key] = ("<not present>", new_value)
+            continue
         old_value = old_hypers[key]
-        if old_value != new_value:
+        if isinstance(old_value, Mapping) and isinstance(new_value, Mapping):
+            for nested_key, nested_pair in get_hypers_diff(
+                old_value, new_value
+            ).items():
+                diff[f"{key}.{nested_key}"] = nested_pair
+        elif old_value != new_value:
             diff[key] = (old_value, new_value)
     return diff
 

@@ -8,9 +8,11 @@ from omegaconf import OmegaConf
 from typing_extensions import TypedDict
 
 from metatrain.utils.hypers import (
+    get_hypers_diff,
     get_hypers_list,
     init_with_defaults,
     overwrite_defaults,
+    raise_if_hypers_mismatch,
 )
 from metatrain.utils.pydantic import validate_base_options, validate_eval_options
 
@@ -148,3 +150,65 @@ def test_per_atom_deprecation(per_atom: bool, mode: str, tmp_path: Path):
         )
     elif mode == "eval":
         assert options.targets["mtt::some_target"].sample_kind == sample_kind
+
+
+def test_hypers_diff_ignores_unspecified_top_level_keys():
+    old = {"a": 1, "b": 2}
+    assert get_hypers_diff(old, {"a": 1}) == {}
+    assert get_hypers_diff(old, {}) == {}
+
+
+def test_hypers_diff_reports_changed_scalar():
+    old = {"a": 1, "b": 2}
+    assert get_hypers_diff(old, {"a": 3}) == {"a": (1, 3)}
+
+
+def test_hypers_diff_partial_nested_dict_matches():
+    """Restarting with the same yaml only lists the keys the user wrote.
+
+    Checkpoint soap hypers include cutoff defaults that the input file omitted.
+    That is not a mismatch.
+    """
+    old = {
+        "soap": {
+            "max_angular": 2,
+            "max_radial": 4,
+            "cutoff": {"radius": 5.0, "width": 0.5},
+        }
+    }
+    new = {"soap": {"max_radial": 4, "max_angular": 2}}
+    assert get_hypers_diff(old, new) == {}
+
+
+def test_hypers_diff_nested_value_change():
+    old = {
+        "soap": {
+            "max_angular": 2,
+            "max_radial": 4,
+            "cutoff": {"radius": 5.0, "width": 0.5},
+        }
+    }
+    new = {"soap": {"max_radial": 8}}
+    assert get_hypers_diff(old, new) == {"soap.max_radial": (4, 8)}
+
+
+def test_hypers_diff_unknown_key():
+    old = {"a": 1}
+    assert get_hypers_diff(old, {"b": 2}) == {"b": ("<not present>", 2)}
+
+
+def test_raise_if_hypers_mismatch_accepts_partial_nested():
+    old = {
+        "soap": {
+            "max_angular": 2,
+            "max_radial": 4,
+            "cutoff": {"radius": 5.0, "width": 0.5},
+        }
+    }
+    raise_if_hypers_mismatch(old, {"soap": {"max_radial": 4, "max_angular": 2}})
+
+
+def test_raise_if_hypers_mismatch_reports_nested_path():
+    old = {"soap": {"max_radial": 4, "max_angular": 2}}
+    with pytest.raises(ValueError, match=r"soap\.max_radial"):
+        raise_if_hypers_mismatch(old, {"soap": {"max_radial": 8}})
