@@ -51,7 +51,7 @@ def get_remove_scale_transform(scaler: Scaler) -> Callable:
         :return: The systems, updated targets and extra data.
         """
         new_targets = remove_scale(systems, targets, scaler)
-        per_property_scaled = scaler(
+        per_property_scaled = scaler.apply_scales(
             systems,
             targets,
             remove=True,

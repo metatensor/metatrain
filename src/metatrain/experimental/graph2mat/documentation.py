@@ -10,7 +10,7 @@ from typing import Literal, Optional
 from typing_extensions import TypedDict
 
 from metatrain.utils.loss import LossSpecification
-from metatrain.utils.scaler import FixedScalerWeights
+from metatrain.scaler.documentation import FixedScalerWeights
 
 
 class MatrixSpecification(TypedDict):

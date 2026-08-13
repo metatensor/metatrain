@@ -28,7 +28,7 @@ from metatrain.utils.architectures import get_default_hypers, import_architectur
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
+from metatrain.scaler.model import Scaler
 from metatrain.utils.io import model_from_checkpoint
 
 from .documentation import ModelHypers
@@ -238,8 +238,10 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
             self.additive_models.append(
                 model_from_checkpoint(ckpt, "export")
             )
-
-        self.scaler = Scaler(hypers={}, dataset_info=self.dataset_info)
+        
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        scaler_hypers["densify_atomic_basis"] = False
+        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=self.dataset_info)
 
         self.finetune_config: Dict[str, Any] = {}
 

@@ -57,7 +57,9 @@ def remove_additive(
         },
         is_training=False,  # we don't need any gradients w.r.t. any parameters
     )
-    additive_model.train(was_training)
+
+    if False and not isinstance(additive_model, EdgeCompositionModel):
+        additive_model.train(was_training)
 
     for target_key in additive_contribution.keys():
         if (
@@ -79,9 +81,6 @@ def remove_additive(
     additive_contribution.update(
         match_samples(atom_pair_contribs, targets, extra_data, which_samples="targets")
     )
-
-    if False and not isinstance(additive_model, EdgeCompositionModel):
-        additive_model.train(was_training)
 
     for target_key in additive_contribution.keys():
         # note that we loop over the keys of additive_contribution, not targets,

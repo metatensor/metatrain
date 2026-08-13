@@ -128,7 +128,7 @@ def scale_targets(scaler, systems, targets, extra, per_property: bool = False) -
         k: v for k, v in targets.items() if f"mtt::aux::{name}::{k}" not in extra
     }
     scaled.update(
-        scaler(
+        scaler.apply_scales(
             systems,
             no_scales,
             remove=False,
