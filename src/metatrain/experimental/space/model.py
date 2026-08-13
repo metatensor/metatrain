@@ -360,7 +360,7 @@ class SPACE(ModelInterface[ModelHypers]):
 
         # remaining outputs (main outputs)
         for output_name in outputs.keys():
-            if output_name == "feature" or output_name.startswith("mtt::aux::"):
+            if output_name == "feature": #or output_name.startswith("mtt::aux::"):
                 continue
             output_as_tensor_dict = predictions[output_name]
             return_dict[output_name] = TensorMap(
