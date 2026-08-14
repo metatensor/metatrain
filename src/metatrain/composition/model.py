@@ -1,6 +1,6 @@
 import logging
 import warnings
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import metatensor.torch as mts
 import torch
@@ -22,6 +22,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
 
 from . import checkpoints
@@ -204,7 +205,9 @@ class CompositionModel(ModelInterface[ModelHypers]):
             checkpoint_dir="",
         )
 
-    def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
+    def restart(
+        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+    ) -> "CompositionModel":
         """
         Update the model to continue training, possibly with new targets.
 
@@ -214,8 +217,13 @@ class CompositionModel(ModelInterface[ModelHypers]):
 
         :param dataset_info: Information about the new dataset, including the
             targets that will be used for training.
+        :param model_hypers: New hyperparameters for the model. They must match
+            the existing hyperparameters, otherwise an error is raised.
         :return: The updated model.
         """
+        if model_hypers is not None:
+            raise_if_hypers_mismatch(self.hypers, model_hypers)
+
         raw_targets = {}
         for target_name in dataset_info.targets:
             target_info = dataset_info.targets[target_name]

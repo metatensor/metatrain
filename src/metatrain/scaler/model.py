@@ -1,7 +1,7 @@
 import itertools
 import logging
 import warnings
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import metatensor.torch as mts
 import torch
@@ -22,6 +22,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
 
 from . import checkpoints
@@ -108,13 +109,19 @@ class Scaler(ModelInterface[ModelHypers]):
             is_distributed=is_distributed,
         )
 
-    def restart(self, dataset_info: DatasetInfo) -> "Scaler":
+    def restart(
+        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+    ) -> "Scaler":
         """
         Restart the model with a new dataset info.
 
         :param dataset_info: New dataset information to be used.
+        :param model_hypers: New hyperparameters for the model. They must match
+            the existing hyperparameters, otherwise an error is raised.
         :return: The restarted Scaler.
         """
+        if model_hypers is not None:
+            raise_if_hypers_mismatch(self.hypers, model_hypers)
 
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)

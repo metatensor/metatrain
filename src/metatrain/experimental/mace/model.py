@@ -32,6 +32,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
@@ -307,7 +308,13 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         self.finetune_config: Dict[str, Any] = {}
 
-    def restart(self, dataset_info: DatasetInfo) -> "MetaMACE":
+    def restart(
+        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+    ) -> "MetaMACE":
+
+        if model_hypers is not None:
+            raise_if_hypers_mismatch(self.hypers, model_hypers)
+
         # Check that the new dataset info does not contain new atomic types
         if new_atomic_types := set(dataset_info.atomic_types) - set(
             self.dataset_info.atomic_types

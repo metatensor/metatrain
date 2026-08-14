@@ -293,6 +293,7 @@ def train_model(
     # MERGE OPTIONS ###########
     ###########################
 
+    input_options = copy.deepcopy(options)
     options = OmegaConf.merge(
         BASE_OPTIONS,
         {"architecture": get_default_hypers(architecture_name)},
@@ -634,6 +635,8 @@ def train_model(
     else:
         training_context = None
 
+    new_model_hypers = input_options.get("architecture", {}).get("model", {})
+
     try:
         if training_context == "restart" and restart_from is not None:
             logging.info(f"Restarting training from '{restart_from}'")
@@ -647,7 +650,7 @@ def train_model(
                     f"The file {restart_from} does not contain a valid checkpoint for "
                     f"the '{architecture_name}' architecture"
                 ) from e
-            model = model.restart(dataset_info)
+            model = model.restart(dataset_info, model_hypers=new_model_hypers)
             try:
                 trainer = trainer_from_checkpoint(
                     checkpoint=checkpoint,
@@ -671,7 +674,7 @@ def train_model(
                     f"The file {restart_from} does not contain a valid checkpoint for "
                     f"the '{architecture_name}' architecture"
                 ) from e
-            model = model.restart(dataset_info)
+            model = model.restart(dataset_info, model_hypers=new_model_hypers)
             trainer = Trainer(hypers["training"])
         else:
             logging.info("Starting training from scratch")
