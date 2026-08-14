@@ -100,8 +100,8 @@ def test_forward():
         system.add_data("momentum", tmap)
 
     outputs = {
-        "position": ModelOutput(quantity="length", unit="angstrom", sample_kind="atom"),
-        "momentum": ModelOutput(quantity="length", unit="angstrom", sample_kind="atom"),
+        "position": ModelOutput(unit="angstrom", sample_kind="atom"),
+        "momentum": ModelOutput(unit="angstrom", sample_kind="atom"),
     }
     result_dict = model(systems, outputs)
 

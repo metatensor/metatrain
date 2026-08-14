@@ -15,8 +15,8 @@ dependencies = [
     "metatensor-learn >=0.5.0,<0.6",
     "metatensor-operations >=0.5.0,<0.6",
     "metatensor-torch >=0.10.0,<0.11",
-    "metatomic-torch >=0.1.16,<0.3",
-    "metatomic-ase >=0.1.1,<0.3",
+    "metatomic-torch >=0.1.17,<0.2",
+    "metatomic-ase >=0.1.1,<0.2",
     "jsonschema",
     "pydantic >= 2.12", # Because of passing arguments to validator functions
     "typing_extensions", # For python < 3.12 typing.TypedDict has limited functionality
@@ -65,6 +65,7 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 composition = []
+scaler = []
 soap-bpnn = [
     "torch-spex>=0.1,<0.2",
     'sphericart-torch >=2.0.3',
@@ -181,6 +182,12 @@ filterwarnings = [
     "ignore:`torch.jit.save` is deprecated. Please switch to `torch.export`:DeprecationWarning",
     "ignore:`torch.jit.load` is deprecated. Please switch to `torch.export`:DeprecationWarning",
     "ignore:`torch.jit.trace_method` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.script` is not supported in Python 3.14\\+ and may break. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.script_method` is not supported in Python 3.14\\+ and may break. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.trace` is not supported in Python 3.14\\+ and may break. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.trace_method` is not supported in Python 3.14\\+ and may break. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.save` is not supported in Python 3.14\\+ and may break. Please switch to `torch.export`:DeprecationWarning",
+    "ignore:`torch.jit.load` is not supported in Python 3.14\\+ and may break. Please switch to `torch.export`:DeprecationWarning",
     # Emitted when the inductor backend lazily imports `torch.utils.mkldnn` during the
     # first `torch.compile`; nothing in metatrain uses `script_method` directly.
     "ignore:`torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
@@ -191,11 +198,6 @@ filterwarnings = [
     "ignore:The TorchScript type system doesn't support instance-level annotations on empty non-base types",
     # Sphericart double backward warning
     "ignore:Second derivatives of the spherical harmonics with respect to the Cartesian coordinates were not requested at class creation.",
-    # OldCompositionModel deprecation warning
-    "ignore:`OldCompositionModel` composition model is deprecated. Please use `CompositionModel` instead.",
-    # We don't yet have a linux-aarch64 wheel on PyPI, so libgomp is not copied to
-    # sphericart_torch.libs' by cibuildwheels
-    "ignore:No libgomp shared library found in 'sphericart_torch.libs'.",
     # Multi-threaded tests clash with multi-process data-loading
     "ignore:This process \\(pid=\\d+\\) is multi-threaded, use of fork\\(\\) may lead to deadlocks in the child.:DeprecationWarning",
     # Initialization of tensors of zero size
@@ -206,6 +208,8 @@ filterwarnings = [
     "ignore:`compute_requested_neighbors_from_options` is deprecated and will be removed in a future version:UserWarning",
     # Code from ASE using deprecated NumPy features
     "ignore:Setting the shape on a NumPy array has been deprecated in NumPy 2.5:DeprecationWarning",
+    # new state_dict format in metatensor-learn
+    "ignore:module does not have '_mts_buffer_names'; falling back to processing all attributes:UserWarning",
 ]
 addopts = ["-p", "mtt_plugin"]
 pythonpath = "src/metatrain/utils/testing"

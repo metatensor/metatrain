@@ -51,10 +51,10 @@ from typing_extensions import NotRequired, TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.pet.modules.finetuning import FinetuneHypers, NoFinetuneHypers
+from metatrain.scaler.documentation import FixedScalerWeights
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.long_range import LongRangeHypers
 from metatrain.utils.loss import LossSpecification
-from metatrain.utils.scaler import FixedScalerWeights
 
 
 ###########################
@@ -162,7 +162,7 @@ class TrainerHypers(TypedDict):
     module will be used. These correspond to masses averaged over the natural
     isotopic abundance of each element.
     """
-    distributed: NotRequired[Optional[bool]] = None
+    distributed: NotRequired[bool]
     """Whether to use distributed training. When not set, distributed training
     is enabled automatically when running under more than one SLURM task.
     Setting this option explicitly is deprecated."""
@@ -240,12 +240,17 @@ class TrainerHypers(TypedDict):
 
     See also :ref:`scale-targets`.
     """
-    fixed_scaling_weights: FixedScalerWeights = {}
+    fixed_scaling_weights: FixedScalerWeights | str = {}
     """Weights for target scaling.
 
     This is passed to the ``fixed_weights`` argument of
-    :meth:`Scaler.train_model <metatrain.utils.scaler.scaler.Scaler.train_model>`,
+    :meth:`Scaler.train_model <metatrain.scaler.Scaler.train_model>`,
     see its documentation to understand exactly what to pass here.
+
+    Apart from those options, one can pass a path to a model checkpoint. If that
+    is the checkpoint of a Scaler model, the pre-trained scaler will be loaded.
+    When passing a checkpoint for the scaler, ``atomic_baseline`` must also
+    be a checkpoint for a composition model.
     """
     per_structure_targets: list[str] = []
     """Targets to calculate per-structure losses and errors on."""

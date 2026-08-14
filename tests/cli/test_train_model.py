@@ -22,11 +22,13 @@ from omegaconf import OmegaConf
 
 import metatrain.soap_bpnn
 from metatrain import RANDOM_SEED
-from metatrain.cli.train import _process_restart_from, train_model
+from metatrain.cli.train import _process_restart_from
+from metatrain.cli.train import train_model as raw_train_model
 from metatrain.utils.data import build_train_dataloaders, build_val_dataloaders
 from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
+from metatrain.utils.logging import ROOT_LOGGER, setup_logging
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.pydantic import MetatrainValidationError
 from metatrain.utils.testing._utils import WANDB_AVAILABLE
@@ -65,6 +67,11 @@ def options_extra():
 @pytest.fixture(scope="function")
 def options_spherical():
     return OmegaConf.load(OPTIONS_SPHERICAL_PATH)
+
+
+def train_model(*args, **kwargs):
+    with setup_logging(ROOT_LOGGER, log_file=None, level=logging.INFO):
+        return raw_train_model(*args, **kwargs)
 
 
 @pytest.mark.parametrize("output", [None, "mymodel.pt"])
@@ -692,6 +699,46 @@ def test_same_name_targets_extra_data(
     else:
         # no exception should be raised
         train_model(options_extra)
+
+
+def test_no_final_eval(caplog, monkeypatch, tmp_path, options):
+    """Tests that the final evaluation can be disabled."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["final_eval"] = False
+
+    train_model(options)
+
+    log_text = caplog.text
+    assert "Skipping final evaluation." in log_text
+    assert "Evaluating training dataset" not in log_text
+    assert Path("model.pt").exists()
+
+
+def test_no_print_stats(caplog, monkeypatch, tmp_path, options):
+    """Tests that the dataset statistics can be disabled."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    systems_qm9 = ase.io.read(DATASET_PATH_QM9, ":")
+
+    options = copy.deepcopy(options)
+
+    ase.io.write("qm9_reduced_100.xyz", systems_qm9[:2])
+
+    options["architecture"]["training"]["num_epochs"] = 1
+    options["architecture"]["training"]["batch_size"] = 2
+    options["validation_set"] = {"indices": [0, 1]}
+    options["test_set"] = {"indices": [0, 1]}
+    options["print_stats"] = False
+
+    train_model(options)
+
+    log_text = caplog.text
+    assert "Skipping dataset statistics." in log_text
 
 
 def test_restart(options, monkeypatch, tmp_path, MODEL_PATH_64_BIT):

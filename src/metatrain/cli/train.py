@@ -50,7 +50,6 @@ from ..utils.omegaconf import (
 from ..utils.pydantic import validate_base_options
 from .eval import _eval_targets
 from .export import _has_extensions
-from .formatter import CustomHelpFormatter
 
 
 def _is_indices_only_config(config: DictConfig) -> bool:
@@ -100,11 +99,7 @@ def _add_train_model_parser(subparser: argparse._SubParsersAction) -> None:
 
     # If you change the synopsis of these commands or add new ones adjust the completion
     # script at `src/metatrain/share/metatrain-completion.bash`.
-    parser = subparser.add_parser(
-        "train",
-        description=description,
-        formatter_class=CustomHelpFormatter,
-    )
+    parser = subparser.add_parser("train", description=description)
     parser.set_defaults(callable="train_model")
 
     parser.add_argument(
@@ -585,16 +580,24 @@ def train_model(
     # PRINT DATASET STATS #####
     ###########################
 
-    if sum(len(d) for d in train_datasets + val_datasets + test_datasets) < 1_000_000:
+    should_print_stats = options["print_stats"]
+    if should_print_stats == "auto":
         # only print stats if the datasets are not too large (avoids hanging)
+        should_print_stats = (
+            sum(len(d) for d in train_datasets + val_datasets + test_datasets)
+            < 1_000_000
+        )
+        logging.info(
+            "Datasets are too large (>1M total structures) to calculate statistics "
+            "quickly."
+        )
+
+    if should_print_stats:
         _print_stats("Training", train_datasets, dataset_info)
         _print_stats("Validation", val_datasets, dataset_info)
         _print_stats("Test", test_datasets, dataset_info)
     else:
-        logging.info(
-            "Datasets are too large (>1M total structures) to calculate statistics "
-            "quickly. Skipping statistics."
-        )
+        logging.info("Skipping dataset statistics.")
 
     ###########################
     # SAVE EXPANDED OPTIONS ###
@@ -769,12 +772,19 @@ def train_model(
     # EVALUATE FINAL MODEL ####
     ###########################
 
+    if not options["final_eval"]:
+        logging.info("Skipping final evaluation.")
+        return
+
     # TODO: possibly control this better if and when wrappers archs will be treated
     # differently in the future
     if architecture_name == "llpr":
         if not hypers["training"]["train_all_parameters"]:
             # Skip final evaluation for LLPR
             return
+    if architecture_name == "scaler":
+        # Skip final evaluation for scaler
+        return
 
     mts_atomistic_model = load_model(
         path=output,

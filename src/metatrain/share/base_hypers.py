@@ -281,7 +281,7 @@ def sanitize_architecture_hypers(
     """
     training_hypers = hypers.get("training", {})
 
-    if isinstance(training_hypers.get("distributed"), bool):
+    if "distributed" in training_hypers:
         warnings.warn(
             "DEPRECATED[distributed]: The `distributed` option is deprecated "
             "and will be removed at some point. When it is not set, "
@@ -494,10 +494,24 @@ class BaseHypers(TypedDict):
     important for ensuring reproducibility. If not specified, the seed is generated
     randomly and reported in the log.
     """
+    print_stats: NotRequired[bool | Literal["auto"]] = "auto"
+    """Whether to print statistics about the datasets before training.
+
+    If set to ``"auto"``, statistics are printed only if the training, validation
+    and test sets combined have less than 1 million structures.
+    """
     wandb: NotRequired[WandbConfig]
     """Configuration for Weights & Biases logging.
 
     If ``None``, W&B logging is disabled."""
+    final_eval: NotRequired[bool] = True
+    """Whether to evaluate the final model (the one exported by ``mtt train``) on the
+    training, validation and test sets after training, logging the resulting RMSE/MAE
+    metrics.
+
+    For very large datasets, this evaluation can be expensive. Set this to ``False``
+    to skip it.
+    """
 
     training_set: TrainingSetSpec
     """Specification of the training dataset."""

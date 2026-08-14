@@ -26,7 +26,9 @@ from metatrain.pet.modules.finetuning import (
 )
 from metatrain.pet.modules.transformer import CartesianTransformer
 from metatrain.pet.modules.utilities import cutoff_func_bump as cutoff_func
+from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.target_info import get_energy_target_info
@@ -34,7 +36,6 @@ from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
@@ -202,7 +203,8 @@ class FlashMDSymplectic(ModelInterface):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
 
@@ -293,10 +295,8 @@ class FlashMDSymplectic(ModelInterface):
 
     def requested_inputs(self) -> Dict[str, ModelOutput]:
         return {
-            "momentum": ModelOutput(
-                quantity="momentum", unit="(eV*u)^(1/2)", sample_kind="atom"
-            ),
-            "mass": ModelOutput(quantity="mass", unit="u", sample_kind="atom"),
+            "momentum": ModelOutput(unit="(eV*u)^(1/2)", sample_kind="atom"),
+            "mass": ModelOutput(unit="u", sample_kind="atom"),
         }
 
     def forward(
@@ -627,7 +627,7 @@ class FlashMDSymplectic(ModelInterface):
         if not self.training:
             with record_function("FlashMD::post-processing"):
                 # at evaluation, we also introduce the scaler and additive contributions
-                return_dict = self.scaler(
+                return_dict = self.scaler.apply_scales(
                     systems,
                     return_dict,
                     selected_atoms=selected_atoms,

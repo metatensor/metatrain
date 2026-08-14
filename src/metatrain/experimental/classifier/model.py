@@ -91,7 +91,7 @@ class Classifier(ModelInterface[ModelHypers]):
 
         # Store capabilities
         outputs = {name: ModelOutput() for name in self.dataset_info.targets.keys()}
-        outputs["feature"] = ModelOutput(quantity="", unit="", sample_kind="system")
+        outputs["feature"] = ModelOutput(unit="", sample_kind="system")
         self.capabilities = ModelCapabilities(
             outputs=outputs,
             atomic_types=old_capabilities.atomic_types,

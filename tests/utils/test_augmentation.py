@@ -4,12 +4,7 @@ import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
-from metatomic.torch.o3 import (
-    O3Transformation,
-    random_transformations,
-    transform_system,
-    transform_tensor,
-)
+from metatomic.torch.o3 import O3Transformations, random_transformations
 
 from metatrain.utils.augmentation import O3Augmenter
 from metatrain.utils.data import DatasetInfo, DiskDataset
@@ -53,10 +48,10 @@ _HAMILTONIAN_IRREPS = {
 }
 
 
-def _transformation(batch_size: int) -> list:
+def _transformation(batch_size: int, device: str = "cpu") -> list:
     # apply_augmentations expects List[torch.Tensor] where each matrix R satisfies
     # positions_rotated = positions @ R.T, matching how the test datasets were built
-    t = torch.tensor(_R.T, dtype=torch.float64)
+    t = torch.tensor(_R.T, dtype=torch.float64, device=device)
     return [t] * batch_size
 
 
@@ -68,7 +63,7 @@ def _relabel_system_samples(tensor: TensorMap, system_ids: torch.Tensor) -> Tens
     for block in tensor.blocks():
         position = block.samples.names.index("system")
         values = block.samples.values.clone()
-        values[:, position] = system_ids[values[:, position]]
+        values[:, position] = system_ids.to(values.device)[values[:, position]]
         blocks.append(
             TensorBlock(
                 values=block.values,
@@ -101,29 +96,35 @@ def _dataset_info(target_name: str, target_type: dict, sample_kind: str) -> Data
 
 
 def _load_systems_and_targets(
-    target_name: str, batch_size: int
+    target_name: str, batch_size: int, device: str = "cpu"
 ) -> tuple[list[System], TensorMap, TensorMap]:
     """Load the first ``batch_size`` systems together with their unrotated and
-    DFT-rotated ``target_name`` references, joined along samples."""
+    DFT-rotated ``target_name`` references, joined along samples, on ``device``."""
     dataset_unrotated = DiskDataset(RESOURCES_PATH / "spherical_targets_unrotated.zip")
     dataset_rotated = DiskDataset(RESOURCES_PATH / "spherical_targets_rotated.zip")
-    X = [dataset_unrotated[i]["system"].to(torch.float64) for i in range(batch_size)]
+    X = [
+        dataset_unrotated[i]["system"].to(dtype=torch.float64, device=device)
+        for i in range(batch_size)
+    ]
     fX = mts.join(
         [dataset_unrotated[i][target_name] for i in range(batch_size)], axis="samples"
-    )
+    ).to(device=device)
     fRX = mts.join(
         [dataset_rotated[i][target_name] for i in range(batch_size)], axis="samples"
-    )
+    ).to(device=device)
     return X, fX, fRX
 
 
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
 @pytest.mark.parametrize("batch_size", [1, 2])
-def test_rotation_per_structure_spherical(batch_size):
+def test_rotation_per_structure_spherical(batch_size, device):
     """Tests that the rotational augmenter rotates a dipole moment consistent with
     targets computed from DFT"""
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
 
     target_name = "mtt::dipole_moment"
-    X, fX, fRX = _load_systems_and_targets(target_name, batch_size)
+    X, fX, fRX = _load_systems_and_targets(target_name, batch_size, device)
 
     dataset_info = _dataset_info(
         target_name,
@@ -136,22 +137,27 @@ def test_rotation_per_structure_spherical(batch_size):
     _, RfX, _ = rotational_augmenter.apply_augmentations(
         X,
         {target_name: fX},
-        _transformation(batch_size),
+        _transformation(batch_size, device),
         extra_data={},
     )
     RfX = RfX[target_name]
 
-    # Check that the rotated target matches the reference
+    # Check that the rotated target matches the reference, without leaving the device
+    assert RfX.device.type == torch.device(device).type
     mts.allclose_raise(RfX, fRX, atol=1e-5)
 
 
-def test_apply_augmentations_extra_data():
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_apply_augmentations_extra_data(device):
     """Tests that spherical extra data is rotated exactly like a target, while extra
     data whose name ends in ``_mask`` is passed through untouched (loss masks are not
     physical quantities and must not be rotated)."""
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+
     target_name = "mtt::dipole_moment"
     batch_size = 2
-    X, fX, fRX = _load_systems_and_targets(target_name, batch_size)
+    X, fX, fRX = _load_systems_and_targets(target_name, batch_size, device)
 
     target_type = {"spherical": {"irreps": [{"o3_lambda": 1, "o3_sigma": 1}]}}
     target_info = _dataset_info(target_name, target_type, "system")
@@ -160,13 +166,13 @@ def test_apply_augmentations_extra_data():
     rotational_augmenter = O3Augmenter(target_info.targets, extra_info.targets)
 
     mask = TensorMap(
-        keys=Labels(["_"], torch.tensor([[0]])),
+        keys=Labels(["_"], torch.tensor([[0]], device=device)),
         blocks=[
             TensorBlock(
-                values=torch.tensor([[1.0], [0.0]], dtype=torch.float64),
-                samples=Labels(["system"], torch.tensor([[0], [1]])),
+                values=torch.tensor([[1.0], [0.0]], dtype=torch.float64, device=device),
+                samples=Labels(["system"], torch.tensor([[0], [1]], device=device)),
                 components=[],
-                properties=Labels(["_"], torch.tensor([[0]])),
+                properties=Labels(["_"], torch.tensor([[0]], device=device)),
             )
         ],
     )
@@ -174,7 +180,7 @@ def test_apply_augmentations_extra_data():
     _, _, new_extra_data = rotational_augmenter.apply_augmentations(
         X,
         {target_name: fX},
-        _transformation(batch_size),
+        _transformation(batch_size, device),
         extra_data={extra_name: fX, "mtt::dipole_moment_mask": mask},
     )
 
@@ -186,13 +192,16 @@ def test_apply_augmentations_extra_data():
     )
 
 
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
 @pytest.mark.parametrize("batch_size", [1, 2])
-def test_rotation_per_atom_spherical(batch_size):
+def test_rotation_per_atom_spherical(batch_size, device):
     """Tests that the rotational augmenter rotates electron density projections
     consistent with targets computed from DFT"""
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
 
     target_name = "mtt::electron_density_basis_projs"
-    X, fX, fRX = _load_systems_and_targets(target_name, batch_size)
+    X, fX, fRX = _load_systems_and_targets(target_name, batch_size, device)
 
     dataset_info = _dataset_info(
         target_name, {"spherical": {"irreps": _ELECTRON_DENSITY_IRREPS}}, "atom"
@@ -203,28 +212,33 @@ def test_rotation_per_atom_spherical(batch_size):
     _, RfX, _ = rotational_augmenter.apply_augmentations(
         X,
         {target_name: fX},
-        _transformation(batch_size),
+        _transformation(batch_size, device),
         extra_data={},
     )
     RfX = RfX[target_name]
 
-    # Check that the rotated target matches the reference
+    # Check that the rotated target matches the reference, without leaving the device
+    assert RfX.device.type == torch.device(device).type
     mts.allclose_raise(RfX, fRX, atol=1e-5)
 
 
-def test_distinct_transformations_per_system():
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_distinct_transformations_per_system(device):
     """Tests that each system's target rows are transformed by that system's own
-    matrix. metatomic's ``transform_tensor`` pairs ``system_ids[i]`` positionally
-    with ``transformations[i]``, so this only holds if the ids recovered from the
+    matrix. metatomic's ``transform_tensormap`` pairs ``system_ids[i]`` positionally
+    with operation ``i``, so this only holds if the ids recovered from the
     tensor come out in the same order as the ``systems`` list. Every other test
     applies the same matrix to all systems and would not notice a mix-up.
     """
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+
     target_name = "mtt::electron_density_basis_projs"
 
     # Absolute dataset ids, deliberately not 0, ..., n-1
     system_ids = torch.tensor([3, 8])
 
-    X, fX, _ = _load_systems_and_targets(target_name, 2)
+    X, fX, _ = _load_systems_and_targets(target_name, 2, device)
     fX = _relabel_system_samples(fX, system_ids)
 
     # system 0 is left alone while system 1 is rotated, so the expected result
@@ -235,7 +249,7 @@ def test_distinct_transformations_per_system():
         mts.join(
             [dataset_unrotated[0][target_name], dataset_rotated[1][target_name]],
             axis="samples",
-        ),
+        ).to(device=device),
         system_ids,
     )
 
@@ -245,8 +259,8 @@ def test_distinct_transformations_per_system():
     rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 
     transformations = [
-        torch.eye(3, dtype=torch.float64),
-        torch.tensor(_R.T, dtype=torch.float64),
+        torch.eye(3, dtype=torch.float64, device=device),
+        torch.tensor(_R.T, dtype=torch.float64, device=device),
     ]
     _, RfX, _ = rotational_augmenter.apply_augmentations(
         X, {target_name: fX}, transformations, extra_data={}
@@ -257,13 +271,14 @@ def test_distinct_transformations_per_system():
 
 def test_rotation_atom_pair():
     """Tests that O3Augmenter correctly wires an atom-pair-sampled target through to
-    metatomic's ``transform_tensor``: recovering non-contiguous "system" ids (via
+    metatomic's ``transform_tensormap``: recovering non-contiguous "system" ids (via
     ``_tensor_system_ids``) and routing each system's own transformation to its own
     pair rows, exactly as it already does for per-atom targets (see
     ``test_distinct_transformations_per_system``). Rotation correctness itself is
-    metatomic's responsibility (see its ``tests/o3.py::test_pair_samples_routing``);
+    metatomic's responsibility (see its
+    ``tests/o3/transformations.py::test_pair_samples_routing``);
     this only checks metatrain's own plumbing for the atom-pair sample kind, by
-    comparing against a direct call to ``transform_tensor`` rather than re-deriving
+    comparing against a direct call to ``transform_tensormap`` rather than re-deriving
     the expected rotated values by hand."""
     target_name = "mtt::pair_target"
 
@@ -323,12 +338,9 @@ def test_rotation_atom_pair():
         systems, {target_name: target}, transformations, extra_data={}
     )
 
-    expected = transform_tensor(
-        target,
-        systems,
-        [O3Transformation(t, max_angular_momentum=1) for t in transformations],
-        system_ids=system_ids,
-    )
+    expected = O3Transformations(
+        torch.stack(transformations), max_angular_momentum=1
+    ).transform_tensormap(target, system_ids=system_ids)
     mts.allclose_raise(RfX[target_name], expected)
 
 
@@ -339,7 +351,7 @@ def test_rotation_atom_pair_scalar():
     ``test_rotation_atom_pair``). A scalar has no components, so
     ``_contract_component_axes`` is a no-op for every row regardless of which
     system's transformation it is paired with; this test pins that down explicitly
-    rather than only cross-checking against ``transform_tensor``."""
+    rather than only cross-checking against ``transform_tensormap``."""
     target_name = "mtt::pair_scalar"
 
     # Absolute dataset ids, deliberately not 0, ..., n-1
@@ -406,7 +418,7 @@ def test_rotation_atom_pair_cartesian():
     (see ``test_cartesian_rank3``), with routing recovered from non-contiguous
     "system" ids via ``_tensor_system_ids``. The expected values are derived by hand
     (one row rotated, one left alone) rather than by cross-checking against
-    ``transform_tensor``."""
+    ``transform_tensormap``."""
     target_name = "mtt::pair_vector"
 
     systems = [
@@ -472,7 +484,8 @@ def test_apply_random_augmentations():
     """Tests the entry point the trainers actually use. Seeding ``torch`` and
     replaying the same ``random_transformations`` draw must reproduce exactly what
     ``apply_random_augmentations`` does: the augmented systems and targets equal
-    ``transform_system``/``transform_tensor`` under the reconstructed transformations,
+    ``transform_systems``/``transform_tensormap`` under the reconstructed
+    transformations,
     and the augmented targets keep their metadata and leave invariant
     (``o3_lambda=0``) blocks untouched."""
     target_name = "mtt::electron_density_basis_projs"
@@ -493,7 +506,7 @@ def test_apply_random_augmentations():
         3,
         device=torch.device("cpu"),
         dtype=torch.float64,
-        include_inversions=True,
+        add_inversions=True,
     )
     torch.manual_seed(42)
     new_systems, new_targets, _ = rotational_augmenter.apply_random_augmentations(
@@ -502,13 +515,10 @@ def test_apply_random_augmentations():
     RfX = new_targets[target_name]
 
     # the augmented systems/targets match the reconstructed transformations exactly
-    for system, new_system, transformation in zip(
-        X, new_systems, transformations, strict=True
-    ):
-        torch.testing.assert_close(
-            new_system.positions, transform_system(system, transformation).positions
-        )
-    mts.allclose_raise(RfX, transform_tensor(fX, X, transformations))
+    expected_systems = transformations.transform_systems(X)
+    for new_system, expected_system in zip(new_systems, expected_systems, strict=True):
+        torch.testing.assert_close(new_system.positions, expected_system.positions)
+    mts.allclose_raise(RfX, transformations.transform_tensormap(fX))
 
     assert RfX.keys == fX.keys
     for key, block in fX.items():
@@ -696,16 +706,20 @@ def test_cartesian_rank3():
     torch.testing.assert_close(new_targets[target_name].block().values, expected)
 
 
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
 @pytest.mark.parametrize("batch_size", [1, 2])
-def test_rotation_per_atom_spherical_atomicbasis(batch_size):
+def test_rotation_per_atom_spherical_atomicbasis(batch_size, device):
     """Tests that the rotational augmenter rotates a Hamiltonian in the coupled basis
     (rank-1 tensors with an atomic basis) consistent with targets computed from DFT.
 
-    Previously this raised ValueError; metatomic's transform_tensor now handles
+    Previously this raised ValueError; metatomic's transform_tensormap now handles
     atomic basis targets via per-block row-index indexing.
     """
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+
     target_name = "mtt::hamiltonian_nodes"
-    X, fX, fRX = _load_systems_and_targets(target_name, batch_size)
+    X, fX, fRX = _load_systems_and_targets(target_name, batch_size, device)
 
     dataset_info = _dataset_info(
         target_name,
@@ -718,12 +732,13 @@ def test_rotation_per_atom_spherical_atomicbasis(batch_size):
     _, RfX, _ = rotational_augmenter.apply_augmentations(
         X,
         {target_name: fX},
-        _transformation(batch_size),
+        _transformation(batch_size, device),
         extra_data={},
     )
     RfX = RfX[target_name]
 
-    # Check that the rotated target matches the reference
+    # Check that the rotated target matches the reference, without leaving the device
+    assert RfX.device.type == torch.device(device).type
     mts.allclose_raise(RfX, fRX, atol=1e-5)
 
 
@@ -740,6 +755,8 @@ def test_rotation_after_atomic_basis_prepare_transform():
     non-contiguous absolute "system" ids, and checks the final result against the
     DFT-rotated reference.
     """
+    # CPU only: the atomic-basis "prepare" transform builds its layout on the CPU and
+    # cannot yet be driven with a GPU batch, independently of the augmentation itself.
     target_name = "mtt::hamiltonian_nodes"
     batch_size = 2
 
@@ -788,16 +805,20 @@ def test_rotation_after_atomic_basis_prepare_transform():
     mts.allclose_raise(reversed_targets[target_name], fRX, atol=1e-5)
 
 
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
 @pytest.mark.parametrize("batch_size", [1, 2])
-def test_rotation_per_atom_spherical_rank2(batch_size):
+def test_rotation_per_atom_spherical_rank2(batch_size, device):
     """Tests that the rotational augmenter rotates a Hamiltonian in the uncoupled basis
     (rank-2 tensors with an atomic basis) consistent with targets computed from DFT.
 
-    Previously this raised ValueError; metatomic's transform_tensor now handles
+    Previously this raised ValueError; metatomic's transform_tensormap now handles
     atomic basis targets via per-block row-index indexing.
     """
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+
     target_name = "mtt::hamiltonian_nodes_uncoupled"
-    X, fX, fRX = _load_systems_and_targets(target_name, batch_size)
+    X, fX, fRX = _load_systems_and_targets(target_name, batch_size, device)
 
     dataset_info = _dataset_info(
         target_name,
@@ -810,10 +831,11 @@ def test_rotation_per_atom_spherical_rank2(batch_size):
     _, RfX, _ = rotational_augmenter.apply_augmentations(
         X,
         {target_name: fX},
-        _transformation(batch_size),
+        _transformation(batch_size, device),
         extra_data={},
     )
     RfX = RfX[target_name]
 
-    # Check that the rotated target matches the reference
+    # Check that the rotated target matches the reference, without leaving the device
+    assert RfX.device.type == torch.device(device).type
     mts.allclose_raise(RfX, fRX, atol=1e-5)

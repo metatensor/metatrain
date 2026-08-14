@@ -3,12 +3,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 from metatensor.torch import TensorMap
 from metatomic.torch import System
-from metatomic.torch.o3 import (
-    O3Transformation,
-    random_transformations,
-    transform_system,
-    transform_tensor,
-)
+from metatomic.torch.o3 import O3Transformations, random_transformations
 
 from .data import TargetInfo
 
@@ -71,7 +66,7 @@ class O3Augmenter:
             self._max_angular_momentum,
             device=torch.device("cpu"),
             dtype=dtype,
-            include_inversions=True,
+            add_inversions=True,
         )
         return self._apply(systems, targets, transformations, extra_data=extra_data)
 
@@ -94,29 +89,25 @@ class O3Augmenter:
             objects to augment alongside targets.
         :return: A tuple of augmented systems, targets, and extra data.
         """
-        o3_transformations = [
-            O3Transformation(matrix, self._max_angular_momentum)
-            for matrix in transformations
-        ]
+        o3_transformations = O3Transformations(
+            torch.stack(transformations), self._max_angular_momentum
+        )
         return self._apply(systems, targets, o3_transformations, extra_data=extra_data)
 
     def _apply(
         self,
         systems: List[System],
         targets: Dict[str, TensorMap],
-        transformations: List[O3Transformation],
+        transformations: O3Transformations,
         extra_data: Optional[Dict[str, TensorMap]] = None,
     ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
-        new_systems = [
-            transform_system(system, transformation)
-            for system, transformation in zip(systems, transformations, strict=True)
-        ]
+        new_systems = transformations.transform_systems(systems)
 
         n_systems = len(systems)
 
         def _transform(tmap: TensorMap) -> TensorMap:
-            return transform_tensor(
-                tmap, systems, transformations, _tensor_system_ids(tmap, n_systems)
+            return transformations.transform_tensormap(
+                tmap, _tensor_system_ids(tmap, n_systems)
             )
 
         new_targets = {name: _transform(tmap) for name, tmap in targets.items()}
@@ -158,7 +149,9 @@ def _tensor_system_ids(tensor: TensorMap, n_systems: int) -> Optional[torch.Tens
         # order-preserving dedup: the first-appearance order must match `systems`
         seen = dict.fromkeys(column.tolist())
         if len(seen) == n_systems:
-            return torch.tensor(list(seen.keys()), dtype=torch.int32)
+            return torch.tensor(
+                list(seen.keys()), dtype=torch.int32, device=column.device
+            )
     return None
 
 

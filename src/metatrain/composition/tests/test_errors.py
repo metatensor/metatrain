@@ -108,4 +108,4 @@ def test_forward_unknown_output_raises():
 
     systems = read_systems(DATASET_PATH)
     with pytest.raises(ValueError, match="not supported"):
-        model(systems[:1], {"nonexistent": ModelOutput(quantity="energy")})
+        model(systems[:1], {"nonexistent": ModelOutput()})

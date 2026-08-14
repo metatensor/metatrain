@@ -17,8 +17,10 @@ from metatomic.torch import (
 )
 
 from metatrain.composition import CompositionModel
+from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.additive import ZBL
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.atomic_basis_helpers import (
@@ -30,7 +32,6 @@ from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
@@ -419,7 +420,8 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(hypers={}, dataset_info=train_dataset_info)
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -471,7 +473,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 },
             ),
         )
-        self.scaler = self.scaler.restart(train_dataset_info)
+        self.scaler = self.scaler.restart(dataset_info)
 
         return self
 
@@ -824,7 +826,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(
+            return_dict = self.scaler.apply_scales(
                 systems,
                 return_dict,
                 selected_atoms=selected_atoms,
@@ -1237,7 +1239,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         ]
 
         self.outputs[target_name] = ModelOutput(
-            quantity=target.quantity,
             unit=target.unit,
             sample_kind="atom",
             description=target.description,

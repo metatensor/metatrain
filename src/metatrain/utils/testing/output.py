@@ -5,7 +5,7 @@ import metatensor.torch as mts
 import pytest
 import torch
 from metatomic.torch import ModelOutput, System, systems_to_torch
-from metatomic.torch.o3 import random_transformations, transform_system
+from metatomic.torch.o3 import random_transformations
 
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.readers import (
@@ -58,6 +58,10 @@ class OutputTests(ArchitectureTests):
     transform correctly under reflections by architecture's design)."""
     equivariance_error_tolerance: float = 1e-5
     """Tolerance for equivariance tests."""
+
+    monomer_equal_dimer: bool = False
+    """Whether the model is expected to produce the same output for
+    a dimer and two monomers at a large distance."""
 
     @pytest.fixture
     def n_features(self) -> Optional[int | list[int]]:
@@ -504,6 +508,11 @@ class OutputTests(ArchitectureTests):
         argument of the ``forward()`` method, and it handles it correctly.
         That is, the model only returns outputs for the selected atoms.
 
+        The test runs the model on a dimer system and compares the per-atom
+        energies to those of a system where the monomers are far apart. If
+        these two energies are meant to be the same in the model, this test
+        will fail unless ``monomer_equal_dimer`` is set to ``True``.
+
         This test is skipped if the model does not support the ``selected_atoms``
         argument of the ``forward()`` method, i.e., if ``supports_selected_atoms``
         is set to ``False``.
@@ -578,7 +587,12 @@ class OutputTests(ArchitectureTests):
                 selected_atoms=selection_labels,
             )
 
-            assert not mts.allclose(energy_monomer["energy"], energy_dimer["energy"])
+            if self.monomer_equal_dimer:
+                assert mts.allclose(energy_monomer["energy"], energy_dimer["energy"])
+            else:
+                assert not mts.allclose(
+                    energy_monomer["energy"], energy_dimer["energy"]
+                )
 
             assert mts.allclose(
                 energy_monomer["energy"], energy_monomer_in_dimer["energy"]
@@ -631,7 +645,6 @@ class OutputTests(ArchitectureTests):
         )
 
         features_output_options = ModelOutput(
-            quantity="",
             unit="",
             sample_kind=sample_kind,
         )
@@ -716,7 +729,6 @@ class OutputTests(ArchitectureTests):
 
         # last-layer features per atom:
         ll_output_options = ModelOutput(
-            quantity="",
             unit="",
             sample_kind=sample_kind,
         )
@@ -903,8 +915,8 @@ class OutputTests(ArchitectureTests):
             ell,
             device=original_system.positions.device,
             dtype=original_system.positions.dtype,
-        )[0]
-        rotated_system = transform_system(original_system, transformation)
+        )
+        rotated_system = transformation.transform_systems([original_system])[0]
 
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         original_system = get_system_with_neighbor_lists(
@@ -927,7 +939,8 @@ class OutputTests(ArchitectureTests):
 
         original_values = original_output["spherical_target"].block().values.detach()
         expected_values = (
-            original_values.swapaxes(-1, -2) @ transformation.wigner_D_matrix(ell).T
+            original_values.swapaxes(-1, -2)
+            @ transformation.wigner_D_matrices(ell)[0].T
         ).swapaxes(-1, -2)
         torch.testing.assert_close(
             rotated_output["spherical_target"].block().values.detach(),

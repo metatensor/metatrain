@@ -14,6 +14,7 @@ from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 from torch.utils.data import DistributedSampler
 
 from metatrain.composition import train_or_load_composition_model
+from metatrain.scaler import train_or_load_scaler
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.augmentation import O3Augmenter
@@ -57,7 +58,6 @@ def _get_requested_outputs(targets, target_info_dict):
     requested_outputs = {}
     for name, target in targets.items():
         requested_outputs[name] = ModelOutput(
-            quantity=target_info_dict[name].quantity,
             unit=target_info_dict[name].unit,
             sample_kind=target_info_dict[name].sample_kind,
             explicit_gradients=target.block(0).gradients_list(),
@@ -143,7 +143,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -265,14 +265,21 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
 
         if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets,
-                model.additive_models,
-                self.hypers["batch_size"],
-                is_distributed,
-                self.hypers["fixed_scaling_weights"],
-                initial_transforms=[atomic_basis_transform],
+            if isinstance(self.hypers["fixed_scaling_weights"], str) and not isinstance(
+                self.hypers["atomic_baseline"], str
+            ):
+                raise ValueError(
+                    "Can't use a checkpoint for the scaler without providing"
+                    "a checkpoint also for the composition model."
+                )
+            train_or_load_scaler(
+                scaler=model.scaler,
+                fixed_weights=self.hypers["fixed_scaling_weights"],
+                train_datasets=train_datasets,
+                additive_models=model.additive_models,
+                batch_size=self.hypers["batch_size"],
+                is_distributed=is_distributed,
+                checkpoint_dir=checkpoint_dir,
                 per_structure_targets=self.hypers["per_structure_targets"],
             )
 
@@ -496,7 +503,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # not per-property. This transformation only applies to targets with
                 # per-property scales (i.e. multiple blocks or multiple properties), and
                 # leaves the others unchanged.
-                predictions = (model.module if is_distributed else model).scaler(
+                predictions = model.scaler.apply_scales(
                     systems,
                     predictions,
                     remove=False,
@@ -540,14 +547,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # Reapply scales and accumulate quantities for computing train metrics,
                 # but only if this is an epoch to log
                 if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
-                    scaled_predictions = model.scaler(
+                    scaled_predictions = model.scaler.apply_scales(
                         systems,
                         predictions,
                         remove=False,
                         use_per_target_scales=True,
                         use_per_property_scales=False,
                     )
-                    scaled_targets = model.scaler(
+                    scaled_targets = model.scaler.apply_scales(
                         systems,
                         targets,
                         remove=False,
@@ -623,7 +630,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     # per-target, and not per-property. This transformation only applies
                     # to targets with per-property scales (i.e. multiple blocks or
                     # multiple properties), and leaves the others unchanged.
-                    predictions = (model.module if is_distributed else model).scaler(
+                    predictions = model.scaler.apply_scales(
                         systems,
                         predictions,
                         remove=False,
@@ -641,14 +648,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     # Reapply scales and accumulate quantities for computing val
                     # metrics. This is done for every epoch as validation metrics are
                     # needed for model selection
-                    scaled_predictions = model.scaler(
+                    scaled_predictions = model.scaler.apply_scales(
                         systems,
                         predictions,
                         remove=False,
                         use_per_target_scales=True,
                         use_per_property_scales=False,
                     )
-                    scaled_targets = model.scaler(
+                    scaled_targets = model.scaler.apply_scales(
                         systems,
                         targets,
                         remove=False,

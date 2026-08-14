@@ -351,7 +351,6 @@ class CompositionModel(ModelInterface[ModelHypers]):
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         self.outputs[target_name] = ModelOutput(
-            quantity=target_info.quantity,
             unit=target_info.unit,
             sample_kind="atom",
             description=target_info.description,
@@ -488,9 +487,12 @@ class CompositionModel(ModelInterface[ModelHypers]):
         model, e.g. ``load_state_dict``.
         """
         for k in self.dataset_info.targets:
-            self.model.weights[k] = mts.load_buffer(
-                self.__getattr__(k + "_composition_buffer")
-            )
+            buffer = self.__getattr__(k + "_composition_buffer")
+            # ``mts.load_buffer`` dereferences the buffer on the host, so it
+            # segfaults on a GPU buffer: deserialize on the CPU and move the
+            # weights back to the buffer's device.
+            weights = mts.load_buffer(buffer.to(device="cpu"))
+            self.model.weights[k] = weights.to(device=buffer.device)
 
     def get_checkpoint(self) -> Dict:
         """

@@ -27,6 +27,21 @@ Unreleased
 Fixed
 #####
 
+Added
+#####
+
+Changed
+#######
+
+Removed
+#######
+
+Version 2026.4 - 2026-08-11
+-----------------------------
+
+Fixed
+#####
+
 - The distributed composition fit no longer sees duplicated samples on shards of uneven
   size, which slightly biased the fitted weights whenever the dataset size was not
   divisible by the number of ranks.
@@ -48,6 +63,9 @@ Added
   stores the number of atoms of every structure in a ``metadata/atom_counts.npy``
   file, which the sampler reads without opening every entry in the zip.
 - Possibility to avoid warm-up in ``mtt eval`` with the ``--no-warm-up`` flag.
+- Possibility to skip the final RMSE/MAE evaluation in ``mtt train`` with the
+  ``final_eval`` input.
+- Possibility to avoid printing stats in ``mtt train`` with the ``print_stats`` input.
 - Optional per-system charge and spin-multiplicity conditioning for PET. Enabled via the
   ``system_conditioning`` model hyperparameter, with per-system ``charge`` and
   ``spin_multiplicity`` provided as ``extra_data``.
@@ -56,15 +74,13 @@ Added
   directory can be read back directly as a ``systems: read_from:`` dataset, which is
   useful for very large evaluation runs.
 - MACE architecture now supports multi-headed MACE models through the ``mace_head_name`` hyperparameter.
-- ``composition`` is now a standalone architecture: it can be trained, exported, and run
-  for inference on its own (``architecture: {name: composition}``), in addition to being
-  used as an additive baseline inside the other architectures. Standalone training
-  supports distributed environments (detected automatically from the SLURM
-  environment), fits on the requested device, and loads data in parallel
-  (``num_workers``).
-- The ``atomic_baseline`` hyperparameter now also accepts a path to a pretrained
-  composition checkpoint, which is loaded and reused as the additive baseline instead of
-  being refitted from the training data.
+- Moved composition model and scaler to standalone architectures.
+  They can be trained, exported, and run for inference on their own
+  (``architecture: {name: composition | scaler}``), in addition to being
+  used inside the other architectures.
+- The ``atomic_baseline`` and ``fixed_scaling_weights`` hyperparameters now also accept
+  paths to pretrained composition/scaler checkpoints, which are loaded and reused instead
+  of being refitted from the training data.
 - Rotational augmentation now supports atomic-basis targets and Cartesian targets of
   rank > 2.
 - Atom-pair (``sample_kind: atom_pair``) targets are now supported for ``scalar``,
@@ -95,11 +111,16 @@ Changed
 - The composition model moved from ``metatrain.utils.additive.CompositionModel`` to
   ``metatrain.composition.CompositionModel``.
 - O(3) data augmentation is delegated to the ``metatomic.torch.o3`` module, requiring
-  ``metatomic-torch >= 0.1.16``. Random transformations are now drawn from the torch
+  ``metatomic-torch >= 0.1.17``. Random transformations are now drawn from the torch
   RNG instead of scipy/numpy, which changes fixed-seed training trajectories.
 - ``RotationalAugmenter`` is now ``O3Augmenter``, with a ``group`` option selecting
   the transformations to sample (``"O3"`` or ``"inversions"``). The PhACE
   ``InversionAugmenter`` was removed in its favor.
+- The scaler model moved from ``metatrain.utils.scaler.Scaler`` to
+  ``metatrain.scaler.Scaler``.
+- ``Scaler``'s forward method no longer applies scales. Instead it returns the scales for
+  each target. To apply scales use ``Scaler.apply_scales``. This is because the previous
+  behavior was not compatible with the forward method of ``ModelInterface``.
 
 Removed
 #######

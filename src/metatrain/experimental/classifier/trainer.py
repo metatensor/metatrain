@@ -202,11 +202,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # Forward pass - request logits for training
                 outputs = model(
                     systems,
-                    {
-                        target_name_logits: ModelOutput(
-                            quantity="", unit="", sample_kind="system"
-                        )
-                    },
+                    {target_name_logits: ModelOutput(unit="", sample_kind="system")},
                     None,
                 )
 
@@ -252,7 +248,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         systems,
                         {
                             target_name_logits: ModelOutput(
-                                quantity="", unit="", sample_kind="system"
+                                unit="", sample_kind="system"
                             )
                         },
                         None,

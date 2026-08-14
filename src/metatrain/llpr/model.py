@@ -156,7 +156,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             self.outputs_list.append(name)
             uncertainty_name = _get_uncertainty_name(name)
             additional_capabilities[uncertainty_name] = ModelOutput(
-                quantity=output.quantity,
                 unit=output.unit,
                 sample_kind=output.sample_kind,
                 description=output.description,
@@ -217,13 +216,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             )
             if ensemble_output_name == "mtt::aux::energy_ensemble":
                 ensemble_output_name = "energy_ensemble"
-            explicit_gradients = _ensemble_explicit_gradients(
-                old_capabilities.outputs[name]
-            )
+            explicit_gradients = self._ensemble_explicit_gradients(name)
             if len(explicit_gradients) > 0:
                 self.ensemble_gradient_outputs.append(ensemble_output_name)
             ensemble_outputs[ensemble_output_name] = ModelOutput(
-                quantity=old_capabilities.outputs[name].quantity,
                 unit=old_capabilities.outputs[name].unit,
                 sample_kind=old_capabilities.outputs[name].sample_kind,
                 explicit_gradients=explicit_gradients,
@@ -1153,10 +1149,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             if ensemble_name == "mtt::aux::energy_ensemble":
                 ensemble_name = "energy_ensemble"
             new_outputs[ensemble_name] = ModelOutput(
-                quantity=old_outputs[name].quantity,
                 unit=old_outputs[name].unit,
                 sample_kind=old_outputs[name].sample_kind,
-                explicit_gradients=_ensemble_explicit_gradients(old_outputs[name]),
+                explicit_gradients=self._ensemble_explicit_gradients(name),
                 description=f"ensemble of {name}",
             )
         self.capabilities = ModelCapabilities(
@@ -1321,29 +1316,18 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.capabilities.outputs
 
+    def _ensemble_explicit_gradients(self, name: str) -> List[str]:
+        """Explicit gradients the ensemble of the ``name`` target is able to produce.
 
-def _ensemble_explicit_gradients(output: ModelOutput) -> List[str]:
-    """Explicit gradients the ensemble of ``output`` is able to produce.
+        Only energy targets are currently supported.
 
-    ``_add_energy_ensemble_gradients`` differentiates one per-system scalar per
-    ensemble member, so what matters is that the output *is* a per-system energy,
-    not what it is called: an energy target may carry any name (``mtt::my_energy``)
-    and any variant (``energy/pbesol``). Selecting on the quantity rather than on the
-    name keeps all of those working.
-
-    Other quantities get nothing: positions/strain gradients of them are not what
-    this computes.
-
-    Note that ``sample_kind`` is deliberately *not* consulted here. In capabilities
-    it describes what the wrapped model is able to produce (PET reports ``"atom"``
-    for its energy even when the target is per-system), not what a given call asks
-    for. Whether the *requested* sample kind is supported is checked in ``forward``,
-    where the request is actually known.
-
-    :param output: the wrapped model's output the ensemble is built from.
-    :return: gradient names for the corresponding ensemble output.
-    """
-    return ["positions", "strain"] if output.quantity == "energy" else []
+        :param name: name of the target the ensemble is built from.
+        :return: gradient names for the corresponding ensemble output.
+        """
+        target = self.dataset_info.targets.get(name)
+        if target is None or target.quantity != "energy":
+            return []
+        return ["positions", "strain"]
 
 
 def _get_uncertainty_name(name: str) -> str:
