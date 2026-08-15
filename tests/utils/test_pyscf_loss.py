@@ -45,6 +45,7 @@ from metatrain.utils.pyscf_loss import (
     ri_density_fit_constant_name,
     ri_projections_name,
 )
+from metatrain.utils.scaler.remove import removed_scale_name
 
 
 pyscf = pytest.importorskip("pyscf")
@@ -551,6 +552,164 @@ def test_via_w_requires_projections():
     target = _random_target(system, 14)
     with pytest.raises(RuntimeError, match="requires"):
         loss.compute({TARGET: target}, {TARGET: target}, _extra(system, "overlap"))
+
+
+# ── the scale convention ──────────────────────────────────────────────────────
+
+
+#: Deliberately far apart, and different per element: a scale that is uniform
+#: across species would factor out of the quadratic form and hide the bug.
+_SCALES = {6: 4.0, 1: 0.25}
+
+
+def _per_type_map(template: TensorMap, system: System, factors: dict) -> TensorMap:
+    """A map shaped like ``template`` holding ``factors[z]`` on every real entry."""
+    blocks = []
+    for key in template.keys:
+        block = template.block(key)
+        per_atom = torch.tensor(
+            [factors[int(z)] for z in system.types], dtype=block.values.dtype
+        ).reshape(-1, 1, 1)
+        blocks.append(
+            TensorBlock(
+                values=(0.0 * block.values + 1.0) * per_atom,
+                samples=block.samples,
+                components=block.components,
+                properties=block.properties,
+            )
+        )
+    return TensorMap(template.keys, blocks)
+
+
+def _multiply(tensor_map: TensorMap, factor_map: TensorMap) -> TensorMap:
+    blocks = [
+        TensorBlock(
+            values=tensor_map.block(key).values * factor_map.block(key).values,
+            samples=tensor_map.block(key).samples,
+            components=tensor_map.block(key).components,
+            properties=tensor_map.block(key).properties,
+        )
+        for key in tensor_map.keys
+    ]
+    return TensorMap(tensor_map.keys, blocks)
+
+
+@pytest.mark.parametrize("metric", METRICS)
+def test_via_c_undoes_a_per_species_scale(metric):
+    """
+    The trainer's scale removal must not leak into the metric.
+
+    What it divides out is one scale *per atomic type*, i.e. a diagonal ``D``, so
+    a loss that consumed the scaled residual would evaluate ``Δc^T D^-1 M D^-1
+    Δc`` and silently reweight the metric per species. Feeding the loss the
+    scaled coefficients together with the record of what was removed must
+    reproduce the physical value exactly.
+    """
+    system = _system()
+    target, prediction = _random_target(system, 20), _random_target(system, 21)
+
+    physical = _loss_value(system, prediction, target, metric)
+
+    inverse = _per_type_map(target, system, {z: 1.0 / s for z, s in _SCALES.items()})
+    scaled = _loss_value(
+        system,
+        _multiply(prediction, inverse),
+        _multiply(target, inverse),
+        metric,
+        {removed_scale_name(TARGET): inverse},
+    )
+    assert scaled == pytest.approx(physical, rel=1e-10)
+
+
+def test_via_c_without_a_record_takes_the_coefficients_as_physical():
+    system = _system()
+    target, prediction = _random_target(system, 22), _random_target(system, 23)
+    inverse = _per_type_map(target, system, {z: 1.0 / s for z, s in _SCALES.items()})
+
+    # Same scaled inputs as above, but with the record withheld: the loss has no
+    # way to undo the scaling, so it must differ from the physical value.
+    assert _loss_value(
+        system, _multiply(prediction, inverse), _multiply(target, inverse)
+    ) != pytest.approx(_loss_value(system, prediction, target), rel=1e-6)
+
+
+def test_via_w_undoes_the_scale_but_not_on_the_projections():
+    """
+    ``via_w`` mixes scaled predictions with unscaled dataset projections.
+
+    ``w`` and the constant come straight from the dataset, so the linear and
+    quadratic terms would carry different powers of the scale. Only the
+    coefficients may be rescaled.
+    """
+    system = _system()
+    target, prediction = _random_target(system, 24), _random_target(system, 25)
+
+    reference_flat, _ = _flatten_to_pyscf_order(target)
+    matrix = compute_metric_matrix(system, AUX_BASIS, "overlap")
+    projections_flat = matrix @ reference_flat
+    projections = _unflatten_like(target, projections_flat)
+    constant_map = TensorMap(
+        Labels.single(),
+        [
+            TensorBlock(
+                values=torch.tensor(
+                    [[float(reference_flat @ projections_flat)]], dtype=torch.float64
+                ),
+                samples=Labels(["system"], torch.tensor([[0]], dtype=torch.int32)),
+                components=[],
+                properties=Labels(["_"], torch.tensor([[0]], dtype=torch.int32)),
+            )
+        ],
+    )
+
+    loss = DensityMSELossViaW(
+        TARGET, None, weight=1.0, reduction="sum", aux_basis=AUX_BASIS
+    )
+    inverse = _per_type_map(target, system, {z: 1.0 / s for z, s in _SCALES.items()})
+
+    def value(predicted, extra):
+        return float(
+            loss.compute(
+                {TARGET: predicted},
+                {TARGET: target},
+                _extra(
+                    system,
+                    "overlap",
+                    {
+                        ri_projections_name(TARGET): projections,
+                        ri_density_fit_constant_name(TARGET): constant_map,
+                        **extra,
+                    },
+                ),
+            )
+        )
+
+    assert value(
+        _multiply(prediction, inverse), {removed_scale_name(TARGET): inverse}
+    ) == pytest.approx(value(prediction, {}), rel=1e-8)
+
+
+def test_a_mismatched_scale_record_is_rejected():
+    system = _system()
+    target = _random_target(system, 26)
+    # A record covering only some of the coefficients: the layouts disagree, and
+    # applying it entry by entry would silently misalign the two vectors.
+    truncated = TensorMap(
+        target.keys,
+        [
+            TensorBlock(
+                values=0.0 * target.block(key).values[:, :, :1] + 1.0,
+                samples=target.block(key).samples,
+                components=target.block(key).components,
+                properties=Labels(["n"], torch.tensor([[0]], dtype=torch.int32)),
+            )
+            for key in target.keys
+        ],
+    )
+    with pytest.raises(ValueError, match="does not share the coefficients"):
+        _loss_value(
+            system, target, target, extra={removed_scale_name(TARGET): truncated}
+        )
 
 
 # ── caching ───────────────────────────────────────────────────────────────────
