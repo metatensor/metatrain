@@ -23,6 +23,7 @@ from metatrain.utils.pyscf_loss import (
     ri_projections_name,
     unpack_metric_matrices,
 )
+from metatrain.utils.scaler.remove import removed_scale_name
 
 
 @with_config(ConfigDict(extra="allow"))
@@ -594,12 +595,45 @@ class _DensityLoss(LossInterface):
             )
         return extra_data[key]
 
+    def _undo_scale(
+        self,
+        flat: torch.Tensor,
+        counts: torch.Tensor,
+        extra_data: Optional[Any],
+    ) -> torch.Tensor:
+        """Recover physical coefficients from the trainer's scaled ones.
+
+        The scale removal is *not* a single scalar per target: for a per-atom
+        target the scaler fits one scale per atomic type, so what is divided out
+        is a diagonal matrix ``D`` indexed by species, and ``D^-1 M D^-1`` is not
+        proportional to ``M``. The transform records the reciprocal it applied
+        (see :py:func:`~metatrain.utils.scaler.remove.removed_scale_name`), so
+        undo it entry by entry, through the same flattening. Without a record the
+        coefficients are already physical.
+
+        :param flat: flattened coefficients or residual, in PySCF order.
+        :param counts: per-atom coefficient counts of ``flat``.
+        :param extra_data: the batch's extra data, holding the recorded scale.
+        :return: the flattened coefficients on their physical scale.
+        """
+        scale_key = removed_scale_name(self.target)
+        if extra_data is None or scale_key not in extra_data:
+            return flat
+        inverse, inverse_counts = _flatten_to_pyscf_order(extra_data[scale_key])
+        if not torch.equal(counts, inverse_counts.to(counts.device)):
+            raise ValueError(
+                f"target '{self.target}': the recorded removed scale does not "
+                "share the coefficients' layout."
+            )
+        return flat / inverse.to(dtype=flat.dtype, device=flat.device)
+
     def _per_system(
         self,
         tensor_map: TensorMap,
         subtract: Optional[TensorMap],
         extra_data: Optional[Any],
         mask_from: Optional[TensorMap] = None,
+        undo_scale: bool = True,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """Flatten to PySCF order and split into one coefficient vector per system.
 
@@ -615,6 +649,9 @@ class _DensityLoss(LossInterface):
         :param mask_from: reference-shaped map to read the NaN padding from, for
             values that carry none of their own (see
             :py:func:`_flatten_to_pyscf_order`).
+        :param undo_scale: whether to restore the physical scale of the flattened
+            values; ``False`` for data that never went through the trainer's
+            scale removal, such as the reference projections.
         :return: ``(vectors, matrices)``, one of each per system.
         """
         packed = self._require(extra_data, metric_matrix_name(self.target, self.metric))
@@ -625,6 +662,8 @@ class _DensityLoss(LossInterface):
         )
 
         flat, counts_per_atom = _flatten_to_pyscf_order(tensor_map, subtract, mask_from)
+        if undo_scale:
+            flat = self._undo_scale(flat, counts_per_atom, extra_data)
 
         counts = torch.zeros(
             len(matrices), dtype=counts_per_atom.dtype, device=counts_per_atom.device
@@ -675,11 +714,15 @@ class DensityMSELossViaC(_DensityLoss):
     per-atom averaging does not apply, since it deliberately skips blocks whose
     samples carry an ``"atom"`` dimension, as this target's do.
 
-    **Scale convention.** The trainer removes the per-target scale from the targets
-    before the loss, so the residual seen here is :math:`\\Delta c / s`. Being
-    quadratic, the loss is the true error divided by the constant :math:`s^2`, which
-    is absorbed into ``weight``. A *per-property* scale would not factor out, but
-    metatrain removes only the per-target scalar, so this is safe.
+    **Scale convention.** The trainer removes the fitted scale from the targets
+    before the loss, so the residual seen here is :math:`D^{-1} \\Delta c` with
+    :math:`D` diagonal — *not* a scalar, since the scaler fits one scale per
+    atomic type for a per-atom target. That does not factor out of the quadratic
+    form: it would silently replace the metric by :math:`D^{-1} M D^{-1}`,
+    reweighting each species (and each cross-species entry) of the Coulomb or
+    overlap metric. The scale is therefore undone before the metric is applied,
+    so the value is the physical error with ``scale_targets`` on or off; see
+    :py:meth:`_DensityLoss._undo_scale`.
     """
 
     def compute(
@@ -727,6 +770,12 @@ class DensityMSELossViaW(_DensityLoss):
     directly comparable to ``via_c``; without it the loss is shifted by an unknown
     per-system constant and only differences are meaningful.
 
+    **Scale convention.** As in :py:class:`DensityMSELossViaC`, the predicted
+    coefficients are restored to their physical scale before use. Here that is
+    needed even for a scalar scale: :math:`w` and the constant come from the
+    dataset untouched, so the quadratic and linear terms would otherwise carry
+    different powers of it.
+
     :param name: key of the coefficient target.
     :param gradient: not supported; must be ``None``.
     :param weight: weight of this term in the aggregated loss.
@@ -773,7 +822,10 @@ class DensityMSELossViaW(_DensityLoss):
         coefficients, matrices = self._per_system(
             predictions[self.target], None, extra_data, mask_from=projections
         )
-        projected, _ = self._per_system(projections, None, extra_data)
+        # The projections come straight from the dataset, so the trainer's scale
+        # removal never touched them: they are already physical, unlike the
+        # predicted coefficients, which `_per_system` restores.
+        projected, _ = self._per_system(projections, None, extra_data, undo_scale=False)
 
         per_system = torch.stack(
             [
