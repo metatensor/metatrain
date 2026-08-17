@@ -46,7 +46,7 @@ it lives here.
 
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from .pyscf_loss import get_metric_matrices_transform
+from .pyscf_loss import get_density_geometry_transform, get_metric_matrices_transform
 
 
 #: Loss types that need auxiliary-basis metric matrices attached to each batch.
@@ -77,15 +77,24 @@ class DensityLossHooks:
     :param trained: Mapping from metric name to the ``{target: aux_basis}`` served by
         it, for losses that are trained on.
     :param reported: The same, for losses that are only reported as metrics.
+    :param geometry_trained: Whether any trained density loss uses the torch
+        metric backend, which needs the unaugmented geometry attached to
+        training batches instead of the matrices themselves.
+    :param geometry_reported: The same, for density metrics evaluated on
+        validation only.
     """
 
     def __init__(
         self,
         trained: Dict[str, Dict[str, str]],
         reported: Dict[str, Dict[str, str]],
+        geometry_trained: bool = False,
+        geometry_reported: bool = False,
     ) -> None:
         self._trained = trained
         self._reported = reported
+        self._geometry_trained = bool(geometry_trained)
+        self._geometry_reported = bool(geometry_reported)
 
     def training_collate_transforms(self) -> List[Callable]:
         """
@@ -93,7 +102,10 @@ class DensityLossHooks:
 
         :return: Collate transforms; empty when nothing is trained on a density loss.
         """
-        return _metric_transforms(self._trained)
+        transforms = _metric_transforms(self._trained)
+        if self._geometry_trained:
+            transforms.append(get_density_geometry_transform())
+        return transforms
 
     def validation_collate_transforms(self) -> List[Callable]:
         """
@@ -109,11 +121,34 @@ class DensityLossHooks:
         }
         for metric, targets_map in self._reported.items():
             combined.setdefault(metric, {}).update(targets_map)
-        return _metric_transforms(combined)
+        transforms = _metric_transforms(combined)
+        if self._geometry_trained or self._geometry_reported:
+            transforms.append(get_density_geometry_transform())
+        return transforms
+
+
+def _uses_torch_backend(specs: Dict[str, Any]) -> bool:
+    """Whether any density loss among ``specs`` uses the torch metric backend.
+
+    Those losses rebuild their matrices from the geometry on the training
+    device, so the collate side ships the geometry instead of matrices.
+
+    :param specs: Loss specifications keyed by target name.
+    :return: ``True`` when at least one does.
+    """
+    return any(
+        isinstance(spec, dict)
+        and spec.get("type") in DENSITY_LOSS_TYPES
+        and spec.get("backend", "pyscf") == "torch"
+        for spec in specs.values()
+    )
 
 
 def _aux_bases_by_metric(specs: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
     """Group the density losses among ``specs`` by the metric they need.
+
+    Losses on the torch metric backend are excluded: they need no matrices
+    attached to the batch (see :py:func:`_uses_torch_backend`).
 
     :param specs: Loss specifications keyed by target name.
     :return: ``{metric: {target: aux_basis}}``, empty when none is a density loss.
@@ -121,6 +156,8 @@ def _aux_bases_by_metric(specs: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
     grouped: Dict[str, Dict[str, str]] = {}
     for target_name, spec in specs.items():
         if not isinstance(spec, dict) or spec.get("type") not in DENSITY_LOSS_TYPES:
+            continue
+        if spec.get("backend", "pyscf") == "torch":
             continue
         metric = spec.get("metric", "overlap")
         grouped.setdefault(metric, {})[target_name] = spec["aux_basis"]
@@ -143,4 +180,11 @@ def get_density_hooks(
     :return: The hooks for this configuration.
     """
     trained = _aux_bases_by_metric(loss_hypers) if isinstance(loss_hypers, dict) else {}
-    return DensityLossHooks(trained, _aux_bases_by_metric(metrics or {}))
+    return DensityLossHooks(
+        trained,
+        _aux_bases_by_metric(metrics or {}),
+        geometry_trained=(
+            _uses_torch_backend(loss_hypers) if isinstance(loss_hypers, dict) else False
+        ),
+        geometry_reported=_uses_torch_backend(metrics or {}),
+    )

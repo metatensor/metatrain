@@ -18,10 +18,12 @@ from metatrain.utils.data import TargetInfo
 from metatrain.utils.ensemble import uncertainty_output_name
 from metatrain.utils.equivariance_penalty import equivariance_variance_output_name
 from metatrain.utils.pyscf_loss import (
+    DENSITY_GEOMETRY_NAME,
     METRICS,
     metric_matrix_name,
     ri_density_fit_constant_name,
     ri_projections_name,
+    unpack_density_geometry,
     unpack_metric_matrices,
 )
 from metatrain.utils.scaler.remove import removed_scale_name
@@ -587,6 +589,14 @@ class _DensityLoss(LossInterface):
         e.g. ``"def2-universal-jfit"`` or ``"etb:def2-svp:2.0"``. Read by the trainer
         to build the metric transform, and kept here so the loss configuration is
         self-contained.
+    :param backend: where the metric matrices come from. ``"pyscf"`` (default)
+        computes them in the dataloader workers and ships them with the batch;
+        ``"torch"`` assembles them on the training device inside the loss (see
+        :py:class:`~metatrain.utils.torch_metric.TorchMetricBuilder`), which
+        removes the per-system integral cost from the workers and the matrices
+        from the host-to-device traffic. Matrices are assembled in the model
+        dtype: in float32 that matches the float64-computed-then-cast matrices
+        of the PySCF path to the dtype's own resolution.
     """
 
     #: The metric matrix depends on the geometry, and is built on the unaugmented
@@ -602,6 +612,7 @@ class _DensityLoss(LossInterface):
         reduction: str,
         metric: str = "overlap",
         aux_basis: Optional[str] = None,
+        backend: str = "pyscf",
     ):
         super().__init__(name, gradient, weight, reduction)
         if gradient is not None:
@@ -617,6 +628,15 @@ class _DensityLoss(LossInterface):
             )
         self.metric = metric
         self.aux_basis = aux_basis
+        if backend not in ("pyscf", "torch"):
+            raise ValueError(
+                f"unknown metric backend {backend!r}; expected 'pyscf' or 'torch'."
+            )
+        self.backend = backend
+        if backend == "torch":
+            from metatrain.utils.torch_metric import TorchMetricBuilder
+
+            self._builder = TorchMetricBuilder(aux_basis, self.metric)
 
     def _require(self, extra_data: Optional[Any], key: str) -> Any:
         if extra_data is None or key not in extra_data:
@@ -659,11 +679,32 @@ class _DensityLoss(LossInterface):
             )
         return flat / inverse.to(dtype=flat.dtype, device=flat.device)
 
+    def _matrices(
+        self, tensor_map: TensorMap, extra_data: Optional[Any]
+    ) -> List[torch.Tensor]:
+        """The batch's metric matrices, from whichever backend is configured.
+
+        :param tensor_map: the predicted coefficients; with the torch backend
+            they set the device and dtype the matrices are assembled in.
+        :param extra_data: the batch's extra data, holding the packed matrices
+            (pyscf backend) or the packed unaugmented geometry (torch backend).
+        :return: one matrix per system, in batch order.
+        """
+        if self.backend == "torch":
+            packed = self._require(extra_data, DENSITY_GEOMETRY_NAME)
+            values = tensor_map.block(tensor_map.keys[0]).values
+            return self._builder.compute_batch(
+                unpack_density_geometry(packed), values.device, values.dtype
+            )
+        packed = self._require(extra_data, metric_matrix_name(self.target, self.metric))
+        return unpack_metric_matrices(packed)
+
     def _per_system(
         self,
         tensor_map: TensorMap,
         subtract: Optional[TensorMap],
         extra_data: Optional[Any],
+        matrices: Optional[List[torch.Tensor]] = None,
         mask_from: Optional[TensorMap] = None,
         undo_scale: bool = True,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
@@ -678,6 +719,8 @@ class _DensityLoss(LossInterface):
         :param subtract: reference coefficients to subtract, or ``None`` to
             flatten ``tensor_map`` alone.
         :param extra_data: the batch's extra data, holding the metric matrices.
+        :param matrices: the batch's metric matrices, when the caller already
+            obtained them; ``None`` gets them from the configured backend.
         :param mask_from: reference-shaped map to read the NaN padding from, for
             values that carry none of their own (see
             :py:func:`_flatten_to_pyscf_order`).
@@ -686,8 +729,8 @@ class _DensityLoss(LossInterface):
             scale removal, such as the reference projections.
         :return: ``(vectors, matrices)``, one of each per system.
         """
-        packed = self._require(extra_data, metric_matrix_name(self.target, self.metric))
-        matrices = unpack_metric_matrices(packed)
+        if matrices is None:
+            matrices = self._matrices(tensor_map, extra_data)
 
         system_of_atom = (
             tensor_map.block(tensor_map.keys[0]).samples.values[:, 0].to(torch.int64)
@@ -816,6 +859,8 @@ class DensityMSELossViaW(_DensityLoss):
     :param aux_basis: auxiliary basis the reference coefficients were fitted in.
     :param projections_key: ``extra_data`` key holding ``w``. Defaults to
         ``<target>_projections``.
+    :param backend: where the metric matrices come from; see
+        :py:class:`_DensityLoss`.
     """
 
     def __init__(
@@ -827,8 +872,11 @@ class DensityMSELossViaW(_DensityLoss):
         metric: str = "overlap",
         aux_basis: Optional[str] = None,
         projections_key: Optional[str] = None,
+        backend: str = "pyscf",
     ):
-        super().__init__(name, gradient, weight, reduction, metric, aux_basis)
+        super().__init__(
+            name, gradient, weight, reduction, metric, aux_basis, backend=backend
+        )
         self.projections_key = (
             projections_key
             if projections_key is not None
@@ -858,7 +906,9 @@ class DensityMSELossViaW(_DensityLoss):
         # The projections come straight from the dataset, so the trainer's scale
         # removal never touched them: they are already physical, unlike the
         # predicted coefficients, which `_per_system` restores.
-        projected, _ = self._per_system(projections, None, extra_data, undo_scale=False)
+        projected, _ = self._per_system(
+            projections, None, extra_data, matrices, undo_scale=False
+        )
 
         per_system = torch.stack(
             [
