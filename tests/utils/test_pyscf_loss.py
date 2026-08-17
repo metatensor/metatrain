@@ -195,6 +195,26 @@ def _unflatten_like(template: TensorMap, flat: torch.Tensor) -> TensorMap:
     )
 
 
+def _densify(tensor_map: TensorMap) -> TensorMap:
+    """Fill the NaN padding with values, as a model's dense output does.
+
+    The filler is deliberately large: anything that lets it reach the loss shows up
+    as an obviously wrong number rather than a small discrepancy.
+    """
+    return TensorMap(
+        tensor_map.keys,
+        [
+            TensorBlock(
+                values=torch.nan_to_num(tensor_map.block(key).values, nan=1.0e3),
+                samples=tensor_map.block(key).samples,
+                components=tensor_map.block(key).components,
+                properties=tensor_map.block(key).properties,
+            )
+            for key in tensor_map.keys
+        ],
+    )
+
+
 def _target_info(tensor_map: TensorMap) -> dict:
     irreps = [
         {
@@ -495,6 +515,32 @@ def test_via_w_without_constant_is_shifted_but_tracks():
     )
     via_c = _loss_value(system, prediction, target)
     assert value == pytest.approx(via_c - constant, rel=1e-8)
+
+
+def test_via_w_accepts_a_dense_prediction():
+    """
+    The padding lives in the reference data, not in the model's output.
+
+    A prediction flattened against its own values carries no NaN, so every padded
+    slot counts as a real coefficient and the layout check rejects any batch mixing
+    elements of different basis sizes -- which is every batch of a real dataset.
+    Taking the padding from the projections instead fixes the layout, and the
+    padded slots must not reach the number either.
+    """
+    system = _system()
+    target, prediction = _random_target(system, 20), _random_target(system, 21)
+    reference_flat, _ = _flatten_to_pyscf_order(target)
+    matrix = compute_metric_matrix(system, AUX_BASIS, "overlap")
+    projections = _unflatten_like(target, matrix @ reference_flat)
+
+    loss = DensityMSELossViaW(
+        TARGET, None, weight=1.0, reduction="sum", aux_basis=AUX_BASIS
+    )
+    extra = _extra(system, "overlap", {ri_projections_name(TARGET): projections})
+
+    padded = float(loss.compute({TARGET: prediction}, {TARGET: target}, extra))
+    dense = float(loss.compute({TARGET: _densify(prediction)}, {TARGET: target}, extra))
+    assert dense == pytest.approx(padded, rel=1e-12)
 
 
 def test_via_w_requires_projections():
