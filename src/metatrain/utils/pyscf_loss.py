@@ -326,6 +326,106 @@ def unpack_metric_matrices(packed: TensorMap) -> List[torch.Tensor]:
     return [packed.block(i).values for i in range(len(packed))]
 
 
+#: ``extra_data`` key of the packed unaugmented geometries that the torch
+#: metric backend rebuilds its matrices from (see
+#: :py:class:`~metatrain.utils.torch_metric.TorchMetricBuilder`). One key for
+#: all targets: the geometry is target-independent.
+DENSITY_GEOMETRY_NAME = "mtt::aux::density_geometry"
+
+
+def pack_density_geometry(systems: List[System]) -> TensorMap:
+    """Pack the batch's types and positions into one ragged TensorMap.
+
+    The torch metric backend assembles the metric matrices on the training
+    device, inside the loss; all it needs from the collate side is the
+    *unaugmented* geometry, which is a few kilobytes — against the megabytes
+    per system of the matrices themselves. Packed like the metric matrices
+    (one invariant block per system, a leading ``"system"`` sample dimension),
+    it passes through the O(3) augmenter untouched, which is exactly right:
+    the metric belongs to the frame the reference coefficients were fitted in.
+
+    :param systems: The batch's systems, in batch order.
+    :return: TensorMap keyed by ``system``; block ``i`` holds one row per atom
+        with properties ``(type, x, y, z)``, positions in Angstrom.
+    """
+    device = systems[0].positions.device
+    blocks = []
+    for i_system, system in enumerate(systems):
+        n_atoms = len(system.types)
+        values = torch.cat(
+            [
+                system.types.to(dtype=torch.float64).reshape(-1, 1),
+                system.positions.to(torch.float64),
+            ],
+            dim=1,
+        )
+        atoms = torch.arange(n_atoms, dtype=torch.int32, device=device)
+        blocks.append(
+            TensorBlock(
+                values=values,
+                samples=Labels(
+                    names=["system", "atom"],
+                    values=torch.stack(
+                        [torch.full_like(atoms, i_system), atoms], dim=1
+                    ),
+                ),
+                components=[],
+                properties=Labels(
+                    names=["geometry"],
+                    values=torch.arange(4, dtype=torch.int32, device=device).reshape(
+                        -1, 1
+                    ),
+                ),
+            )
+        )
+    keys = Labels(
+        names=["system"],
+        values=torch.arange(len(systems), dtype=torch.int32, device=device).reshape(
+            -1, 1
+        ),
+    )
+    return TensorMap(keys, blocks)
+
+
+def unpack_density_geometry(
+    packed: TensorMap,
+) -> List[Tuple[torch.Tensor, torch.Tensor]]:
+    """Recover the per-system geometries.
+
+    :param packed: Output of :func:`pack_density_geometry`, possibly cast to
+        the model dtype by ``batch_to`` along the way.
+    :return: One ``(types, positions)`` pair per system, in batch order; the
+        types as integers, the positions in Angstrom in the packed dtype.
+    """
+    geometries = []
+    for i_system in range(len(packed)):
+        values = packed.block(i_system).values
+        geometries.append((values[:, 0].round().to(torch.int64), values[:, 1:4]))
+    return geometries
+
+
+def _density_geometry_transform(
+    systems: List[System],
+    targets: Dict[str, TensorMap],
+    extra: Dict[str, TensorMap],
+) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
+    extra[DENSITY_GEOMETRY_NAME] = pack_density_geometry(systems)
+    return systems, targets, extra
+
+
+def get_density_geometry_transform() -> Callable:
+    """
+    Build a collate transform attaching the batch's unaugmented geometries.
+
+    **This transform must run before the augmenter**, for the same reason as
+    :py:func:`get_metric_matrices_transform`: the torch metric backend must see
+    the frame the reference coefficients were fitted in.
+
+    :return: A collate transform.
+    """
+    return _density_geometry_transform
+
+
 # ── Caching ───────────────────────────────────────────────────────────────────
 
 
