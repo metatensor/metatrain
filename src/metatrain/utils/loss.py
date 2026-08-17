@@ -459,9 +459,37 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
         )
 
 
+def _widen_to_pyscf_order(
+    tensor_map: TensorMap,
+    subtract: Optional[TensorMap] = None,
+) -> torch.Tensor:
+    """
+    Lay atomic-basis coefficients (or their residual) out as ``(atom, [l][n][m])``.
+
+    :param tensor_map: Coefficients to lay out.
+    :param subtract: If given, lay ``tensor_map - subtract`` out instead.
+    :return: One row per atom of the batch, padding included.
+    """
+    keys = sorted(tensor_map.keys, key=lambda key: int(key[0]))
+    per_block: List[torch.Tensor] = []
+    for key in keys:
+        values = tensor_map.block(key).values
+        if subtract is not None:
+            values = values - subtract.block(key).values
+        if int(key[0]) == 1:
+            # metatensor orders l=1 components as m = -1, 0, +1; PySCF uses the
+            # Cartesian-like x, y, z order, i.e. m = +1, -1, 0.
+            values = values[:, [2, 0, 1], :]
+        # (atom, m, n) -> (atom, n, m): n is major within an angular channel.
+        per_block.append(values.transpose(1, 2).reshape(values.shape[0], -1))
+
+    return torch.cat(per_block, dim=1)
+
+
 def _flatten_to_pyscf_order(
     tensor_map: TensorMap,
     subtract: Optional[TensorMap] = None,
+    mask_from: Optional[TensorMap] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Flatten atomic-basis coefficients (or their residual) into PySCF basis order.
@@ -480,24 +508,16 @@ def _flatten_to_pyscf_order(
     :param tensor_map: Coefficients to flatten.
     :param subtract: If given, flatten ``tensor_map - subtract`` instead. NaN
         padding propagates through the subtraction and is dropped either way.
+    :param mask_from: If given, take the NaN padding from this map rather than from
+        the flattened values. Needed whenever the values are dense -- a model's
+        output is, only the reference data carries the padding -- since an
+        all-finite map would otherwise count every padded slot as a real
+        coefficient.
     :return: ``(flat, counts_per_atom)``, where ``flat`` concatenates every atom of
         the batch in order.
     """
-    keys = sorted(tensor_map.keys, key=lambda key: int(key[0]))
-    per_block: List[torch.Tensor] = []
-    for key in keys:
-        values = tensor_map.block(key).values
-        if subtract is not None:
-            values = values - subtract.block(key).values
-        if int(key[0]) == 1:
-            # metatensor orders l=1 components as m = -1, 0, +1; PySCF uses the
-            # Cartesian-like x, y, z order, i.e. m = +1, -1, 0.
-            values = values[:, [2, 0, 1], :]
-        # (atom, m, n) -> (atom, n, m): n is major within an angular channel.
-        per_block.append(values.transpose(1, 2).reshape(values.shape[0], -1))
-
-    wide = torch.cat(per_block, dim=1)
-    mask = ~torch.isnan(wide)
+    wide = _widen_to_pyscf_order(tensor_map, subtract)
+    mask = ~torch.isnan(wide if mask_from is None else _widen_to_pyscf_order(mask_from))
     return wide[mask], mask.sum(dim=1)
 
 
@@ -579,6 +599,7 @@ class _DensityLoss(LossInterface):
         tensor_map: TensorMap,
         subtract: Optional[TensorMap],
         extra_data: Optional[Any],
+        mask_from: Optional[TensorMap] = None,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """Flatten to PySCF order and split into one coefficient vector per system.
 
@@ -591,6 +612,9 @@ class _DensityLoss(LossInterface):
         :param subtract: reference coefficients to subtract, or ``None`` to
             flatten ``tensor_map`` alone.
         :param extra_data: the batch's extra data, holding the metric matrices.
+        :param mask_from: reference-shaped map to read the NaN padding from, for
+            values that carry none of their own (see
+            :py:func:`_flatten_to_pyscf_order`).
         :return: ``(vectors, matrices)``, one of each per system.
         """
         packed = self._require(extra_data, metric_matrix_name(self.target, self.metric))
@@ -600,7 +624,7 @@ class _DensityLoss(LossInterface):
             tensor_map.block(tensor_map.keys[0]).samples.values[:, 0].to(torch.int64)
         )
 
-        flat, counts_per_atom = _flatten_to_pyscf_order(tensor_map, subtract)
+        flat, counts_per_atom = _flatten_to_pyscf_order(tensor_map, subtract, mask_from)
 
         counts = torch.zeros(
             len(matrices), dtype=counts_per_atom.dtype, device=counts_per_atom.device
@@ -739,9 +763,15 @@ class DensityMSELossViaW(_DensityLoss):
         projections = self._require(extra_data, self.projections_key)
 
         # Flatten predictions and projections under the same code path so the two
-        # flat vectors index the same basis functions.
+        # flat vectors index the same basis functions. Only the projections carry
+        # the NaN padding that says which coefficients an element actually has --
+        # the model's output is dense, and the trainer pads nothing before the loss
+        # -- so the prediction is flattened against the projections' padding. Read
+        # from its own values it would count every padded slot as a real
+        # coefficient, and no batch mixing elements of different basis sizes would
+        # match the auxiliary basis.
         coefficients, matrices = self._per_system(
-            predictions[self.target], None, extra_data
+            predictions[self.target], None, extra_data, mask_from=projections
         )
         projected, _ = self._per_system(projections, None, extra_data)
 
