@@ -1,6 +1,9 @@
+import math
 import warnings
-from typing import Final, Tuple
+from math import factorial
+from typing import Final, Optional, Tuple
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -392,6 +395,86 @@ class Transformer(torch.nn.Module):
         return node_embeddings, edge_embeddings
 
 
+class SphericalHarmonicsNoSphericart(torch.nn.Module):
+    """Spherical harmonics using the sphericart algorithm implemented in PyTorch.
+
+    Copied from
+    ``metatrain.experimental.space.modules.precomputations.SphericalHarmonicsNoSphericart``
+    to keep the PET module self-contained.
+    """
+
+    def __init__(self, l_max):
+        super(SphericalHarmonicsNoSphericart, self).__init__()
+        self.l_max = l_max
+
+        self.register_buffer(
+            "F", torch.empty(((self.l_max + 1) * (self.l_max + 2) // 2,))
+        )
+        for l in range(l_max + 1):  # noqa: E741
+            for m in range(0, l + 1):
+                self.F[l * (l + 1) // 2 + m] = (-1) ** m * np.sqrt(
+                    (2 * l + 1) / (2 * np.pi) * factorial(l - m) / factorial(l + m)
+                )
+
+    def forward(self, xyz):
+        device = xyz.device
+        dtype = xyz.dtype
+
+        rsq = torch.sum(xyz**2, dim=1)
+        xyz = xyz / torch.sqrt(rsq).unsqueeze(1)
+
+        x, y, z = xyz[:, 0], xyz[:, 1], xyz[:, 2]
+        Q = torch.empty(
+            (xyz.shape[0], (self.l_max + 1) * (self.l_max + 2) // 2),
+            device=device,
+            dtype=dtype,
+        )
+        Q[:, 0] = 1.0
+        for l in range(1, self.l_max + 1):  # noqa: E741
+            Q[:, (l + 1) * (l + 2) // 2 - 1] = (
+                -(2 * l - 1) * Q[:, l * (l + 1) // 2 - 1].clone()
+            )
+            Q[:, (l + 1) * (l + 2) // 2 - 2] = (
+                -z * Q[:, (l + 1) * (l + 2) // 2 - 1].clone()
+            )
+            for m in range(0, l - 1):
+                Q[:, l * (l + 1) // 2 + m] = (
+                    (2 * l - 1) * z * Q[:, (l - 1) * l // 2 + m].clone()
+                    - (l + m - 1) * Q[:, (l - 2) * (l - 1) // 2 + m].clone()
+                ) / (l - m)
+
+        s = torch.empty((xyz.shape[0], self.l_max + 1), device=device, dtype=dtype)
+        c = torch.empty((xyz.shape[0], self.l_max + 1), device=device, dtype=dtype)
+
+        s[:, 0] = 0.0
+        c[:, 0] = 1.0
+        for m in range(1, self.l_max + 1):
+            s[:, m] = x * s[:, m - 1].clone() + y * c[:, m - 1].clone()
+            c[:, m] = x * c[:, m - 1].clone() - y * s[:, m - 1].clone()
+
+        Y = torch.empty(
+            (xyz.shape[0], (self.l_max + 1) * (self.l_max + 1)),
+            device=device,
+            dtype=dtype,
+        )
+        for l in range(self.l_max + 1):  # noqa: E741
+            for m in range(-l, 0):
+                Y[:, l * l + l + m] = (
+                    self.F[l * (l + 1) // 2 - m] * Q[:, l * (l + 1) // 2 - m] * s[:, -m]
+                )
+            Y[:, l * l + l] = (
+                self.F[l * (l + 1) // 2]
+                * Q[:, l * (l + 1) // 2]
+                / torch.sqrt(torch.tensor(2.0, device=device, dtype=dtype))
+            )
+            for m in range(1, l + 1):
+                Y[:, l * l + l + m] = (
+                    self.F[l * (l + 1) // 2 + m] * Q[:, l * (l + 1) // 2 + m] * c[:, m]
+                )
+
+        return Y
+
+
 class CartesianTransformer(torch.nn.Module):
     """
     Cartesian Transformer implementation for handling 3D coordinates.
@@ -409,6 +492,10 @@ class CartesianTransformer(torch.nn.Module):
     :param transformer_type: The type of transformer, either "PostLN" or "PreLN".
     :param n_atomic_species: The number of atomic species.
     :param is_first: Whether this is the first transformer in the model.
+    :param geometry_embedding_l_max: Maximum angular order of the normalized
+        regular spherical harmonics (scaled by the edge length) used to embed edge
+        geometry. If ``None`` (default), the standard PET embedding of the raw edge
+        vector and distance is used instead.
     """
 
     def __init__(
@@ -426,6 +513,7 @@ class CartesianTransformer(torch.nn.Module):
         transformer_type: str,
         n_atomic_species: int,
         is_first: bool,
+        geometry_embedding_l_max: Optional[int] = None,
     ) -> None:
         super(CartesianTransformer, self).__init__()
         self.is_first = is_first
@@ -443,7 +531,29 @@ class CartesianTransformer(torch.nn.Module):
             attention_temperature=attention_temperature,
         )
 
-        self.edge_embedder = nn.Linear(4, d_model)
+        self.geometry_embedding_l_max: Optional[int] = geometry_embedding_l_max
+        if self.geometry_embedding_l_max is None:
+            # standard PET edge geometry embedding
+            self.edge_embedder = nn.Linear(4, d_model)
+            self.spherical_harmonics = torch.nn.Identity()
+            self.rmsnorm = torch.nn.Identity()
+        else:  # normalized spherical harmonics, scaled by the edge length
+            self.spherical_harmonics = SphericalHarmonicsNoSphericart(
+                self.geometry_embedding_l_max
+            )
+            # normalization constants giving each ell block of the harmonics a
+            # norm of 1.0, so that after scaling by |r| each ell block's norm
+            # equals |r|
+            norm_factors = torch.ones((self.geometry_embedding_l_max + 1) ** 2)
+            for ell in range(self.geometry_embedding_l_max + 1):
+                norm_factors[ell**2 : (ell + 1) ** 2] = math.sqrt(
+                    4 * math.pi / (2 * ell + 1)
+                )
+            self.register_buffer("geometry_norm_factors", norm_factors)
+            self.edge_embedder = nn.Linear(
+                (self.geometry_embedding_l_max + 1) ** 2, d_model
+            )
+            self.rmsnorm = nn.LayerNorm(d_model)
 
         if not is_first:
             n_merge = 3
@@ -497,13 +607,32 @@ class CartesianTransformer(torch.nn.Module):
             - The output edge embeddings, of shape (n_nodes, max_num_neighbors, d_model)
         """
         node_embeddings = input_node_embeddings
-        edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
+        if self.geometry_embedding_l_max is None:
+            edge_embeddings = [edge_vectors, edge_distances[:, :, None]]
 
-        # on some systems, on isolated atoms, a torchscript bug concatenates the two
-        # (empty) float tensors into an int tensors, causing an error later on
-        edge_embeddings = torch.cat(edge_embeddings, dim=2).to(edge_vectors.dtype)
+            # on some systems, on isolated atoms, a torchscript bug concatenates the
+            # two (empty) float tensors into an int tensors, causing an error later on
+            edge_embeddings = torch.cat(edge_embeddings, dim=2).to(edge_vectors.dtype)
+        else:
+            # padded (zero-length) edges would otherwise normalize to NaN: swap in
+            # an arbitrary unit vector for them, then rely on the |r| scaling below
+            # (which is exactly 0 for those edges) to zero them out again
+            zero_length = (edge_distances == 0)[:, :, None]
+            dummy_vectors = torch.zeros_like(edge_vectors)
+            dummy_vectors[..., 2] = 1.0
+            safe_edge_vectors = torch.where(zero_length, dummy_vectors, edge_vectors)
+
+            harmonics = self.spherical_harmonics(
+                safe_edge_vectors.reshape(-1, 3)
+            ).reshape(edge_vectors.shape[0], edge_vectors.shape[1], -1)
+            harmonics = harmonics * self.geometry_norm_factors
+            edge_embeddings = (edge_distances[:, :, None] * harmonics).to(
+                edge_vectors.dtype
+            )
 
         edge_embeddings = self.edge_embedder(edge_embeddings)
+        if self.geometry_embedding_l_max is not None:
+            edge_embeddings = self.rmsnorm(edge_embeddings)
 
         if not self.is_first:
             neighbor_elements_embeddings = self.neighbor_embedder(
