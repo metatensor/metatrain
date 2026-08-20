@@ -397,6 +397,21 @@ def model_update_v16_v17(checkpoint: dict) -> None:
         hypers["readout_type"] = {"atom_type_gating": False, "hypers": {}}
 
 
+def model_update_v17_v18(checkpoint: dict) -> None:
+    """
+    Update a v17 checkpoint to v18.
+
+    Adds the ``geometry_embedding_l_max`` hyperparameter introduced on this
+    version, disabled by default so existing models keep their behaviour (the
+    standard PET embedding of the raw edge vector and distance).
+
+    :param checkpoint: The checkpoint to update.
+    """
+    hypers = checkpoint["model_data"]["model_hypers"]
+    if "geometry_embedding_l_max" not in hypers:
+        hypers["geometry_embedding_l_max"] = None
+
+
 ###########################
 # TRAINER #################
 ###########################
