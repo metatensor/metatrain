@@ -267,6 +267,14 @@ class ModelHypers(TypedDict):
     """The order in which the layer normalization and attention
     are applied in a transformer block. Available options are ``PreLN``
     (normalization before attention) and ``PostLN`` (normalization after attention)."""
+    geometry_embedding_l_max: Optional[int] = None
+    """Maximum angular order of an alternative edge geometry embedding, based on
+    normalized regular spherical harmonics scaled by the edge length. Each
+    ``ell`` block of the harmonics is normalized to have unit norm, so that after
+    scaling by the edge length ``|r|``, each block's norm equals ``|r|``.
+
+    If ``None`` (default), the standard PET embedding of the raw edge vector and
+    distance is used instead."""
     featurizer_type: Literal["residual", "feedforward"] = "feedforward"
     """Implementation of the featurizer of the model to use. Available
     options are ``residual`` (the original featurizer from the PET paper, that uses
