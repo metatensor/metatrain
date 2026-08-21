@@ -31,6 +31,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.ensemble import uncertainty_output_name
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.sum_over_atoms import sum_over_atoms
@@ -64,7 +65,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 18
+    __checkpoint_version__ = 19
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -93,6 +94,12 @@ class PET(ModelInterface[ModelHypers]):
         self.d_node = self.hypers["d_node"]
         self.num_gnn_layers = self.hypers["num_gnn_layers"]
         self.featurizer_type = self.hypers["featurizer_type"]
+        # Stored as a plain bool (not the raw hypers dict, which mixes value types
+        # TorchScript can't infer a consistent ``Dict`` element type for): the
+        # scope/members values themselves are only needed by ``self.backend``.
+        self.shallow_ensemble_enabled: bool = (
+            self.hypers["shallow_ensemble"] is not None
+        )
 
         self.atomic_types = dataset_info.atomic_types
         nl_is_strict = bool(self.hypers["long_range"]["enable"])
@@ -528,12 +535,16 @@ class PET(ModelInterface[ModelHypers]):
         with torch.profiler.record_function("PET::predict"):
             requested_target_names: List[str] = []
             for name in self.target_names:
-                if name in outputs:
+                # a target is requested either directly, or (for a shallow
+                # ensemble) via its ``_uncertainty`` auxiliary output alone -- the
+                # backend needs the target's atomic predictions computed either way
+                if name in outputs or uncertainty_output_name(name) in outputs:
                     requested_target_names.append(name)
             (
                 atomic_predictions,
                 node_last_layer_features_dict,
                 edge_last_layer_features_dict,
+                uncertainty,
             ) = self.backend.predict(
                 node_features_list,
                 edge_features_list,
@@ -584,6 +595,19 @@ class PET(ModelInterface[ModelHypers]):
 
             for k, v in atomic_predictions_dict.items():
                 return_dict[k] = v
+
+        # **Stage 4.5: Shallow Ensemble Uncertainty (Optional)**
+        with torch.profiler.record_function("PET::_get_output_uncertainty"):
+            if self.shallow_ensemble_enabled:
+                uncertainty_dict = self._get_output_uncertainty(
+                    uncertainty,
+                    sample_labels,
+                    outputs,
+                    selected_atoms,
+                    systems,
+                )
+                for k, v in uncertainty_dict.items():
+                    return_dict[k] = v
 
         # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
         # All four computation stages are now complete.  Remove the diagnostic
@@ -950,6 +974,97 @@ class PET(ModelInterface[ModelHypers]):
 
         return atomic_predictions_tmap_dict
 
+    def _get_output_uncertainty(
+        self,
+        uncertainty: Dict[str, List[torch.Tensor]],
+        sample_labels: Labels,
+        outputs: Dict[str, ModelOutput],
+        selected_atoms: Optional[Labels],
+        systems: List[System],
+    ) -> Dict[str, TensorMap]:
+        """
+        Wrap the per-target ensemble variance computed by the backend into the
+        ``{target}_uncertainty`` auxiliary TensorMap(s) (see
+        :func:`metatrain.utils.ensemble.uncertainty_output_name`), for every
+        requested shallow-ensembled target. Same block/component/property shape
+        as the plain target output (built by :meth:`_get_output_atomic_predictions`,
+        which holds the mean over members -- see
+        :meth:`metatrain.pet.modules.backend.PETBackend.predict`), not
+        member-flattened: this is the variance, not the individual members.
+
+        At evaluation time (not during training), the variance is multiplied by
+        the per-target scale factor squared (``Var(a X) = a^2 Var(X)``), so it is
+        in the same units as the (scaled) mean output. The composition baseline
+        is *not* added: an additive constant does not change the spread, only
+        the mean. During training the variance is left in raw (per-property-
+        scaled-only) units, matching the target the trainer's own loss operates
+        on (see ``pet/trainer.py``).
+
+        :param member_atomic_predictions: Mapping from ensembled target name to a
+            list (one entry per member) of per-block flat prediction tensors, as
+            returned by :meth:`metatrain.pet.modules.backend.PETBackend.predict`.
+        :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
+        :param outputs: Dictionary of requested outputs.
+        :param selected_atoms: Optional Labels specifying a subset of atoms.
+        :param systems: The systems this batch was computed for, needed to get
+            the (squared) per-target scale factor at evaluation time.
+        :return: Dictionary mapping each requested ``{target}_uncertainty``
+            output name to its TensorMap.
+        """
+        uncertainty_dict: Dict[str, TensorMap] = {}
+        for target_name, variance_blocks in uncertainty.items():
+            unc_name = uncertainty_output_name(target_name)
+            if unc_name not in outputs:
+                continue
+
+            # Build the variance TensorMap exactly like the primary (mean)
+            # target output is built (matching self.output_shapes/key_labels/
+            # component_labels/property_labels).
+            blocks = [
+                TensorBlock(
+                    values=variance_blocks[block_index].reshape([-1] + shape),
+                    samples=sample_labels,
+                    components=components,
+                    properties=properties,
+                )
+                for block_index, (shape, components, properties) in enumerate(
+                    zip(
+                        self.output_shapes[target_name].values(),
+                        self.component_labels[target_name],
+                        self.property_labels[target_name],
+                        strict=True,
+                    )
+                )
+            ]
+            unc_tmap = TensorMap(keys=self.key_labels[target_name], blocks=blocks)
+
+            if selected_atoms is not None:
+                unc_tmap = mts.slice(unc_tmap, axis="samples", selection=selected_atoms)
+            if outputs[unc_name].sample_kind != "atom":
+                unc_tmap = sum_over_atoms(unc_tmap)
+
+            if not self.training:
+                # Var(a X) = a^2 Var(X): multiply by the (squared) per-target
+                # scale factor so the variance is in the same units as the
+                # (scaled) mean. No composition-baseline addition: an additive
+                # constant shifts the mean, not the spread.
+                target_output = ModelOutput(
+                    unit=self.outputs[target_name].unit,
+                    sample_kind=outputs[unc_name].sample_kind,
+                )
+                scale = self.scaler.get_scales(
+                    systems,
+                    {target_name: target_output},
+                    selected_atoms=selected_atoms,
+                    use_per_target_scales=True,
+                    use_per_property_scales=True,
+                )[target_name]
+                unc_tmap = mts.multiply(unc_tmap, mts.multiply(scale, scale))
+
+            uncertainty_dict[unc_name] = unc_tmap
+
+        return uncertainty_dict
+
     @classmethod
     def load_checkpoint(
         cls,
@@ -1068,20 +1183,35 @@ class PET(ModelInterface[ModelHypers]):
 
         # Register last-layer parameters, in the same order as they are returned as
         # last-layer features in the model (the modules live on ``self.backend``).
+        # Not populated for shallow-ensembled targets: their readouts no longer live
+        # at these paths (see ``PETBackend.add_output``), and LLPR (the only
+        # consumer of this list) is not currently supported together with shallow
+        # ensembles.
         self.last_layer_parameter_names[target_name] = []
-        for layer_index in range(self.num_readout_layers):
-            for key in self.output_shapes[target_name].keys():
-                self.last_layer_parameter_names[target_name].append(
-                    f"backend.node_last_layers.{target_name}.{layer_index}.{key}.weight"
-                )
-                self.last_layer_parameter_names[target_name].append(
-                    f"backend.edge_last_layers.{target_name}.{layer_index}.{key}.weight"
-                )
+        if not self.shallow_ensemble_enabled:
+            for layer_index in range(self.num_readout_layers):
+                for key in self.output_shapes[target_name].keys():
+                    self.last_layer_parameter_names[target_name].append(
+                        f"backend.node_last_layers.{target_name}.{layer_index}."
+                        f"{key}.weight"
+                    )
+                    self.last_layer_parameter_names[target_name].append(
+                        f"backend.edge_last_layers.{target_name}.{layer_index}."
+                        f"{key}.weight"
+                    )
 
         ll_features_name = get_last_layer_features_name(target_name)
         self.outputs[ll_features_name] = ModelOutput(
             sample_kind="atom", description=f"last layer features for {target_name}"
         )
+
+        if self.shallow_ensemble_enabled:
+            self.outputs[uncertainty_output_name(target_name)] = ModelOutput(
+                unit=target_info.unit,
+                sample_kind="atom",
+                description=f"shallow-ensemble variance of {target_name}",
+            )
+
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [
             block.components for block in target_info.layout.blocks()
@@ -1102,6 +1232,7 @@ class PET(ModelInterface[ModelHypers]):
         self.output_shapes.pop(target_name, None)
         self.outputs.pop(target_name, None)
         self.outputs.pop(get_last_layer_features_name(target_name), None)
+        self.outputs.pop(uncertainty_output_name(target_name), None)
         self.backend.remove_output(target_name)
         self.last_layer_parameter_names.pop(target_name, None)
         self.key_labels.pop(target_name, None)

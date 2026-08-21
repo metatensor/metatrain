@@ -15,6 +15,7 @@ from torch.nn.modules.loss import _Loss
 from typing_extensions import NotRequired, TypedDict
 
 from metatrain.utils.data import TargetInfo
+from metatrain.utils.ensemble import uncertainty_output_name
 
 
 @with_config(ConfigDict(extra="allow"))
@@ -1033,6 +1034,97 @@ class TensorMapEmpiricalCRPSLoss(TensorMapEnsembleLoss):
         return self.torch_loss(y_ensemble, y_target)
 
 
+class TensorMapEnsembleNLLLoss(LossInterface):
+    r"""
+    Gaussian negative log-likelihood loss for a shallow ensemble.
+
+    Scores the ensemble *mean* prediction against the target, using the
+    ensemble *variance* (spread across members) as the predictive variance:
+
+    .. math::
+
+        \mathrm{NLL} = \tfrac{1}{2}\left(
+            \frac{(\mathrm{mean} - \mathrm{target})^2}{\mathrm{var}}
+            + \log(\mathrm{var})
+        \right)
+
+    (delegates to :class:`torch.nn.GaussianNLLLoss`). Unlike a plain loss on
+    the mean -- which only relies on independent random initialization to
+    decorrelate members -- this actively rewards members whose spread tracks
+    the actual error.
+
+    Expects ``predictions`` to contain, alongside the usual mean prediction
+    under ``name``, a ``{name}_uncertainty`` entry holding the ensemble
+    variance with the *same* block/component/property shape (see
+    :func:`metatrain.utils.ensemble.uncertainty_output_name` and
+    :meth:`metatrain.pet.modules.backend.PETBackend.predict`) -- not a
+    member-flattened tensor.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: must be ``None``; gradients are not supported.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for ``torch.nn.GaussianNLLLoss``.
+    :param eps: numerical floor added to the variance before taking its log or
+        dividing by it, for stability early in training.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+        eps: float = 1e-6,
+    ):
+        super().__init__(name, gradient, weight, reduction)
+        if gradient is not None:
+            raise ValueError(
+                "'ensemble_nll' loss does not support gradient targets "
+                f"(got gradient={gradient!r} for target {name!r})"
+            )
+        self.torch_loss = torch.nn.GaussianNLLLoss(reduction=reduction, eps=eps)
+
+    @staticmethod
+    def _flatten(tensor_map: TensorMap) -> torch.Tensor:
+        return torch.cat([block.values.reshape(-1) for block in tensor_map.blocks()])
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        """
+        :param predictions: must contain both ``self.target`` (the ensemble mean)
+            and its ``_uncertainty`` counterpart (the ensemble variance).
+        :param targets: mapping of names to :py:class:`TensorMap`.
+        :param extra_data: ignored.
+        :return: scalar torch.Tensor loss.
+        """
+        uncertainty_name = uncertainty_output_name(self.target)
+        if uncertainty_name not in predictions:
+            raise ValueError(
+                f"'ensemble_nll' loss for {self.target!r} requires the "
+                f"{uncertainty_name!r} prediction: enable 'shallow_ensemble' in "
+                "the model hyperparameters"
+            )
+
+        mean_flat = self._flatten(predictions[self.target])
+        target_flat = self._flatten(targets[self.target])
+        var_flat = self._flatten(predictions[uncertainty_name])
+
+        # Don't include in the loss calculation any points where the target is NaN
+        not_nan = ~torch.isnan(target_flat)
+        mean_flat = mean_flat[not_nan]
+        target_flat = target_flat[not_nan]
+        var_flat = var_flat[not_nan]
+
+        if target_flat.numel() == 0:
+            return torch.zeros((), dtype=mean_flat.dtype, device=mean_flat.device)
+
+        return self.torch_loss(mean_flat, target_flat, var_flat)
+
+
 # --- aggregator -----------------------------------------------------------------------
 
 
@@ -1203,6 +1295,7 @@ class LossType(Enum):
     GAUSSIAN_NLL = ("gaussian_nll_ensemble", TensorMapGaussianNLLLoss)
     GAUSSIAN_CRPS = ("gaussian_crps_ensemble", TensorMapGaussianCRPSLoss)
     EMPIRICAL_CRPS = ("empirical_crps_ensemble", TensorMapEmpiricalCRPSLoss)
+    ENSEMBLE_NLL = ("ensemble_nll", TensorMapEnsembleNLLLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key

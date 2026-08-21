@@ -146,6 +146,7 @@ from typing_extensions import NotRequired, TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.scaler.documentation import FixedScalerWeights
+from metatrain.utils.ensemble import ShallowEnsembleHypersField
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.long_range import LongRangeHypers
 from metatrain.utils.loss import LossSpecification
@@ -324,6 +325,40 @@ class ModelHypers(TypedDict):
         readout_type:
           mtt::foo:
             atom_type_gating: one-hot
+    """
+    shallow_ensemble: Optional[ShallowEnsembleHypersField] = None
+    """Optional shallow ensemble of the heads and/or readouts, for cheap
+    uncertainty quantification and (with the ``ensemble_nll`` loss below)
+    reduced equivariance error.
+
+    When set, ``members`` independent copies of the head and/or readout modules
+    (see :attr:`scope <metatrain.utils.ensemble.ShallowEnsembleHypers.scope>`
+    below) are trained jointly on top of the shared backbone. The primary
+    target output is the mean over members; the variance over members is
+    exposed as an auxiliary ``{target}_uncertainty`` output (e.g.
+    ``mtt::aux::energy_uncertainty``, or bare ``energy_uncertainty`` for the
+    energy target). Two ways to train the members are supported, chosen via the
+    target's loss (in the trainer hyperparameters):
+
+    - a plain loss (``mse``, ``mae``, ...): computed on the mean, exactly as
+      without ensembling. Members only diverge through independent random
+      initialization.
+    - ``ensemble_nll``: a Gaussian negative log-likelihood scoring the mean
+      against the target using the ensemble variance as the predictive
+      variance (``0.5 * ((mean - target)^2 / var + log(var))``). Actively
+      encourages the members' spread to track the actual error.
+
+    ``None`` (default) disables ensembling: the model has a single (non-ensembled)
+    head/readout per target, exactly as without this hyperparameter.
+
+    .. code-block:: yaml
+
+        shallow_ensemble:
+          scope: head      # or "readout"; see ShallowEnsembleHypers.scope
+          members: 4       # must be > 1
+
+    See :class:`metatrain.utils.ensemble.ShallowEnsembleHypers` for the full
+    description of ``scope`` and ``members``.
     """
     zbl: bool = False
     """Use ZBL potential for short-range repulsion"""

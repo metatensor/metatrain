@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
 
 import torch
+from metatomic.torch import ModelOutput
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DistributedSampler
 
@@ -33,10 +34,15 @@ from metatrain.utils.distributed.slurm import (
     initialize_slurm_nccl_process_group,
     resolve_distributed,
 )
+from metatrain.utils.ensemble import uncertainty_output_name
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import LossAggregator, LossSpecification
+from metatrain.utils.loss import (
+    LossAggregator,
+    LossSpecification,
+    TensorMapEnsembleNLLLoss,
+)
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -353,6 +359,38 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Create a loss function:
         loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
         loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
+        # Targets configured with the ensemble-aware NLL loss need their
+        # ``{target}_uncertainty`` auxiliary output (the ensemble variance)
+        # requested from the model alongside the plain target.
+        ensemble_nll_targets = {
+            name
+            for name in train_targets
+            if isinstance(loss_fn.losses.get(name), TensorMapEnsembleNLLLoss)
+        }
+
+        def _requested_outputs(batch_target_names: Any) -> Dict[str, Any]:
+            """Targets present in this batch, plus the ``{target}_uncertainty``
+            auxiliary output for those configured with the ``ensemble_nll`` loss
+            (see ``ensemble_nll_targets`` above)."""
+            requested: Dict[str, Any] = {
+                key: train_targets[key] for key in batch_target_names
+            }
+            model_for_outputs = model.module if is_distributed else model
+            for key in batch_target_names:
+                if key in ensemble_nll_targets:
+                    unc_name = uncertainty_output_name(key)
+                    # a fresh ``ModelOutput``, not the cached one from
+                    # ``model.outputs`` mutated in place: its ``sample_kind`` must
+                    # match the target's own (e.g. "system" for energy), not the
+                    # "atom" default that capability registration used
+                    registered = model_for_outputs.outputs[unc_name]
+                    requested[unc_name] = ModelOutput(
+                        unit=registered.unit,
+                        sample_kind=train_targets[key].sample_kind,
+                        description=registered.description,
+                    )
+            return requested
+
         logging.info("Using the following loss functions:")
         for name, info in loss_fn.metadata.items():
             logging.info(f"{name}:")
@@ -363,6 +401,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
             logging.info("With gradients:")
             for grad, ginfo in info["gradients"].items():
                 logging.info(f"\t{name}::{grad}: {ginfo}")
+        if ensemble_nll_targets:
+            logging.info(
+                "Trained with the ensemble-aware NLL loss (spread calibrated "
+                f"to error): {sorted(ensemble_nll_targets)}"
+            )
 
         if self.hypers["weight_decay"] is not None:
             optimizer = torch.optim.AdamW(
@@ -424,7 +467,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: train_targets[key] for key in targets.keys()},
+                    _requested_outputs(targets.keys()),
                     is_training=True,
                 )
 
@@ -543,7 +586,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     predictions = evaluate_model(
                         model,
                         systems,
-                        {key: train_targets[key] for key in targets.keys()},
+                        _requested_outputs(targets.keys()),
                         is_training=False,
                     )
 

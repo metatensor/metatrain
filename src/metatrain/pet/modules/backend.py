@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
+from ...utils.ensemble import make_ensemble_members
 from ...utils.hypers import resolve_per_target
 from ...utils.readout import LinearReadout, MoEReadout
 from ..documentation import ModelHypers
@@ -77,6 +78,17 @@ class PETBackend(torch.nn.Module):
         self.transformer_type = hypers["transformer_type"]
         self.featurizer_type = hypers["featurizer_type"]
         self.geometry_embedding_l_max = hypers["geometry_embedding_l_max"]
+        # Shallow ensemble: a single global {scope, members} setting applied to
+        # every target (unlike ``head_type``/``readout_type``, this is not
+        # resolved per target). ``shallow_ensemble_scope`` is ``None`` when
+        # ensembling is disabled.
+        shallow_ensemble = hypers["shallow_ensemble"]
+        self.shallow_ensemble_scope: Optional[str] = (
+            shallow_ensemble["scope"] if shallow_ensemble is not None else None
+        )
+        self.shallow_ensemble_members: int = (
+            shallow_ensemble["members"] if shallow_ensemble is not None else 1
+        )
 
         num_atomic_species = len(atomic_types)
         self.num_atomic_species = num_atomic_species
@@ -151,15 +163,46 @@ class PETBackend(torch.nn.Module):
         else:
             self.system_conditioning = None
 
-        # Per-output heads and last layers, populated by ``PET._add_output``.
+        # Per-output heads and last layers, populated by ``PET._add_output``. When
+        # ``shallow_ensemble_scope`` is set, these plain (non-ensembled) dicts are
+        # used only for the parts that stay shared across members: with
+        # ``scope="readout"`` the heads are shared, so ``node_heads``/``edge_heads``
+        # are still populated normally, but ``node_last_layers``/``edge_last_layers``
+        # are not (the readouts live in ``*_last_layers_ensemble`` instead); with
+        # ``scope="head"`` neither pair is populated at all (everything lives in the
+        # ``*_ensemble`` dicts below). This keeps the non-ensembled code path (the
+        # methods below that read these four dicts) completely untouched.
         self.node_heads = torch.nn.ModuleDict()
         self.edge_heads = torch.nn.ModuleDict()
         self.node_last_layers = torch.nn.ModuleDict()
         self.edge_last_layers = torch.nn.ModuleDict()
+        # Ensembled heads, only populated for targets when
+        # ``shallow_ensemble_scope == "head"``: target -> ``member_{e}`` ->
+        # flat, layer-major ``ModuleList`` of heads (same shape ``_make_heads``
+        # would return for a single, non-ensembled target).
+        self.node_heads_ensemble = torch.nn.ModuleDict()
+        self.edge_heads_ensemble = torch.nn.ModuleDict()
+        # Ensembled readouts. Although ``shallow_ensemble_scope`` is a single,
+        # global setting (so only one of the two pairs below is ever actually
+        # populated by a given model), TorchScript compiles every method against
+        # the concrete nesting of *both* containers, so the two scopes need
+        # separate containers rather than one sharing a scope-dependent nesting
+        # order (the unpopulated one just stays an empty ``ModuleDict``):
+        # - ``*_ensemble_readout``: target -> readout layer -> block key ->
+        #   ``member_{e}`` -> readout (member axis innermost, since the heads
+        #   feeding into these readouts are shared across members).
+        # - ``*_ensemble_head``: target -> ``member_{e}`` -> readout layer ->
+        #   block key -> readout (member axis outermost, matching the per-member
+        #   heads in ``node_heads_ensemble``/``edge_heads_ensemble`` above).
+        self.node_last_layers_ensemble_readout = torch.nn.ModuleDict()
+        self.edge_last_layers_ensemble_readout = torch.nn.ModuleDict()
+        self.node_last_layers_ensemble_head = torch.nn.ModuleDict()
+        self.edge_last_layers_ensemble_head = torch.nn.ModuleDict()
         # Heads per readout layer for each target: 1 for ``head_type="per_target"``
         # (one head shared by all blocks), or the number of blocks for
         # ``head_type="per_block"``. The heads are stored in a flat, layer-major
-        # ``ModuleList``, and this is the stride needed to index into it.
+        # ``ModuleList``, and this is the stride needed to index into it. Populated
+        # for every target, ensembled or not.
         self.heads_per_layer: Dict[str, int] = {}
 
         # ===== BEGIN DIAGNOSTIC-RELATED ATTRIBUTES
@@ -211,41 +254,88 @@ class PETBackend(torch.nn.Module):
         # parameter names and diagnostic module paths are unchanged.
         heads_per_layer = len(output_shapes) if head_type == "per_block" else 1
         self.heads_per_layer[target_name] = heads_per_layer
-        self.node_heads[target_name] = self._make_heads(
-            self.d_node, self.d_head_node, heads_per_layer
-        )
-        self.edge_heads[target_name] = self._make_heads(
-            self.d_pet, self.d_head_edge, heads_per_layer
-        )
 
-        # Readouts consume the head output, so their input dimension is d_head.
-        self.node_last_layers[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.ModuleDict(
-                    {
-                        key: self._make_readout(
-                            self.d_head_node, prod(shape), readout_spec
-                        )
-                        for key, shape in output_shapes.items()
-                    }
-                )
-                for _ in range(self.num_readout_layers)
-            ]
-        )
-
-        self.edge_last_layers[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.ModuleDict(
-                    {
-                        key: self._make_readout(
-                            self.d_head_edge, prod(shape), readout_spec
-                        )
-                        for key, shape in output_shapes.items()
-                    }
-                )
-                for _ in range(self.num_readout_layers)
-            ]
-        )
+        if self.shallow_ensemble_scope is None:
+            self.node_heads[target_name] = self._make_heads(
+                self.d_node, self.d_head_node, heads_per_layer
+            )
+            self.edge_heads[target_name] = self._make_heads(
+                self.d_pet, self.d_head_edge, heads_per_layer
+            )
+            # Readouts consume the head output, so their input dimension is d_head.
+            self.node_last_layers[target_name] = self._make_readouts_per_layer(
+                self.d_head_node, output_shapes, readout_spec
+            )
+            self.edge_last_layers[target_name] = self._make_readouts_per_layer(
+                self.d_head_edge, output_shapes, readout_spec
+            )
+        elif self.shallow_ensemble_scope == "readout":
+            # Heads are shared across members, exactly as in the non-ensembled case.
+            self.node_heads[target_name] = self._make_heads(
+                self.d_node, self.d_head_node, heads_per_layer
+            )
+            self.edge_heads[target_name] = self._make_heads(
+                self.d_pet, self.d_head_edge, heads_per_layer
+            )
+            # Only the readouts are replicated per member, member axis innermost.
+            self.node_last_layers_ensemble_readout[target_name] = torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            key: make_ensemble_members(
+                                lambda shape=shape: self._make_readout(  # type: ignore[misc]
+                                    self.d_head_node, prod(shape), readout_spec
+                                ),
+                                self.shallow_ensemble_members,
+                            )
+                            for key, shape in output_shapes.items()
+                        }
+                    )
+                    for _ in range(self.num_readout_layers)
+                ]
+            )
+            self.edge_last_layers_ensemble_readout[target_name] = torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            key: make_ensemble_members(
+                                lambda shape=shape: self._make_readout(  # type: ignore[misc]
+                                    self.d_head_edge, prod(shape), readout_spec
+                                ),
+                                self.shallow_ensemble_members,
+                            )
+                            for key, shape in output_shapes.items()
+                        }
+                    )
+                    for _ in range(self.num_readout_layers)
+                ]
+            )
+        else:
+            assert self.shallow_ensemble_scope == "head"
+            # Both heads and readouts are fully replicated per member, member axis
+            # outermost, so each member is an independent head+readout pipeline.
+            self.node_heads_ensemble[target_name] = make_ensemble_members(
+                lambda: self._make_heads(
+                    self.d_node, self.d_head_node, heads_per_layer
+                ),
+                self.shallow_ensemble_members,
+            )
+            self.edge_heads_ensemble[target_name] = make_ensemble_members(
+                lambda: self._make_heads(self.d_pet, self.d_head_edge, heads_per_layer),
+                self.shallow_ensemble_members,
+            )
+            self.node_last_layers_ensemble_head[target_name] = make_ensemble_members(
+                lambda: self._make_readouts_per_layer(
+                    self.d_head_node, output_shapes, readout_spec
+                ),
+                self.shallow_ensemble_members,
+            )
+            self.edge_last_layers_ensemble_head[target_name] = make_ensemble_members(
+                lambda: self._make_readouts_per_layer(
+                    self.d_head_edge, output_shapes, readout_spec
+                ),
+                self.shallow_ensemble_members,
+            )
 
     def remove_output(self, target_name: str) -> None:
         """
@@ -257,14 +347,20 @@ class PETBackend(torch.nn.Module):
 
         :param target_name: Name of the target to remove.
         """
-        if target_name in self.node_heads:
-            del self.node_heads[target_name]
-        if target_name in self.edge_heads:
-            del self.edge_heads[target_name]
-        if target_name in self.node_last_layers:
-            del self.node_last_layers[target_name]
-        if target_name in self.edge_last_layers:
-            del self.edge_last_layers[target_name]
+        for module_dict in (
+            self.node_heads,
+            self.edge_heads,
+            self.node_last_layers,
+            self.edge_last_layers,
+            self.node_heads_ensemble,
+            self.edge_heads_ensemble,
+            self.node_last_layers_ensemble_readout,
+            self.edge_last_layers_ensemble_readout,
+            self.node_last_layers_ensemble_head,
+            self.edge_last_layers_ensemble_head,
+        ):
+            if target_name in module_dict:
+                del module_dict[target_name]
         self.heads_per_layer.pop(target_name, None)
 
     def _make_heads(
@@ -342,6 +438,34 @@ class PETBackend(torch.nn.Module):
         raise ValueError(
             f"Unknown atom_type_gating: {gating!r}. "
             "Available options are: false, 'one-hot' and 'moe'."
+        )
+
+    def _make_readouts_per_layer(
+        self,
+        in_features: int,
+        output_shapes: Dict[str, List[int]],
+        readout_spec: Dict[str, Any],
+    ) -> torch.nn.ModuleList:
+        """
+        Build the per-readout-layer, per-block readouts for one (non-ensembled, or
+        single ensemble member's) target: a ``ModuleList`` of ``num_readout_layers``
+        ``ModuleDict``s, each mapping block key to its readout module.
+
+        :param in_features: Input feature dimension (the head dimension).
+        :param output_shapes: Mapping from per-block key to the block's shape.
+        :param readout_spec: The per-target readout spec, see :meth:`_make_readout`.
+        :return: A ``ModuleList`` of ``ModuleDict``s, one per readout layer.
+        """
+        return torch.nn.ModuleList(
+            [
+                torch.nn.ModuleDict(
+                    {
+                        key: self._make_readout(in_features, prod(shape), readout_spec)
+                        for key, shape in output_shapes.items()
+                    }
+                )
+                for _ in range(self.num_readout_layers)
+            ]
         )
 
     def preprocess(
@@ -538,6 +662,7 @@ class PETBackend(torch.nn.Module):
         Dict[str, List[torch.Tensor]],
         Dict[str, List[torch.Tensor]],
         Dict[str, List[torch.Tensor]],
+        Dict[str, List[torch.Tensor]],
     ]:
         """
         Compute the per-block atomic predictions and last-layer features.
@@ -551,13 +676,22 @@ class PETBackend(torch.nn.Module):
             normalize non-conservative stress predictions by cell volume.
         :param system_indices: System index for each atom, shape ``(num_nodes,)``.
         :param requested_output_names: Names of the target outputs to compute.
-        :return: A tuple ``(atomic_predictions, node_ll_features, edge_ll_features)``
-            where ``atomic_predictions`` maps each requested output to a list of
-            per-block flat prediction tensors, and the last-layer feature dictionaries
-            map each output to its per-layer node / edge last-layer features.
+        :return: A tuple ``(atomic_predictions, node_ll_features, edge_ll_features,
+            uncertainty)``. ``atomic_predictions`` maps each requested output to a
+            list of per-block flat prediction tensors -- for a shallow ensemble
+            target, this is the *mean* over members, so that every other caller of
+            :meth:`predict` keeps seeing exactly one prediction per output, unaware
+            that ensembling is active. The last-layer feature dictionaries map each
+            output to its per-layer node / edge last-layer features (only for
+            non-ensembled and ``scope="readout"`` targets; ``scope="head"`` targets
+            have per-member features that are not exposed here). ``uncertainty``
+            maps each *ensembled* requested output to a list of per-block
+            variance-over-members tensors, same shape as ``atomic_predictions``.
+            Empty for outputs that are not ensembled.
         """
         padding_mask = batch_data["padding_mask"]
         cutoff_factors = batch_data["cutoff_factors"]
+        element_indices_nodes = batch_data["element_indices_nodes"]
 
         node_ll_features, edge_ll_features = self._calculate_last_layer_features(
             node_features_list,
@@ -571,7 +705,7 @@ class PETBackend(torch.nn.Module):
                 padding_mask,
                 cutoff_factors,
                 requested_output_names,
-                batch_data["element_indices_nodes"],
+                element_indices_nodes,
             )
         )
 
@@ -601,7 +735,82 @@ class PETBackend(torch.nn.Module):
 
             atomic_predictions[output_name] = block_sums
 
-        return atomic_predictions, node_ll_features, edge_ll_features
+        # Shallow ensemble: compute every member's prediction (summed over GNN
+        # layers and node/edge contributions, exactly like above), then write the
+        # mean into ``atomic_predictions`` under the same key and return the
+        # variance across members separately -- unlike the plain last-layer
+        # features above, ``scope="head"`` targets need their own per-member
+        # features, computed separately.
+        uncertainty: Dict[str, List[torch.Tensor]] = {}
+        if self.shallow_ensemble_scope is not None:
+            node_ll_features_ens, edge_ll_features_ens = (
+                self._calculate_last_layer_features_ensemble(
+                    node_features_list, edge_features_list
+                )
+            )
+            node_member_predictions, edge_member_predictions = (
+                self._calculate_atomic_predictions_ensemble(
+                    node_ll_features,
+                    edge_ll_features,
+                    node_ll_features_ens,
+                    edge_ll_features_ens,
+                    padding_mask,
+                    cutoff_factors,
+                    requested_output_names,
+                    element_indices_nodes,
+                )
+            )
+
+            for output_name in node_member_predictions.keys():
+                node_by_member = node_member_predictions[output_name]
+                edge_by_member = edge_member_predictions[output_name]
+                n_members = len(node_by_member)
+                member_block_sums: List[List[torch.Tensor]] = []
+                for m in range(n_members):
+                    node_by_layer = node_by_member[m]
+                    edge_by_layer = edge_by_member[m]
+                    num_blocks = len(node_by_layer[0])
+                    block_sums = []
+                    for b in range(num_blocks):
+                        block_sum = node_by_layer[0][b] + edge_by_layer[0][b]
+                        for layer in range(1, len(node_by_layer)):
+                            block_sum = (
+                                block_sum
+                                + node_by_layer[layer][b]
+                                + edge_by_layer[layer][b]
+                            )
+                        block_sums.append(block_sum)
+
+                    if output_name == "non_conservative_stress":  # TODO: variants
+                        num_properties = block_sums[0].shape[1] // 9
+                        block_sums[0] = process_non_conservative_stress(
+                            block_sums[0], cells, system_indices, num_properties
+                        )
+
+                    member_block_sums.append(block_sums)
+
+                # mean and (unbiased) variance over members, block by block; the
+                # mean replaces the value ``atomic_predictions`` would otherwise
+                # be missing for this (ensembled) output, since it is absent from
+                # ``node_atomic_predictions_dict`` above
+                num_blocks = len(member_block_sums[0])
+                mean_blocks: List[torch.Tensor] = []
+                variance_blocks: List[torch.Tensor] = []
+                for b in range(num_blocks):
+                    stacked = torch.stack(
+                        [member_block_sums[m][b] for m in range(n_members)], dim=0
+                    )
+                    mean_blocks.append(stacked.mean(dim=0))
+                    variance_blocks.append(stacked.var(dim=0, unbiased=True))
+                atomic_predictions[output_name] = mean_blocks
+                uncertainty[output_name] = variance_blocks
+
+        return (
+            atomic_predictions,
+            node_ll_features,
+            edge_ll_features,
+            uncertainty,
+        )
 
     def _feedforward_featurization_impl(
         self, inputs: Dict[str, torch.Tensor], use_manual_attention: bool
@@ -803,6 +1012,272 @@ class PETBackend(torch.nn.Module):
             edge_last_layer_features_dict[output_name] = edge_features
 
         return node_last_layer_features_dict, edge_last_layer_features_dict
+
+    def _calculate_last_layer_features_ensemble(
+        self,
+        node_features_list: List[torch.Tensor],
+        edge_features_list: List[torch.Tensor],
+    ) -> Tuple[
+        Dict[str, List[List[torch.Tensor]]], Dict[str, List[List[torch.Tensor]]]
+    ]:
+        """
+        Like :meth:`_calculate_last_layer_features`, but for ``scope="head"``
+        ensembled targets: each member has its own heads, so this returns, for
+        each output, one flat (layer-major) feature list per member.
+
+        Only ever has entries when ``shallow_ensemble_scope == "head"``: with
+        ``scope="readout"`` the heads are shared, and last-layer features for
+        those targets are computed once by the ordinary (unensembled)
+        :meth:`_calculate_last_layer_features`, via the plain ``node_heads``/
+        ``edge_heads`` dicts.
+
+        :param node_features_list: List of node feature tensors from each GNN
+            layer.
+        :param edge_features_list: List of edge feature tensors from each GNN
+            layer.
+        :return: Tuple of two dictionaries mapping output names to a list of
+            per-member, flat (layer-major) last-layer feature lists.
+        """
+        node_last_layer_features_dict: Dict[str, List[List[torch.Tensor]]] = {}
+        edge_last_layer_features_dict: Dict[str, List[List[torch.Tensor]]] = {}
+
+        for output_name, member_heads in self.node_heads_ensemble.items():
+            heads_per_layer = self.heads_per_layer[output_name]
+            member_node_features: List[List[torch.Tensor]] = []
+            for node_heads_m in member_heads.values():
+                features: List[torch.Tensor] = []
+                for i, node_head in enumerate(node_heads_m):
+                    features.append(node_head(node_features_list[i // heads_per_layer]))
+                member_node_features.append(features)
+            node_last_layer_features_dict[output_name] = member_node_features
+
+        for output_name, member_heads in self.edge_heads_ensemble.items():
+            heads_per_layer = self.heads_per_layer[output_name]
+            member_edge_features: List[List[torch.Tensor]] = []
+            for edge_heads_m in member_heads.values():
+                features = []
+                for i, edge_head in enumerate(edge_heads_m):
+                    features.append(edge_head(edge_features_list[i // heads_per_layer]))
+                member_edge_features.append(features)
+            edge_last_layer_features_dict[output_name] = member_edge_features
+
+        return node_last_layer_features_dict, edge_last_layer_features_dict
+
+    def _calculate_atomic_predictions_ensemble(
+        self,
+        node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+        edge_last_layer_features_dict: Dict[str, List[torch.Tensor]],
+        node_last_layer_features_ensemble_dict: Dict[str, List[List[torch.Tensor]]],
+        edge_last_layer_features_ensemble_dict: Dict[str, List[List[torch.Tensor]]],
+        padding_mask: torch.Tensor,
+        cutoff_factors: torch.Tensor,
+        requested_output_names: List[str],
+        element_indices_nodes: torch.Tensor,
+    ) -> Tuple[
+        Dict[str, List[List[List[torch.Tensor]]]],
+        Dict[str, List[List[List[torch.Tensor]]]],
+    ]:
+        """
+        Ensembled counterpart of :meth:`_calculate_atomic_predictions`: applies the
+        per-member readouts, for every ensembled target. Node and edge
+        contributions are *not* yet summed together, nor over GNN layers -- that
+        still happens once per member in :meth:`predict`, mirroring exactly what
+        it already does for non-ensembled targets.
+
+        :param node_last_layer_features_dict: Shared-head node last-layer
+            features (from the ordinary, unensembled
+            :meth:`_calculate_last_layer_features`), used for ``scope="readout"``
+            targets.
+        :param edge_last_layer_features_dict: As above, for edges.
+        :param node_last_layer_features_ensemble_dict: Per-member node last-layer
+            features (from :meth:`_calculate_last_layer_features_ensemble`), used
+            for ``scope="head"`` targets.
+        :param edge_last_layer_features_ensemble_dict: As above, for edges.
+        :param padding_mask: Boolean mask indicating real vs padded neighbors.
+        :param cutoff_factors: Cutoff factors for edge distances.
+        :param requested_output_names: Names of the target outputs to compute.
+        :param element_indices_nodes: Species index of each central atom.
+        :return: Tuple of two dictionaries mapping output name to a list (one
+            entry per member) of lists (one per GNN readout layer) of per-block
+            prediction tensors -- the same shape :meth:`_calculate_atomic_predictions`
+            returns for a single target, with an extra outer "member" list.
+        """
+        node_out: Dict[str, List[List[List[torch.Tensor]]]] = {}
+        edge_out: Dict[str, List[List[List[torch.Tensor]]]] = {}
+
+        # ----- scope="readout": member axis innermost, shared last-layer features
+        for (
+            output_name,
+            node_last_layers,
+        ) in self.node_last_layers_ensemble_readout.items():
+            # TorchScript unrolls iteration over an ``nn.ModuleDict``, and does not
+            # allow ``continue``/``break`` inside such an unrolled loop body, so the
+            # "is this target requested" check has to wrap the whole body instead
+            # (as the non-ensembled methods above also do).
+            if (
+                output_name in requested_output_names
+                and output_name in node_last_layer_features_dict
+            ):
+                heads_per_layer = self.heads_per_layer[output_name]
+                node_features = node_last_layer_features_dict[output_name]
+                n_members = self.shallow_ensemble_members
+                by_member: List[List[List[torch.Tensor]]] = [
+                    torch.jit.annotate(List[List[torch.Tensor]], [])
+                    for _ in range(n_members)
+                ]
+                for i, node_last_layer in enumerate(node_last_layers):
+                    by_member_this_layer: List[List[torch.Tensor]] = [
+                        torch.jit.annotate(List[torch.Tensor], [])
+                        for _ in range(n_members)
+                    ]
+                    j = 0
+                    for block_members in node_last_layer.values():
+                        features = node_features[
+                            i * heads_per_layer + j % heads_per_layer
+                        ]
+                        m = 0
+                        for readout_m in block_members.values():
+                            by_member_this_layer[m].append(
+                                readout_m(features, element_indices_nodes)
+                            )
+                            m += 1
+                        j += 1
+                    for m in range(n_members):
+                        by_member[m].append(by_member_this_layer[m])
+                node_out[output_name] = by_member
+
+        for (
+            output_name,
+            edge_last_layers,
+        ) in self.edge_last_layers_ensemble_readout.items():
+            if (
+                output_name in requested_output_names
+                and output_name in edge_last_layer_features_dict
+            ):
+                heads_per_layer = self.heads_per_layer[output_name]
+                edge_features = edge_last_layer_features_dict[output_name]
+                n_members = self.shallow_ensemble_members
+                by_member = [
+                    torch.jit.annotate(List[List[torch.Tensor]], [])
+                    for _ in range(n_members)
+                ]
+                for i, edge_last_layer in enumerate(edge_last_layers):
+                    edge_by_member_this_layer: List[List[torch.Tensor]] = [
+                        torch.jit.annotate(List[torch.Tensor], [])
+                        for _ in range(n_members)
+                    ]
+                    j = 0
+                    for block_members in edge_last_layer.values():
+                        features = edge_features[
+                            i * heads_per_layer + j % heads_per_layer
+                        ]
+                        m = 0
+                        for readout_m in block_members.values():
+                            edge_atomic_predictions = readout_m(
+                                features, element_indices_nodes
+                            )
+                            expanded_padding_mask = padding_mask[..., None].repeat(
+                                1, 1, edge_atomic_predictions.shape[2]
+                            )
+                            edge_atomic_predictions = torch.where(
+                                ~expanded_padding_mask, 0.0, edge_atomic_predictions
+                            )
+                            edge_by_member_this_layer[m].append(
+                                (
+                                    edge_atomic_predictions * cutoff_factors[:, :, None]
+                                ).sum(dim=1)
+                            )
+                            m += 1
+                        j += 1
+                    for m in range(n_members):
+                        by_member[m].append(edge_by_member_this_layer[m])
+                edge_out[output_name] = by_member
+
+        # ----- scope="head": member axis outermost, features already per-member
+        for (
+            output_name,
+            node_last_layers_ens,
+        ) in self.node_last_layers_ensemble_head.items():
+            if (
+                output_name in requested_output_names
+                and output_name in node_last_layer_features_ensemble_dict
+            ):
+                heads_per_layer = self.heads_per_layer[output_name]
+                member_features_list = node_last_layer_features_ensemble_dict[
+                    output_name
+                ]
+                by_member_head: List[List[List[torch.Tensor]]] = []
+                member_idx = 0
+                for node_last_layers_m in node_last_layers_ens.values():
+                    node_features_m = member_features_list[member_idx]
+                    layer_blocks: List[List[torch.Tensor]] = []
+                    for i, node_last_layer in enumerate(node_last_layers_m):
+                        block_preds: List[torch.Tensor] = torch.jit.annotate(
+                            List[torch.Tensor], []
+                        )
+                        j = 0
+                        for node_last_layer_by_block in node_last_layer.values():
+                            features = node_features_m[
+                                i * heads_per_layer + j % heads_per_layer
+                            ]
+                            block_preds.append(
+                                node_last_layer_by_block(
+                                    features, element_indices_nodes
+                                )
+                            )
+                            j += 1
+                        layer_blocks.append(block_preds)
+                    by_member_head.append(layer_blocks)
+                    member_idx += 1
+                node_out[output_name] = by_member_head
+
+        for (
+            output_name,
+            edge_last_layers_ens,
+        ) in self.edge_last_layers_ensemble_head.items():
+            if (
+                output_name in requested_output_names
+                and output_name in edge_last_layer_features_ensemble_dict
+            ):
+                heads_per_layer = self.heads_per_layer[output_name]
+                member_features_list = edge_last_layer_features_ensemble_dict[
+                    output_name
+                ]
+                by_member_head_edge: List[List[List[torch.Tensor]]] = []
+                member_idx = 0
+                for edge_last_layers_m in edge_last_layers_ens.values():
+                    edge_features_m = member_features_list[member_idx]
+                    layer_blocks_e: List[List[torch.Tensor]] = []
+                    for i, edge_last_layer in enumerate(edge_last_layers_m):
+                        block_preds_e: List[torch.Tensor] = torch.jit.annotate(
+                            List[torch.Tensor], []
+                        )
+                        j = 0
+                        for edge_last_layer_by_block in edge_last_layer.values():
+                            features = edge_features_m[
+                                i * heads_per_layer + j % heads_per_layer
+                            ]
+                            j += 1
+                            edge_atomic_predictions = edge_last_layer_by_block(
+                                features, element_indices_nodes
+                            )
+                            expanded_padding_mask = padding_mask[..., None].repeat(
+                                1, 1, edge_atomic_predictions.shape[2]
+                            )
+                            edge_atomic_predictions = torch.where(
+                                ~expanded_padding_mask, 0.0, edge_atomic_predictions
+                            )
+                            block_preds_e.append(
+                                (
+                                    edge_atomic_predictions * cutoff_factors[:, :, None]
+                                ).sum(dim=1)
+                            )
+                        layer_blocks_e.append(block_preds_e)
+                    by_member_head_edge.append(layer_blocks_e)
+                    member_idx += 1
+                edge_out[output_name] = by_member_head_edge
+
+        return node_out, edge_out
 
     def _calculate_atomic_predictions(
         self,
