@@ -251,8 +251,20 @@ def apply_finetuning_strategy(
         heads_config = strategy.get(
             "config",
             {
-                "head_modules": ["node_heads", "edge_heads"],
-                "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+                "head_modules": [
+                    "node_heads",
+                    "edge_heads",
+                    "node_heads_ensemble",
+                    "edge_heads_ensemble",
+                ],
+                "last_layer_modules": [
+                    "node_last_layers",
+                    "edge_last_layers",
+                    "node_last_layers_ensemble_readout",
+                    "edge_last_layers_ensemble_readout",
+                    "node_last_layers_ensemble_head",
+                    "edge_last_layers_ensemble_head",
+                ],
             },
         )
 

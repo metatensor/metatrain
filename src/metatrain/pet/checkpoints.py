@@ -412,6 +412,21 @@ def model_update_v17_v18(checkpoint: dict) -> None:
         hypers["geometry_embedding_l_max"] = None
 
 
+def model_update_v18_v19(checkpoint: dict) -> None:
+    """
+    Update a v18 checkpoint to v19.
+
+    Adds the ``shallow_ensemble`` hyperparameter introduced on this version,
+    disabled by default so existing models keep their behaviour (a single,
+    non-ensembled head/readout per target).
+
+    :param checkpoint: The checkpoint to update.
+    """
+    hypers = checkpoint["model_data"]["model_hypers"]
+    if "shallow_ensemble" not in hypers:
+        hypers["shallow_ensemble"] = None
+
+
 ###########################
 # TRAINER #################
 ###########################

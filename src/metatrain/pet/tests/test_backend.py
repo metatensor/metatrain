@@ -143,7 +143,7 @@ def test_backend_runs_on_plain_tensors():
     assert all(isinstance(t, torch.Tensor) for t in node_list)
     assert all(isinstance(t, torch.Tensor) for t in edge_list)
 
-    atomic_predictions, node_ll, edge_ll = backend.predict(
+    atomic_predictions, node_ll, edge_ll, _ = backend.predict(
         node_list, edge_list, batch_data, cells, system_indices, ["energy"]
     )
     assert "energy" in atomic_predictions
@@ -166,7 +166,7 @@ def test_backend_predictions_match_full_model():
     system_indices = inputs[6]
     batch_data = backend.preprocess(*inputs)
     node_list, edge_list = backend.calculate_features(batch_data)
-    atomic_predictions, _, _ = backend.predict(
+    atomic_predictions, _, _, _ = backend.predict(
         node_list, edge_list, batch_data, cells, system_indices, ["energy"]
     )
 
@@ -271,7 +271,7 @@ def test_backend_torch_compile(fullgraph):
                 cutoff_width_adaptive,
             )
             node_list, edge_list = backend.calculate_features(batch_data)
-            preds, _, _ = backend.predict(
+            preds, _, _, _ = backend.predict(
                 node_list,
                 edge_list,
                 batch_data,
