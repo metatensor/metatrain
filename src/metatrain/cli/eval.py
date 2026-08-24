@@ -255,25 +255,25 @@ def _eval_targets(
             torch.cuda.synchronize()
         end_time = time.time()
 
-        # Update metrics
-        preds_per_atom = average_by_num_atoms(
-            batch_predictions, systems, per_structure_keys=[]
-        )
-        targ_per_atom = average_by_num_atoms(
-            batch_targets, systems, per_structure_keys=[]
-        )
         # For metrics, filter out the targets that have sample_kind "atom_pair"
         # for now.
-        preds_per_atom = {
+        preds_for_metrics = {
             k: v
-            for k, v in preds_per_atom.items()
+            for k, v in batch_predictions.items()
             if options[k].sample_kind != "atom_pair"
         }
-        targ_per_atom = {
+        targ_for_metrics = {
             k: v
-            for k, v in targ_per_atom.items()
+            for k, v in batch_targets.items()
             if options[k].sample_kind != "atom_pair"
         }
+        # Update metrics
+        preds_per_atom = average_by_num_atoms(
+            preds_for_metrics, systems, per_structure_keys=[]
+        )
+        targ_per_atom = average_by_num_atoms(
+            targ_for_metrics, systems, per_structure_keys=[]
+        )
         rmse_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
         mae_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
 
@@ -345,6 +345,8 @@ def eval_model(
 
     options = validate_eval_options(OmegaConf.to_container(options))
     options = OmegaConf.create(options)
+    model = model.eval()
+
     options_list = expand_dataset_config(options)
     for i, options in enumerate(options_list):
         idx_suffix = f"_{i}" if len(options_list) > 1 else ""
