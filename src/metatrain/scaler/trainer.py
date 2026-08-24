@@ -182,9 +182,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
-                # Drop atom-pair targets: excluded from `model.target_infos` (see
-                # `Scaler.__init__`), so never densified/padded above, and never
-                # actually scaled (see `BaseScaler.accumulate`).
                 targets = {k: v for k, v in targets.items() if k in model.target_infos}
                 if len(targets) == 0:
                     break

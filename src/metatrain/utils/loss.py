@@ -244,6 +244,211 @@ class BaseTensorMapLoss(LossInterface):
         return self.compute_flattened(tensor_map_pred, tensor_map_targ)
 
 
+class MatrixLoss(LossInterface):
+    """
+
+    Provides a compute_flattened() helper that extracts values or gradients,
+    flattens them, applies an optional mask, and computes the torch loss.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: dummy here; real weighting in ScheduledLoss.
+    :param reduction: reduction mode for torch loss.
+    :param loss_fn: pre-instantiated torch.nn loss (e.g. MSELoss).
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+    ):
+        super().__init__(name, gradient, weight, reduction)
+        from .matrix import Blocks2Matrix, reconstruct_full
+
+        """
+        irreps:  &def2svp
+            1:  # H
+              - {num: 2, o3_lambda: 0, o3_sigma: 1}
+              - {num: 1, o3_lambda: 1, o3_sigma: 1}
+            6: &heavy_ao  # C
+              - {num: 3, o3_lambda: 0, o3_sigma: 1}
+              - {num: 2, o3_lambda: 1, o3_sigma: 1}
+              - {num: 1, o3_lambda: 2, o3_sigma: 1}
+            7: *heavy_ao  # N
+            8: *heavy_ao  # O
+            9: *heavy_ao  # F
+            15: &heavier_ao  # P
+              - {num: 4, o3_lambda: 0, o3_sigma: 1}
+              - {num: 3, o3_lambda: 1, o3_sigma: 1}
+              - {num: 1, o3_lambda: 2, o3_sigma: 1}
+            16: *heavier_ao  # S
+        """
+
+        basis_set = {
+            "0_1": 2, "1_1": 1, 
+            "0_6": 3, "1_6": 2, "2_6": 1,
+            "0_7": 3, "1_7": 2, "2_7": 1,
+            "0_8": 3, "1_8": 2, "2_8": 1,
+            "0_9": 3, "1_9": 2, "2_9": 1,
+            "0_15": 4, "1_15": 3, "2_15": 1,
+            "0_16": 4, "1_16": 3, "2_16": 1
+        }
+
+        self.blocks2matrix = Blocks2Matrix(basis_set, dtype=torch.float32, device=torch.device("cpu"))
+        self.reconstruct_full = reconstruct_full
+
+    def compute_flattened(
+        self,
+        tensor_map_predictions_for_target: TensorMap,
+        tensor_map_targets_for_target: TensorMap,
+        tensor_map_mask_for_target: Optional[TensorMap] = None,
+    ) -> torch.Tensor:
+        """
+        Flatten prediction and target blocks (and optional mask), then
+        apply the torch loss.
+
+        :param tensor_map_predictions_for_target: predicted :py:class:`TensorMap`.
+        :param tensor_map_targets_for_target: target :py:class:`TensorMap`.
+        :param tensor_map_mask_for_target: optional mask :py:class:`TensorMap`.
+        :return: scalar torch.Tensor of the computed loss.
+        """
+        list_of_prediction_segments = []
+        list_of_target_segments = []
+
+        def extract_flattened_values_from_block(
+            tensor_block: mts.TensorBlock,
+        ) -> torch.Tensor:
+            """
+            Extract values or gradients from a block, flatten to 1D.
+
+            :param tensor_block: input :py:class:`TensorBlock`.
+            :return: flattened torch.Tensor.
+            """
+            if self.gradient is not None:
+                values = tensor_block.gradient(self.gradient).values
+            else:
+                values = tensor_block.values
+            return values.reshape(-1)
+
+        # Loop over each key in the TensorMap
+        for single_key in tensor_map_predictions_for_target.keys:
+            block_for_prediction = tensor_map_predictions_for_target.block(single_key)
+            block_for_target = tensor_map_targets_for_target.block(single_key)
+
+            flattened_prediction = extract_flattened_values_from_block(
+                block_for_prediction
+            )
+            flattened_target = extract_flattened_values_from_block(block_for_target)
+
+            if tensor_map_mask_for_target is not None:
+                # Apply boolean mask if provided
+                block_for_mask = tensor_map_mask_for_target.block(single_key)
+                flattened_mask = extract_flattened_values_from_block(
+                    block_for_mask
+                ).bool()
+                flattened_prediction = flattened_prediction[flattened_mask]
+                flattened_target = flattened_target[flattened_mask]
+
+            list_of_prediction_segments.append(flattened_prediction)
+            list_of_target_segments.append(flattened_target)
+
+        # Concatenate all segments and apply the torch loss
+        all_predictions_flattened = torch.cat(list_of_prediction_segments)
+        all_targets_flattened = torch.cat(list_of_target_segments)
+
+        # Don't include in the loss calculation any points where
+        # the target is NaN
+        not_nan = ~torch.isnan(all_targets_flattened)
+        all_targets_flattened = all_targets_flattened[not_nan]
+        all_predictions_flattened = all_predictions_flattened[not_nan]
+
+        if len(all_targets_flattened) == 0:
+            # No valid data points to compute the loss
+            return torch.zeros(
+                (),
+                dtype=all_predictions_flattened.dtype,
+                device=all_predictions_flattened.device,
+            )
+
+        return self.torch_loss(all_predictions_flattened, all_targets_flattened)
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        """
+        Compute the unmasked pointwise loss.
+
+        :param predictions: mapping of names to :py:class:`TensorMap`.
+        :param targets: mapping of names to :py:class:`TensorMap`.
+        :param extra_data: ignored for unmasked losses.
+        :return: scalar torch.Tensor loss.
+        """
+        from graph2mat.bindings.torch import TorchBasisMatrixData, TorchBasisMatrixDataset
+        from metatrain.experimental.graph2mat.utils.dataset import (
+            system_to_config,
+        )
+
+        model = extra_data["model"]
+        matrix_name = "hamiltonian"
+        processor = model.graph2mat_processors[matrix_name]
+        data = model.datas[matrix_name]
+        systems = extra_data["systems"]
+
+        node_target = self.target
+        edge_target = node_target.replace("mtt::matrix_nodes::", "mtt::matrix_edges::")
+        tensor_map_pred = {
+            "node_labels": predictions[node_target].block().values.ravel(),
+            "edge_labels": predictions[edge_target].block().values.ravel(),
+        }
+        tensor_map_targ = {
+            "node_labels": targets[node_target].block().values.ravel(),
+            "edge_labels": targets[edge_target].block().values.ravel(),
+        }
+
+        configs = [
+            system_to_config(
+                system, processor, None
+            )
+            for system in systems
+        ]
+
+        all_data = TorchBasisMatrixDataset(
+            configs,
+            data_processor=processor,
+            data_cls=TorchBasisMatrixData,
+            load_labels=False,
+        )
+
+        preds = []
+        targets = []
+
+        loss = torch.zeros((), dtype=torch.float, device=tensor_map_pred["node_labels"].device)
+
+        for i in range(len(systems)):
+            data = all_data[i]
+            pred = processor.matrix_from_data(data, tensor_map_pred, out_format="torch")
+            target = processor.matrix_from_data(data, tensor_map_targ, out_format="torch")
+            eig, eigv = torch.linalg.eig(target)
+            # Sort eigenvalues and eigenvectors
+            sort_eig, idx = torch.sort(eig.real, descending=False)
+            eigv = eigv[:, idx]
+
+            first_eigvs = eigv[:, sort_eig < 0]
+            target = first_eigvs @ first_eigvs.T
+            target = target.to(pred.dtype)
+
+            loss = loss + ((pred @ target @ pred.T - target) ** 2).sum()
+
+        return loss
+
+        
+
+
 class MaskedTensorMapLoss(BaseTensorMapLoss):
     """
     Pointwise masked loss on :py:class:`TensorMap` entries.
@@ -307,6 +512,35 @@ class TensorMapMSELoss(BaseTensorMapLoss):
             weight,
             reduction,
             loss_fn=torch.nn.MSELoss(reduction=reduction),
+        )
+
+class SkipLoss(BaseTensorMapLoss):
+    """
+    Skip loss on :py:class:`TensorMap` entries.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for torch loss.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+    ):
+        
+        def skip_loss(predictions, targets):
+            return (predictions * 0.0).sum()
+ 
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_fn=skip_loss,
         )
 
 
@@ -1203,6 +1437,8 @@ class LossType(Enum):
     GAUSSIAN_NLL = ("gaussian_nll_ensemble", TensorMapGaussianNLLLoss)
     GAUSSIAN_CRPS = ("gaussian_crps_ensemble", TensorMapGaussianCRPSLoss)
     EMPIRICAL_CRPS = ("empirical_crps_ensemble", TensorMapEmpiricalCRPSLoss)
+    MATRIX = ("matrix", MatrixLoss)
+    SKIP = ("skip", SkipLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key
