@@ -106,6 +106,10 @@ class TensorBasis(HookInterface[Hypers]):
             f"mtt::aux::scalars::{name.replace('mtt::', '')}"
             for name in self.out_targets
         ]
+        self._out_to_input_name = {
+            out_name: f"mtt::aux::scalars::{out_name.replace('mtt::', '')}"
+            for out_name in self.out_targets
+        }
 
         # Build the basis calculators for each target,
         # and the output that we have to request from the model
@@ -139,7 +143,7 @@ class TensorBasis(HookInterface[Hypers]):
             # We ask for all the coefficients in a single block, we will untangle
             # them in the forward pass.
             num_properties = sum(
-                block.values.shape[1] * block.values.shape[2]
+                block.values.shape[1] * block.values.shape[2] * 2
                 for block in target.layout.blocks()
             )
             self._input_target_infos[input_name] = get_generic_target_info(
@@ -258,7 +262,8 @@ class TensorBasis(HookInterface[Hypers]):
         for target_name, basis_calculators in self.basis_calculators.items():
             if target_name in requested_outs:
                 target_info = self.out_targets[target_name]
-                target_invariant_coefficients = inputs[target_name].block().values
+                input_name = self._out_to_input_name[target_name]
+                target_invariant_coefficients = inputs[input_name].block().values
 
                 offset = 0
                 blocks: list[TensorBlock] = []
@@ -268,7 +273,7 @@ class TensorBasis(HookInterface[Hypers]):
                     # Get shapes of the invariant coefficients to retrieve
                     # for this block.
                     n_properties = layout_block.properties.values.shape[0]
-                    n_basis = layout_block.values.shape[1]
+                    n_basis = layout_block.values.shape[1] * (2 if i > 1 else 1)
                     count = n_properties * n_basis
 
                     # Get those invariant coefficients
