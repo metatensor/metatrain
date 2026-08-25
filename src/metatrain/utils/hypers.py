@@ -1,4 +1,5 @@
-from typing import Type, TypedDict, TypeVar
+from collections.abc import Mapping
+from typing import Any, Type, TypedDict, TypeVar
 
 from typing_extensions import TypedDict as TE_TypedDict
 
@@ -97,3 +98,64 @@ def overwrite_defaults(
     :param new_defaults: A dict with the new default hyperparameters.
     """
     _OVERWRITTEN_DEFAULTS[hypers_cls] = new_defaults
+
+
+def get_hypers_diff(
+    old_hypers: Mapping[str, Any],
+    new_hypers: Mapping[str, Any],
+) -> dict[str, tuple[Any, Any]]:
+    """Get the difference between two hypers dictionaries.
+
+    :param old_hypers: The old hyperparameters.
+    :param new_hypers: The new hyperparameters.
+
+    :return: A dict with the hyperparameters that are different in the new
+        hypers compared to the old hypers. It is assumed that every key in
+        the new hypers is also present in the old hypers.
+    """
+    diff = {}
+    for key, new_value in new_hypers.items():
+        old_value = old_hypers[key]
+        if old_value != new_value:
+            diff[key] = (old_value, new_value)
+    return diff
+
+
+def raise_hypers_mismatch(
+    hypers_diff: Mapping[str, tuple[Any, Any]],
+) -> None:
+    """Raise an error if the hypers diff is not empty.
+
+    The error shows a report of the mismatched hyperparameters.
+
+    :param hypers_diff: A dict with the hyperparameters that are different.
+        It can be computed using :func:`get_hypers_diff`.
+    """
+    if hypers_diff:
+        n_mismatches = len(hypers_diff)
+        raise ValueError(
+            f"Found {n_mismatches} mismatch{(n_mismatches != 1) * 'es'} "
+            "in model hyperparameters.\n"
+            f"Mismatched hypers: {list(hypers_diff.keys())}\n"
+            "\n-------- Mismatches --------\n\n"
+            + "\n".join(
+                f"[Mismatch {i + 1}] {key}\n Previous: {old}\n New: {new}"
+                for i, (key, (old, new)) in enumerate(hypers_diff.items())
+            )
+        )
+
+
+def raise_if_hypers_mismatch(
+    old_hypers: Mapping[str, Any],
+    new_hypers: Mapping[str, Any],
+) -> None:
+    """Raise an error if the new hypers do not match the old hypers.
+
+    :param old_hypers: The old hyperparameters.
+    :param new_hypers: The new hyperparameters.
+    """
+    # Gather mismatchs
+    mismatches = get_hypers_diff(old_hypers, new_hypers)
+
+    if mismatches:
+        raise_hypers_mismatch(mismatches)
