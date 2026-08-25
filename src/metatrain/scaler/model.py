@@ -16,6 +16,7 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.abc import ModelInterface
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
@@ -121,8 +122,10 @@ class Scaler(ModelInterface[ModelHypers]):
         :return: The restarted Scaler.
         """
         if model_hypers is not None:
-            raise_if_hypers_mismatch(self.hypers, model_hypers)
-
+            default_hypers = get_default_hypers("scaler")["model"]
+            raise_if_hypers_mismatch(
+                self.hypers, model_hypers, default_hypers=default_hypers
+            )
 
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)

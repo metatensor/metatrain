@@ -15,6 +15,7 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.abc import ModelInterface
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.atomic_basis_helpers import (
@@ -222,7 +223,10 @@ class CompositionModel(ModelInterface[ModelHypers]):
         :return: The updated model.
         """
         if model_hypers is not None:
-            raise_if_hypers_mismatch(self.hypers, model_hypers)
+            default_hypers = get_default_hypers("composition")["model"]
+            raise_if_hypers_mismatch(
+                self.hypers, model_hypers, default_hypers=default_hypers
+            )
 
         raw_targets = {}
         for target_name in dataset_info.targets:

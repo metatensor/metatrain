@@ -398,7 +398,10 @@ class DPA3(ModelInterface[ModelHypers]):
     ) -> "DPA3":
 
         if model_hypers is not None:
-            raise_if_hypers_mismatch(self.hypers, model_hypers)
+            default_hypers = get_default_hypers("experimental.dpa3")["model"]
+            raise_if_hypers_mismatch(
+                self.hypers, model_hypers, default_hypers=default_hypers
+            )
 
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)

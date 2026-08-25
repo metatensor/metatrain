@@ -313,7 +313,10 @@ class MetaMACE(ModelInterface[ModelHypers]):
     ) -> "MetaMACE":
 
         if model_hypers is not None:
-            raise_if_hypers_mismatch(self.hypers, model_hypers)
+            default_hypers = get_default_hypers("experimental.mace")["model"]
+            raise_if_hypers_mismatch(
+                self.hypers, model_hypers, default_hypers=default_hypers
+            )
 
         # Check that the new dataset info does not contain new atomic types
         if new_atomic_types := set(dataset_info.atomic_types) - set(

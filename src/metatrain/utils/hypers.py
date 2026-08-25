@@ -1,6 +1,7 @@
 from collections.abc import Mapping
-from typing import Any, Type, TypedDict, TypeVar
+from typing import Any, Optional, Type, TypedDict, TypeVar
 
+from omegaconf import OmegaConf
 from typing_extensions import TypedDict as TE_TypedDict
 
 
@@ -103,16 +104,28 @@ def overwrite_defaults(
 def get_hypers_diff(
     old_hypers: Mapping[str, Any],
     new_hypers: Mapping[str, Any],
+    default_hypers: Optional[Mapping[str, Any]] = None,
 ) -> dict[str, tuple[Any, Any]]:
     """Get the difference between two hypers dictionaries.
 
     :param old_hypers: The old hyperparameters.
     :param new_hypers: The new hyperparameters.
+    :param default_hypers: Default hyperparameters. If provided, they will be used
+        to fill the missing keys in values of the new hypers that are dicts.
 
     :return: A dict with the hyperparameters that are different in the new
         hypers compared to the old hypers. It is assumed that every key in
         the new hypers is also present in the old hypers.
     """
+
+    if default_hypers is not None:
+        hypers_keys = list(new_hypers.keys())
+        merged = OmegaConf.merge(
+            OmegaConf.create(default_hypers), OmegaConf.create(new_hypers)
+        )
+        merged = OmegaConf.to_container(merged)
+        new_hypers = {k: merged[k] for k in hypers_keys}
+
     diff = {}
     for key, new_value in new_hypers.items():
         old_value = old_hypers[key]
@@ -148,14 +161,17 @@ def raise_hypers_mismatch(
 def raise_if_hypers_mismatch(
     old_hypers: Mapping[str, Any],
     new_hypers: Mapping[str, Any],
+    default_hypers: Optional[Mapping[str, Any]] = None,
 ) -> None:
     """Raise an error if the new hypers do not match the old hypers.
 
     :param old_hypers: The old hyperparameters.
     :param new_hypers: The new hyperparameters.
+    :param default_hypers: Default hyperparameters. If provided, they will be used
+        to fill the missing keys in values of the new hypers that are dicts.
     """
     # Gather mismatchs
-    mismatches = get_hypers_diff(old_hypers, new_hypers)
+    mismatches = get_hypers_diff(old_hypers, new_hypers, default_hypers=default_hypers)
 
     if mismatches:
         raise_hypers_mismatch(mismatches)
