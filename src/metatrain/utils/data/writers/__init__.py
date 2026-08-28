@@ -40,6 +40,7 @@ def _make_factory(
 
 PREDICTIONS_WRITERS: Dict[str, WriterFactory] = {
     ".xyz": _make_factory(ASEWriter),
+    ".extxyz": _make_factory(ASEWriter),
     ".mts": _make_factory(MetatensorWriter),
     ".zip": _make_factory(DiskDatasetWriter),
 }
