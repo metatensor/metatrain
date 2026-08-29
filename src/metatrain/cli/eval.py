@@ -255,6 +255,7 @@ def _check_grid_convergence(
     reference: Dict[str, float],
     scales: Dict[str, float],
     not_per_atom: List[str],
+    log_separate_blocks: bool = False,
 ) -> None:
     """Warn if the quadrature grid does not resolve the equivariance error.
 
@@ -285,7 +286,7 @@ def _check_grid_convergence(
         max_angular_momentum_grid=coarse_grid + 2,
         batch_size=symmetrized_model.batch_size,
     )
-    finer_acc = EquivarianceAccumulator()
+    finer_acc = EquivarianceAccumulator(separate_blocks=log_separate_blocks)
     finer_acc.update(
         _variances(finer_model(systems, symmetrized_outputs, None), names), systems
     )
@@ -324,6 +325,7 @@ def _eval_targets(
     warm_up: bool = True,
     equivariance: Optional[Dict] = None,
     equivariance_writer: Optional[Writer] = None,
+    log_separate_blocks: bool = False,
 ) -> None:
     """
     Evaluate `model` on `dataset`, accumulate RMSE/MAE, and (if `writer` is provided)
@@ -342,6 +344,10 @@ def _eval_targets(
     :param equivariance_writer: Optional writer for the outputs of the
         symmetrized model, i.e. the O(3)-averaged predictions and their
         variance over the orientations.
+    :param log_separate_blocks: Also report metrics separately for each block of
+        each target (including, if ``equivariance`` is enabled, the equivariance
+        and O(3)-averaged/oriented metrics), in addition to the metrics
+        aggregated over the whole target.
     """
     # Disable static fusion. Besides the fact that atomistic batches have variable
     # sizes, statically fused CUDA kernels cannot allocate new tensors at runtime,
@@ -390,16 +396,16 @@ def _eval_targets(
         dataset, batch_size=batch_size, collate_fn=collate_fn, shuffle=False
     )
 
-    rmse_acc = RMSEAccumulator()
-    mae_acc = MAEAccumulator()
+    rmse_acc = RMSEAccumulator(separate_blocks=log_separate_blocks)
+    mae_acc = MAEAccumulator(separate_blocks=log_separate_blocks)
 
     not_per_atom = ["positions_gradients"]
 
     # Optional equivariance error evaluation
     symmetrized_model = None
-    equivariance_acc = EquivarianceAccumulator()
-    averaged_rmse_acc = RMSEAccumulator()
-    averaged_mae_acc = MAEAccumulator()
+    equivariance_acc = EquivarianceAccumulator(separate_blocks=log_separate_blocks)
+    averaged_rmse_acc = RMSEAccumulator(separate_blocks=log_separate_blocks)
+    averaged_mae_acc = MAEAccumulator(separate_blocks=log_separate_blocks)
     symmetrized_outputs: Dict[str, ModelOutput] = {}
     symmetrized_names: List[str] = []
     checked_grid_convergence = False
@@ -550,6 +556,7 @@ def _eval_targets(
                     reference=equivariance_acc.finalize(not_per_atom=not_per_atom),
                     scales=averaged_rmse_acc.finalize(not_per_atom=not_per_atom),
                     not_per_atom=not_per_atom,
+                    log_separate_blocks=log_separate_blocks,
                 )
                 checked_grid_convergence = True
 
@@ -704,6 +711,7 @@ def eval_model(
                 warm_up=warm_up,
                 equivariance=equivariance_options,
                 equivariance_writer=equivariance_writer,
+                log_separate_blocks=options.get("log_separate_blocks", False),
             )
         except Exception as e:
             raise ArchitectureError(e)
