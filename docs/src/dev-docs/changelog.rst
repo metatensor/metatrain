@@ -30,6 +30,12 @@ Fixed
 Added
 #####
 
+* ``mtt eval`` options gained a ``log_separate_blocks`` flag (matching the
+  training hyperparameter of the same name) to also report RMSE/MAE -- and,
+  when ``equivariance`` is enabled, the equivariance and O(3)-averaged/oriented
+  metrics -- separately for each block of each target, instead of only
+  aggregated over the whole target.
+
 Changed
 #######
 
