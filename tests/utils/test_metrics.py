@@ -602,6 +602,48 @@ def test_equivariance_accumulator():
     assert metrics["mtt::per_atom equivariance RMSE"] == pytest.approx(2.0**0.5)
 
 
+def test_equivariance_accumulator_separate_blocks():
+    """With ``separate_blocks=True``, each block gets its own (unweighted) RMSE
+    instead of being pooled with the other blocks of the same target."""
+    systems = _systems(2, 4)
+
+    per_structure = TensorMap(
+        Labels(["o3_lambda", "o3_sigma"], torch.tensor([[0, 1], [2, 1]])),
+        [
+            _variance_block(
+                torch.tensor([[1.0], [2.0]], dtype=torch.float64),
+                Labels(["system"], torch.tensor([[0], [1]])),
+            ),
+            _variance_block(
+                torch.tensor([[0.5], [1.5]], dtype=torch.float64),
+                Labels(["system"], torch.tensor([[0], [1]])),
+            ),
+        ],
+    )
+
+    accumulator = EquivarianceAccumulator(separate_blocks=True)
+    accumulator.update({"mtt::per_structure": per_structure}, systems)
+
+    # unweighted (no "2 * o3_lambda + 1" factor): each block stands on its own
+    assert accumulator.information["mtt::per_structure (o3_lambda=0,o3_sigma=1)"] == (
+        pytest.approx(1.0 / 2**2 + 2.0 / 4**2),
+        2,
+    )
+    assert accumulator.information["mtt::per_structure (o3_lambda=2,o3_sigma=1)"] == (
+        pytest.approx(0.5 / 2**2 + 1.5 / 4**2),
+        2,
+    )
+    assert "mtt::per_structure" not in accumulator.information
+
+    metrics = accumulator.finalize(not_per_atom=[])
+    assert metrics[
+        "mtt::per_structure (o3_lambda=0,o3_sigma=1) equivariance RMSE (per atom)"
+    ] == pytest.approx(((1.0 / 2**2 + 2.0 / 4**2) / 2) ** 0.5)
+    assert metrics[
+        "mtt::per_structure (o3_lambda=2,o3_sigma=1) equivariance RMSE (per atom)"
+    ] == pytest.approx(((0.5 / 2**2 + 1.5 / 4**2) / 2) ** 0.5)
+
+
 def test_equivariance_accumulator_without_o3_lambda():
     """Targets that metatomic does not decompose carry no ``o3_lambda`` key, and
     every block has the same number of components, so the weight cancels."""

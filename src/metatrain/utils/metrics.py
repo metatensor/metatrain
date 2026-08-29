@@ -448,12 +448,24 @@ class EquivarianceAccumulator:
     orthonormal, so weighting each block by its number of components
     ``2 * o3_lambda + 1`` recovers the element-wise squared error over the
     original Cartesian tensor, with no per-quantity recombination.
+
+    :param separate_blocks: if true, the equivariance error is reported
+        separately for each block of each target (labeled the same way
+        :class:`RMSEAccumulator` labels its own per-block metrics, e.g.
+        ``"<name> (o3_lambda=1,o3_sigma=1,center_type=6)"``), instead of the
+        blocks of a target being recombined into one number for that target.
+        Recombination is what the ``2 * o3_lambda + 1`` weighting above is for,
+        so per-block values are accumulated unweighted.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, separate_blocks: bool = False) -> None:
         self.information: Dict[str, Tuple[float, int]] = {}
         """A dictionary mapping each target key to a tuple containing the sum of
         the variances and the number of elements over which it was accumulated."""
+
+        self.separate_blocks = separate_blocks
+        """Whether the equivariance error should be computed separately for each
+        block of each target."""
 
     def update(self, variances: Dict[str, TensorMap], systems: List[System]) -> None:
         """Updates the accumulator with the variances of a new batch.
@@ -470,9 +482,10 @@ class EquivarianceAccumulator:
         )
 
         for key, variance in variances.items():
-            if key not in self.information:  # create key if not present
-                self.information[key] = (0.0, 0)
-            sum_of_variances, n_elems = self.information[key]
+            if not self.separate_blocks:
+                if key not in self.information:  # create key if not present
+                    self.information[key] = (0.0, 0)
+                sum_of_variances, n_elems = self.information[key]
 
             # the irrep columns are appended after any pre-existing ones, so the
             # position of "o3_lambda" is not fixed and it is absent altogether
@@ -499,10 +512,29 @@ class EquivarianceAccumulator:
                     scale = num_atoms.to(values.dtype)[rows]
                     values = values / scale.view(-1, *[1] * (values.dim() - 1)) ** 2
 
-                sum_of_variances += multiplicity * float(values.sum().item())
-                n_elems += multiplicity * values.shape[0] * values.shape[-1]
+                if self.separate_blocks:
+                    key_to_write = key + " ("
+                    for name, value in zip(
+                        block_key.names, block_key.values, strict=True
+                    ):
+                        key_to_write += f"{name}={int(value)},"
+                    key_to_write = key_to_write[:-1] + ")"
 
-            self.information[key] = (sum_of_variances, n_elems)
+                    if key_to_write not in self.information:
+                        self.information[key_to_write] = (0.0, 0)
+                    # blocks are reported individually here, so there is no
+                    # cross-block recombination to weight by multiplicity for
+                    self.information[key_to_write] = (
+                        self.information[key_to_write][0] + float(values.sum().item()),
+                        self.information[key_to_write][1]
+                        + values.shape[0] * values.shape[-1],
+                    )
+                else:
+                    sum_of_variances += multiplicity * float(values.sum().item())
+                    n_elems += multiplicity * values.shape[0] * values.shape[-1]
+
+            if not self.separate_blocks:
+                self.information[key] = (sum_of_variances, n_elems)
 
     def finalize(self, not_per_atom: List[str]) -> Dict[str, float]:
         """Finalizes the accumulator and returns the equivariance error per key.
