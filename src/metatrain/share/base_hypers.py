@@ -490,6 +490,17 @@ class EvalDatasetDictHypers(TypedDict):
     the default settings. Every system is additionally evaluated on many rotated
     and inverted copies, so evaluation becomes substantially slower.
     """
+    log_separate_blocks: NotRequired[bool] = False
+    """Also report metrics separately for each block of each target, in addition
+    to the metrics aggregated over the whole target.
+
+    Each per-block metric is labeled with the block's key, e.g. for a spherical
+    target decomposed by ``o3_lambda``/``o3_sigma``/``atom_type``:
+    ``"<target> (o3_lambda=1,o3_sigma=1,atom_type=6) RMSE"``. Matches the
+    ``log_separate_blocks`` training hyperparameter. If ``equivariance`` is also
+    enabled, the equivariance error (and the O(3)-averaged/oriented metrics
+    derived from it) are broken down the same way.
+    """
 
 
 EvalHypers = EvalDatasetDictHypers | list[EvalDatasetDictHypers]

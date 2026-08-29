@@ -48,6 +48,11 @@ Added
 
 - Added ``experimental.lorem`` architecture (*Learning Long-Range
   Representations with Equivariant Messages*, https://arxiv.org/abs/2507.19382).
+- ``mtt eval`` options gained a ``log_separate_blocks`` flag (matching the
+  training hyperparameter of the same name) to also report RMSE/MAE -- and,
+  when ``equivariance`` is enabled, the equivariance and O(3)-averaged/oriented
+  metrics -- separately for each block of each target, instead of only
+  aggregated over the whole target.
 
 Changed
 #######
