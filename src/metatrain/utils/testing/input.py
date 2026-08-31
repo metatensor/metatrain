@@ -252,20 +252,20 @@ class InputTests(ArchitectureTests):
             pytest.skip("The model does not have any hyperparameters")
 
         # Find the key of a hyper that contains a dictionary, preferably
-        # with a number in it so that we can modify it.
+        # with a number or bool in it so that we can modify it.
         dict_key = None
-        number_key = None
+        modify_key = None
         for k, v in default_hypers["model"].items():
             if isinstance(v, dict) and len(v) > 0:
                 dict_key = k
                 if any(
-                    isinstance(vv, (int, float)) and not isinstance(vv, bool)
+                    isinstance(vv, (int, float))
                     for vv in v.values()
                 ):
-                    number_key = next(
+                    modify_key = next(
                         k
                         for k, v in v.items()
-                        if isinstance(v, (int, float)) and not isinstance(v, bool)
+                        if isinstance(v, (int, float))
                     )
                     break
         if dict_key is None:
@@ -278,18 +278,22 @@ class InputTests(ArchitectureTests):
         nested_hypers["model"][dict_key].popitem()
         model.restart(dataset_info=dataset_info, model_hypers=nested_hypers["model"])
 
-        if number_key is None:
+        if modify_key is None:
             pytest.skip("Couldn't find a hyper to change automatically")
 
         # Initialize a new model with a nested key not being the default,
         # then check that restarting with that key missing raises an error.
         new_hypers = copy.deepcopy(default_hypers)
-        num_type = type(new_hypers["model"][dict_key][number_key])
-        new_hypers["model"][dict_key][number_key] += num_type(1.0)
+        old_val = new_hypers["model"][dict_key][modify_key]
+        if isinstance(old_val, bool):
+            new_val = not old_val
+        else:
+            new_val = type(old_val)(old_val + 1.0)
+        new_hypers["model"][dict_key][modify_key] = new_val
 
         new_model = self.model_cls(new_hypers["model"], dataset_info)
         restart_hypers = copy.deepcopy(new_hypers)
-        restart_hypers["model"][dict_key].pop(number_key)
+        restart_hypers["model"][dict_key].pop(modify_key)
         with pytest.raises(ValueError):
             new_model.restart(
                 dataset_info=dataset_info, model_hypers=restart_hypers["model"]
