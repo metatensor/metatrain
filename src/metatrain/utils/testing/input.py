@@ -287,13 +287,14 @@ class InputTests(ArchitectureTests):
             new_val = type(old_val)(old_val + 1.0)
         new_hypers["model"][dict_key][modify_key] = new_val
 
-        new_model = self.model_cls(new_hypers["model"], dataset_info)
+        with warnings.catch_warnings():
+            # Ignore warnings, we might be asking for strange hypers
+            warnings.filterwarnings("ignore", category=UserWarning)
+            new_model = self.model_cls(new_hypers["model"], dataset_info)
+
         restart_hypers = copy.deepcopy(new_hypers)
         restart_hypers["model"][dict_key].pop(modify_key)
-        with warnings.catch_warnings():
-            # Ignore warnings, we might be asking for very strange hypers
-            warnings.filterwarnings("ignore", category=UserWarning)
-            with pytest.raises(ValueError):
-                new_model.restart(
-                    dataset_info=dataset_info, model_hypers=restart_hypers["model"]
-                )
+        with pytest.raises(ValueError):
+            new_model.restart(
+                dataset_info=dataset_info, model_hypers=restart_hypers["model"]
+            )
