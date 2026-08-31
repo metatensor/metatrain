@@ -1,4 +1,5 @@
 import copy
+import warnings
 from typing import Any
 
 import pytest
@@ -258,14 +259,9 @@ class InputTests(ArchitectureTests):
         for k, v in default_hypers["model"].items():
             if isinstance(v, dict) and len(v) > 0:
                 dict_key = k
-                if any(
-                    isinstance(vv, (int, float))
-                    for vv in v.values()
-                ):
+                if any(isinstance(vv, (int, float)) for vv in v.values()):
                     modify_key = next(
-                        k
-                        for k, v in v.items()
-                        if isinstance(v, (int, float))
+                        k for k, v in v.items() if isinstance(v, (int, float))
                     )
                     break
         if dict_key is None:
@@ -294,7 +290,10 @@ class InputTests(ArchitectureTests):
         new_model = self.model_cls(new_hypers["model"], dataset_info)
         restart_hypers = copy.deepcopy(new_hypers)
         restart_hypers["model"][dict_key].pop(modify_key)
-        with pytest.raises(ValueError):
-            new_model.restart(
-                dataset_info=dataset_info, model_hypers=restart_hypers["model"]
-            )
+        with warnings.catch_warnings():
+            # Ignore warnings, we might be asking for very strange hypers
+            warnings.filterwarnings("ignore", category=UserWarning)
+            with pytest.raises(ValueError):
+                new_model.restart(
+                    dataset_info=dataset_info, model_hypers=restart_hypers["model"]
+                )
