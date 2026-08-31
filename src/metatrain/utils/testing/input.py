@@ -259,10 +259,15 @@ class InputTests(ArchitectureTests):
         for k, v in default_hypers["model"].items():
             if isinstance(v, dict) and len(v) > 0:
                 dict_key = k
-                if any(isinstance(vv, (int, float)) for vv in v.values()):
-                    modify_key = next(
-                        k for k, v in v.items() if isinstance(v, (int, float))
-                    )
+                for kk, vv in v.items():
+                    if (
+                        kk != "precision"
+                        and isinstance(vv, (int, float))
+                        and not isinstance(vv, bool)
+                    ):
+                        modify_key = kk
+                        break
+                if modify_key is not None:
                     break
         if dict_key is None:
             pytest.skip("The model does not have any nested hyperparameters")
@@ -281,10 +286,7 @@ class InputTests(ArchitectureTests):
         # then check that restarting with that key missing raises an error.
         new_hypers = copy.deepcopy(default_hypers)
         old_val = new_hypers["model"][dict_key][modify_key]
-        if isinstance(old_val, bool):
-            new_val = not old_val
-        else:
-            new_val = type(old_val)(old_val + 1.0)
+        new_val = type(old_val)(old_val + 1.0)
         new_hypers["model"][dict_key][modify_key] = new_val
 
         with warnings.catch_warnings():
