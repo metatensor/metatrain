@@ -65,8 +65,8 @@ class FlashMDTests(ArchitectureTests):
         }
 
         return {
-            "positions": positions_target,
-            "momenta": momenta_target,
+            "position": positions_target,
+            "momentum": momenta_target,
         }
 
 
@@ -81,6 +81,8 @@ class TestCheckpoints(CheckpointTests, FlashMDTests):
 
 
 class TestTraining(TrainingTests, FlashMDTests):
+    supports_atomic_basis = False
+
     @pytest.fixture
     def default_hypers(self):
         hypers = get_default_hypers(self.architecture)

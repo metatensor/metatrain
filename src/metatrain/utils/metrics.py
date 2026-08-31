@@ -1,8 +1,37 @@
 import copy
+import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch.distributed
 from metatensor.torch import TensorMap
+
+
+def _block_missing_from_prediction(
+    prediction: TensorMap, block_key: Any, key: str
+) -> bool:
+    """Check (and warn) whether a target block is missing from the predictions.
+
+    The model may legitimately not predict every block of the target (e.g. a
+    composition model only fits invariant blocks of a spherical target), so such
+    blocks are skipped when computing the error metrics. warnings.warn (rather
+    than logging.warning) so this is only reported once, instead of on every
+    batch.
+
+    :param prediction: the prediction TensorMap for the target named ``key``.
+    :param block_key: the target block key to look for in the predictions.
+    :param key: the name of the target, used in the warning message.
+    :return: whether the block is missing from the predictions.
+    """
+    if block_key not in prediction.keys:
+        warnings.warn(
+            f"Block {block_key} of target '{key}' is not present in "
+            "the model's predictions. It will be skipped when "
+            "computing the error metrics, which will be computed "
+            "over fewer blocks than the full target.",
+            stacklevel=3,
+        )
+        return True
+    return False
 
 
 def _get_global_keys(keys: List[str]) -> List[str]:
@@ -65,6 +94,9 @@ class RMSEAccumulator:
                     mask = extra_data[mask_key]
 
             for block_key in target.keys:
+                if _block_missing_from_prediction(prediction, block_key, key):
+                    continue
+
                 target_block = target.block(block_key)
                 prediction_block = prediction.block(block_key)
 
@@ -258,6 +290,9 @@ class MAEAccumulator:
                     mask = extra_data[mask_key]
 
             for block_key in target.keys:
+                if _block_missing_from_prediction(prediction, block_key, key):
+                    continue
+
                 target_block = target.block(block_key)
                 prediction_block = prediction.block(block_key)
 

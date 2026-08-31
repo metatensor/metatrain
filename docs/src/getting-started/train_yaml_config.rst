@@ -3,6 +3,8 @@
 Training YAML Reference
 ***********************
 
+VS code can help you write metatrain YAML files, see :ref:`validation-vscode`!
+
 Overview
 ========
 
@@ -12,9 +14,10 @@ parameters provided by the training YAML input. For a minimal example of a YAML 
 file, suitable to start a first training, we refer the viewer to the sample YAML file in
 the :ref:`Quickstart <label_quickstart>` section.
 
-The YAML input file can be divided into five sections:
+The YAML input file can be divided into six sections:
 
 - :ref:`computational-parameters-section`
+- :ref:`logging-section`
 - :ref:`architecture-section`
 - :ref:`loss-section`
 - :ref:`data-section`
@@ -25,8 +28,8 @@ The YAML input file can be divided into five sections:
 Computational Parameters
 ========================
 
-The computational parameters define the computational ``device``, ``base_precision`` and
-``seed``. These parameters are optional.
+The computational parameters define the computational ``device``, ``base_precision``
+and ``seed``. These parameters are optional.
 
 .. code-block:: yaml
 
@@ -43,6 +46,29 @@ The computational parameters define the computational ``device``, ``base_precisi
         :no-index:
 
     .. autoattribute:: metatrain.share.base_hypers.BaseHypers.seed
+        :no-index:
+
+.. _logging-section:
+
+Logging
+=======
+
+These parameters control the logs of the ``mtt train`` command.
+Apart from training, the command does some additional steps to produce helpful
+logs. However, these steps can sometimes be expensive and users might prefer
+to skip them.
+
+.. code-block:: yaml
+
+    final_eval: true
+    print_stats: auto
+
+.. container:: mtt-hypers-remove-classname
+
+    .. autoattribute:: metatrain.share.base_hypers.BaseHypers.final_eval
+        :no-index:
+
+    .. autoattribute:: metatrain.share.base_hypers.BaseHypers.print_stats
         :no-index:
 
 .. _architecture-section:
@@ -168,6 +194,10 @@ As an example, the simple configuration that we saw previously is equivalent to:
             reader: null
             length_unit: null
         ... # Rest of training set specification
+
+Besides ASE-readable files, ``read_from`` also accepts a ``.zip`` file or a
+directory of memory-mapped arrays, which are better suited for large datasets,
+see :ref:`dataset-formats`.
 
 Targets
 -------
@@ -480,3 +510,40 @@ run so you don't have to set the ``config`` parameter.
     **Before** running also set up your credentials with ``wandb login`` from the
     command line. See `wandb login documentation
     <https://docs.wandb.ai/ref/cli/wandb-login>`_ for details on the setup.
+
+JSON Schema
+===========
+
+JSON schemas are a powerful tool to validate input files.
+The full ``metatrain`` training JSON schema can be downloaded by clicking :download:`this link <../architectures/generated/schemas/mtt_train_schema.json>`.
+
+.. _validation-vscode:
+
+Validation in VS code
+---------------------
+
+It is very easy to set up VS code to help you with writing metatrain YAML files.
+
+**Step 1**: Download the YAML extension (by Red Hat) from the marketplace.
+
+**Step 2**: Go to ``File > Preferences > Settings``, search for "yaml schemas", then click on "Edit in settings.json".
+There, add the following entry:
+
+.. code-block:: json
+
+    "yaml.schemas": {
+        "https://docs.metatensor.org/metatrain/latest/mtt_train_schema.json": "options.yaml"
+    }
+
+.. note::
+
+    If you are using a particular metatrain released version, you can replace ``latest`` with ``v<VERSION>``,
+    where ``<VERSION>`` is the version of metatrain you are using, which can be obtained with ``mtt --version``.
+    You can also just :download:`download the schema <../architectures/generated/schemas/mtt_train_schema.json>`
+    to a local file and replace the URL with the path to the local file.
+
+    If your input yaml files are not called ``options.yaml``, you can modify the right hand side of
+    the entry to match whatever you need, e.g. ``["mtt_*.yaml", "train.yaml"]`` to apply the schema
+    validation to all yaml files starting with ``mtt_`` or named ``train.yaml``.
+
+**Step 3**: Enjoy autocompletion, hyperparameter descriptions and error highlighting.

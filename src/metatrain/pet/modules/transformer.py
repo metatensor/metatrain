@@ -1,4 +1,5 @@
-from typing import Tuple
+import warnings
+from typing import Final, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -10,6 +11,11 @@ from .utilities import DummyModule
 AVAILABLE_NORMALIZATIONS = ["LayerNorm", "RMSNorm"]
 AVAILABLE_TRANSFORMER_TYPES = ["PostLN", "PreLN"]
 AVAILABLE_ACTIVATIONS = ["SiLU", "SwiGLU"]
+
+# SDPA's CUDA backward grids the attention batch (n_nodes) over gridDim.y/z, which
+# overflows above this many nodes. We work around it by looping SDPA over chunks of
+# the batch dimension instead.
+MAX_CUDA_GRID_DIM: Final[int] = 65535
 
 
 class FeedForward(nn.Module):
@@ -74,6 +80,8 @@ class AttentionBlock(nn.Module):
         if total_dim % num_heads != 0:
             raise ValueError("total dimension is not divisible by the number of heads")
         self.head_dim = total_dim // num_heads
+        self.max_cuda_grid_dim = MAX_CUDA_GRID_DIM
+        self._warned_cuda_grid_dim = False
 
     def forward(
         self, x: torch.Tensor, cutoff_factors: torch.Tensor, use_manual_attention: bool
@@ -100,15 +108,44 @@ class AttentionBlock(nn.Module):
         queries, keys, values = x[0], x[1], x[2]
         attn_weights = torch.clamp(cutoff_factors[:, None, :, :], self.epsilon)
         attn_weights = torch.log(attn_weights)
+        scale = 1.0 / (self.head_dim**0.5 * self.temperature)
         if use_manual_attention:
             x = manual_attention(queries, keys, values, attn_weights, self.temperature)
+        elif x.requires_grad and initial_shape[0] > self.max_cuda_grid_dim:
+            if not self._warned_cuda_grid_dim:
+                warnings.warn(
+                    "The number of nodes exceeds the CUDA grid dimension of "
+                    f"{self.max_cuda_grid_dim}, which may cause an overflow "
+                    "in the backward pass of the "
+                    "torch.nn.functional.scaled_dot_product_attention."
+                    "Falling back to a for-loop over batch chunks, which "
+                    "may reduce performance. If you are running the model inference, "
+                    "please consider using the LAMMPS interface with > 1 MPI rank to "
+                    "enable domain decomposition. More details can be found on "
+                    "https://lab-cosmo.github.io/upet/latest/usage/lammps.html ",
+                    stacklevel=2,
+                )
+                self._warned_cuda_grid_dim = True
+            outputs = []
+            for start in range(0, initial_shape[0], self.max_cuda_grid_dim):
+                end = start + self.max_cuda_grid_dim
+                outputs.append(
+                    torch.nn.functional.scaled_dot_product_attention(
+                        queries[start:end],
+                        keys[start:end],
+                        values[start:end],
+                        attn_mask=attn_weights[start:end],
+                        scale=scale,
+                    )
+                )
+            x = torch.cat(outputs, dim=0)
         else:
             x = torch.nn.functional.scaled_dot_product_attention(
                 queries,
                 keys,
                 values,
                 attn_mask=attn_weights,
-                scale=1.0 / (self.head_dim**0.5 * self.temperature),
+                scale=scale,
             )
         x = x.transpose(1, 2).reshape(initial_shape)
         x = self.output_linear(x)

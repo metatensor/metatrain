@@ -48,11 +48,11 @@ def concatenate_structures(
         positions.append(system.positions)
         species.append(system.types)
 
-        if "momenta" not in system.known_data():
+        if "momentum" not in system.known_data():
             raise ValueError(
-                "System does not contain momenta data, which is required for FlashMD."
+                "System does not contain momentum data, which is required for FlashMD."
             )
-        tmap = system.get_data("momenta")
+        tmap = system.get_data("momentum")
         block = tmap[0]
         momenta.append(block.values.squeeze(-1))
 

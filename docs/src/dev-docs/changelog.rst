@@ -22,7 +22,139 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 .. #######
 
 Unreleased
-----------
+-----------------------------
+
+Fixed
+#####
+
+Added
+#####
+
+Changed
+#######
+
+Removed
+#######
+
+Version 2026.4 - 2026-08-11
+-----------------------------
+
+Fixed
+#####
+
+- The distributed composition fit no longer sees duplicated samples on shards of uneven
+  size, which slightly biased the fitted weights whenever the dataset size was not
+  divisible by the number of ranks.
+- The ``Scaler`` now attaches the neighbor lists required by the additive models
+  itself, instead of relying on a previous fit having attached them to the systems as
+  a side effect.
+- ``DiskDatasetWriter`` in append mode now continues the entry numbering of the
+  existing zip instead of restarting from zero.
+- Loading a checkpoint newer than the installed architecture now raises a clear error
+  asking to upgrade metatrain, instead of a confusing upgrade failure.
+
+Added
+#####
+
+- ``mtt train`` now fails early when launched with more than one SLURM task
+  while distributed training is disabled or not supported by the architecture,
+  instead of silently running one full copy of the training per task.
+- ``max_atoms_per_batch`` now works with ``DiskDataset``: ``DiskDatasetWriter``
+  stores the number of atoms of every structure in a ``metadata/atom_counts.npy``
+  file, which the sampler reads without opening every entry in the zip.
+- Possibility to avoid warm-up in ``mtt eval`` with the ``--no-warm-up`` flag.
+- Possibility to skip the final RMSE/MAE evaluation in ``mtt train`` with the
+  ``final_eval`` input.
+- Possibility to avoid printing stats in ``mtt train`` with the ``print_stats`` input.
+- Optional per-system charge and spin-multiplicity conditioning for PET. Enabled via the
+  ``system_conditioning`` model hyperparameter, with per-system ``charge`` and
+  ``spin_multiplicity`` provided as ``extra_data``.
+- ``mtt eval`` can now write predictions in the memory-mapped ``MemmapDataset`` layout
+  by passing an output path ending in a path separator (e.g. ``-o predictions/``). The written
+  directory can be read back directly as a ``systems: read_from:`` dataset, which is
+  useful for very large evaluation runs.
+- MACE architecture now supports multi-headed MACE models through the ``mace_head_name`` hyperparameter.
+- Moved composition model and scaler to standalone architectures.
+  They can be trained, exported, and run for inference on their own
+  (``architecture: {name: composition | scaler}``), in addition to being
+  used inside the other architectures.
+- The ``atomic_baseline`` and ``fixed_scaling_weights`` hyperparameters now also accept
+  paths to pretrained composition/scaler checkpoints, which are loaded and reused instead
+  of being refitted from the training data.
+- Rotational augmentation now supports atomic-basis targets and Cartesian targets of
+  rank > 2.
+- Atom-pair (``sample_kind: atom_pair``) targets are now supported for ``scalar``,
+  ``cartesian``, and ``spherical`` target types.
+- LLPR energy ensembles can now return explicit ``positions`` and ``strain`` gradients,
+  giving per-member forces and virials, and hence their uncertainty, straight from the
+  exported model.
+
+Changed
+#######
+
+- The ``experimental.phace`` architecture was renamed to ``experimental.space``
+  ("Smooth Physical Architecture with Compact Equivariants"). The old name is gone:
+  the ``phace`` optional dependency is now ``space``, and existing checkpoints, which
+  record the old architecture name, will no longer load.
+- The ``distributed`` training option is now optional and deprecated: when it
+  is not set, distributed training is enabled exactly when the job runs under
+  more than one SLURM task.
+- ``DiskDataset`` reading now scales to zips with millions of files: the archive is
+  indexed once at construction and dataloader workers read from the index, instead of
+  each re-parsing the whole zip (which could take minutes and tens of GB of RAM). The
+  format is also validated at construction, with clear error messages for invalid zips.
+- The ``DiskDataset`` now uses the ``key`` option of targets (i.e. it looks for that key
+  in the dataset, instead of looking for the target name).
+- Avoid reindexing of spherical atomic basis targets during densification and
+  padding of atomic types.
+- PET requests a non-strict neighbor list and filters out-of-cutoff pairs internally.
+- The composition model moved from ``metatrain.utils.additive.CompositionModel`` to
+  ``metatrain.composition.CompositionModel``.
+- O(3) data augmentation is delegated to the ``metatomic.torch.o3`` module, requiring
+  ``metatomic-torch >= 0.1.17``. Random transformations are now drawn from the torch
+  RNG instead of scipy/numpy, which changes fixed-seed training trajectories.
+- ``RotationalAugmenter`` is now ``O3Augmenter``, with a ``group`` option selecting
+  the transformations to sample (``"O3"`` or ``"inversions"``). The PhACE
+  ``InversionAugmenter`` was removed in its favor.
+- The scaler model moved from ``metatrain.utils.scaler.Scaler`` to
+  ``metatrain.scaler.Scaler``.
+- ``Scaler``'s forward method no longer applies scales. Instead it returns the scales for
+  each target. To apply scales use ``Scaler.apply_scales``. This is because the previous
+  behavior was not compatible with the forward method of ``ModelInterface``.
+
+Removed
+#######
+
+- The ``spherical`` package is no longer a test dependency, and the
+  ``utils.testing.equivariance`` helpers are gone: the equivariance test suite now
+  rotates systems and reference outputs with ``metatomic.torch.o3`` directly.
+
+Version 2026.3.1 - 2026-07-01
+-----------------------------
+
+Fixed
+#####
+
+- Fixed a bug for FlashMD symplectic and new metatomic singular standard outputs.
+- Fixes in PET and LLPR to make upet work.
+
+Version 2026.3 - 2026-06-26
+-----------------------------
+
+Added
+#####
+
+- Allow extraction of the outputs of arbitrary internal layers in PET. These are
+  requested model outputs named with a ``"mtt::feature::<layer_name>"`` when running
+  inference of a PET checkpoint programmatically.
+- Metatrain now supports spherical targets where the irreps are different for each
+  atomic species. All models that support spherical targets have been adapted to
+  support this situation.
+- Metatrain now supports spherical rank 2 targets (although only PET can handle
+  them for now).
+- Generated JSON schema to validate yaml files passed to ``mtt train``. It is
+  included in the online documentation and can be used e.g. with VScode for
+  autocomplete, documentation and validation.
 
 Fixed
 #####
@@ -34,6 +166,7 @@ Fixed
   ``per_structure_targets`` when fitting scaler weights and correctly ignoring NaN
   stress entries. This will produce different training runs when
   ``non_conservative_stress`` is a target.
+- Validation errors issued by pydantic have been made clearer.
 
 Changed
 #######
@@ -41,6 +174,10 @@ Changed
 - ``ASEWriter`` now writes each batch to disk immediately. If a run is interrupted,
   the output file will contain all batches that completed before the interruption
   (previously no output was produced until the run finished).
+- ``MaskedDOSLoss`` has been renamed and refactored to a more general
+  ``ShiftAgnosticMSE``.
+- Code has been adapted to work with ``metatensor-core>=0.2.0`` and ``metatomic>0.1.12``
+  which had breaking changes.
 
 Version 2026.2.1 - 2026-03-03
 -----------------------------

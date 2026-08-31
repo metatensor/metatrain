@@ -130,7 +130,7 @@ autodoc_typehints = "both"
 autodoc_typehints_format = "short"
 
 intersphinx_mapping = {
-    "ase": ("https://ase-lib.org/", None),
+    "ase": ("https://docs.ase-lib.org/", None),
     "python": ("https://docs.python.org/3", None),
     "torch": ("https://docs.pytorch.org/docs/stable/", None),
     "metatensor": ("https://docs.metatensor.org/latest/", None),
@@ -147,7 +147,10 @@ bibtex_reference_style = "author_year"
 # sitemap/SEO settings
 html_baseurl = "https://docs.metatensor.org/metatrain/latest/"  # prefix for the sitemap
 sitemap_url_scheme = "{link}"  # avoids language settings
-html_extra_path = ["robots.txt"]  # extra files to move
+html_extra_path = [
+    "robots.txt",
+    "architectures/generated/schemas",
+]  # extra files to move
 
 # -- Options for HTML output -------------------------------------------------
 

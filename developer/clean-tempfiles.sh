@@ -18,6 +18,11 @@ rm -rf docs/src/sg_execution_times.rst
 rm -rf src/metatrain/dist
 rm -rf src/metatrain/build
 
-find . -name "*.egg-info" -exec rm -rf "{}" +
-find . -name "__pycache__" -exec rm -rf "{}" +
-find . -name ".coverage" -exec rm -rf "{}" +
+rm -rf src/metatrain/experimental/mace/tests/mace_small.model
+
+rm -rf src/metatrain/*/tests/*.ckpt
+rm -rf src/metatrain/experimental/*/tests/*.ckpt
+
+find . -name "*.egg-info" -exec rm -rf "{}" + || true
+find . -name "__pycache__" -exec rm -rf "{}" + || true
+find . -name ".coverage" -exec rm -rf "{}" + || true

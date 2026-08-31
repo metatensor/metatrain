@@ -1,10 +1,12 @@
+import io
 import math
 import multiprocessing
 import os
+import sys
 import warnings
 import zipfile
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch
@@ -35,6 +37,7 @@ from metatrain.utils.data.readers.metatensor import (
     _check_tensor_map_metadata,
     _empty_tensor_map_like,
 )
+from metatrain.utils.data.smart_zip import SmartZip
 from metatrain.utils.data.target_info import (
     TargetInfo,
     get_energy_target_info,
@@ -92,7 +95,7 @@ class DatasetInfo:
     ):
         # verify that `length_unit` and `atomic_types` are valid for metatomic
         _ = ModelCapabilities(
-            outputs={"energy": ModelOutput()},
+            outputs={"energy": ModelOutput(unit="eV")},
             length_unit=length_unit,
             atomic_types=atomic_types,
         )
@@ -381,53 +384,15 @@ class CollateFn:
         target_keys: List[str],
         callables: Optional[List[Callable]] = None,
         join_kwargs: Optional[Dict[str, Any]] = None,
-        batch_atom_bounds: Optional[List[Optional[int]]] = None,
     ):
         self.target_keys: Set[str] = set(target_keys)
         self.callables: List[Callable] = callables if callables is not None else []
         self.join_kwargs: Dict[str, Any] = join_kwargs or {"different_keys": "union"}
 
-        # Handle batch_atom_bounds
-        if batch_atom_bounds is None:
-            batch_atom_bounds = [None, None]
-
-        # Validate batch_atom_bounds format
-        if not isinstance(batch_atom_bounds, list) or len(batch_atom_bounds) != 2:
-            raise ValueError(
-                f"batch_atom_bounds must be a list of exactly 2 elements [min, max], "
-                f"got {batch_atom_bounds}"
-            )
-
-        self.min_atoms_per_batch = batch_atom_bounds[0]
-        self.max_atoms_per_batch = batch_atom_bounds[1]
-
-        # Validate the bounds
-        if self.min_atoms_per_batch is not None and self.min_atoms_per_batch < 1:
-            raise ValueError(
-                "min_atoms_per_batch must be at least 1, got "
-                f"{self.min_atoms_per_batch}"
-            )
-        if self.max_atoms_per_batch is not None and self.max_atoms_per_batch < 1:
-            raise ValueError(
-                "max_atoms_per_batch must be at least 1, got "
-                f"{self.max_atoms_per_batch}"
-            )
-        if (
-            self.min_atoms_per_batch is not None
-            and self.max_atoms_per_batch is not None
-            and self.min_atoms_per_batch > self.max_atoms_per_batch
-        ):
-            raise ValueError(
-                f"min_atoms_per_batch ({self.min_atoms_per_batch}) must be less than "
-                f"or equal to max_atoms_per_batch ({self.max_atoms_per_batch})"
-            )
-
     def __call__(
         self,
         batch: List[Dict[str, Any]],
-    ) -> Optional[
-        Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]
-    ]:
+    ) -> Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]:
         """
         :param batch: A batch
         :return: A tuple containing:
@@ -437,24 +402,7 @@ class CollateFn:
             - a list with the sizes of each target buffer
             - a list with the names of each extra data
             - a list with the sizes of each extra data buffer
-
-            Returns None if the batch is outside the specified atom count bounds.
         """
-        # Check batch atom bounds if specified
-        if self.min_atoms_per_batch is not None or self.max_atoms_per_batch is not None:
-            total_atoms = sum(len(sample["system"]) for sample in batch)
-
-            if (
-                self.min_atoms_per_batch is not None
-                and total_atoms < self.min_atoms_per_batch
-            ):
-                return None
-            if (
-                self.max_atoms_per_batch is not None
-                and total_atoms > self.max_atoms_per_batch
-            ):
-                return None
-
         # group & join
         collated = group_and_join(batch, join_kwargs=self.join_kwargs)
         data = collated._asdict()
@@ -660,12 +608,221 @@ def load_indices(indices_spec: Union[List[int], str]) -> List[int]:
             path = Path.cwd() / path
         if not path.exists():
             raise ValueError(f"Indices file not found: {path}")
-        indices = np.loadtxt(path, dtype=int).tolist()
+        indices = np.loadtxt(path, dtype=int).reshape(-1).tolist()
 
     if indices and any(i < 0 for i in indices):
         raise ValueError("Indices must be non-negative integers")
 
     return indices
+
+
+# The dataset-level informative files live under `metadata/`; currently only
+# the atom counts, more may be added in the future.
+ATOM_COUNTS_MEMBER = "metadata/atom_counts.npy"
+
+
+def _parse_disk_dataset_member_name(name: str) -> Optional[Tuple[int, str]]:
+    """Parse a DiskDataset zip member name into ``(entry_number, field_name)``.
+
+    Valid members are exactly ``<N>/system.mta`` and ``<N>/<field>.mts`` with
+    ``N`` an unpadded decimal number (``00/`` would silently alias ``0/``).
+
+    :param name: The zip member name.
+    :return: ``(entry, field)`` with ``field == "system"`` for the system
+        member, or ``None`` when the name is not valid DiskDataset content.
+    """
+    slash = name.find("/")
+    if slash <= 0:
+        return None
+    head = name[:slash]
+    if not head.isdigit() or (len(head) > 1 and head[0] == "0"):
+        return None
+    tail = name[slash + 1 :]
+    if "/" in tail:
+        return None
+    if tail == "system.mta":
+        return int(head), "system"
+    if tail.endswith(".mts") and len(tail) > len(".mts"):
+        return int(head), tail[: -len(".mts")]
+    return None
+
+
+def _format_member_names(names: List[str], limit: int = 10) -> str:
+    """Format a capped list of zip member names for messages.
+
+    :param names: The member names.
+    :param limit: Maximum number of names to spell out.
+    :return: The formatted list.
+    """
+    formatted = str(names[:limit])
+    if len(names) > limit:
+        formatted += f" (+{len(names) - limit} more)"
+    return formatted
+
+
+class _MemberScan(NamedTuple):
+    """Classification of a DiskDataset zip's members, one row per member."""
+
+    entries: np.ndarray
+    """Entry number of each member, ``-1`` for non-format members."""
+    field_ids: np.ndarray
+    """Field id of each member, ``-1`` for non-format members."""
+    field_id_by_name: Dict[str, int]
+    """Field name to field id, in order of first appearance."""
+    ignored_names: List[str]
+    """Members that are not part of the DiskDataset format."""
+    has_atom_counts: bool
+    """Whether the zip contains the ``metadata/atom_counts.npy`` member."""
+
+
+def _scan_members(zip_file: SmartZip, path: Union[str, Path]) -> _MemberScan:
+    """Classify every member of a DiskDataset zip into ``(entry, field)``.
+
+    The entry members ``<N>/system.mta`` and ``<N>/<field>.mts`` must be
+    STORED (uncompressed); any other file is collected as ignored, for
+    :py:func:`_validate_format` to report. A zip of a dataset folder made
+    with standard tools (from inside the folder, without compression)
+    therefore classifies like DiskDatasetWriter output.
+
+    :param zip_file: The indexed zip.
+    :param path: The zip's path, for error messages.
+    :return: The classification.
+    """
+    n_members = len(zip_file)
+    entries = np.full(n_members, -1, dtype=np.int64)
+    field_ids = np.full(n_members, -1, dtype=np.int64)
+    field_id_by_name: Dict[str, int] = {}
+    ignored_names: List[str] = []
+    has_atom_counts = False
+    for i, info in enumerate(zip_file.infoiter()):
+        name = info.filename
+        if name == ATOM_COUNTS_MEMBER:
+            has_atom_counts = True
+            continue
+        parsed = _parse_disk_dataset_member_name(name)
+        if parsed is None:
+            ignored_names.append(name)
+            continue
+        if info.compress_type != zipfile.ZIP_STORED:
+            raise ValueError(
+                f"'{path}' is not a valid DiskDataset zip: file "
+                f"'{name}' is compressed. DiskDataset zips must be "
+                "uncompressed (STORED); re-create the zip without "
+                "compression, e.g. `zip -rX -Z store <dataset>.zip .` "
+                "from inside the dataset folder."
+            )
+        entry, field = parsed
+        entries[i] = entry
+        field_ids[i] = field_id_by_name.setdefault(field, len(field_id_by_name))
+    return _MemberScan(
+        entries, field_ids, field_id_by_name, ignored_names, has_atom_counts
+    )
+
+
+def _validate_format(scan: _MemberScan, path: Union[str, Path]) -> int:
+    """Reject zips that cannot be read reliably, with actionable messages.
+
+    Checks, in order: at least one system member; a dense ``0..N-1`` entry
+    range (duplicated or missing entry numbers would be read positionally
+    and silently alias other samples); the same fields in every entry (a
+    missing member would otherwise only surface when that sample happens to
+    be read); no duplicated or orphaned members. A zip can violate several
+    at once: the first failing check is the one reported.
+
+    :param scan: The member classification from :py:func:`_scan_members`.
+    :param path: The zip's path, for error messages.
+    :return: The number of samples in the dataset.
+    """
+    if "system" not in scan.field_id_by_name:
+        message = (
+            "Could not find any `<N>/system.mta` file in the zip. "
+            "The dataset format might be wrong, or the dataset might be "
+            "empty. Empty disk datasets are not supported."
+        )
+        if scan.ignored_names:
+            message += (
+                " The zip does contain files that are not part of the "
+                f"format: {_format_member_names(scan.ignored_names)}."
+            )
+            first_component = scan.ignored_names[0].split("/", 1)[0]
+            if all(n.startswith(f"{first_component}/") for n in scan.ignored_names):
+                message += (
+                    " They all share the prefix "
+                    f"'{first_component}/'; if you zipped a dataset "
+                    "folder from outside, re-create the zip from inside "
+                    f"it: `cd {first_component} && zip -rX -Z store "
+                    "../<dataset>.zip .`"
+                )
+        raise ValueError(message)
+
+    # Entries are read positionally as "0/", "1/", ...: require exactly
+    # the dense range, and fail loudly on duplicated entry names (e.g.
+    # produced by appending with an older, buggy DiskDatasetWriter that
+    # restarted indexing at 0 -- reading those would silently return
+    # the last-written copy) or on gaps.
+    system_id = scan.field_id_by_name["system"]
+    entry_numbers = scan.entries[scan.field_ids == system_id]
+    if not np.array_equal(np.sort(entry_numbers), np.arange(len(entry_numbers))):
+        raise ValueError(
+            "This DiskDataset zip file does not contain a dense range of "
+            "entries `0/`, `1/`, ...: it has gaps or duplicated entry "
+            "numbers and cannot be read reliably; re-write the dataset."
+        )
+    n_samples = len(entry_numbers)
+
+    # Every entry must carry the same fields ("homogeneous" format).
+    present = np.zeros((n_samples, len(scan.field_id_by_name)), dtype=bool)
+    for field_id in scan.field_id_by_name.values():
+        # entries are the dense range 0..N-1, so they index rows directly
+        mask = (scan.field_ids == field_id) & (scan.entries < n_samples)
+        present[scan.entries[mask], field_id] = True
+    missing = np.argwhere(~present)
+    if len(missing):
+        entry, field_id = (int(v) for v in missing[0])
+        field_name = list(scan.field_id_by_name)[field_id]
+        raise ValueError(
+            f"This DiskDataset zip is not homogeneous: entry {entry} has no "
+            f"'{field_name}' file while other entries do "
+            f"({len(missing)} missing files in total). Every entry must "
+            "contain the same fields; re-write the dataset."
+        )
+    # With no member missing, a valid zip has exactly one member per
+    # (entry, field) cell. A surplus means field members for entries
+    # without a system, or duplicated names; both are out of spec.
+    n_valid_members = int((scan.field_ids >= 0).sum())
+    if n_valid_members != present.shape[0] * present.shape[1]:
+        raise ValueError(
+            "This DiskDataset zip contains duplicated files or field "
+            "files for entries that have no `system.mta` (e.g. "
+            "`7/energy.mts` without `7/system.mta`); re-write the dataset."
+        )
+    return n_samples
+
+
+def _load_atom_counts(zip_file: SmartZip, n_samples: int) -> Optional[np.ndarray]:
+    """Load the per-sample atom counts written by DiskDatasetWriter.
+
+    Lets ``get_num_atoms()``/``get_all_atom_counts()`` answer without
+    opening and deserializing every system, which is what makes DiskDataset
+    usable with
+    :class:`~metatrain.utils.data.samplers.MaxAtomDistributedBatchSampler`.
+
+    :param zip_file: The indexed zip; must contain ``metadata/atom_counts.npy``.
+    :param n_samples: The number of samples in the dataset.
+    :return: Atom counts for all samples, or ``None`` (with a warning) when
+        the stored counts are stale.
+    """
+    with zip_file.open(ATOM_COUNTS_MEMBER) as f:
+        atom_counts = np.load(f)
+    if len(atom_counts) >= n_samples:
+        return atom_counts[:n_samples].astype(np.int64, copy=False)
+    warnings.warn(
+        f"Ignoring '{ATOM_COUNTS_MEMBER}' in this DiskDataset: "
+        f"it has {len(atom_counts)} entries, fewer than the "
+        f"{n_samples} samples found. It is likely stale.",
+        stacklevel=2,
+    )
+    return None
 
 
 class DiskDataset(torch.utils.data.Dataset):
@@ -676,77 +833,161 @@ class DiskDataset(torch.utils.data.Dataset):
     directory. The directory's name is the index of the sample (e.g. ``0/``), and the
     files in the directory are the system (``system.mta``) and the targets (each named
     ``<target_name>.mts``). These are ``metatomic.torch.System`` and
-    ``metatensor.torch.TensorMap`` objects, respectively.
+    ``metatensor.torch.TensorMap`` objects, respectively. Extra data fields (e.g.
+    ``charge.mts`` and ``spin_multiplicity.mts`` for charge and spin conditioning)
+    can be stored in the same way and are read when the corresponding names appear
+    in the ``extra_data`` section of the options file.
 
     Such a dataset can be created conveniently using the :py:class:`DiskDatasetWriter`
     class.
 
     :param path: Path to the zip file containing the dataset.
     :param fields: List of fields to read from the dataset.
-        If None, all fields will be read.
+        If None, all fields will be read. If it is a dictionary,
+        it is treated as the target configuration, and we search for a "key"
+        entry that maps the target name to the field name in the dataset.
     """
 
-    def __init__(self, path: Union[str, Path], fields: Optional[List[str]] = None):
+    def __init__(
+        self,
+        path: Union[str, Path],
+        fields: Optional[list[str] | dict[str, Any]] = None,
+    ):
         self.zip_file_path = path
-        self._field_names = ["system"]
-        # check that we have at least one sample:
-        with zipfile.ZipFile(path, "r") as zip_file:
-            namelist = zip_file.namelist()
-            if "0/system.mta" not in namelist:
-                raise ValueError(
-                    "Could not find `0/system.mta` in the zip file. "
-                    "The dataset format might be wrong, or the dataset might be empty. "
-                    "Empty disk datasets are not supported."
-                )
-            for file_name in namelist:
-                if file_name.startswith("0/") and file_name.endswith(".mts"):
-                    self._field_names.append(file_name[2:-4])
-            self._len = len([f for f in namelist if f.endswith(".mta")])
+
+        if isinstance(fields, dict):
+            fields = {options.get("key", key): key for key, options in fields.items()}
+
+        # SmartZip parses the zip's central directory once, into compact
+        # numpy arrays of member locations, and reads members from those
+        # (opening a zipfile.ZipFile per dataloader worker instead does not
+        # scale to zips with millions of members). The scan and validation
+        # only check the DiskDataset format on top of it.
+        self._zip = SmartZip(path)
+        scan = _scan_members(self._zip, path)
+        self._len = _validate_format(scan, path)
+        self._field_names = ["system"] + [
+            f for f in scan.field_id_by_name if f != "system"
+        ]
+        self._atom_counts: Optional[np.ndarray] = (
+            _load_atom_counts(self._zip, self._len) if scan.has_atom_counts else None
+        )
 
         # Determine which fields are going to be read
         if fields is None:
-            self._fields_to_read = self._field_names
+            self._fields_to_read = self._field_names.copy()
         else:
             # Check that the requested fields are present in the dataset
-            fields = ["system", *fields]
-            missing_fields = set(fields) - set(self._field_names)
+            fields_to_read = ["system", *fields]
+            missing_fields = set(fields_to_read) - set(self._field_names)
             if missing_fields:
                 raise ValueError(
                     f"Fields {list(missing_fields)} were requested but "
                     "are not present in this disk dataset. "
                     f"Available fields: {self._field_names[1:]}"
                 )
-            self._fields_to_read = fields
+            self._fields_to_read = fields_to_read
 
         self._fields_to_read.append("mtt::aux::system_index")
 
-        self._sample_class = namedtuple("Sample", self._fields_to_read)
+        fields_map = fields if isinstance(fields, dict) else {}
+        self._sample_class = namedtuple(
+            "Sample", [fields_map.get(field, field) for field in self._fields_to_read]
+        )
 
-        # Do not open file in the main process and start sub-processes with None
-        self.zip_file: Optional[zipfile.ZipFile] = None
-        self._zip_file_pid: Optional[int] = None
+        # The dataset is valid: report skipped files, once.
+        # DiskDatasetWriter output never triggers this.
+        if scan.ignored_names:
+            warnings.warn(
+                f"Skipping {len(scan.ignored_names)} file(s) in '{path}' "
+                "that are not part of the DiskDataset format: "
+                f"{_format_member_names(scan.ignored_names)}. This is fine "
+                "if they are extra files stored alongside the dataset; if "
+                "they were meant to be read as data, name them "
+                "`<N>/system.mta` or `<N>/<target>.mts`.",
+                stacklevel=2,
+            )
 
-    def _open_zip_once(self) -> None:
-        pid = os.getpid()
-        if self._zip_file_pid != pid:
-            if self.zip_file is not None:
-                self.zip_file.close()
-            self.zip_file = zipfile.ZipFile(self.zip_file_path, "r")
-            self._zip_file_pid = pid
+    def _read_member(self, index: int, field_name: str) -> io.BytesIO:
+        """Read one zip member of the sample at ``index``.
+
+        Member names are deterministic in the DiskDataset format, so the
+        name is rebuilt from the index and field and read from the
+        :py:class:`SmartZip`, which validates the local header and verifies
+        the CRC-32 from the central directory.
+
+        :param index: Positional dataset index.
+        :param field_name: Field to read ("system" or a target/extra field).
+        :return: The member contents.
+        """
+        if not 0 <= index < self._len:
+            raise IndexError(
+                f"index {index} is out of range for a DiskDataset with "
+                f"{self._len} samples"
+            )
+        name = (
+            f"{index}/system.mta"
+            if field_name == "system"
+            else f"{index}/{field_name}.mts"
+        )
+        with self._zip.open(name) as member:
+            return io.BytesIO(member.read())
 
     def __len__(self) -> int:
         return self._len
 
-    def __getitem__(self, index: int) -> Any:
-        self._open_zip_once()
-        assert self.zip_file is not None
+    def _require_atom_counts(self) -> np.ndarray:
+        """The dataset's atom counts, or a clear error when the zip lacks them.
 
+        The reader never mutates the dataset file (doing so safely under
+        distributed training and parallel filesystems is not worth the
+        machinery), so datasets without ``metadata/atom_counts.npy`` must be
+        updated
+        by the user before atom-count-based sampling can be used.
+
+        :return: Atom counts for all samples, in dataset order.
+        """
+        if self._atom_counts is None:
+            raise ValueError(
+                f"'{self.zip_file_path}' has no 'metadata/atom_counts.npy' "
+                "file, which is required for atom-count-based sampling "
+                "(e.g. `max_atoms_per_batch`). Re-write the dataset with the "
+                "current DiskDatasetWriter (which always includes it), append "
+                "to it with DiskDatasetWriter(..., append=True), or add "
+                "'metadata/atom_counts.npy' (an int64 numpy array with the "
+                "atom count of each entry, in entry order) to the zip "
+                "yourself."
+            )
+        return self._atom_counts
+
+    def get_num_atoms(self, i: int) -> int:
+        """
+        Return the atom count for sample index ``i``, using the
+        ``metadata/atom_counts.npy`` file written by
+        :py:class:`DiskDatasetWriter`. Enables use with
+        :class:`~metatrain.utils.data.samplers.MaxAtomDistributedBatchSampler`.
+
+        :param i: Dataset index.
+        :return: Number of atoms in sample ``i``.
+        """
+        return int(self._require_atom_counts()[i])
+
+    def get_all_atom_counts(self) -> np.ndarray:
+        """
+        Return atom counts for all samples in one vectorized call, using the
+        ``metadata/atom_counts.npy`` file written by
+        :py:class:`DiskDatasetWriter`.
+
+        :return: Atom counts for all samples, in dataset order.
+        """
+        return self._require_atom_counts()
+
+    def __getitem__(self, index: int) -> Any:
         system_and_targets = []
         for field_name in self._fields_to_read:
             if field_name == "system":
-                with self.zip_file.open(f"{index}/system.mta", "r") as file:
-                    system = load_system(file)
-                    system_and_targets.append(system)
+                system = load_system(self._read_member(index, field_name))
+                system_and_targets.append(system)
             elif field_name == "mtt::aux::system_index":
                 tensor_map = TensorMap(
                     keys=Labels(["_"], torch.tensor([[0]])),
@@ -765,11 +1006,10 @@ class DiskDataset(torch.utils.data.Dataset):
                 )
                 system_and_targets.append(tensor_map)
             else:
-                with self.zip_file.open(f"{index}/{field_name}.mts", "r") as file:
-                    numpy_buffer = np.load(file)
-                    tensor_buffer = torch.from_numpy(numpy_buffer)
-                    tensor_map = load_buffer(tensor_buffer)
-                    system_and_targets.append(tensor_map)
+                numpy_buffer = np.load(self._read_member(index, field_name))
+                tensor_buffer = torch.from_numpy(numpy_buffer)
+                tensor_map = load_buffer(tensor_buffer)
+                system_and_targets.append(tensor_map)
         return self._sample_class(*system_and_targets)
 
     def __iter__(self) -> Any:
@@ -829,10 +1069,6 @@ class DiskDataset(torch.utils.data.Dataset):
                 },
             )
         return target_info_dict
-
-    def __del__(self) -> None:
-        if self.zip_file is not None:
-            self.zip_file.close()
 
 
 def _is_disk_dataset(dataset: Any) -> bool:
@@ -913,7 +1149,7 @@ def get_num_workers() -> int:
     :return: A good number of workers for data loading.
     """
 
-    if multiprocessing.get_start_method(allow_none=False) != "fork":
+    if not fork_is_available():
         return 0
 
     # len(os.sched_getaffinity(0)) detects thread counts set by slurm,
@@ -932,20 +1168,40 @@ def get_num_workers() -> int:
     return num_workers
 
 
+def fork_is_available() -> bool:
+    """
+    Whether the "fork" multiprocessing start method can be used for
+    ``DataLoader`` workers.
+
+    Restricted to Linux: fork is unsafe on macOS (system frameworks are not
+    fork-safe) and unavailable on Windows. Checked against the list of
+    available start methods rather than the default one, because the default
+    changed from "fork" to "forkserver" on Linux in Python 3.14 while fork
+    remains available; metatrain requests it explicitly when building
+    ``DataLoader`` objects.
+
+    :return: Whether "fork" can be used for ``DataLoader`` workers.
+    """
+    return (
+        sys.platform.startswith("linux")
+        and "fork" in multiprocessing.get_all_start_methods()
+    )
+
+
 def validate_num_workers(num_workers: int) -> None:
     """
     Gets a good number of workers for data loading.
 
     :param num_workers: The number of workers to validate.
     :raises ValueError: If the number of workers is greater than 0 and the
-        multiprocessing start method is not "fork".
+        "fork" multiprocessing start method is not available.
     """
 
-    if multiprocessing.get_start_method(allow_none=False) != "fork" and num_workers > 0:
+    if num_workers > 0 and not fork_is_available():
         raise ValueError(
-            "You are using a start method for multiprocessing that is not "
-            "'fork' (this is likely because you are on macOS or Windows). "
-            "In this case, num_workers must be set to 0."
+            "Parallel data loading relies on the 'fork' multiprocessing "
+            "start method, which is only available on Linux. On this "
+            "platform, num_workers must be set to 0."
         )
 
 
@@ -1043,13 +1299,42 @@ class MemmapDataset(TorchDataset):
     :param path: Path to the directory containing the dataset.
     :param target_options: Dictionary containing the target configurations, in the
         format corresponding to metatrain yaml input files.
+    :param extra_data_options: Optional dictionary of extra per-system scalar arrays
+        to load alongside targets. Keys are the metatensor-style names (e.g.
+        ``"charge"``) and values are dicts with a ``"key"`` entry specifying
+        the ``.bin`` filename stem. The data is returned as :py:class:`TensorMap`
+        values in the sample namedtuple and forwarded to the ``extra`` argument of
+        :py:class:`CollateFn` callables.
     """
 
-    def __init__(self, path: Union[str, Path], target_options: Dict[str, Any]) -> None:
+    def __init__(
+        self,
+        path: Union[str, Path],
+        target_options: Dict[str, Any],
+        extra_data_options: Optional[Dict[str, Any]] = None,
+    ) -> None:
         path = Path(path)
         self.target_config = target_options
+        self.extra_data_config: Dict[str, Any] = (
+            extra_data_options if extra_data_options is not None else {}
+        )
+        overlapping = set(target_options.keys()) & set(self.extra_data_config.keys())
+        if overlapping:
+            raise ValueError(
+                f"Extra data keys {overlapping} overlap with target keys. "
+                "Please use unique keys for targets and extra data."
+            )
+        for key, opts in self.extra_data_config.items():
+            if opts.get("type") != "scalar":
+                raise ValueError(
+                    f"Extra data key '{key}' has type '{opts.get('type')}'; "
+                    "only 'scalar' is supported for MemmapDataset extra data."
+                )
         self.sample_class = namedtuple(
-            "Sample", ["system"] + list(self.target_config.keys())
+            "Sample",
+            ["system"]
+            + list(self.target_config.keys())
+            + list(self.extra_data_config.keys()),
         )
 
         # Information about the structures
@@ -1073,6 +1358,17 @@ class MemmapDataset(TorchDataset):
         if os.path.exists(path / "masses.bin"):
             self.masses = MemmapArray(
                 path / "masses.bin", (self.na[-1],), "float32", mode="r"
+            )
+
+        # Register per-system (or per-atom) scalar arrays for extra_data keys
+        self.extra_data_arrays: Dict[str, MemmapArray] = {}
+        for key, opts in self.extra_data_config.items():
+            n_samples = self.na[-1] if opts["sample_kind"] == "atom" else self.ns
+            self.extra_data_arrays[key] = MemmapArray(
+                path / f"{opts['key']}.bin",
+                (n_samples, opts["num_subtargets"]),
+                "float32",
+                mode="r",
             )
 
         # Register arrays pointing to the targets
@@ -1184,7 +1480,7 @@ class MemmapDataset(TorchDataset):
         # attach momenta to the system
         if momenta is not None:
             system.add_data(
-                "momenta",
+                "momentum",
                 TensorMap(
                     keys=Labels.single(),
                     blocks=[
@@ -1193,19 +1489,22 @@ class MemmapDataset(TorchDataset):
                             samples=Labels(
                                 names=["system", "atom"],
                                 values=torch.tensor(
-                                    [[i, j] for j in range(self.na[i], self.na[i + 1])],
+                                    [
+                                        [i, j]
+                                        for j in range(self.na[i + 1] - self.na[i])
+                                    ],
                                     dtype=torch.int32,
                                 ),
                             ),
                             components=[Labels.range("xyz", 3)],
-                            properties=Labels.single(),
+                            properties=Labels.range("momentum", 1),
                         )
                     ],
                 ),
             )
         if masses is not None:
             system.add_data(
-                "masses",
+                "mass",
                 TensorMap(
                     keys=Labels.single(),
                     blocks=[
@@ -1214,7 +1513,10 @@ class MemmapDataset(TorchDataset):
                             samples=Labels(
                                 names=["system", "atom"],
                                 values=torch.tensor(
-                                    [[i, j] for j in range(self.na[i], self.na[i + 1])],
+                                    [
+                                        [i, j]
+                                        for j in range(self.na[i + 1] - self.na[i])
+                                    ],
                                     dtype=torch.int32,
                                 ),
                             ),
@@ -1274,7 +1576,8 @@ class MemmapDataset(TorchDataset):
                 samples=samples,
                 components=components,
                 properties=Labels.range(
-                    target_key.replace("mtt::", ""), target_array.shape[-1]
+                    "energy" if is_energy else target_key.replace("mtt::", ""),
+                    target_array.shape[-1],
                 ),
             )
 
@@ -1328,37 +1631,42 @@ class MemmapDataset(TorchDataset):
             )
             target_dict[target_key] = target_tensormap
 
-        momenta = getattr(self, "momenta", None)
-        if momenta is not None:
-            momenta = torch.tensor(
-                momenta[self.na[i] : self.na[i + 1]], dtype=torch.float64
-            )
-            system.add_data(
-                "momenta",
-                TensorMap(
-                    keys=Labels.single(),
-                    blocks=[
-                        TensorBlock(
-                            values=momenta.unsqueeze(-1),
-                            samples=Labels(
-                                names=["system", "atom"],
-                                values=torch.tensor(
-                                    [
-                                        [i, j]
-                                        for j in range(self.na[i + 1] - self.na[i])
-                                    ],
-                                    dtype=torch.int32,
-                                ),
-                            ),
-                            components=[Labels.range("xyz", 3)],
-                            properties=Labels.range("momentum", 1),
+        # Build extra_data TensorMaps returned in the sample and forwarded to
+        # the `extra` argument of CollateFn callables
+        extra_data_dict = {}
+        for key, arr in self.extra_data_arrays.items():
+            is_per_atom = self.extra_data_config[key]["sample_kind"] == "atom"
+            if is_per_atom:
+                extra_samples = Labels(
+                    names=["system", "atom"],
+                    values=torch.tensor(
+                        [[i, j] for j in range(self.na[i + 1] - self.na[i])],
+                        dtype=torch.int32,
+                    ),
+                )
+                extra_values = torch.tensor(
+                    arr[self.na[i] : self.na[i + 1]], dtype=torch.float64
+                )
+            else:
+                extra_samples = Labels("system", torch.tensor([[i]], dtype=torch.int32))
+                extra_values = torch.tensor(arr[None, i], dtype=torch.float64)
+            extra_data_dict[key] = TensorMap(
+                keys=Labels.single(),
+                blocks=[
+                    TensorBlock(
+                        values=extra_values,
+                        samples=extra_samples,
+                        components=[],
+                        properties=Labels.range(
+                            key.replace("mtt::", ""), arr.shape[-1]
                         ),
-                    ],
-                ),
+                    )
+                ],
             )
 
         joint_dict = {"system": system}
         joint_dict.update(target_dict)
+        joint_dict.update(extra_data_dict)
         sample = self.sample_class._make(
             [joint_dict[name] for name in self.sample_class._fields]
         )
@@ -1397,3 +1705,21 @@ class MemmapDataset(TorchDataset):
                 target_info.layout = _empty_tensor_map_like(tensor_map)
                 target_info_dict[target_key] = target_info
         return target_info_dict
+
+    def get_extra_data_info(self) -> Dict[str, TargetInfo]:
+        """
+        Get information about the extra_data entries in the dataset.
+
+        :return: A dictionary mapping extra_data keys to :py:class:`TargetInfo`
+            objects describing each per-system scalar array.
+        """
+        extra_data_info_dict: Dict[str, TargetInfo] = {}
+        if not self.extra_data_config:
+            return extra_data_info_dict
+        first_sample = self[0]
+        for key, opts in self.extra_data_config.items():
+            tensor_map = first_sample[key]
+            target_info = get_generic_target_info(key, opts)
+            target_info.layout = _empty_tensor_map_like(tensor_map)
+            extra_data_info_dict[key] = target_info
+        return extra_data_info_dict

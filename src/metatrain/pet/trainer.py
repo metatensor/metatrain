@@ -2,20 +2,23 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DistributedSampler
 
+from metatrain.composition import train_or_load_composition_model
+from metatrain.scaler import train_or_load_scaler
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
-from metatrain.utils.augmentation import RotationalAugmenter
+from metatrain.utils.augmentation import O3Augmenter
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
-    MaxAtomDistributedBatchSampler,
+    build_train_dataloaders,
+    build_val_dataloaders,
     get_num_workers,
     unpack_batch,
     validate_num_workers,
@@ -23,11 +26,13 @@ from metatrain.utils.data import (
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
 )
-from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
-from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
+from metatrain.utils.distributed.slurm import (
+    initialize_slurm_nccl_process_group,
+    resolve_distributed,
+)
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
@@ -39,6 +44,7 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
+from metatrain.utils.system_data import get_system_data_transform
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
@@ -81,7 +87,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 13
+    __checkpoint_version__ = 15
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -105,7 +111,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
     ) -> None:
         assert dtype in PET.__supported_dtypes__
 
-        is_distributed = self.hypers["distributed"]
+        is_distributed = resolve_distributed(self.hypers.get("distributed"))
         is_finetune = self.hypers["finetune"]["read_from"] is not None
 
         if is_distributed:
@@ -134,7 +140,19 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Apply fine-tuning strategy if provided
         if is_finetune:
             assert self.hypers["finetune"]["read_from"] is not None  # for mypy
-            model = apply_finetuning_strategy(model, self.hypers["finetune"])
+            # ``inherit_heads`` is a one-time weight-copy initialization step that
+            # must only run when finetuning first starts (a fresh ``Trainer``), not
+            # again when a restart resumes an already-started finetuning run (a
+            # restarted ``Trainer`` has its ``optimizer_state_dict`` restored by
+            # ``load_checkpoint``); otherwise it would clobber the head weights
+            # trained so far with a fresh copy from the (possibly since-changed, or
+            # already stale-pruned) source target.
+            is_fresh_finetune_start = self.optimizer_state_dict is None
+            model = apply_finetuning_strategy(
+                model,
+                self.hypers["finetune"],
+                apply_inherit_heads=is_fresh_finetune_start,
+            )
             method = self.hypers["finetune"]["method"]
             num_params = sum(p.numel() for p in model.parameters())
             num_trainable_params = sum(
@@ -147,7 +165,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 f"[{num_trainable_params / num_params:.2%} %]"
             )
             inherit_heads = self.hypers["finetune"]["inherit_heads"]
-            if inherit_heads:
+            if inherit_heads and is_fresh_finetune_start:
                 logging.info(
                     "Inheriting initial weights for heads and last layers for targets: "
                     f"from {list(inherit_heads.values())} to "
@@ -166,40 +184,41 @@ class Trainer(TrainerInterface[TrainerHypers]):
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
         extra_data_info = dataset_info.extra_data
-        rotational_augmenter = RotationalAugmenter(
+        rotational_augmenter = O3Augmenter(
             target_info_dict=train_targets, extra_data_info_dict=extra_data_info
         )
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         max_atoms = self.hypers["max_atoms_per_batch"]
-        # When max_atoms_per_batch is set, batches are pre-filtered by atom count at
-        # construction time, so batch_atom_bounds filtering in the collate function is
-        # not needed (and its documented behaviour is to be ignored in this mode).
-        batch_atom_bounds = (
-            None if max_atoms is not None else self.hypers["batch_atom_bounds"]
-        )
         atomic_basis_transform, atomic_basis_reverse_transform = (
             get_prepare_atomic_basis_targets_transform(train_targets, extra_data_info)
         )
 
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
-            is_distributed,
-            self.hypers["atomic_baseline"],
-            initial_transforms=[atomic_basis_transform],
+        train_or_load_composition_model(
+            composition_model=model.additive_models[0],
+            atomic_baseline=self.hypers["atomic_baseline"],
+            train_datasets=train_datasets,
+            other_additive_models=list(model.additive_models[1:]),
+            batch_size=self.hypers["batch_size"],
+            is_distributed=is_distributed,
+            checkpoint_dir=checkpoint_dir,
         )
 
         if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets,
-                model.additive_models,
-                self.hypers["batch_size"],
-                is_distributed,
-                self.hypers["fixed_scaling_weights"],
-                initial_transforms=[atomic_basis_transform],
+            if isinstance(self.hypers["fixed_scaling_weights"], str) and not isinstance(
+                self.hypers["atomic_baseline"], str
+            ):
+                raise ValueError(
+                    "Can't use a checkpoint for the scaler without providing"
+                    "a checkpoint also for the composition model."
+                )
+            train_or_load_scaler(
+                scaler=model.scaler,
+                fixed_weights=self.hypers["fixed_scaling_weights"],
+                train_datasets=train_datasets,
+                additive_models=model.additive_models,
+                batch_size=self.hypers["batch_size"],
+                is_distributed=is_distributed,
+                checkpoint_dir=checkpoint_dir,
                 per_structure_targets=self.hypers["per_structure_targets"],
             )
 
@@ -243,30 +262,52 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.scaler.to(device)
         model.scaler.scales_to(device=device, dtype=torch.float64)
 
-        # Create collate functions:
+        # Create collate functions
+
+        conditioning_keys = list(model.requested_inputs().keys())
+        if conditioning_keys:
+            splits = [("training", train_datasets), ("validation", val_datasets)]
+            for split, datasets in splits:
+                if len(datasets[0]) == 0:
+                    continue
+
+                fields = datasets[0][0]._asdict()
+                missing_keys = [key for key in conditioning_keys if key not in fields]
+                if missing_keys:
+                    logging.warning(
+                        f"System conditioning is enabled but {missing_keys} are not in "
+                        f"the {split} data and will fall back to defaults."
+                    )
+
+        conditioning_callables = (
+            [get_system_data_transform(conditioning_keys)] if conditioning_keys else []
+        )
+
+        target_keys = list(train_targets.keys())
+        # Shared callables that run after `atomic_basis_transform` (and after
+        # rotational augmentation in training).
+        base_callables: List[Callable[..., Any]] = [
+            get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+            *conditioning_callables,
+            get_remove_additive_transform(additive_models, train_targets),
+            get_remove_scale_transform(scaler),
+        ]
         collate_fn_train = CollateFn(
-            target_keys=list(train_targets.keys()),
+            target_keys=target_keys,
             callables=[
                 atomic_basis_transform,
                 rotational_augmenter.apply_random_augmentations,
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
+                *base_callables,
             ],
-            batch_atom_bounds=batch_atom_bounds,
         )
         collate_fn_val = CollateFn(
-            target_keys=list(train_targets.keys()),
+            target_keys=target_keys,
             callables=[  # no augmentation for validation
                 atomic_basis_transform,
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
+                *base_callables,
             ],
-            batch_atom_bounds=batch_atom_bounds,
         )
 
-        # Create dataloader for the training datasets:
         if self.hypers["num_workers"] is None:
             num_workers = get_num_workers()
             logging.info(
@@ -277,89 +318,27 @@ class Trainer(TrainerInterface[TrainerHypers]):
             num_workers = self.hypers["num_workers"]
             validate_num_workers(num_workers)
 
-        # Samplers that need set_epoch() called each epoch (may be DistributedSampler
-        # or MaxAtomDistributedBatchSampler depending on which path is taken below).
-        epoch_samplers: List[
-            Union[DistributedSampler, MaxAtomDistributedBatchSampler]
-        ] = []
-
-        train_dataloaders = []
-        for train_dataset, train_sampler in zip(
-            train_datasets, train_samplers, strict=True
-        ):
-            if max_atoms is not None:
-                batch_sampler = MaxAtomDistributedBatchSampler(
-                    dataset=train_dataset,
-                    max_atoms=max_atoms,
-                    min_atoms=self.hypers["min_atoms_per_batch"],
-                    num_replicas=world_size,
-                    rank=rank,
-                    shuffle=True,
-                    drop_last=True,
-                )
-                epoch_samplers.append(batch_sampler)
-                train_dataloaders.append(
-                    DataLoader(
-                        dataset=train_dataset,
-                        batch_sampler=batch_sampler,
-                        collate_fn=collate_fn_train,
-                        num_workers=num_workers,
-                    )
-                )
-            else:
-                if len(train_dataset) < self.hypers["batch_size"]:
-                    raise ValueError(
-                        f"A training dataset has fewer samples "
-                        f"({len(train_dataset)}) than the batch size "
-                        f"({self.hypers['batch_size']}). "
-                        "Please reduce the batch size."
-                    )
-                if train_sampler is not None:
-                    epoch_samplers.append(train_sampler)
-                train_dataloaders.append(
-                    DataLoader(
-                        dataset=train_dataset,
-                        batch_size=self.hypers["batch_size"],
-                        sampler=train_sampler,
-                        shuffle=(train_sampler is None),
-                        drop_last=(train_sampler is None),
-                        collate_fn=collate_fn_train,
-                        num_workers=num_workers,
-                    )
-                )
+        # Create dataloader for the training datasets:
+        train_dataloaders, epoch_samplers = build_train_dataloaders(
+            train_datasets=train_datasets,
+            train_distributed_samplers=train_samplers,
+            collate_fn_train=collate_fn_train,
+            batch_size=self.hypers["batch_size"],
+            max_atoms_per_batch=max_atoms,
+            min_atoms_per_batch=self.hypers["min_atoms_per_batch"],
+            num_workers=num_workers,
+        )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
         # Create dataloader for the validation datasets:
-        val_dataloaders = []
-        for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
-            if max_atoms is not None:
-                val_batch_sampler = MaxAtomDistributedBatchSampler(
-                    dataset=val_dataset,
-                    max_atoms=max_atoms,
-                    num_replicas=world_size,
-                    rank=rank,
-                    shuffle=False,
-                )
-                val_dataloaders.append(
-                    DataLoader(
-                        dataset=val_dataset,
-                        batch_sampler=val_batch_sampler,
-                        collate_fn=collate_fn_val,
-                        num_workers=num_workers,
-                    )
-                )
-            else:
-                val_dataloaders.append(
-                    DataLoader(
-                        dataset=val_dataset,
-                        batch_size=self.hypers["batch_size"],
-                        sampler=val_sampler,
-                        shuffle=False,
-                        drop_last=False,
-                        collate_fn=collate_fn_val,
-                        num_workers=num_workers,
-                    )
-                )
+        val_dataloaders = build_val_dataloaders(
+            val_datasets=val_datasets,
+            val_distributed_samplers=val_samplers,
+            collate_fn_val=collate_fn_val,
+            batch_size=self.hypers["batch_size"],
+            max_atoms_per_batch=max_atoms,
+            num_workers=num_workers,
+        )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         if is_distributed:
@@ -436,10 +415,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             train_loss = 0.0
             for batch in train_dataloader:
-                # Skip None batches (those outside batch_atom_bounds)
-                if should_skip_batch(batch, is_distributed, device):
-                    continue
-
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = unpack_batch(batch)
@@ -464,7 +439,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # not per-property. This transformation only applies to targets with
                 # per-property scales (i.e. multiple blocks or multiple properties), and
                 # leaves the others unchanged.
-                predictions = (model.module if is_distributed else model).scaler(
+                predictions = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(
                     systems,
                     predictions,
                     remove=False,
@@ -476,9 +453,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 if is_distributed:
                     # make sure all parameters contribute to the gradient calculation
-                    # to make torch DDP happy
-                    for param in model.parameters():
-                        train_loss_batch += 0.0 * param.sum()
+                    # to make torch DDP happy (e.g. when a target's head is kept in
+                    # the model but not part of the current run's targets)
+                    train_loss_batch += 0.0 * sum(
+                        p.sum() for p in model.parameters() if p.requires_grad
+                    )
 
                 train_loss_batch.backward()
                 torch.nn.utils.clip_grad_norm_(
@@ -497,14 +476,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
                     scaled_predictions = (
                         model.module if is_distributed else model
-                    ).scaler(
+                    ).scaler.apply_scales(
                         systems,
                         predictions,
                         remove=False,
                         use_per_target_scales=True,
                         use_per_property_scales=False,
                     )
-                    scaled_targets = (model.module if is_distributed else model).scaler(
+                    scaled_targets = (
+                        model.module if is_distributed else model
+                    ).scaler.apply_scales(
                         systems,
                         targets,
                         remove=False,
@@ -555,10 +536,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
             ):  # keep gradients on if any of the targets require them
                 val_loss = 0.0
                 for batch in val_dataloader:
-                    # Skip None batches (those outside batch_atom_bounds)
-                    if should_skip_batch(batch, is_distributed, device):
-                        continue
-
                     systems, targets, extra_data = unpack_batch(batch)
                     systems, targets, extra_data = batch_to(
                         systems, targets, extra_data, dtype=dtype, device=device
@@ -583,7 +560,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     # per-target, and not per-property. This transformation only applies
                     # to targets with per-property scales (i.e. multiple blocks or
                     # multiple properties), and leaves the others unchanged.
-                    predictions = (model.module if is_distributed else model).scaler(
+                    predictions = (
+                        model.module if is_distributed else model
+                    ).scaler.apply_scales(
                         systems,
                         predictions,
                         remove=False,
@@ -603,14 +582,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     # needed for model selection
                     scaled_predictions = (
                         model.module if is_distributed else model
-                    ).scaler(
+                    ).scaler.apply_scales(
                         systems,
                         predictions,
                         remove=False,
                         use_per_target_scales=True,
                         use_per_property_scales=False,
                     )
-                    scaled_targets = (model.module if is_distributed else model).scaler(
+                    scaled_targets = (
+                        model.module if is_distributed else model
+                    ).scaler.apply_scales(
                         systems,
                         targets,
                         remove=False,

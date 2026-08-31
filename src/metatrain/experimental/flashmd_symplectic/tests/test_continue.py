@@ -66,7 +66,7 @@ def test_continue(monkeypatch, tmp_path):
                 quantity="length",
                 unit="angstrom",
             )
-            for name in ["positions", "momenta"]
+            for name in ["position", "momentum"]
         },
     )
 
@@ -79,7 +79,7 @@ def test_continue(monkeypatch, tmp_path):
 
     output_before = model(
         [system.to(torch.float32) for system in systems[:5]],
-        {"positions": model.outputs["positions"], "momenta": model.outputs["momenta"]},
+        {"position": model.outputs["position"], "momentum": model.outputs["momentum"]},
     )
 
     positions_target = {
@@ -113,23 +113,23 @@ def test_continue(monkeypatch, tmp_path):
     }
 
     conf = {
-        "positions": positions_target,
-        "momenta": momenta_target,
+        "position": positions_target,
+        "momentum": momenta_target,
     }
     targets, _ = read_targets(OmegaConf.create(conf))
 
     dataset = Dataset.from_dict(
         {
             "system": systems,
-            "positions": targets["positions"],
-            "momenta": targets["momenta"],
+            "position": targets["position"],
+            "momentum": targets["momentum"],
         }
     )
 
     hypers = DEFAULT_HYPERS.copy()
     hypers["training"]["num_epochs"] = 0
     loss_conf = OmegaConf.create(
-        {"positions": CONF_LOSS.copy(), "momenta": CONF_LOSS.copy()}
+        {"position": CONF_LOSS.copy(), "momentum": CONF_LOSS.copy()}
     )
     OmegaConf.resolve(loss_conf)
     hypers["training"]["loss"] = loss_conf
@@ -170,19 +170,19 @@ def test_continue(monkeypatch, tmp_path):
     # Predict on the first five systems
     output_before = model(
         [system.to(torch.float32) for system in systems[:5]],
-        {"positions": model.outputs["positions"], "momenta": model.outputs["momenta"]},
+        {"position": model.outputs["position"], "momentum": model.outputs["momentum"]},
     )
     output_after = model_after(
         [system.to(torch.float32) for system in systems[:5]],
         {
-            "positions": model_after.outputs["positions"],
-            "momenta": model_after.outputs["momenta"],
+            "position": model_after.outputs["position"],
+            "momentum": model_after.outputs["momentum"],
         },
     )
 
     assert metatensor.torch.allclose(
-        output_before["positions"], output_after["positions"], atol=1e-7, rtol=1e-5
+        output_before["position"], output_after["position"], atol=1e-7, rtol=1e-5
     )
     assert metatensor.torch.allclose(
-        output_before["momenta"], output_after["momenta"], atol=1e-7, rtol=1e-5
+        output_before["momentum"], output_after["momentum"], atol=1e-7, rtol=1e-5
     )

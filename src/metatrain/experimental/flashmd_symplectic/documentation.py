@@ -11,13 +11,13 @@ The symplectic variant of :ref:`FlashMD <arch-flashmd>`.
 
 from typing import Literal, Optional
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 from metatrain.pet.modules.finetuning import FinetuneHypers, NoFinetuneHypers
+from metatrain.scaler.documentation import FixedScalerWeights
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.long_range import LongRangeHypers
 from metatrain.utils.loss import LossSpecification
-from metatrain.utils.scaler import FixedScalerWeights
 
 
 ###########################
@@ -117,8 +117,10 @@ class TrainerHypers(TypedDict):
     module will be used. These correspond to masses averaged over the natural
     isotopic abundance of each element.
     """
-    distributed: bool = False
-    """Whether to use distributed training"""
+    distributed: NotRequired[bool]
+    """Whether to use distributed training. When not set, distributed training
+    is enabled automatically when running under more than one SLURM task.
+    Setting this option explicitly is deprecated."""
     distributed_port: int = 39591
     """Port for DDP communication"""
     batch_size: int = 16
@@ -151,12 +153,17 @@ class TrainerHypers(TypedDict):
 
     See also :ref:`scale-targets`.
     """
-    fixed_scaling_weights: FixedScalerWeights = {}
+    fixed_scaling_weights: FixedScalerWeights | str = {}
     """Weights for target scaling.
 
     This is passed to the ``fixed_weights`` argument of
-    :meth:`Scaler.train_model <metatrain.utils.scaler.scaler.Scaler.train_model>`,
+    :meth:`Scaler.train_model <metatrain.scaler.Scaler.train_model>`,
     see its documentation to understand exactly what to pass here.
+
+    Apart from those options, one can pass a path to a model checkpoint. If that
+    is the checkpoint of a Scaler model, the pre-trained scaler will be loaded.
+    When passing a checkpoint for the scaler, ``atomic_baseline`` must also
+    be a checkpoint for a composition model.
 
     .. warning::
 
@@ -181,11 +188,17 @@ class TrainerHypers(TypedDict):
     loss: str | dict[str, LossSpecification | str] = "mse"
     """This section describes the loss function to be used. See the
     :ref:`loss-functions` for more details."""
-    batch_atom_bounds: list[Optional[int]] = [None, None]
-    """Bounds for the number of atoms per batch as [min, max]. Batches with atom
-    counts outside these bounds will be skipped during training. Use ``None`` for
-    either value to disable that bound. This is useful for preventing out-of-memory
-    errors and ensuring consistent computational load. Default: ``[None, None]``."""
+    max_atoms_per_batch: Optional[int] = None
+    """If set, use greedy atom-count packing instead of fixed ``batch_size``.
+    Structures are accumulated into each batch until adding another would exceed this
+    limit, producing variable numbers of structures per batch. Supported with any
+    dataset type. When set, ``batch_size`` is ignored for constructing training
+    and validation batches (it is still used internally for composition model and
+    scaler fitting)."""
+    min_atoms_per_batch: int = 0
+    """Minimum total number of atoms required to keep a batch when
+    ``max_atoms_per_batch`` is set. Batches whose total atom count falls below this
+    threshold are discarded during packing. Defaults to ``0`` (no minimum)."""
 
     finetune: NoFinetuneHypers | FinetuneHypers = {
         "read_from": None,

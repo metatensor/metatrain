@@ -77,9 +77,9 @@ with the following definitions needed to fully understand some of the parameters
 
 from typing import Literal, Optional
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
-from metatrain.utils.additive import FixedCompositionWeights
+from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
 
@@ -221,8 +221,10 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for training DPA3 models."""
 
-    distributed: bool = False
-    """Whether to use distributed training."""
+    distributed: NotRequired[bool]
+    """Whether to use distributed training. When not set, distributed training
+    is enabled automatically when running under more than one SLURM task.
+    Setting this option explicitly is deprecated."""
     distributed_port: int = 39591
     """Port for DDP communication."""
     batch_size: int = 8
@@ -230,6 +232,17 @@ class TrainerHypers(TypedDict):
     hyperparameter controls the tradeoff between training speed and memory usage. In
     general, larger batch sizes will lead to faster training, but might require more
     memory."""
+    max_atoms_per_batch: Optional[int] = None
+    """If set, use greedy atom-count packing instead of fixed ``batch_size``.
+    Structures are accumulated into each batch until adding another would exceed this
+    limit, producing variable numbers of structures per batch. Supported with any
+    dataset type. When set, ``batch_size`` is ignored for constructing training
+    and validation batches (it is still used internally for composition model and
+    scaler fitting)."""
+    min_atoms_per_batch: int = 0
+    """Minimum total number of atoms required to keep a batch when
+    ``max_atoms_per_batch`` is set. Batches whose total atom count falls below this
+    threshold are discarded during packing. Defaults to ``0`` (no minimum)."""
     num_epochs: int = 100
     """Number of epochs."""
     learning_rate: float = 0.001
@@ -262,7 +275,7 @@ class TrainerHypers(TypedDict):
 
     This is passed to the ``fixed_weights`` argument of
     :meth:`CompositionModel.train_model
-    <metatrain.utils.additive.composition.CompositionModel.train_model>`,
+    <metatrain.composition.CompositionModel.train_model>`,
     see its documentation to understand exactly what to pass here.
     """
     per_structure_targets: list[str] = []

@@ -1,5 +1,6 @@
 import logging
 import os
+from typing import Optional
 
 import hostlist
 import torch
@@ -22,6 +23,22 @@ def is_slurm_main_process() -> bool:
     :return: True if the current process is the main process, False otherwise.
     """
     return os.environ["SLURM_PROCID"] == "0"
+
+
+def resolve_distributed(distributed: Optional[bool]) -> bool:
+    """
+    Resolve the ``distributed`` hyperparameter to a boolean.
+
+    When the option is not set (``None``), distributed training is enabled
+    exactly when running inside a SLURM job with more than one task. Explicit
+    booleans override the detection, but are deprecated.
+
+    :param distributed: The raw value of the ``distributed`` hyperparameter.
+    :return: Whether to use distributed training.
+    """
+    if distributed is None:
+        return is_slurm() and int(os.environ.get("SLURM_NTASKS", "1")) > 1
+    return distributed
 
 
 class DistributedEnvironment:

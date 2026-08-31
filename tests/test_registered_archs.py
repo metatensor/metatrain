@@ -122,6 +122,77 @@ def test_architecture_in_tox():
             )
 
 
+def test_architecture_in_github_ci():
+    """Test that all architectures are in the GitHub CI configuration."""
+    all_arches = find_all_architectures()
+
+    github_ci_path = (
+        Path(__file__).parent.parent
+        / ".github"
+        / "workflows"
+        / "architecture-tests.yml"
+    )
+    with open(github_ci_path, "r") as f:
+        content = f.read()
+
+    # OmegaConf does not like the {{ }} syntax used in GitHub CI
+    # for matrix variables, so we remove them before parsing.
+    content = content.replace("{{", "").replace("}}", "")
+    github_ci = OmegaConf.create(content)
+
+    tested_archs = github_ci["jobs"]["tests"]["strategy"]["matrix"]["architecture-name"]
+
+    for arch in all_arches:
+        arch_name = arch.split(".")[-1].replace("_", "-")
+        if arch_name not in tested_archs:
+            raise ValueError(
+                f"Architecture '{arch}' is not included in the GitHub CI "
+                "configuration. Please add it to the file "
+                ".github/workflows/architecture-tests.yml, in the list under "
+                "jobs.tests.strategy.matrix.architecture-name."
+            )
+
+
+def test_architecture_in_cscs_ci():
+    """Test that all architectures are in the CSCS CI configuration."""
+    all_arches = find_all_architectures()
+
+    cscs_ci_path = Path(__file__).parent.parent / "ci" / "cscs.yml"
+    cscs_ci = OmegaConf.load(cscs_ci_path)
+
+    for arch in all_arches:
+        arch_name = arch.split(".")[-1].replace("_", "-")
+        if f"{arch_name}-tests" not in cscs_ci:
+            raise ValueError(
+                f"Architecture '{arch}' is not included in the CSCS CI configuration."
+                f" Please add it to ci/cscs.yml with a job named '{arch_name}-tests'."
+                " You can copy the job from another architecture."
+            )
+
+        check_cuda_command = False
+        test_command = False
+
+        for command in cscs_ci[f"{arch_name}-tests"]["script"]:
+            if f"tox -e {arch_name}-tests" in command:
+                test_command = True
+            if "tox -e check-cuda-available" in command:
+                check_cuda_command = True
+        if not test_command:
+            raise ValueError(
+                f"Architecture '{arch}' is included in the CSCS CI configuration,"
+                f" but its job does not run the correct tox command."
+                f" Please ensure that the job '{arch_name}-tests' runs"
+                f" 'tox -e {arch_name}-tests'."
+            )
+        if not check_cuda_command:
+            raise ValueError(
+                f"Architecture '{arch}' is included in the CSCS CI configuration,"
+                f" but its job does not run the check-cuda-available command."
+                f" Please ensure that the job '{arch_name}-tests' runs"
+                f" 'tox -e check-cuda-available'."
+            )
+
+
 def test_pyproject_toml_extras():
     """Test that all architectures are included in pyproject.toml extras."""
     if not TOML_AVAILABLE:

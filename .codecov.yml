@@ -19,6 +19,16 @@ component_management:
   individual_components:
 
     # stable architectures
+    - component_id: composition
+      name: Composition
+      paths:
+        - "src/metatrain/composition/.*"
+    
+    - component_id: scaler
+      name: Scaler
+      paths:
+        - "src/metatrain/scaler/.*"
+
     - component_id: gap
       name: GAP
       paths:
@@ -60,10 +70,10 @@ component_management:
       paths:
         - "src/metatrain/experimental/mace/.*"
 
-    - component_id: phace
-      name: PhACE
+    - component_id: space
+      name: SPACE
       paths:
-        - "src/metatrain/experimental/phace/.*"
+        - "src/metatrain/experimental/space/.*"
 
     - component_id: dpa3
       name: DPA3

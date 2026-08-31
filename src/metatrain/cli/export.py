@@ -10,7 +10,6 @@ from omegaconf import OmegaConf
 
 from ..utils.io import check_file_extension, download_model_from_hf, load_model
 from ..utils.metadata import merge_metadata
-from .formatter import CustomHelpFormatter
 
 
 def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
@@ -26,11 +25,7 @@ def _add_export_model_parser(subparser: argparse._SubParsersAction) -> None:
 
     # If you change the synopsis of these commands or add new ones adjust the completion
     # script at `src/metatrain/share/metatrain-completion.bash`.
-    parser = subparser.add_parser(
-        "export",
-        description=description,
-        formatter_class=CustomHelpFormatter,
-    )
+    parser = subparser.add_parser("export", description=description)
     parser.set_defaults(callable="export_model")
 
     parser.add_argument(

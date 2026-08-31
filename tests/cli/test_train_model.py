@@ -22,10 +22,13 @@ from omegaconf import OmegaConf
 
 import metatrain.soap_bpnn
 from metatrain import RANDOM_SEED
-from metatrain.cli.train import _process_restart_from, train_model
+from metatrain.cli.train import _process_restart_from
+from metatrain.cli.train import train_model as raw_train_model
+from metatrain.utils.data import build_train_dataloaders, build_val_dataloaders
 from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.errors import ArchitectureError
+from metatrain.utils.logging import ROOT_LOGGER, setup_logging
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.pydantic import MetatrainValidationError
 from metatrain.utils.testing._utils import WANDB_AVAILABLE
@@ -46,24 +49,29 @@ from ..conftest import (
 from .dump_spherical_targets import dump_spherical_targets
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def options():
     return OmegaConf.load(OPTIONS_PATH)
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def options_pet():
     return OmegaConf.load(OPTIONS_PET_PATH)
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def options_extra():
     return OmegaConf.load(OPTIONS_EXTRA_DATA_PATH)
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def options_spherical():
     return OmegaConf.load(OPTIONS_SPHERICAL_PATH)
+
+
+def train_model(*args, **kwargs):
+    with setup_logging(ROOT_LOGGER, log_file=None, level=logging.INFO):
+        return raw_train_model(*args, **kwargs)
 
 
 @pytest.mark.parametrize("output", [None, "mymodel.pt"])
@@ -241,7 +249,7 @@ def test_train_unknown_arch_options(monkeypatch, tmp_path):
     """
     options = OmegaConf.create(options_str)
 
-    match = r"Unrecognized option 'training\.num_epoch'"
+    match = r"Unrecognized option 'num_epoch' for training hyperparameters"
     with pytest.raises(MetatrainValidationError, match=match):
         train_model(options)
 
@@ -693,6 +701,46 @@ def test_same_name_targets_extra_data(
         train_model(options_extra)
 
 
+def test_no_final_eval(caplog, monkeypatch, tmp_path, options):
+    """Tests that the final evaluation can be disabled."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    options["final_eval"] = False
+
+    train_model(options)
+
+    log_text = caplog.text
+    assert "Skipping final evaluation." in log_text
+    assert "Evaluating training dataset" not in log_text
+    assert Path("model.pt").exists()
+
+
+def test_no_print_stats(caplog, monkeypatch, tmp_path, options):
+    """Tests that the dataset statistics can be disabled."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.DEBUG)
+
+    systems_qm9 = ase.io.read(DATASET_PATH_QM9, ":")
+
+    options = copy.deepcopy(options)
+
+    ase.io.write("qm9_reduced_100.xyz", systems_qm9[:2])
+
+    options["architecture"]["training"]["num_epochs"] = 1
+    options["architecture"]["training"]["batch_size"] = 2
+    options["validation_set"] = {"indices": [0, 1]}
+    options["test_set"] = {"indices": [0, 1]}
+    options["print_stats"] = False
+
+    train_model(options)
+
+    log_text = caplog.text
+    assert "Skipping dataset statistics." in log_text
+
+
 def test_restart(options, monkeypatch, tmp_path, MODEL_PATH_64_BIT):
     """Test that continuing training from a checkpoint runs without an error raise."""
     monkeypatch.chdir(tmp_path)
@@ -711,7 +759,10 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
         "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
-            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+            "last_layer_modules": [
+                "node_last_layers",
+                "edge_last_layers",
+            ],
         },
         "inherit_heads": {},
     }
@@ -734,7 +785,10 @@ def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_P
         "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
-            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+            "last_layer_modules": [
+                "node_last_layers",
+                "edge_last_layers",
+            ],
         },
         "inherit_heads": {},
     }
@@ -762,7 +816,10 @@ def test_transfer_learn_with_forces(
         "read_from": str(ckpt_path),
         "config": {
             "head_modules": ["node_heads", "edge_heads"],
-            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+            "last_layer_modules": [
+                "node_last_layers",
+                "edge_last_layers",
+            ],
         },
         "inherit_heads": {},
     }
@@ -1180,7 +1237,7 @@ def test_train_direct_forces(monkeypatch, tmp_path):
 
 
 def test_train_density_of_states(monkeypatch, tmp_path):
-    """Test training with the DOS loss"""
+    """Test training with the ShiftAgnostic MSE loss"""
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_DOS, "dos.xyz")
 
@@ -1198,26 +1255,15 @@ def test_train_density_of_states(monkeypatch, tmp_path):
             "num_subtargets": 4806,
         }
     }
-    options["training_set"]["extra_data"] = {
-        "mtt::dos_mask": {
-            "read_from": "dos.xyz",
-            "key": "mask",
-            "quantity": "",
-            "unit": "",
-            "sample_kind": "system",
-            "type": "scalar",
-            "num_subtargets": 4806,
-        }
-    }
+
     options["validation_set"] = copy.deepcopy(options["training_set"])
     options["test_set"] = copy.deepcopy(options["training_set"])
     options["architecture"]["training"]["loss"] = {
         "mtt::dos": {
-            "type": "masked_dos",
+            "type": "shift_agnostic_mse",
             "weight": 1.0,
-            "grad_weight": 1e-4,
+            "grad_penalty_weight": 1e-4,
             "int_weight": 2.0,
-            "extra_targets": 200,
             "reduction": "mean",
         }
     }
@@ -1317,11 +1363,10 @@ def test_train_disk_dataset(monkeypatch, tmp_path, options):
             keys=Labels.single(),
             blocks=[energy_block],
         )
-        disk_dataset_writer.write([system], {"energy": energy})
+        disk_dataset_writer.write([system], {"U0": energy})
     disk_dataset_writer.finish()
 
     options["training_set"]["systems"]["read_from"] = "carbon.zip"
-    options["training_set"]["targets"]["energy"]["read_from"] = "carbon.zip"
     train_model(options)
 
 
@@ -1664,83 +1709,61 @@ def test_small_validation_set_with_large_batch_size(
         train_model(options)
 
 
-def test_regression_validation_batch_size_constraint_removed():
-    """Test that demonstrates the validation batch size constraint was removed.
+def test_build_dataloaders_min_size_constraints():
+    """Regression test for issue #711.
 
-    This test verifies that the specific validation constraint from issue #711
-    was removed, while preserving training dataset constraints.
+    The training-dataset size constraint is enforced unconditionally by
+    ``build_train_dataloaders``. The corresponding validation-dataset never had
+    a real technical reason to enforce it: an undersized ``DataLoader`` just
+    yields one smaller batch, so ``build_val_dataloaders`` never raises.
     """
-    # Check that validation constraint was removed but training constraint remains
+    small_dataset = list(range(3))
+    batch_size = 8
 
-    repo_root = Path(__file__).resolve().parents[2]
-    trainer_files = [
-        repo_root / "src/metatrain/pet/trainer.py",
-        repo_root / "src/metatrain/soap_bpnn/trainer.py",
-        repo_root / "src/metatrain/experimental/flashmd/trainer.py",
-    ]
+    with pytest.raises(ValueError, match="training dataset has fewer samples"):
+        build_train_dataloaders(
+            train_datasets=[small_dataset],
+            train_distributed_samplers=[None],
+            collate_fn_train=None,
+            batch_size=batch_size,
+            max_atoms_per_batch=None,
+            min_atoms_per_batch=0,
+            num_workers=0,
+        )
 
-    for trainer_file in trainer_files:
-        if os.path.exists(trainer_file):
-            with open(trainer_file, "r") as f:
-                content = f.read()
+    # The same undersized dataset does not raise on the validation side...
+    dataloaders = build_val_dataloaders(
+        val_datasets=[small_dataset],
+        val_distributed_samplers=[None],
+        collate_fn_val=lambda batch: batch,
+        batch_size=batch_size,
+        max_atoms_per_batch=None,
+        num_workers=0,
+    )
+    assert len(dataloaders) == 1
 
-            # Verify validation constraint was removed
-            # (Look for validation-specific patterns)
-            validation_section_start = content.find(
-                "# Create dataloader for the validation datasets:"
-            )
-            validation_section_end = content.find(
-                "# Create dataloader for the test datasets:"
-            )
-            if validation_section_end == -1:
-                # Look for other section markers
-                validation_section_end = content.find(
-                    "val_dataloaders.append(", validation_section_start
-                )
-                if validation_section_end != -1:
-                    # Find the end of the validation section
-                    validation_section_end = (
-                        content.find(")", validation_section_end) + 1
-                    )
+    # ...and iterating it actually yields the (smaller) batch, rather than
+    # silently dropping it.
+    batches = list(dataloaders[0])
+    assert len(batches) == 1
+    assert len(batches[0]) == len(small_dataset)
 
-            if validation_section_start != -1 and validation_section_end != -1:
-                validation_section = content[
-                    validation_section_start:validation_section_end
-                ]
 
-                # Verify no batch size constraint in validation section
-                assert "fewer samples" not in validation_section, (
-                    f"Validation batch size constraint was not removed from "
-                    f"{trainer_file}"
-                )
-                assert (
-                    "batch_size" not in validation_section
-                    or "len(" not in validation_section
-                ), (
-                    f"Validation batch size constraint logic still present in "
-                    f"{trainer_file}"
-                )
+def test_soap_bpnn_trains_with_undersized_validation_set(
+    options, monkeypatch, tmp_path
+):
+    """End-to-end regression test for issue #711 on the SOAP-BPNN trainer:
+    training must complete even when the validation set is smaller than the
+    batch size. PET's equivalent is covered by
+    ``test_small_validation_set_with_large_batch_size``.
+    """
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
 
-            # Verify training constraint still exists (this should remain)
-            training_section_start = content.find(
-                "# Create dataloader for the training datasets:"
-            )
-            if training_section_start != -1:
-                training_section_end = content.find(
-                    "# Create dataloader for the validation datasets:",
-                    training_section_start,
-                )
-                if training_section_end != -1:
-                    training_section = content[
-                        training_section_start:training_section_end
-                    ]
-                    # Training constraint should still be there
-                    assert "training dataset has fewer samples" in training_section, (
-                        f"Training batch size constraint was incorrectly removed from "
-                        f"{trainer_file}"
-                    )
-        else:
-            raise ValueError(f"Trainer file {trainer_file} does not exist.")
+    options["architecture"]["training"]["num_epochs"] = 1
+    options["validation_set"] = 0.01  # ~1 sample, far below batch_size
+
+    train_model(options)
 
 
 # ============================================================================

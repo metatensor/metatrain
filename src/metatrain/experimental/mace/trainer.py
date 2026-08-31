@@ -10,14 +10,18 @@ from mace.tools.scripts_utils import (
     get_optimizer,
     get_params_options,
 )
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DistributedSampler
 
+from metatrain.composition import train_or_load_composition_model
+from metatrain.scaler import train_or_load_scaler
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    build_train_dataloaders,
+    build_val_dataloaders,
     get_num_workers,
     unpack_batch,
     validate_num_workers,
@@ -25,11 +29,13 @@ from metatrain.utils.data import (
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
 )
-from metatrain.utils.distributed.batch_utils import should_skip_batch
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
-from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
+from metatrain.utils.distributed.slurm import (
+    initialize_slurm_nccl_process_group,
+    resolve_distributed,
+)
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
@@ -133,7 +139,7 @@ def get_optimizer_and_scheduler(
 
 
 class Trainer(TrainerInterface):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 4
     __hypers_cls__ = TrainerHypers
 
     def __init__(self, hypers: TrainerHypers) -> None:
@@ -158,7 +164,7 @@ class Trainer(TrainerInterface):
     ) -> None:
         assert dtype in MetaMACE.__supported_dtypes__
 
-        is_distributed = self.hypers["distributed"]
+        is_distributed = resolve_distributed(self.hypers.get("distributed"))
         is_finetune = "finetune" in self.hypers
 
         if is_distributed:
@@ -175,6 +181,7 @@ class Trainer(TrainerInterface):
             )
         else:
             rank = 0
+            world_size = 1
             device = devices[0]
             # only one device, as we don't support non-distributed multi-gpu for now
 
@@ -216,28 +223,60 @@ class Trainer(TrainerInterface):
             )
         )
 
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
-            is_distributed,
-            {**model.get_fixed_composition_weights(), **self.hypers["atomic_baseline"]},
-            initial_transforms=[atomic_basis_transform],
+        atomic_baseline = self.hypers["atomic_baseline"]
+        if isinstance(atomic_baseline, str):
+            if model.get_fixed_composition_weights():
+                raise ValueError(
+                    "The loaded MACE model provides its own atomic baselines, "
+                    "which cannot be combined with a composition model "
+                    "checkpoint passed as `atomic_baseline`. Use the dict form "
+                    "of `atomic_baseline` instead."
+                )
+        else:
+            atomic_baseline = {
+                **model.get_fixed_composition_weights(),
+                **atomic_baseline,
+            }
+        train_or_load_composition_model(
+            composition_model=model.additive_models[0],
+            atomic_baseline=atomic_baseline,
+            train_datasets=train_datasets,
+            other_additive_models=list(model.additive_models[1:]),
+            batch_size=self.hypers["batch_size"],
+            is_distributed=is_distributed,
+            checkpoint_dir=checkpoint_dir,
         )
+        scaling_weights = self.hypers["fixed_scaling_weights"]
+        if isinstance(scaling_weights, str):
+            if model.get_fixed_scaling_weights():
+                raise ValueError(
+                    "The loaded MACE model provides its own scaling weights, "
+                    "which cannot be combined with a scaler checkpoint passed as "
+                    "`fixed_scaling_weights`. Use the dict form of "
+                    "`fixed_scaling_weights` instead."
+                )
+        else:
+            scaling_weights = {
+                **model.get_fixed_scaling_weights(),
+                **scaling_weights,
+            }
 
         if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets,
-                model.additive_models,
-                self.hypers["batch_size"],
-                is_distributed,
-                {
-                    **model.get_fixed_scaling_weights(),
-                    **self.hypers["fixed_scaling_weights"],
-                },
-                initial_transforms=[atomic_basis_transform],
+            if isinstance(self.hypers["fixed_scaling_weights"], str) and not isinstance(
+                self.hypers["atomic_baseline"], str
+            ):
+                raise ValueError(
+                    "Can't use a checkpoint for the scaler without providing"
+                    "a checkpoint also for the composition model."
+                )
+            train_or_load_scaler(
+                scaler=model.scaler,
+                fixed_weights=scaling_weights,
+                train_datasets=train_datasets,
+                additive_models=model.additive_models,
+                batch_size=self.hypers["batch_size"],
+                is_distributed=is_distributed,
+                checkpoint_dir=checkpoint_dir,
                 per_structure_targets=self.hypers["per_structure_targets"],
             )
 
@@ -290,10 +329,8 @@ class Trainer(TrainerInterface):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
-            batch_atom_bounds=self.hypers["batch_atom_bounds"],
         )
 
-        # Create dataloader for the training datasets:
         if self.hypers["num_workers"] is None:
             num_workers = get_num_workers()
             logging.info(
@@ -304,50 +341,29 @@ class Trainer(TrainerInterface):
             num_workers = self.hypers["num_workers"]
             validate_num_workers(num_workers)
 
-        train_dataloaders = []
-        for train_dataset, train_sampler in zip(
-            train_datasets, train_samplers, strict=True
-        ):
-            if len(train_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A training dataset has fewer samples "
-                    f"({len(train_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
-            train_dataloaders.append(
-                DataLoader(
-                    dataset=train_dataset,
-                    batch_size=self.hypers["batch_size"],
-                    sampler=train_sampler,
-                    shuffle=(
-                        # the sampler takes care of this (if present)
-                        train_sampler is None
-                    ),
-                    drop_last=(
-                        # the sampler takes care of this (if present)
-                        train_sampler is None
-                    ),
-                    collate_fn=collate_fn,
-                    num_workers=num_workers,
-                )
-            )
+        max_atoms = self.hypers["max_atoms_per_batch"]
+
+        # Create dataloader for the training datasets:
+        train_dataloaders, epoch_samplers = build_train_dataloaders(
+            train_datasets=train_datasets,
+            train_distributed_samplers=train_samplers,
+            collate_fn_train=collate_fn,
+            batch_size=self.hypers["batch_size"],
+            max_atoms_per_batch=max_atoms,
+            min_atoms_per_batch=self.hypers["min_atoms_per_batch"],
+            num_workers=num_workers,
+        )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
         # Create dataloader for the validation datasets:
-        val_dataloaders = []
-        for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
-            val_dataloaders.append(
-                DataLoader(
-                    dataset=val_dataset,
-                    batch_size=self.hypers["batch_size"],
-                    sampler=val_sampler,
-                    shuffle=False,
-                    drop_last=False,
-                    collate_fn=collate_fn,
-                    num_workers=num_workers,
-                )
-            )
+        val_dataloaders = build_val_dataloaders(
+            val_datasets=val_datasets,
+            val_distributed_samplers=val_samplers,
+            collate_fn_val=collate_fn,
+            batch_size=self.hypers["batch_size"],
+            max_atoms_per_batch=max_atoms,
+            num_workers=num_workers,
+        )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         if is_distributed:
@@ -398,9 +414,8 @@ class Trainer(TrainerInterface):
         epoch = start_epoch
 
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
-            if is_distributed:
-                for train_sampler in train_samplers:
-                    train_sampler.set_epoch(epoch)
+            for sampler in epoch_samplers:
+                sampler.set_epoch(epoch)
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             if self.hypers["log_mae"]:
@@ -411,10 +426,6 @@ class Trainer(TrainerInterface):
 
             train_loss = 0.0
             for batch in train_dataloader:
-                # Skip None batches (those outside batch_atom_bounds)
-                if should_skip_batch(batch, is_distributed, device):
-                    continue
-
                 optimizer.zero_grad()
 
                 systems, targets, extra_data = unpack_batch(batch)
@@ -439,7 +450,9 @@ class Trainer(TrainerInterface):
                 # not per-property. This transformation only applies to targets with
                 # per-property scales (i.e. multiple blocks or multiple properties), and
                 # leaves the others unchanged.
-                predictions = (model.module if is_distributed else model).scaler(
+                predictions = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(
                     systems,
                     predictions,
                     remove=False,
@@ -471,14 +484,16 @@ class Trainer(TrainerInterface):
                 if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
                     scaled_predictions = (
                         model.module if is_distributed else model
-                    ).scaler(
+                    ).scaler.apply_scales(
                         systems,
                         predictions,
                         remove=False,
                         use_per_target_scales=True,
                         use_per_property_scales=False,
                     )
-                    scaled_targets = (model.module if is_distributed else model).scaler(
+                    scaled_targets = (
+                        model.module if is_distributed else model
+                    ).scaler.apply_scales(
                         systems,
                         targets,
                         remove=False,
@@ -529,10 +544,6 @@ class Trainer(TrainerInterface):
             ):  # keep gradients on if any of the targets require them
                 val_loss = 0.0
                 for batch in val_dataloader:
-                    # Skip None batches (those outside batch_atom_bounds)
-                    if should_skip_batch(batch, is_distributed, device):
-                        continue
-
                     systems, targets, extra_data = unpack_batch(batch)
                     systems, targets, extra_data = batch_to(
                         systems, targets, extra_data, dtype=dtype, device=device
@@ -557,7 +568,9 @@ class Trainer(TrainerInterface):
                     # per-target, and not per-property. This transformation only applies
                     # to targets with per-property scales (i.e. multiple blocks or
                     # multiple properties), and leaves the others unchanged.
-                    predictions = (model.module if is_distributed else model).scaler(
+                    predictions = (
+                        model.module if is_distributed else model
+                    ).scaler.apply_scales(
                         systems,
                         predictions,
                         remove=False,
@@ -577,14 +590,16 @@ class Trainer(TrainerInterface):
                     # needed for model selection
                     scaled_predictions = (
                         model.module if is_distributed else model
-                    ).scaler(
+                    ).scaler.apply_scales(
                         systems,
                         predictions,
                         remove=False,
                         use_per_target_scales=True,
                         use_per_property_scales=False,
                     )
-                    scaled_targets = (model.module if is_distributed else model).scaler(
+                    scaled_targets = (
+                        model.module if is_distributed else model
+                    ).scaler.apply_scales(
                         systems,
                         targets,
                         remove=False,

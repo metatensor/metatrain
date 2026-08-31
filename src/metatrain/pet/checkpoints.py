@@ -2,7 +2,7 @@ import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from metatrain.utils.scaler.checkpoints import update_per_property_scales
+from metatrain.scaler.checkpoints import update_per_property_scales
 
 
 ###########################
@@ -285,9 +285,93 @@ def model_update_v12_v13(checkpoint: dict) -> None:
     """
     Update a v12 checkpoint to v13.
 
+    Adds per-property scales to comply with the scaler changes introduced in
+    https://github.com/metatensor/metatrain/pull/1107.
+
     :param checkpoint: The checkpoint to update.
     """
     update_per_property_scales(checkpoint)
+
+
+def model_update_v13_v14(checkpoint: dict) -> None:
+    """
+    Update a v13 checkpoint to v14.
+
+    Old checkpoints used the main ``cutoff_width`` as the taper width of the
+    adaptive cutoff scheme. Pin ``cutoff_width_adaptive`` to that value so
+    reload behaviour matches what they were trained with. New trainings
+    default to ``1.0`` via ``ModelHypers``.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    if "cutoff_width_adaptive" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["cutoff_width_adaptive"] = checkpoint[
+            "model_data"
+        ]["model_hypers"]["cutoff_width"]
+
+
+def model_update_v14_v15(checkpoint: dict) -> None:
+    """
+    Update a v14 checkpoint to v15.
+
+    Adds the system-conditioning hyperparameters introduced on this version,
+    disabled by default so existing models keep their behaviour.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    hypers = checkpoint["model_data"]["model_hypers"]
+    if "system_conditioning" not in hypers:
+        hypers["system_conditioning"] = False
+    if "max_charge" not in hypers:
+        hypers["max_charge"] = 10
+    if "max_spin_multiplicity" not in hypers:
+        hypers["max_spin_multiplicity"] = 10
+
+
+def model_update_v15_v16(checkpoint: dict) -> None:
+    """
+    Update a v15 checkpoint to v16.
+
+    The pure-PyTorch backend of PET (GNN layers, embedders, heads, last layers, the
+    diagnostic identity modules and the ``species_to_species_index`` buffer) was
+    extracted into a ``PETBackend`` submodule registered as ``self.backend``.
+    These prefixes the affected ``state_dict`` keys with ``backend.``, leaving the
+    additive models, scaler, long-range featurizer and ``finetune_config`` untouched.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    moved_prefixes = (
+        "gnn_layers.",
+        "node_embedders.",
+        "edge_embedder.",
+        "combination_norms.",
+        "combination_mlps.",
+        "node_heads.",
+        "edge_heads.",
+        "node_last_layers.",
+        "edge_last_layers.",
+        "gnn_layers_post_mp_node.",
+        "gnn_layers_post_mp_edge.",
+        "node_backbone.",
+        "edge_backbone.",
+        "species_to_species_index",
+        "system_conditioning.",
+    )
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            # Rebuild the dict in the original order with the moved keys renamed, so
+            # that the order-sensitive dtype probe in ``load_checkpoint`` keeps working.
+            updated = {}
+            for name, value in state_dict.items():
+                if name.startswith(moved_prefixes):
+                    updated[f"backend.{name}"] = value
+                    if name.startswith("system_conditioning."):
+                        # ``PET`` aliases ``self.system_conditioning`` to the backend
+                        # module, so these entries appear under both names.
+                        updated[name] = value
+                else:
+                    updated[name] = value
+            checkpoint[key] = updated
 
 
 ###########################
@@ -455,3 +539,39 @@ def trainer_update_v12_v13(checkpoint: dict) -> None:
     """
     checkpoint["train_hypers"]["max_atoms_per_batch"] = None
     checkpoint["train_hypers"]["min_atoms_per_batch"] = 0
+
+
+def trainer_update_v13_v14(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 13 to version 14.
+
+    The ``batch_atom_bounds`` field has been removed from the PET trainer
+    schema (max-atom packing is now done by the sampler). ``batch_atom_bounds``
+    was already inert whenever ``max_atoms_per_batch`` was set (packing
+    disabled the post-hoc filter), so its bounds are only translated into the
+    equivalent ``max_atoms_per_batch`` / ``min_atoms_per_batch`` sampler
+    settings when they were the mechanism actually in effect; otherwise the
+    field is simply dropped.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    train_hypers = checkpoint["train_hypers"]
+    min_bound, max_bound = train_hypers.pop("batch_atom_bounds", [None, None])
+    if train_hypers.get("max_atoms_per_batch") is None:
+        if max_bound is not None:
+            train_hypers["max_atoms_per_batch"] = max_bound
+        if min_bound is not None:
+            train_hypers["min_atoms_per_batch"] = min_bound
+
+
+def trainer_update_v14_v15(checkpoint: dict) -> None:
+    """
+    Deprecate the ``distributed`` hyperparameter.
+
+    So that it doesn't show up in the restarting options.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    train_hypers = checkpoint["train_hypers"]
+    if "distributed" in train_hypers and train_hypers["distributed"] is None:
+        train_hypers.pop("distributed")

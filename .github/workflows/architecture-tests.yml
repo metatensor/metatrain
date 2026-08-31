@@ -20,19 +20,21 @@ jobs:
           - llpr
           - mace
           - pet
-          - phace
+          - space
           - soap-bpnn
+          - composition
           - dpa3
+          - scaler
 
     runs-on: ubuntu-24.04
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v8.1.0
+      uses: astral-sh/setup-uv@v9.0.0
       with:
-        python-version: "3.13"
+        python-version: "3.14"
         enable-cache: true
         activate-environment: true
 
@@ -50,7 +52,7 @@ jobs:
         PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
 
     - name: upload to codecov.io
-      uses: codecov/codecov-action@v6
+      uses: codecov/codecov-action@v7
       with:
         fail_ci_if_error: false
         files: coverage.xml

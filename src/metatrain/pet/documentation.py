@@ -21,6 +21,80 @@ the following additional quantity:
 - :ref:`mtt-aux-target-last-layer-features`: The features for a given target, taken
   before the last linear layer of the corresponding head.
 
+Charge and spin conditioning
+----------------------------
+
+PET can condition its predictions on the total charge and spin multiplicity of
+each system, so that the same structure can yield different predictions for
+different electronic states (e.g. a neutral singlet vs. a charged doublet).
+Enable it with the ``system_conditioning`` model hyperparameter and provide the
+per-system values as ``extra_data`` in the training options file:
+
+.. code-block:: yaml
+
+    architecture:
+      name: pet
+      model:
+        system_conditioning: true
+        # optional, these are the defaults:
+        max_charge: 10              # supports charges in [-10, 10]
+        max_spin_multiplicity: 10   # supports 2S+1 values in [1, 10]
+
+    training_set:
+      systems:
+        read_from: dataset.xyz
+        length_unit: angstrom
+      targets:
+        energy:
+          key: energy
+          unit: eV
+      extra_data:
+        charge:
+          key: charge                # from atoms.info["charge"]
+        spin_multiplicity:
+          key: spin_multiplicity     # from atoms.info["spin_multiplicity"]
+
+The same ``extra_data`` section is used for evaluation with ``mtt eval``:
+
+.. code-block:: yaml
+
+    systems:
+      read_from: test.xyz
+    targets:
+      energy:
+        key: energy
+        unit: eV
+    extra_data:
+      charge:
+        key: charge
+      spin_multiplicity:
+        key: spin_multiplicity
+
+The examples above read the values from ``atoms.info`` of an ASE-readable file.
+The same ``extra_data`` section can also be used with zip and memory-mapped
+datasets. In zip datasets, charge and spin conditioning are read from
+``charge.mts`` and ``spin_multiplicity.mts``. In memory-mapped datasets, they
+are read from ``charge.bin`` and ``spin_multiplicity.bin``. See
+:ref:`dataset-formats` for details.
+
+Systems without a value fall back to ``charge=0`` and ``spin_multiplicity=1``,
+so a conditioned model can still be used on data without this information.
+Values must be integers within ``[-max_charge, max_charge]`` and
+``[1, max_spin_multiplicity]``; out-of-range or non-integer values raise an
+error.
+
+When running an exported model through the ASE calculator, the values are read
+from ``atoms.info``:
+
+.. code-block:: python
+
+    from metatomic_ase import MetatomicCalculator
+
+    atoms.info["charge"] = 1
+    atoms.info["spin"] = 2  # spin multiplicity (2S + 1)
+    atoms.calc = MetatomicCalculator("model.pt")
+    energy = atoms.get_potential_energy()
+
 {{SECTION_DEFAULT_HYPERS}}
 
 Tuning hyperparameters
@@ -68,14 +142,15 @@ important** (in decreasing order of importance):
 
 from typing import Literal, Optional
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
-from metatrain.pet.modules.finetuning import FinetuneHypers, NoFinetuneHypers
-from metatrain.utils.additive import FixedCompositionWeights
+from metatrain.composition.documentation import FixedCompositionWeights
+from metatrain.scaler.documentation import FixedScalerWeights
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.long_range import LongRangeHypers
 from metatrain.utils.loss import LossSpecification
-from metatrain.utils.scaler import FixedScalerWeights
+
+from .modules.finetuning import FinetuneHypers, NoFinetuneHypers
 
 
 class ModelHypers(TypedDict):
@@ -111,6 +186,13 @@ class ModelHypers(TypedDict):
     """Type of the smoothing function at the cutoff"""
     cutoff_width: float = 0.5
     """Width of the smoothing function at the cutoff"""
+    cutoff_width_adaptive: float = 1.0
+    """Width of the smooth cutoff taper used by the adaptive cutoff scheme.
+
+    This controls the taper width of the smoothed neighbor count used to
+    compute the per-atom adaptive cutoffs. Only has effect when
+    ``num_neighbors_adaptive`` is set.
+    """
     d_pet: int = 128
     """Dimension of the edge features.
 
@@ -164,13 +246,26 @@ class ModelHypers(TypedDict):
     """Use ZBL potential for short-range repulsion"""
     long_range: LongRangeHypers = init_with_defaults(LongRangeHypers)
     """Long-range Coulomb interactions parameters."""
+    system_conditioning: bool = False
+    """Enable charge and spin conditioning embeddings. When enabled, per-system
+    charge and spin multiplicity are embedded and added to node features at each
+    GNN layer, allowing different predictions for the same structure under
+    different electronic states."""
+    max_charge: int = 10
+    """Maximum absolute charge for the conditioning embedding table. Supports
+    charges in the range ``[-max_charge, +max_charge]``."""
+    max_spin_multiplicity: int = 10
+    """Maximum spin multiplicity (2S+1) for the conditioning embedding table.
+    Supports values in the range ``[1, max_spin_multiplicity]``."""
 
 
 class TrainerHypers(TypedDict):
     """Hyperparameters for training PET models."""
 
-    distributed: bool = False
-    """Whether to use distributed training"""
+    distributed: NotRequired[bool]
+    """Whether to use distributed training. When not set, distributed training
+    is enabled automatically when running under more than one SLURM task.
+    Setting this option explicitly is deprecated."""
     distributed_port: int = 39591
     """Port for distributed communication among processes"""
     batch_size: int = 16
@@ -190,17 +285,22 @@ class TrainerHypers(TypedDict):
     """Interval to log metrics."""
     checkpoint_interval: int = 100
     """Interval to save checkpoints."""
-    atomic_baseline: FixedCompositionWeights = {}
+    atomic_baseline: FixedCompositionWeights | str = {}
     """The baselines for each target.
 
     By default, ``metatrain`` will fit a linear model (:class:`CompositionModel
-    <metatrain.utils.additive.composition.CompositionModel>`) to compute the
-    least squares baseline for each atomic species for each target.
+    <metatrain.composition.CompositionModel>`) to compute the least squares
+    baseline for each atomic species for each target.
 
-    However, this hyperparameter allows you to provide your own baselines.
-    The value of the hyperparameter should be a dictionary where the keys are the
-    target names, and the values are either (1) a single baseline to be used for
-    all atomic types, or (2) a dictionary mapping atomic types to their baselines.
+    However, this hyperparameter allows you to provide your own baselines,
+    either as a dictionary or as a path to a pre-trained composition model
+    checkpoint. The value of the hyperparameter should either be:
+
+    - a dictionary where the keys are the target names, and the values are
+      either (1) a single baseline to be used for all atomic types, or
+      (2) a dictionary mapping atomic types to their baselines.
+    - a string path to a ``.ckpt`` file from a pre-trained composition model.
+
     For example:
 
     - ``atomic_baseline: {"energy": {1: -0.5, 6: -10.0}}`` will fix the energy
@@ -211,6 +311,8 @@ class TrainerHypers(TypedDict):
       all atomic types to -5.0.
     - ``atomic_baseline: {"mtt:dos": 0.0}`` sets the baseline for the "mtt:dos"
       target to 0.0, effectively disabling the atomic baseline for that target.
+    - ``atomic_baseline: "/path/to/model.ckpt"`` loads a pre-trained
+      composition model checkpoint, overriding the default least-squares fit.
 
     This atomic baseline is substracted from the targets during training, which
     avoids the main model needing to learn atomic contributions, and likely makes
@@ -238,12 +340,17 @@ class TrainerHypers(TypedDict):
 
     See also :ref:`scale-targets`.
     """
-    fixed_scaling_weights: FixedScalerWeights = {}
+    fixed_scaling_weights: FixedScalerWeights | str = {}
     """Weights for target scaling.
 
     This is passed to the ``fixed_weights`` argument of
-    :meth:`Scaler.train_model <metatrain.utils.scaler.scaler.Scaler.train_model>`,
+    :meth:`Scaler.train_model <metatrain.scaler.Scaler.train_model>`,
     see its documentation to understand exactly what to pass here.
+
+    Apart from those options, one can pass a path to a model checkpoint. If that
+    is the checkpoint of a Scaler model, the pre-trained scaler will be loaded.
+    When passing a checkpoint for the scaler, ``atomic_baseline`` must also
+    be a checkpoint for a composition model.
     """
     per_structure_targets: list[str] = []
     """Targets to calculate per-structure losses and errors on."""
@@ -261,19 +368,13 @@ class TrainerHypers(TypedDict):
     loss: str | dict[str, LossSpecification | str] = "mse"
     """This section describes the loss function to be used. See the
     :ref:`loss-functions` for more details."""
-    batch_atom_bounds: list[Optional[int]] = [None, None]
-    """Bounds for the number of atoms per batch as [min, max]. Batches with atom
-    counts outside these bounds will be skipped during training. Use ``None`` for
-    either value to disable that bound. This is useful for preventing out-of-memory
-    errors and ensuring consistent computational load. Default: ``[None, None]``."""
     max_atoms_per_batch: Optional[int] = None
     """If set, use greedy atom-count packing instead of fixed ``batch_size``.
     Structures are accumulated into each batch until adding another would exceed this
-    limit, producing variable numbers of structures per batch. Only supported with
-    ``MemmapDataset``. When set, ``batch_size`` is ignored for constructing training
+    limit, producing variable numbers of structures per batch. Supported with any
+    dataset type. When set, ``batch_size`` is ignored for constructing training
     and validation batches (it is still used internally for composition model and
-    scaler fitting). ``batch_atom_bounds`` filtering in the collate function is also
-    disabled, as atom-count bounds are enforced at packing time instead."""
+    scaler fitting)."""
     min_atoms_per_batch: int = 0
     """Minimum total number of atoms required to keep a batch when
     ``max_atoms_per_batch`` is set. Batches whose total atom count falls below this

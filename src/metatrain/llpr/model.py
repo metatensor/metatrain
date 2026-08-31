@@ -10,6 +10,7 @@ from metatomic.torch import (
     ModelMetadata,
     ModelOutput,
     System,
+    register_autograd_neighbors,
 )
 from torch.utils.data import DataLoader
 
@@ -21,8 +22,8 @@ from metatrain.utils.data import (
     DatasetInfo,
     unpack_batch,
 )
+from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.target_info import (
-    DEPRECATED_METATOMIC_OUTPUT_NAMES,
     is_auxiliary_output,
 )
 from metatrain.utils.io import model_from_checkpoint
@@ -42,6 +43,8 @@ from .documentation import ModelHypers
 
 class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
     __checkpoint_version__ = 4
+
+    ensemble_gradient_outputs: List[str]
 
     # all torch devices and dtypes are supported, if they are supported by the wrapped
     # the check is performed in the trainer
@@ -86,6 +89,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
+        check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
 
         self.hypers = hypers
         self.dataset_info = dataset_info
@@ -131,26 +135,31 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     f"{old_capabilities.outputs[target_name].unit}"
                 )
 
+        # Build the LLPR capabilities from the wrapped model's *native* outputs rather
+        # than from its export-time capabilities. The latter additionally contain the
+        # new-name aliases that metatomic injects for deprecated output names (e.g.
+        # `non_conservative_force` for `non_conservative_forces`), while the wrapped
+        # model's `forward` only responds to the native names. Building on the native
+        # names keeps this wrapper transparent: it requests from and returns to the
+        # wrapped model under the names the model actually understands, and metatomic's
+        # `AtomisticModel` re-adds the new-name aliases (and bridges engine requests to
+        # them) when this wrapper is itself exported.
+        backbone_outputs = self.model.supported_outputs()
+
         # update capabilities: now we have additional outputs for the uncertainty
         additional_capabilities = {}
         self.outputs_list = []
-        for name, output in old_capabilities.outputs.items():
+        for name, output in backbone_outputs.items():
             if is_auxiliary_output(name):
                 continue  # auxiliary output
             self.outputs_list.append(name)
             uncertainty_name = _get_uncertainty_name(name)
             additional_capabilities[uncertainty_name] = ModelOutput(
-                quantity=output.quantity,
                 unit=output.unit,
                 sample_kind=output.sample_kind,
                 description=output.description,
             )
 
-        backbone_outputs = {
-            name: output
-            for name, output in old_capabilities.outputs.items()
-            if name not in DEPRECATED_METATOMIC_OUTPUT_NAMES
-        }
         self.capabilities = ModelCapabilities(
             outputs={**backbone_outputs, **additional_capabilities},
             atomic_types=old_capabilities.atomic_types,
@@ -186,6 +195,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
         # register buffers for ensemble weights and ensemble outputs
         ensemble_outputs = {}
+        # ensemble outputs `forward` is able to attach explicit gradients to, resolved
+        # here from the wrapped model's outputs so that `forward` does not have to
+        # re-derive it (and cannot disagree with the advertised capabilities)
+        self.ensemble_gradient_outputs: List[str] = []
         for name in self.ensemble_weight_sizes:
             if name not in self.outputs_list:
                 raise ValueError(
@@ -202,10 +215,13 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             )
             if ensemble_output_name == "mtt::aux::energy_ensemble":
                 ensemble_output_name = "energy_ensemble"
+            explicit_gradients = self._ensemble_explicit_gradients(name)
+            if len(explicit_gradients) > 0:
+                self.ensemble_gradient_outputs.append(ensemble_output_name)
             ensemble_outputs[ensemble_output_name] = ModelOutput(
-                quantity=old_capabilities.outputs[name].quantity,
                 unit=old_capabilities.outputs[name].unit,
                 sample_kind=old_capabilities.outputs[name].sample_kind,
+                explicit_gradients=explicit_gradients,
                 description=f"ensemble of '{name}'",
             )
         self.capabilities = ModelCapabilities(
@@ -383,6 +399,27 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 continue
             outputs_for_model[name] = output
 
+        # Explicit gradients of an energy ensemble require grad-enabled positions/cell
+        # and autograd-registered neighbor lists *before* the wrapped model runs.
+        # Engines generally hand over systems without any of this set up, so rebuild
+        # them here if needed.
+        for name, output in outputs.items():
+            if (
+                name in self.ensemble_gradient_outputs
+                and len(output.explicit_gradients) > 0
+            ):
+                if selected_atoms is not None:
+                    # the gradient samples built by `_add_energy_ensemble_gradients`
+                    # assume one value sample per system, in order, and cover every
+                    # atom of every system. A selection can drop systems from the
+                    # value block, which leaves the two out of sync.
+                    raise ValueError(
+                        f"explicit gradients of '{name}' are not supported together "
+                        "with 'selected_atoms'"
+                    )
+                systems = self._systems_with_grad(systems)
+                break
+
         return_dict = self.model(systems, outputs_for_model, selected_atoms)
 
         requested_uncertainties: List[str] = []
@@ -559,19 +596,57 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             # for the num_ens dimension
             old_prop_val = return_dict[original_name].block().properties.values
             num_samples = old_prop_val.shape[0]
-            exp_prop_val = old_prop_val.repeat(num_ens, 1)
             ens_idxs = torch.arange(
                 num_ens,
                 device=old_prop_val.device,
                 dtype=old_prop_val.dtype,
             )
             ens_idxs = ens_idxs.repeat_interleave(num_samples).unsqueeze(1)
-            new_prop_val = torch.cat([ens_idxs, exp_prop_val], dim=-1)
-            ens_prop = Labels(
-                names=["ensemble_member"]
-                + return_dict[original_name].block().properties.names,
-                values=new_prop_val,
+            if ens_name == "energy_ensemble":
+                # "energy_ensemble" quantity requires a single "energy"
+                # property column holding the ensemble member index
+                ens_prop = Labels(names=["energy"], values=ens_idxs)
+            else:
+                exp_prop_val = old_prop_val.repeat(num_ens, 1)
+                new_prop_val = torch.cat([ens_idxs, exp_prop_val], dim=-1)
+                ens_prop = Labels(
+                    names=["ensemble_member"]
+                    + return_dict[original_name].block().properties.names,
+                    values=new_prop_val,
+                )
+
+            ensemble_block = TensorBlock(
+                values=ensemble_values,
+                samples=ll_features.block().samples,
+                components=return_dict[original_name].block().components,
+                properties=ens_prop,
             )
+
+            if ens_name in self.ensemble_gradient_outputs:
+                requested_gradients = outputs[ens_name].explicit_gradients
+                want_positions = "positions" in requested_gradients
+                want_strain = "strain" in requested_gradients
+                if want_positions or want_strain:
+                    if outputs[ens_name].sample_kind != "system":
+                        # `_add_energy_ensemble_gradients` assumes one sample per
+                        # system. For a per-atom energy it would silently return the
+                        # gradient of the summed energy, labelled as if it were
+                        # per-sample, so refuse rather than produce wrong numbers.
+                        raise ValueError(
+                            f"explicit gradients of '{ens_name}' are only "
+                            "supported for a per-system energy, but this output was "
+                            f"requested with sample_kind "
+                            f"'{outputs[ens_name].sample_kind}'"
+                        )
+                    self._add_energy_ensemble_gradients(
+                        ensemble_block,
+                        systems,
+                        ensemble_values,
+                        ens_prop,
+                        num_ens,
+                        want_positions,
+                        want_strain,
+                    )
 
             ensemble = TensorMap(
                 keys=Labels(
@@ -580,14 +655,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                         [[0]], device=ll_features.block().values.device
                     ),
                 ),
-                blocks=[
-                    TensorBlock(
-                        values=ensemble_values,
-                        samples=ll_features.block().samples,
-                        components=return_dict[original_name].block().components,
-                        properties=ens_prop,
-                    ),
-                ],
+                blocks=[ensemble_block],
             )
 
             return_dict[ens_name] = ensemble
@@ -600,6 +668,186 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 return_dict.pop(key)
 
         return return_dict
+
+    def _systems_with_grad(self, systems: List[System]) -> List[System]:
+        """Rebuild ``systems`` so that positions and cell require grad and neighbor
+        lists are registered with autograd, as needed by
+        ``_add_energy_ensemble_gradients``.
+
+        Systems whose positions and cell already require grad (e.g. because the
+        engine is doing its own autograd on top of this call) are passed through
+        untouched, keeping the caller's graph intact. Everything else is replaced by
+        a copy built on grad-enabled positions/cell tensors, with neighbor lists
+        re-registered against them.
+
+        A tensor that already requires grad is *reused as is* rather than detached,
+        even when only one of positions/cell does. Detaching it would silently cut
+        the caller out of the graph: an engine that grad-enables positions only (as
+        one doing forces but not stress does) would then get "one of the
+        differentiated Tensors appears to not have been used in the graph" from its
+        own backward pass.
+
+        :param systems: systems to rebuild.
+        :return: list with one system per input system, either the original object
+            (already grad-enabled) or its grad-enabled copy.
+        """
+        new_systems: List[System] = []
+        for system in systems:
+            if system.positions.requires_grad and system.cell.requires_grad:
+                new_systems.append(system)
+                continue
+            positions = system.positions
+            if not positions.requires_grad:
+                positions = positions.detach().requires_grad_(True)
+            cell = system.cell
+            if not cell.requires_grad:
+                cell = cell.detach().requires_grad_(True)
+            new_system = System(system.types, positions, cell, system.pbc)
+            for nl_options in system.known_neighbor_lists():
+                neighbors = mts.detach_block(system.get_neighbor_list(nl_options))
+                register_autograd_neighbors(new_system, neighbors, False)
+                new_system.add_neighbor_list(nl_options, neighbors)
+            for data_name in system.known_data():
+                new_system.add_data(data_name, system.get_data(data_name))
+            new_systems.append(new_system)
+        return new_systems
+
+    def _add_energy_ensemble_gradients(
+        self,
+        ensemble_block: TensorBlock,
+        systems: List[System],
+        ensemble_values: torch.Tensor,
+        ens_prop: Labels,
+        num_ens: int,
+        want_positions: bool,
+        want_strain: bool,
+    ) -> None:
+        """Attach "positions"/"strain" gradients to an "energy_ensemble" block.
+
+        Positions and cell are differentiated directly (no strain-trick deformation
+        needed): since the "strain" gradient is evaluated at strain = identity, the
+        virial can be recovered from the positions/cell gradients alone as
+        ``positions^T @ d(output)/d(positions) + cell^T @ d(output)/d(cell)``, which is
+        numerically equivalent to differentiating w.r.t. an explicit strain parameter.
+        This avoids needing a dedicated strain tensor.
+
+        :param ensemble_block: the "energy_ensemble" value block gradients are
+            attached to, in place, via ``add_gradient``.
+        :param systems: the systems this batch was computed for; ``positions`` and
+            ``cell`` must already require grad (ensured by ``_systems_with_grad`` in
+            ``forward``, or set up by the caller) for any of this to produce
+            non-trivial gradients.
+        :param ensemble_values: the (already recentered) ensemble values, with shape
+            ``(num_samples, num_ens)`` (one row per system, one column per ensemble
+            member). This is only valid for the "energy" quantity, which has no
+            components and a single property.
+        :param ens_prop: properties of ``ensemble_block``, reused verbatim for the
+            gradient blocks, as required by metatensor.
+        :param num_ens: number of ensemble members.
+        :param want_positions: whether to attach a "positions" gradient.
+        :param want_strain: whether to attach a "strain" gradient.
+        """
+        # one column per ensemble member, i.e. a single property and no components:
+        # anything else interleaves the properties with the members, and the
+        # member-by-member differentiation below would pick the wrong columns
+        if len(ensemble_values.shape) != 2 or ensemble_values.shape[1] != num_ens:
+            raise ValueError(
+                "explicit gradients of an energy ensemble are only supported for a "
+                "single-property energy without components"
+            )
+
+        n_systems = len(systems)
+        all_positions = [system.positions for system in systems]
+        all_cells = [system.cell for system in systems]
+        n_atoms_per_system = [p.shape[0] for p in all_positions]
+        # cells are only differentiated when the strain gradient is actually wanted:
+        # asking autograd for them otherwise costs a gradient per system per member
+        # that is then discarded
+        grad_inputs = all_positions + all_cells if want_strain else all_positions
+
+        dtype = ensemble_values.dtype
+        device = ensemble_values.device
+        n_atoms_total = sum(n_atoms_per_system)
+
+        positions_grad_values = torch.zeros(
+            (n_atoms_total, 3, num_ens), dtype=dtype, device=device
+        )
+        strain_grad_values = torch.zeros(
+            (n_systems, 3, 3, num_ens) if want_strain else (0, 3, 3, num_ens),
+            dtype=dtype,
+            device=device,
+        )
+
+        for member in range(num_ens):
+            grads = torch.autograd.grad(
+                [ensemble_values[:, member].sum()],
+                grad_inputs,
+                # never False: the graph may be the caller's (see `_systems_with_grad`,
+                # which passes already-grad-enabled systems straight through), and
+                # freeing it here would break the caller's own backward pass with
+                # "trying to backward through the graph a second time". The graph is
+                # released normally once the last reference to it goes away.
+                retain_graph=True,
+                create_graph=False,
+            )
+
+            atom_offset = 0
+            for s in range(n_systems):
+                pos_grad = grads[s]
+                assert pos_grad is not None
+
+                n_atoms_s = n_atoms_per_system[s]
+                # store dE/dr directly (not the force -dE/dr)
+                positions_grad_values[
+                    atom_offset : atom_offset + n_atoms_s, :, member
+                ] = pos_grad
+                if want_strain:
+                    cell_grad = grads[n_systems + s]
+                    assert cell_grad is not None
+                    strain_grad_values[s, :, :, member] = (
+                        all_positions[s].detach().t() @ pos_grad
+                        + all_cells[s].detach().t() @ cell_grad
+                    )
+                atom_offset += n_atoms_s
+
+        xyz = torch.tensor([[0], [1], [2]], device=device)
+
+        if want_positions:
+            sample_col = torch.repeat_interleave(
+                torch.arange(n_systems, device=device),
+                torch.tensor(n_atoms_per_system, device=device),
+            )
+            atom_col = torch.cat(
+                [torch.arange(n, device=device) for n in n_atoms_per_system]
+            )
+            ensemble_block.add_gradient(
+                "positions",
+                TensorBlock(
+                    values=positions_grad_values,
+                    samples=Labels(
+                        names=["sample", "system", "atom"],
+                        values=torch.stack([sample_col, sample_col, atom_col], dim=1),
+                    ),
+                    components=[Labels(["xyz"], xyz)],
+                    properties=ens_prop,
+                ),
+            )
+
+        if want_strain:
+            # build the "sample" Labels with the plain constructor, not
+            # `Labels.range(...)` as the latter breaks TorchScript compatibility
+            ensemble_block.add_gradient(
+                "strain",
+                TensorBlock(
+                    values=strain_grad_values,
+                    samples=Labels(
+                        names=["sample"],
+                        values=torch.arange(n_systems, device=device).reshape(-1, 1),
+                    ),
+                    components=[Labels(["xyz_1"], xyz), Labels(["xyz_2"], xyz)],
+                    properties=ens_prop,
+                ),
+            )
 
     def compute_covariance(
         self,
@@ -702,12 +950,12 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 # Try with an increasingly high regularization parameter until
                 # the matrix is invertible
                 is_not_pd = True
-                regularizer = 1e-20
-                while is_not_pd and regularizer < 1e16:
+                r = 1e-20
+                while is_not_pd and r < 1e16:
                     try:
                         cholesky[:] = torch.linalg.cholesky(
                             0.5 * (covariance + covariance.T)
-                            + regularizer
+                            + r
                             * torch.eye(
                                 self.ll_feat_size,
                                 device=covariance.device,
@@ -716,7 +964,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                         ).to(cholesky.dtype)
                         is_not_pd = False
                     except RuntimeError:
-                        regularizer *= 10.0
+                        r *= 10.0
                 if is_not_pd:
                     raise RuntimeError(
                         "Could not compute Cholesky decomposition. Something went "
@@ -724,8 +972,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     )
                 else:
                     logging.info(
-                        f"Used regularization parameter of {regularizer:.1e} to "
-                        "compute the Cholesky decomposition"
+                        f"Used regularization parameter of {r:.1e} to "
+                        f"compute the Cholesky decomposition for `{name}`"
                     )
 
     def calibrate(
@@ -894,9 +1142,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             if ensemble_name == "mtt::aux::energy_ensemble":
                 ensemble_name = "energy_ensemble"
             new_outputs[ensemble_name] = ModelOutput(
-                quantity=old_outputs[name].quantity,
                 unit=old_outputs[name].unit,
                 sample_kind=old_outputs[name].sample_kind,
+                explicit_gradients=self._ensemble_explicit_gradients(name),
                 description=f"ensemble of {name}",
             )
         self.capabilities = ModelCapabilities(
@@ -1060,6 +1308,19 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.capabilities.outputs
+
+    def _ensemble_explicit_gradients(self, name: str) -> List[str]:
+        """Explicit gradients the ensemble of the ``name`` target is able to produce.
+
+        Only energy targets are currently supported.
+
+        :param name: name of the target the ensemble is built from.
+        :return: gradient names for the corresponding ensemble output.
+        """
+        target = self.dataset_info.targets.get(name)
+        if target is None or target.quantity != "energy":
+            return []
+        return ["positions", "strain"]
 
 
 def _get_uncertainty_name(name: str) -> str:

@@ -48,7 +48,7 @@ def test_torchscript():
                 quantity="length",
                 unit="angstrom",
             )
-            for name in ["positions", "momenta"]
+            for name in ["position", "momentum"]
         },
     )
 
@@ -84,7 +84,7 @@ def test_torchscript():
                 ),
             ],
         )
-        system.add_data("momenta", tmap)
+        system.add_data("momentum", tmap)
 
     requested_neighbor_lists = get_requested_neighbor_lists(model)
     model = torch.jit.script(model)
@@ -95,7 +95,7 @@ def test_torchscript():
     ]
     model(
         systems,
-        {"positions": model.outputs["positions"], "momenta": model.outputs["momenta"]},
+        {"position": model.outputs["position"], "momentum": model.outputs["momentum"]},
     )
 
 
@@ -126,7 +126,7 @@ def test_torchscript_save_load(tmpdir):
                 quantity="length",
                 unit="angstrom",
             )
-            for name in ["positions", "momenta"]
+            for name in ["position", "momentum"]
         },
     )
     model = FlashMDSymplectic(MODEL_HYPERS, dataset_info)

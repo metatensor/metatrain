@@ -60,7 +60,7 @@ def test_regression_init():
 
     output = model(
         systems,
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind="system")},
+        {"mtt::U0": ModelOutput(unit="", sample_kind="system")},
     )
 
     expected_output = torch.tensor(
@@ -111,7 +111,7 @@ def test_regression_energies_forces_train(device):
     targets, target_info_dict = read_targets(OmegaConf.create(conf))
     targets = {"energy": targets["energy"]}
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
-    hypers = DEFAULT_HYPERS.copy()
+    hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["num_workers"] = 0  # for reproducibility
     hypers["training"]["scheduler_patience"] = 1
@@ -149,17 +149,17 @@ def test_regression_energies_forces_train(device):
 
     expected_output = torch.tensor(
         [
-            [23.681182861328],
-            [24.079591751099],
-            [23.690107345581],
-            [24.619163513184],
-            [24.360023498535],
+            [2.834107398987],
+            [2.889175415039],
+            [2.844632148743],
+            [2.930275917053],
+            [2.905971050262],
         ],
         device=device,
     )
 
     expected_gradients_output = torch.tensor(
-        [0.141418337822, 0.238168984652, -0.696541965008], device=device
+        [0.010308556259, 0.041110992432, -0.090265549719], device=device
     )
 
     # if you need to change the hardcoded values:
@@ -307,7 +307,7 @@ def test_regression_energy_non_conservative_stress(batch_size):
     outputs = model(
         eval_systems,
         {
-            "energy": ModelOutput(quantity="energy", unit="", sample_kind="system"),
+            "energy": ModelOutput(unit="", sample_kind="system"),
             "non_conservative_stress": ModelOutput(sample_kind="system"),
         },
     )
@@ -426,41 +426,37 @@ def test_regression_train_spherical(device):
     ]
     output = model(
         systems,
-        {
-            "mtt::electron_density_basis": ModelOutput(
-                quantity="", unit="", sample_kind="atom"
-            )
-        },
+        {"mtt::electron_density_basis": ModelOutput(unit="", sample_kind="atom")},
     )
 
     expected_output = torch.tensor(
         [
             [
-                0.284123986959,
-                0.126270756125,
-                0.180575072765,
-                0.108671367168,
-                -0.110814586282,
-                0.319439798594,
-                -0.067747496068,
+                0.103833243251,
+                0.069846123457,
+                0.167408689857,
+                0.048254013062,
+                -0.124650284648,
+                0.303171575069,
+                -0.168893411756,
             ],
             [
-                -0.134731873870,
-                -0.264746725559,
-                0.012159131467,
-                0.079967394471,
-                -0.006167307496,
-                0.196592628956,
-                0.233094468713,
+                -0.362822860479,
+                -0.363558739424,
+                0.017610874027,
+                0.078924819827,
+                0.066195741296,
+                0.115145877004,
+                0.173804253340,
             ],
             [
-                0.221653103828,
-                -0.018727399409,
-                0.055212073028,
-                0.080021366477,
-                -0.074742250144,
-                -0.213714569807,
-                0.020445633680,
+                -0.064839750528,
+                -0.213863357902,
+                0.215947464108,
+                0.113143950701,
+                -0.066840000451,
+                -0.264434903860,
+                0.057084750384,
             ],
         ],
         device=device,

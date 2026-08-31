@@ -1,4 +1,6 @@
 """
+.. _data-preparation-tutorial:
+
 How to prepare data for training
 ================================
 
@@ -9,7 +11,7 @@ How to prepare data for training
     common file format (like XYZ or `ASE database`_), you can skip this tutorial and
     directly start training.
 
-.. _ASE database: https://ase-lib.org/ase/db/db.html
+.. _ASE database: https://docs.ase-lib.org/ase/db/db.html
 
 XYZ, ASE databases, and also from metrain's
 :class:`metatrain.utils.data.dataset.DiskDataset <DiskDataset>` file.
@@ -34,13 +36,14 @@ import ase.io
 import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import NeighborListOptions, systems_to_torch
+from metatomic.torch import systems_to_torch
 
 from metatrain.utils.data.writers import DiskDatasetWriter
-from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 
 # %%
+# .. _create-xyz-file:
+#
 # Create a XYZ training file (small datasets)
 # -------------------------------------------
 #
@@ -51,7 +54,7 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 # first create a list of all path that we want to read from. Here, for simplicity, we
 # assume that all files are located in the same directory.
 #
-# .. _ASE: https://ase-lib.org/
+# .. _ASE: https://docs.ase-lib.org/
 
 filelist = 100 * ["qm9_reduced_100.xyz"]
 
@@ -93,30 +96,25 @@ ase.io.write("data.xyz", frames)
 #   The names of the added properties (like, ``U0``, etc.) must be referenced correctly
 #   in the ``options.yaml`` file.
 #
+# .. _create-disk-dataset:
+#
 # Create a ``DiskDataset`` (large datasets)
 # -----------------------------------------
 #
-# In addition to the systems and targets (as above), we also save the neighbor
-# lists that the model will use during training. We first create the writer object that
-# will write the data to a zip file.
+# We first create the writer object that will write the data to a zip file.
 
 disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100.zip")
 
 # %%
 #
 # Then we loop over all structures, convert them to the internal torch format using
-# :func:`metatomic.torch.systems_to_torch`, compute the neighbor lists using
-# :func:`metatrain.utils.neighbor_lists.get_system_with_neighbor_lists` and write
-# everything to disk using the writer's ``write()`` method.
+# :func:`metatomic.torch.systems_to_torch` and write everything to disk using the
+# writer's ``write()`` method.
 
 for i, fname in enumerate(filelist):
     atoms = ase.io.read(fname, index=i)
 
     system = systems_to_torch(atoms, dtype=torch.float64)
-    system = get_system_with_neighbor_lists(
-        system,
-        [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
-    )
     energy = TensorMap(
         keys=Labels.single(),
         blocks=[
@@ -144,13 +142,6 @@ disk_dataset_writer.finish()
 disk_dataset_writer = DiskDatasetWriter("qm9_reduced_100_all_at_once.zip")
 
 systems = systems_to_torch(frames, dtype=torch.float64)
-systems = [
-    get_system_with_neighbor_lists(
-        system,
-        [NeighborListOptions(cutoff=5.0, full_list=True, strict=True)],
-    )
-    for system in systems
-]
 energy = TensorMap(
     keys=Labels.single(),
     blocks=[
@@ -174,6 +165,8 @@ disk_dataset_writer.finish()
 # dataset to train from, simply by replacing your ``.xyz`` file with the newly created
 # zip file (e.g. ``read_from: qm9_reduced_100.zip``).
 #
+# .. _create-memmap-dataset:
+#
 # Create a ``MemmapDataset`` (large datasets, parallel filesystems)
 # -----------------------------------------------------------------
 #
@@ -181,7 +174,7 @@ disk_dataset_writer.finish()
 # cluster), it is recommended to use a ``MemmapDataset`` instead of a ``DiskDataset``.
 # The ``MemmapDataset`` stores the data inside memory-mapped numpy arrays instead of a
 # zip file. Reading from this format avoids I/O bottlenecks, but it does not support
-# spherical targets or storing neighbor lists.
+# spherical targets.
 #
 # As an example, we will use 100 structures from a dataset of carbon structures. The
 # numpy arrays must be saved inside a directory, using the following format.

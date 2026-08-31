@@ -5,8 +5,10 @@ from typing import Any, Dict, List, Literal, Union, cast
 
 import torch
 import torch.distributed
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DistributedSampler
 
+from metatrain.composition import train_or_load_composition_model
+from metatrain.scaler import train_or_load_scaler
 from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
 from metatrain.utils.data import (
@@ -14,12 +16,17 @@ from metatrain.utils.data import (
     CombinedDataLoader,
     Dataset,
     _is_disk_dataset,
+    build_train_dataloaders,
+    build_val_dataloaders,
     unpack_batch,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
-from metatrain.utils.distributed.slurm import initialize_slurm_nccl_process_group
+from metatrain.utils.distributed.slurm import (
+    initialize_slurm_nccl_process_group,
+    resolve_distributed,
+)
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
@@ -39,6 +46,7 @@ from metatrain.utils.transfer import (
     batch_to,
 )
 
+from . import checkpoints
 from .documentation import TrainerHypers
 from .model import DPA3
 
@@ -53,7 +61,7 @@ def _get_raw_model(model: Union[DPA3, DistributedDataParallel], is_distributed: 
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 3
 
     def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)
@@ -77,7 +85,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
     ):
         assert dtype in DPA3.__supported_dtypes__
 
-        is_distributed = self.hypers["distributed"]
+        is_distributed = resolve_distributed(self.hypers.get("distributed"))
 
         if is_distributed:
             device, world_size, rank = initialize_slurm_nccl_process_group(
@@ -85,6 +93,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
         else:
             rank = 0
+            world_size = 1
 
         if is_distributed:
             if len(devices) > 1:
@@ -153,26 +162,40 @@ class Trainer(TrainerInterface[TrainerHypers]):
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
 
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
-            is_distributed,
-            {
+        atomic_baseline = self.hypers["fixed_composition_weights"]
+        if isinstance(atomic_baseline, str):
+            if model.get_fixed_composition_weights():
+                raise ValueError(
+                    "The loaded DPA3 model provides its own atomic baselines, "
+                    "which cannot be combined with a composition model "
+                    "checkpoint passed as `atomic_baseline`. Use the dict form "
+                    "of `atomic_baseline` instead."
+                )
+        else:
+            atomic_baseline = {
                 **model.get_fixed_composition_weights(),
-                **self.hypers["fixed_composition_weights"],
-            },
+                **atomic_baseline,
+            }
+
+        train_or_load_composition_model(
+            composition_model=model.additive_models[0],
+            atomic_baseline=atomic_baseline,
+            train_datasets=train_datasets,
+            other_additive_models=list(model.additive_models[1:]),
+            batch_size=self.hypers["batch_size"],
+            is_distributed=is_distributed,
+            checkpoint_dir=checkpoint_dir,
         )
 
         if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets,
-                model.additive_models,
-                self.hypers["batch_size"],
-                is_distributed,
-                model.get_fixed_scaling_weights(),
+            train_or_load_scaler(
+                scaler=model.scaler,
+                fixed_weights=model.get_fixed_scaling_weights(),
+                train_datasets=train_datasets,
+                additive_models=model.additive_models,
+                batch_size=self.hypers["batch_size"],
+                is_distributed=is_distributed,
+                checkpoint_dir=checkpoint_dir,
                 per_structure_targets=self.hypers["per_structure_targets"],
             )
 
@@ -212,56 +235,29 @@ class Trainer(TrainerInterface[TrainerHypers]):
         targets_keys = list(raw_model.dataset_info.targets.keys())
         collate_fn = CollateFn(target_keys=targets_keys)
 
+        max_atoms = self.hypers["max_atoms_per_batch"]
+
         # Create dataloader for the training datasets:
-        train_dataloaders = []
-        for train_dataset, train_sampler in zip(
-            train_datasets, train_samplers, strict=True
-        ):
-            if len(train_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A training dataset has fewer samples "
-                    f"({len(train_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
-            train_dataloaders.append(
-                DataLoader(
-                    dataset=train_dataset,
-                    batch_size=self.hypers["batch_size"],
-                    sampler=train_sampler,
-                    shuffle=(
-                        # the sampler takes care of this (if present)
-                        train_sampler is None
-                    ),
-                    drop_last=(
-                        # the sampler takes care of this (if present)
-                        train_sampler is None
-                    ),
-                    collate_fn=collate_fn,
-                )
-            )
+        train_dataloaders, epoch_samplers = build_train_dataloaders(
+            train_datasets=train_datasets,
+            train_distributed_samplers=train_samplers,
+            collate_fn_train=collate_fn,
+            batch_size=self.hypers["batch_size"],
+            max_atoms_per_batch=max_atoms,
+            min_atoms_per_batch=self.hypers["min_atoms_per_batch"],
+            num_workers=0,
+        )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
         # Create dataloader for the validation datasets:
-        val_dataloaders = []
-        for val_dataset, val_sampler in zip(val_datasets, val_samplers, strict=True):
-            if len(val_dataset) < self.hypers["batch_size"]:
-                raise ValueError(
-                    f"A validation dataset has fewer samples "
-                    f"({len(val_dataset)}) than the batch size "
-                    f"({self.hypers['batch_size']}). "
-                    "Please reduce the batch size."
-                )
-            val_dataloaders.append(
-                DataLoader(
-                    dataset=val_dataset,
-                    batch_size=self.hypers["batch_size"],
-                    sampler=val_sampler,
-                    shuffle=False,
-                    drop_last=False,
-                    collate_fn=collate_fn,
-                )
-            )
+        val_dataloaders = build_val_dataloaders(
+            val_datasets=val_datasets,
+            val_distributed_samplers=val_samplers,
+            collate_fn_val=collate_fn,
+            batch_size=self.hypers["batch_size"],
+            max_atoms_per_batch=max_atoms,
+            num_workers=0,
+        )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
@@ -327,9 +323,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
         logging.info("Starting training")
         epoch = start_epoch
         for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
-            if is_distributed:
-                for train_sampler in train_samplers:
-                    train_sampler.set_epoch(epoch)
+            for sampler in epoch_samplers:
+                sampler.set_epoch(epoch)
 
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
@@ -375,7 +370,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # not per-property. This transformation only applies to targets with
                 # per-property scales (i.e. multiple blocks or multiple properties), and
                 # leaves the others unchanged.
-                predictions = (model.module if is_distributed else model).scaler(
+                predictions = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(
                     systems,
                     predictions,
                     remove=False,
@@ -393,12 +390,22 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
 
-                # Accumulate quantities for computing train metrics,
+                # Reapply scales and accumulate quantities for computing train metrics,
                 # but only if this is an epoch to log
                 if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
-                    train_rmse_calculator.update(predictions, targets)
+                    scaled_predictions = (
+                        model.module if is_distributed else model
+                    ).scaler.apply_scales(systems, predictions)
+                    scaled_targets = (
+                        model.module if is_distributed else model
+                    ).scaler.apply_scales(systems, targets)
+                    train_rmse_calculator.update(
+                        scaled_predictions, scaled_targets, extra_data
+                    )
                     if self.hypers["log_mae"]:
-                        train_mae_calculator.update(predictions, targets)
+                        train_mae_calculator.update(
+                            scaled_predictions, scaled_targets, extra_data
+                        )
 
             # Compute train metrics if they are to be logged this epoch:
             if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
@@ -450,7 +457,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 # not per-property. This transformation only applies to targets with
                 # per-property scales (i.e. multiple blocks or multiple properties), and
                 # leaves the others unchanged.
-                predictions = (model.module if is_distributed else model).scaler(
+                predictions = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(
                     systems,
                     predictions,
                     remove=False,
@@ -465,11 +474,23 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     torch.distributed.all_reduce(val_loss_batch)
                 val_loss += val_loss_batch.item()
 
-                # Accumulate quantities for computing val metrics. This is done for
-                # every epoch as validation metrics are needed for model selection
-                val_rmse_calculator.update(predictions, targets)
+                # Reapply scales and accumulate quantities for computing val
+                # metrics. This is done for every epoch as validation metrics are
+                # needed for model selection
+                scaled_predictions = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(systems, predictions)
+                scaled_targets = (
+                    model.module if is_distributed else model
+                ).scaler.apply_scales(systems, targets)
+
+                val_rmse_calculator.update(
+                    scaled_predictions, scaled_targets, extra_data
+                )
                 if self.hypers["log_mae"]:
-                    val_mae_calculator.update(predictions, targets)
+                    val_mae_calculator.update(
+                        scaled_predictions, scaled_targets, extra_data
+                    )
 
             # Compute val metrics:
             finalized_val_info = val_rmse_calculator.finalize(
@@ -612,6 +633,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["trainer_ckpt_version"] == v:
+                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["trainer_ckpt_version"] = v + 1
+
         if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using trainer "

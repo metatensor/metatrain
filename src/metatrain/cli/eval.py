@@ -2,9 +2,10 @@ import argparse
 import copy
 import itertools
 import logging
+import os
 import time
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import torch
@@ -12,19 +13,22 @@ import tqdm
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import AtomisticModel, ModelOutput
 from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import Subset
 
-from metatrain.cli.formatter import CustomHelpFormatter
 from metatrain.utils.data import (
     CollateFn,
     Dataset,
     TargetInfo,
     get_dataset,
+    load_indices,
     read_systems,
     unpack_batch,
 )
+from metatrain.utils.data.readers import read_extra_data
 from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.data.writers import (
     DiskDatasetWriter,
+    MemmapWriter,
     Writer,
     get_writer,
 )
@@ -41,6 +45,7 @@ from metatrain.utils.neighbor_lists import (
 from metatrain.utils.omegaconf import expand_dataset_config
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.pydantic import validate_eval_options
+from metatrain.utils.system_data import get_system_data_transform
 from metatrain.utils.transfer import batch_to
 
 
@@ -60,11 +65,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
 
     # If you change the synopsis of these commands or add new ones adjust the completion
     # script at `src/metatrain/share/metatrain-completion.bash`.
-    parser = subparser.add_parser(
-        "eval",
-        description=description,
-        formatter_class=CustomHelpFormatter,
-    )
+    parser = subparser.add_parser("eval", description=description)
     parser.set_defaults(callable="eval_model")
     parser.add_argument(
         "path",
@@ -95,7 +96,11 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
         type=str,
         required=False,
         default="output.xyz",
-        help="filename of the predictions (default: %(default)s)",
+        help=(
+            "filename of the predictions (default: %(default)s). A path ending in a "
+            "path separator (e.g. 'predictions/') writes a memmap dataset directory "
+            "instead of a single file."
+        ),
     )
     parser.add_argument(
         "-b",
@@ -111,6 +116,19 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
         dest="check_consistency",
         action="store_true",
         help="whether to run consistency checks (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--warm-up",
+        action=argparse.BooleanOptionalAction,
+        dest="warm_up",
+        default=True,
+        help=(
+            "whether to do a warm-up of the model before evaluation "
+            "(default: %(default)s). The warm-up is done by running 10 "
+            "model evaluations. This will give timings that are more representative "
+            "of the model's performance on a large dataset. However, it will delay "
+            "evaluation, which might be undesirable for expensive evaluations."
+        ),
     )
 
 
@@ -134,6 +152,7 @@ def _eval_targets(
     batch_size: int = 1,
     check_consistency: bool = False,
     writer: Optional[Writer] = None,
+    warm_up: bool = True,
 ) -> None:
     """
     Evaluate `model` on `dataset`, accumulate RMSE/MAE, and (if `writer` is provided)
@@ -145,6 +164,7 @@ def _eval_targets(
     :param batch_size: Batch size for evaluation.
     :param check_consistency: Whether to run consistency checks during model evaluation.
     :param writer: Optional writer to write out per-sample predictions.
+    :param warm_up: Whether to do a warm-up of the model before evaluation.
     """
     # Disable static fusion. Besides the fact that atomistic batches have variable
     # sizes, statically fused CUDA kernels cannot allocate new tensors at runtime,
@@ -178,28 +198,40 @@ def _eval_targets(
     # Create a dataloader
     target_keys = list(model.capabilities().outputs.keys())
     requested_neighbor_lists = get_requested_neighbor_lists(model)
-    collate_fn = CollateFn(
-        target_keys,
-        callables=[get_system_with_neighbor_lists_transform(requested_neighbor_lists)],
-    )
+    callables = [get_system_with_neighbor_lists_transform(requested_neighbor_lists)]
+
+    # Attach additional per-system inputs
+    requested_inputs = [
+        name
+        for name, output in model.requested_inputs(use_new_names=True).items()
+        if output.sample_kind == "system"
+    ]
+    if requested_inputs:
+        callables.append(get_system_data_transform(requested_inputs))
+    collate_fn = CollateFn(target_keys, callables=callables)
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, collate_fn=collate_fn, shuffle=False
     )
+
     rmse_acc = RMSEAccumulator()
     mae_acc = MAEAccumulator()
 
     # Warm-up
-    cycled = itertools.cycle(dataloader)
-    for _ in range(10):
-        batch = unpack_batch(next(cycled))
-        systems = [system.to(device=device, dtype=dtype) for system in batch[0]]
-        evaluate_model(
-            model,
-            systems,
-            options,
-            is_training=False,
-            check_consistency=check_consistency,
-        )
+    if warm_up:
+        logging.info("Warming up the model with 10 batches...")
+        cycled = itertools.cycle(dataloader)
+        for _ in range(10):
+            batch = unpack_batch(next(cycled))
+            systems = [system.to(device=device, dtype=dtype) for system in batch[0]]
+            evaluate_model(
+                model,
+                systems,
+                options,
+                is_training=False,
+                check_consistency=check_consistency,
+            )
+    else:
+        logging.info("Skipping warm-up of the model.")
 
     total_time = 0.0
     timings_per_atom = []
@@ -230,6 +262,18 @@ def _eval_targets(
         targ_per_atom = average_by_num_atoms(
             batch_targets, systems, per_structure_keys=[]
         )
+        # For metrics, filter out the targets that have sample_kind "atom_pair"
+        # for now.
+        preds_per_atom = {
+            k: v
+            for k, v in preds_per_atom.items()
+            if options[k].sample_kind != "atom_pair"
+        }
+        targ_per_atom = {
+            k: v
+            for k, v in targ_per_atom.items()
+            if options[k].sample_kind != "atom_pair"
+        }
         rmse_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
         mae_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
 
@@ -273,6 +317,7 @@ def eval_model(
     batch_size: int = 1,
     check_consistency: bool = False,
     append: Optional[bool] = None,
+    warm_up: bool = True,
 ) -> None:
     """
     Evaluate an exported model on a given data set.
@@ -283,12 +328,18 @@ def eval_model(
 
     :param model: Saved model to be evaluated.
     :param options: DictConfig to define a test dataset taken for the evaluation.
-    :param output: Path to save the predicted values.
+    :param output: Path to save the predicted values. A path ending in a path
+        separator (e.g. ``"predictions/"``) writes a memmap dataset directory instead
+        of a single file.
     :param batch_size: Batch size for evaluation.
     :param check_consistency: Whether to run consistency checks during model evaluation.
     :param append: If ``True``, open the output file in append mode.
+    :param warm_up: Whether to do a warm-up of the model before evaluation.
     """
     logging.info("Setting up evaluation set.")
+    # a trailing path separator signals a memmap dataset directory; this has to be
+    # detected on the raw string, since Path() silently drops trailing separators
+    is_memmap_output = isinstance(output, str) and output.endswith(("/", os.sep))
     output = Path(output) if isinstance(output, str) else output
 
     options = validate_eval_options(OmegaConf.to_container(options))
@@ -299,6 +350,8 @@ def eval_model(
         extra_log_message = f" with index {i}" if len(options_list) > 1 else ""
         logging.info(f"Evaluating dataset{extra_log_message}")
         filename = f"{output.stem}{idx_suffix}{output.suffix}"
+        if is_memmap_output:
+            filename = filename + "/"
 
         # pick the right writer
         writer = get_writer(filename, capabilities=model.capabilities(), append=append)
@@ -306,16 +359,11 @@ def eval_model(
         # build the dataset & target-info
         if hasattr(options, "targets"):
             eval_dataset, eval_info_dict, _ = get_dataset(options)
-            eval_systems = (
-                [d.system for d in eval_dataset]
-                if not isinstance(writer, DiskDatasetWriter)
-                else None
-            )
         else:
-            if isinstance(writer, DiskDatasetWriter):
+            if isinstance(writer, (DiskDatasetWriter, MemmapWriter)):
                 raise ValueError(
-                    "Writing to DiskDataset is not allowed without explicitly"
-                    " defining targets in the input file."
+                    "Writing to DiskDataset or MemmapDataset is not allowed without"
+                    " explicitly defining targets in the input file."
                 )
             eval_systems = read_systems(
                 filename=options["systems"]["read_from"],
@@ -323,7 +371,7 @@ def eval_model(
             )
 
             # FIXME: this works only for energy models
-            eval_targets: Dict[str, TensorMap] = {}
+            eval_targets: Dict[str, List[TensorMap]] = {}
             eval_info_dict = copy.deepcopy(
                 {
                     name: model_output
@@ -335,7 +383,19 @@ def eval_model(
                 if "energy" in name:
                     model_output.sample_kind = "system"  # type: ignore
 
-            eval_dataset = Dataset.from_dict({"system": eval_systems, **eval_targets})
+            extra_data: Dict[str, List[TensorMap]] = {}
+            if "extra_data" in options:
+                extra_data, _ = read_extra_data(conf=options["extra_data"])
+
+            eval_dataset = Dataset.from_dict(
+                {"system": eval_systems, **eval_targets, **extra_data}
+            )
+
+        if "indices" in options:
+            eval_indices = options["indices"]
+            if isinstance(options["indices"], str):
+                eval_indices = load_indices(eval_indices)
+            eval_dataset = Subset(eval_dataset, eval_indices)
 
         # run evaluation & writing
         try:
@@ -348,6 +408,7 @@ def eval_model(
                 batch_size=batch_size,
                 check_consistency=check_consistency,
                 writer=writer,
+                warm_up=warm_up,
             )
         except Exception as e:
             raise ArchitectureError(e)

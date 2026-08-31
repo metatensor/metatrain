@@ -2,10 +2,10 @@ import copy
 from typing import Literal, Optional
 
 import metatensor.torch as mts
-import numpy as np
 import pytest
 import torch
 from metatomic.torch import ModelOutput, System, systems_to_torch
+from metatomic.torch.o3 import random_transformations
 
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.readers import (
@@ -19,11 +19,6 @@ from metatrain.utils.neighbor_lists import (
 )
 
 from .architectures import ArchitectureTests
-from .equivariance import (
-    get_random_rotation,
-    rotate_spherical_tensor,
-    rotate_system,
-)
 
 
 class OutputTests(ArchitectureTests):
@@ -63,6 +58,10 @@ class OutputTests(ArchitectureTests):
     transform correctly under reflections by architecture's design)."""
     equivariance_error_tolerance: float = 1e-5
     """Tolerance for equivariance tests."""
+
+    monomer_equal_dimer: bool = False
+    """Whether the model is expected to produce the same output for
+    a dimer and two monomers at a large distance."""
 
     @pytest.fixture
     def n_features(self) -> Optional[int | list[int]]:
@@ -509,6 +508,11 @@ class OutputTests(ArchitectureTests):
         argument of the ``forward()`` method, and it handles it correctly.
         That is, the model only returns outputs for the selected atoms.
 
+        The test runs the model on a dimer system and compares the per-atom
+        energies to those of a system where the monomers are far apart. If
+        these two energies are meant to be the same in the model, this test
+        will fail unless ``monomer_equal_dimer`` is set to ``True``.
+
         This test is skipped if the model does not support the ``selected_atoms``
         argument of the ``forward()`` method, i.e., if ``supports_selected_atoms``
         is set to ``False``.
@@ -583,7 +587,12 @@ class OutputTests(ArchitectureTests):
                 selected_atoms=selection_labels,
             )
 
-            assert not mts.allclose(energy_monomer["energy"], energy_dimer["energy"])
+            if self.monomer_equal_dimer:
+                assert mts.allclose(energy_monomer["energy"], energy_dimer["energy"])
+            else:
+                assert not mts.allclose(
+                    energy_monomer["energy"], energy_dimer["energy"]
+                )
 
             assert mts.allclose(
                 energy_monomer["energy"], energy_monomer_in_dimer["energy"]
@@ -636,7 +645,6 @@ class OutputTests(ArchitectureTests):
         )
 
         features_output_options = ModelOutput(
-            quantity="",
             unit="",
             sample_kind=sample_kind,
         )
@@ -721,7 +729,6 @@ class OutputTests(ArchitectureTests):
 
         # last-layer features per atom:
         ll_output_options = ModelOutput(
-            quantity="",
             unit="",
             sample_kind=sample_kind,
         )
@@ -901,8 +908,15 @@ class OutputTests(ArchitectureTests):
 
         system = read(dataset_path)
         original_system = systems_to_torch(system)
-        rotation = get_random_rotation()
-        rotated_system = rotate_system(original_system, rotation)
+        target_layout = dataset_info_spherical.targets["spherical_target"].layout
+        ell = (len(target_layout.block(0).components[0]) - 1) // 2
+        transformation = random_transformations(
+            1,
+            ell,
+            device=original_system.positions.device,
+            dtype=original_system.positions.dtype,
+        )
+        rotated_system = transformation.transform_systems([original_system])[0]
 
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         original_system = get_system_with_neighbor_lists(
@@ -923,12 +937,14 @@ class OutputTests(ArchitectureTests):
             {"spherical_target": model.outputs["spherical_target"]},
         )
 
-        np.testing.assert_allclose(
-            rotate_spherical_tensor(
-                original_output["spherical_target"].block().values.detach().numpy(),
-                rotation,
-            ),
-            rotated_output["spherical_target"].block().values.detach().numpy(),
+        original_values = original_output["spherical_target"].block().values.detach()
+        expected_values = (
+            original_values.swapaxes(-1, -2)
+            @ transformation.wigner_D_matrices(ell)[0].T
+        ).swapaxes(-1, -2)
+        torch.testing.assert_close(
+            rotated_output["spherical_target"].block().values.detach(),
+            expected_values,
             atol=self.equivariance_error_tolerance,
             rtol=self.equivariance_error_tolerance,
         )
@@ -997,6 +1013,6 @@ class OutputTests(ArchitectureTests):
             * (-1) ** o3_lambda
             * (-1 if o3_sigma == -1 else 1),
             inverted_output["spherical_target"].block().values,
-            atol=1e-5,
-            rtol=1e-5,
+            atol=self.equivariance_error_tolerance,
+            rtol=self.equivariance_error_tolerance,
         )

@@ -9,4 +9,4 @@
 
 # load modules and/or virtual environments and/or containers here
 
-srun mtt train options-distributed.yaml
+srun mtt train options.yaml

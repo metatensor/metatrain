@@ -9,6 +9,7 @@ def create_batch(
     neighbor_list_options: NeighborListOptions,
     atomic_types_to_species_index: torch.Tensor,
     n_types: int,
+    head_index: int,
 ) -> dict[str, torch.Tensor]:
     """Creates a torch geometric-like batch from a list of systems.
 
@@ -19,7 +20,7 @@ def create_batch(
     :param neighbor_list_options: Options to create the neighbor lists.
     :param atomic_types_to_species_index: Mapping from atomic types to species index.
     :param n_types: Number of different species.
-
+    :param head_index: Index of the head to use.
     :return: A dictionary containing the batched data.
     """
     unit_shifts = []
@@ -69,7 +70,7 @@ def create_batch(
         "unit_shifts": torch.vstack(unit_shifts).T,
         "edge_index": torch.hstack(edge_index),
         "shifts": torch.vstack(cell_shifts),
-        "head": torch.tensor([0] * len(systems)).to(device),
+        "head": torch.tensor([head_index] * len(systems)).to(device),
         "batch": torch.hstack(batch).to(device),
         "ptr": torch.tensor(system_start_index).to(device),
         "node_attrs": torch.nn.functional.one_hot(

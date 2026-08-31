@@ -119,10 +119,10 @@ from typing import Literal, Optional
 
 from typing_extensions import NotRequired, TypedDict
 
+from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.pet.modules.finetuning import FullFinetuneHypers
-from metatrain.utils.additive import FixedCompositionWeights
+from metatrain.scaler.documentation import FixedScalerWeights
 from metatrain.utils.loss import LossSpecification
-from metatrain.utils.scaler import FixedScalerWeights
 
 
 class ModelHypers(TypedDict):
@@ -133,6 +133,15 @@ class ModelHypers(TypedDict):
     <https://github.com/ACEsuit/mace-foundations>`_. If not provided, a new MACE model
     will be initialized from scratch using the rest of hyperparameters of the
     architecture.
+    """
+    mace_head_name: Optional[str] = None
+    """Name of the head of the MACE model to use.
+
+    If the pretrained MACE model has `multiple heads
+    <https://huggingface.co/mace-foundations/mace-mh-1>`_, this hyperparameter specifies
+    which head is used in the training and export of the model. If the MACE model has
+    only one head, this hyperparameter is ignored. For the multi-head case, if not
+    provided, an error will be raised.
     """
     mace_head_target: str = "energy"
     """Target to which the MACE head is related.
@@ -311,8 +320,10 @@ class TrainerHypers(TypedDict):
     """Scheduler patience."""
 
     # General training parameters that are shared across architectures
-    distributed: bool = False
-    """Whether to use distributed training"""
+    distributed: NotRequired[bool]
+    """Whether to use distributed training. When not set, distributed training
+    is enabled automatically when running under more than one SLURM task.
+    Setting this option explicitly is deprecated."""
     distributed_port: int = 39591
     """Port for DDP communication"""
     batch_size: int = 16
@@ -340,17 +351,22 @@ class TrainerHypers(TypedDict):
 
     See also :ref:`scale-targets`.
     """
-    atomic_baseline: FixedCompositionWeights = {}
+    atomic_baseline: FixedCompositionWeights | str = {}
     """The baselines for each target.
 
     By default, ``metatrain`` will fit a linear model (:class:`CompositionModel
-    <metatrain.utils.additive.composition.CompositionModel>`) to compute the
-    least squares baseline for each atomic species for each target.
+    <metatrain.composition.CompositionModel>`) to compute the least squares
+    baseline for each atomic species for each target.
 
-    However, this hyperparameter allows you to provide your own baselines.
-    The value of the hyperparameter should be a dictionary where the keys are the
-    target names, and the values are either (1) a single baseline to be used for
-    all atomic types, or (2) a dictionary mapping atomic types to their baselines.
+    However, this hyperparameter allows you to provide your own baselines,
+    either as a dictionary or as a path to a pre-trained composition model
+    checkpoint. The value of the hyperparameter should either be:
+
+    - a dictionary where the keys are the target names, and the values are
+      either (1) a single baseline to be used for all atomic types, or
+      (2) a dictionary mapping atomic types to their baselines.
+    - a string path to a ``.ckpt`` file from a pre-trained composition model.
+
     For example:
 
     - ``atomic_baseline: {"energy": {1: -0.5, 6: -10.0}}`` will fix the energy
@@ -361,6 +377,8 @@ class TrainerHypers(TypedDict):
       all atomic types to -5.0.
     - ``atomic_baseline: {"mtt:dos": 0.0}`` sets the baseline for the "mtt:dos"
       target to 0.0, effectively disabling the atomic baseline for that target.
+    - ``atomic_baseline: "/path/to/model.ckpt"`` loads a pre-trained
+      composition model checkpoint, overriding the default least-squares fit.
 
     This atomic baseline is substracted from the targets during training, which
     avoids the main model needing to learn atomic contributions, and likely makes
@@ -380,12 +398,17 @@ class TrainerHypers(TypedDict):
         indicated in ``mace_head_target``. If you want to override them, you need
         to set explicitly the baselines for that target in this hyperparameter.
     """
-    fixed_scaling_weights: FixedScalerWeights = {}
+    fixed_scaling_weights: FixedScalerWeights | str = {}
     """Weights for target scaling.
 
     This is passed to the ``fixed_weights`` argument of :meth:`Scaler.train_model
-    <metatrain.utils.scaler.scaler.Scaler.train_model>`, see its documentation to
+    <metatrain.scaler.Scaler.train_model>`, see its documentation to
     understand exactly what to pass here.
+
+    Apart from those options, one can pass a path to a model checkpoint. If that
+    is the checkpoint of a Scaler model, the pre-trained scaler will be loaded.
+    When passing a checkpoint for the scaler, ``atomic_baseline`` must also
+    be a checkpoint for a composition model.
 
     .. note::
         If a MACE model is loaded through the ``mace_model`` hyperparameter, the
@@ -408,11 +431,17 @@ class TrainerHypers(TypedDict):
     loss: str | dict[str, LossSpecification] = "mse"
     """This section describes the loss function to be used. See the
     :ref:`loss-functions` for more details."""
-    batch_atom_bounds: list[Optional[int]] = [None, None]
-    """Bounds for the number of atoms per batch as [min, max]. Batches with atom
-    counts outside these bounds will be skipped during training. Use ``None`` for
-    either value to disable that bound. This is useful for preventing out-of-memory
-    errors and ensuring consistent computational load. Default: ``[None, None]``."""
+    max_atoms_per_batch: Optional[int] = None
+    """If set, use greedy atom-count packing instead of fixed ``batch_size``.
+    Structures are accumulated into each batch until adding another would exceed this
+    limit, producing variable numbers of structures per batch. Supported with any
+    dataset type. When set, ``batch_size`` is ignored for constructing training
+    and validation batches (it is still used internally for composition model and
+    scaler fitting)."""
+    min_atoms_per_batch: int = 0
+    """Minimum total number of atoms required to keep a batch when
+    ``max_atoms_per_batch`` is set. Batches whose total atom count falls below this
+    threshold are discarded during packing. Defaults to ``0`` (no minimum)."""
 
     finetune: NotRequired[FullFinetuneHypers]
     """Finetuning parameters for MetaMACE models that have been pretrained.

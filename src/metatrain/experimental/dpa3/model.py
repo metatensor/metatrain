@@ -19,13 +19,15 @@ from metatomic.torch import (
     System,
 )
 
+from metatrain.composition import CompositionModel
+from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import CompositionModel
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import TargetInfo
+from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
@@ -100,6 +102,7 @@ class DPA3(ModelInterface[ModelHypers]):
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
+        check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
         self.atomic_types = dataset_info.atomic_types
 
         # Resolve precision: descriptor.precision is the authority.
@@ -180,7 +183,8 @@ class DPA3(ModelInterface[ModelHypers]):
                 self.model = get_standard_model(deepmd_hypers)
             _register_untracked_tensors(self.model)
 
-        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
         self.outputs: Dict[str, ModelOutput] = {}
         self.single_label = Labels.single()
 
@@ -192,17 +196,8 @@ class DPA3(ModelInterface[ModelHypers]):
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
 
-        composition_model = CompositionModel(
-            hypers={},
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
+        composition_model = CompositionModel.from_valid_targets(
+            dataset_info, self.atomic_types
         )
         additive_models = [composition_model]
         self.additive_models = torch.nn.ModuleList(additive_models)
@@ -219,7 +214,6 @@ class DPA3(ModelInterface[ModelHypers]):
             block.properties for block in target.layout.blocks()
         ]
         self.outputs[target_name] = ModelOutput(
-            quantity=target.quantity,
             unit=target.unit,
             sample_kind="atom",
         )
@@ -373,7 +367,7 @@ class DPA3(ModelInterface[ModelHypers]):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(
+            return_dict = self.scaler.apply_scales(
                 systems,
                 return_dict,
                 selected_atoms=selected_atoms,
