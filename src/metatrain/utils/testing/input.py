@@ -253,7 +253,7 @@ class InputTests(ArchitectureTests):
             pytest.skip("The model does not have any hyperparameters")
 
         # Find the key of a hyper that contains a dictionary, preferably
-        # with a number or bool in it so that we can modify it.
+        # with a number in it so that we can modify it.
         dict_key = None
         modify_key = None
         for k, v in default_hypers["model"].items():
