@@ -219,7 +219,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
         :param dataset_info: Information about the new dataset, including the
             targets that will be used for training.
         :param model_hypers: New hyperparameters for the model. They must match
-            the existing hyperparameters, otherwise an error is raised.
+            the checkpoint's hyperparameters, otherwise an error is raised.
         :return: The updated model.
         """
         if model_hypers is not None:
