@@ -165,6 +165,7 @@ class UnavailableOutputError(Exception):
 
 def setup_hooks(
     dataset_info: DatasetInfo,
+    hooks_hypers: Optional[dict[str, dict[str, str] | str]] = None,
 ) -> tuple[
     list[torch.nn.Module],
     dict[str, TargetInfo],
@@ -178,7 +179,9 @@ def setup_hooks(
         dictionary with the outputs that the model should produce before the
         hooks are applied.
     """
+    dataset_info = dataset_info.copy()
     model_outputs = dataset_info.targets.copy()
+
     all_hook_outputs = []
     post_hooks = []
 
@@ -234,7 +237,7 @@ def setup_hooks(
 
         return unavailable_out_hooks, unavailable_errors
 
-    hooks_to_set_up = dataset_info.hooks.copy()
+    hooks_to_set_up = hooks_hypers
     while True:
         new_hooks_to_set_up, errors = _set_up(hooks_to_set_up, dataset_info)
         if len(new_hooks_to_set_up) == 0:
@@ -255,7 +258,9 @@ def setup_hooks(
 
 
 def restart_hooks(
-    hooks: list[HookInterface], dataset_info: DatasetInfo
+    instantiated_hooks: list[HookInterface],
+    dataset_info: DatasetInfo,
+    new_hooks_hypers: Optional[dict[str, dict[str, str] | str]] = None,
 ) -> tuple[list[HookInterface], dict[str, TargetInfo]]:
     """
     Restart hooks with new dataset information.
@@ -266,9 +271,9 @@ def restart_hooks(
       with the outputs that the model should produce before the hooks are applied.
 
     """
-    if len(hooks) > 0:
+    if len(instantiated_hooks) > 0:
         raise ValueError("Restarting from previous hooks is not supported yet.")
 
-    forward_hooks, model_outs = setup_hooks(dataset_info)
+    forward_hooks, model_outs = setup_hooks(dataset_info, new_hooks_hypers)
 
     return forward_hooks, model_outs

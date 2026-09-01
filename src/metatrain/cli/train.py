@@ -574,12 +574,6 @@ def train_model(
         atomic_types=atomic_types,
         targets=target_info_dict,
         extra_data=extra_data_info_dict,
-        # Resolved to plain containers: ``DatasetInfo`` is an attribute of the
-        # model, and TorchScript cannot infer the type of an OmegaConf node,
-        # which is what a hook configured with a nested mapping would give.
-        hooks=cast(dict, OmegaConf.to_container(options["hooks"], resolve=True))
-        if "hooks" in options
-        else {},
     )
 
     ###########################

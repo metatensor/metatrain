@@ -84,7 +84,6 @@ class DatasetInfo:
     :param targets: Information about targets in the dataset.
     :param extra_data: Optional dictionary containing additional data that is not
         used as a target, but is still relevant to the dataset.
-    :param hooks: Hooks that models should use to fit the targets in this dataset.
     """
 
     def __init__(
@@ -93,7 +92,6 @@ class DatasetInfo:
         atomic_types: List[int],
         targets: Dict[str, TargetInfo],
         extra_data: Optional[Dict[str, TargetInfo]] = None,
-        hooks: Optional[dict[str, Any]] = None,
     ):
         # verify that `length_unit` and `atomic_types` are valid for metatomic
         _ = ModelCapabilities(
@@ -108,7 +106,6 @@ class DatasetInfo:
         self.extra_data: Dict[str, TargetInfo] = (
             extra_data if extra_data is not None else {}
         )
-        self.hooks: dict[str, Any] = hooks if hooks is not None else {}
 
     @property
     def atomic_types(self) -> List[int]:
@@ -182,7 +179,6 @@ class DatasetInfo:
             atomic_types=self.atomic_types.copy(),
             targets=self.targets.copy(),
             extra_data=self.extra_data.copy(),
-            hooks=self.hooks.copy(),
         )
 
     @torch.jit.unused
@@ -224,15 +220,15 @@ class DatasetInfo:
                 )
         self.extra_data.update(other.extra_data)
 
-        intersecting_hooks_keys = self.hooks.keys() & other.hooks.keys()
-        for key in intersecting_hooks_keys:
-            if self.hooks[key] != other.hooks[key]:
-                raise ValueError(
-                    "Can't update DatasetInfo with different hook information"
-                    f"for key '{key}'."
-                )
+        # intersecting_hooks_keys = self.hooks.keys() & other.hooks.keys()
+        # for key in intersecting_hooks_keys:
+        #     if self.hooks[key] != other.hooks[key]:
+        #         raise ValueError(
+        #             "Can't update DatasetInfo with different hook information"
+        #             f"for key '{key}'."
+        #         )
 
-        self.hooks.update(other.hooks)
+        # self.hooks.update(other.hooks)
 
     def union(self, other: "DatasetInfo") -> "DatasetInfo":
         """
@@ -258,7 +254,6 @@ class DatasetInfo:
         self._atomic_types = state["_atomic_types"]
         self.targets = state["targets"]
         self.extra_data = state.get("extra_data", {})
-        self.hooks = state.get("hooks", {})
 
 
 def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str:

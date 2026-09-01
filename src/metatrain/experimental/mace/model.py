@@ -268,7 +268,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # the model during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
-        forward_hooks, model_outs = setup_hooks(train_dataset_info)
+        forward_hooks, model_outs = setup_hooks(train_dataset_info, self.hypers["forward_hooks"])
         self.forward_hooks = torch.nn.ModuleList(forward_hooks)
 
         # Create heads for each target, store the layout for each of them.
@@ -316,8 +316,10 @@ class MetaMACE(ModelInterface[ModelHypers]):
     def restart(
         self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
     ) -> "MetaMACE":
-
+        
+        hooks_hypers = {}
         if model_hypers is not None:
+            hooks_hypers = model_hypers.pop("forward_hooks", {})
             default_hypers = get_default_hypers("experimental.mace")["model"]
             raise_if_hypers_mismatch(
                 self.hypers, model_hypers, default_hypers=default_hypers
@@ -351,7 +353,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             # Only re-run the hook setup when the targets changed; ``restart_hooks``
             # does not support rebuilding already-instantiated hooks.
             forward_hooks, model_outs = restart_hooks(
-                list(self.forward_hooks), train_dataset_info
+                list(self.forward_hooks), train_dataset_info, hooks_hypers
             )
             self.forward_hooks = torch.nn.ModuleList(forward_hooks)
 
@@ -394,6 +396,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        requested_outs = list(outputs)
 
         # ----------------------------
         # Add outputs needed by hooks
@@ -518,6 +521,10 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     selected_atoms,
                 )
             )
+
+        # Remove intermediate outputs that were not requested by the user.
+        # (they were needed by other hooks)
+        return_dict = {k: return_dict[k] for k in requested_outs}
 
         # -----------------------------------------
         #   Undo data preprocessing (eval only)

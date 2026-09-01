@@ -529,8 +529,3 @@ class BaseHypers(TypedDict):
     a full dataset specification, or an ``indices`` dict referencing
     the training source file.
     """
-
-    hooks: NotRequired[dict] = {}
-    """Hooks that the model needs to apply at the end of forward to
-    produce the final outputs.
-    """
