@@ -472,7 +472,7 @@ class PETBackend(torch.nn.Module):
                 embedding_dim=hypers.get("embedding_dim", 16),
             )
         raise ValueError(
-            f"Unknown atom_type_gating: {gating!r}. "
+            f"Unknown atom_type_gating: {gating}. "
             "Available options are: false, 'one-hot' and 'moe'."
         )
 

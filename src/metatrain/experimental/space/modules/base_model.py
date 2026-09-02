@@ -349,7 +349,7 @@ class BaseModel(torch.nn.Module):
                 ntk_parametrization=True,
             )
         raise ValueError(
-            f"Unknown atom_type_gating: {gating!r}. "
+            f"Unknown atom_type_gating: {gating}. "
             "Available options are: false, 'one-hot' and 'moe'."
         )
 
