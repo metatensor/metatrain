@@ -48,31 +48,32 @@ class MetatensorWriter(Writer):
 
         tmp_path = Path(self._tmp_dir.name)
         for target_name, tmap in predictions.items():
-            fname = tmp_path / f"{self._batch_idx}_{target_name}.mts"
+            fname = tmp_path / f"{self._batch_idx}_{target_name.replace('/', '_')}.mts"
             mts.save(str(fname), tmap.to("cpu").to(torch.float64))
 
         self._batch_idx += 1
 
     def finish(self) -> None:
-        """
-        Load temp files, shift system labels, join, and write final .mts files.
-        """
-        if self._batch_idx == 0:
-            return
+            """
+            Load temp files, shift system labels, join, and write final .mts files.
+            """
+            if self._batch_idx == 0:
+                return
 
-        tmp_path = Path(self._tmp_dir.name)
-        filename_base = Path(self.filename).stem
+            tmp_path = Path(self._tmp_dir.name)
+            filename_base = Path(self.filename).stem
 
-        for target_name in self._target_names:
-            batch_tmaps = []
-            for i in range(self._batch_idx):
-                fname = tmp_path / f"{i}_{target_name}.mts"
-                batch_tmaps.append(mts.load(str(fname)))
+            for target_name in self._target_names:
+                safe_name = target_name.replace("/", "_")
+                batch_tmaps = []
+                for i in range(self._batch_idx):
+                    fname = tmp_path / f"{i}_{safe_name}.mts"
+                    batch_tmaps.append(mts.load(str(fname)))
 
-            merged = _concatenate_tensormaps_flat(batch_tmaps)
-            mts.save(filename_base + "_" + target_name + ".mts", merged)
+                merged = _concatenate_tensormaps_flat(batch_tmaps)
+                mts.save(filename_base + "_" + safe_name + ".mts", merged)
 
-        self._tmp_dir.cleanup()
+            self._tmp_dir.cleanup()
 
 
 def _concatenate_tensormaps_flat(
