@@ -87,12 +87,16 @@ class HookInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def requested_inputs(self) -> dict[str, ModelOutput]:
+    def requested_inputs(self, outputs: Optional[dict[str, ModelOutput]] = None) -> dict[str, ModelOutput]:
         """
         Returns the list of requested inputs for the hook.
 
+        :param outputs: Dictionary of requested outputs. These can contain outputs that
+          are handled by other hooks or the main model. In that case, the hook should
+          ignore those outputs.
         :return: A list of requested input names.
         """
+
 
     @abstractmethod
     def supported_outputs(self) -> dict[str, ModelOutput]:

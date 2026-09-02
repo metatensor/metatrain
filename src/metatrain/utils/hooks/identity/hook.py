@@ -87,20 +87,32 @@ class Identity(HookInterface[Hypers]):
         """
         return self._input_target_infos
 
-    def requested_inputs(self) -> dict[str, ModelOutput]:
+    def requested_inputs(self, outputs: Optional[dict[str, ModelOutput]] = None) -> dict[str, ModelOutput]:
         """
         Returns the list of requested inputs for the hook.
 
+        :param outputs: Dictionary of requested outputs. These can contain outputs that
+            are handled by other hooks or the main model. In that case, the hook
+            ignores those outputs.
         :return: A list of requested input names.
         """
-        return {
-            in_name: ModelOutput(
-                quantity=target_info.quantity,
-                unit=target_info.unit,
-                sample_kind=target_info.sample_kind,
-            )
-            for in_name, target_info in self._input_target_infos.items()
-        }
+        if outputs is None:
+            outputs_names = list(self.out_targets)
+        else:
+            outputs_names = list(outputs)
+
+        req_inputs: dict[str, ModelOutput] = {}
+        for out_name, (in_name, target_info) in zip(
+            self.out_targets, self._input_target_infos.items(), strict=True
+        ):
+            if out_name in outputs_names:
+                req_inputs[in_name] = ModelOutput(
+                    quantity=target_info.quantity,
+                    unit=target_info.unit,
+                    sample_kind=target_info.sample_kind,
+                )
+
+        return req_inputs
 
     def supported_outputs(self) -> dict[str, ModelOutput]:
         """

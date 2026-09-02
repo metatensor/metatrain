@@ -396,15 +396,15 @@ class MetaMACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        requested_outs = list(outputs)
 
         # ----------------------------
         # Add outputs needed by hooks
         # ----------------------------
+        req_model_outputs = outputs.copy()
         # TODO: In reality, we would have to check if the hook's output is requested
         for hook in self.forward_hooks:
-            requested_inputs = hook.requested_inputs()
-            outputs.update(requested_inputs)
+            requested_inputs = hook.requested_inputs(req_model_outputs)
+            req_model_outputs.update(requested_inputs)
 
         # --------------------------
         # Moving to device and dtype
@@ -462,8 +462,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # Run heads
         for output_name, head in self.heads.items():
             ll_features_name = self._llf_name(output_name)
-            requested_target = output_name in outputs
-            requested_llf = ll_features_name in outputs
+            requested_target = output_name in req_model_outputs
+            requested_llf = ll_features_name in req_model_outputs
 
             # Only use this head if its output or its last layer features were requested
             if requested_target or requested_llf:
@@ -504,7 +504,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
             return_dict[output_name] = (
                 per_atom_output
-                if outputs[output_name].sample_kind == "atom"
+                if req_model_outputs[output_name].sample_kind == "atom"
                 else sum_over_atoms(per_atom_output)
             )
 
@@ -516,7 +516,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             return_dict.update(
                 hook(
                     systems,
-                    outputs,
+                    req_model_outputs,
                     return_dict,
                     selected_atoms,
                 )
@@ -524,7 +524,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         # Remove intermediate outputs that were not requested by the user.
         # (they were needed by other hooks)
-        return_dict = {k: return_dict[k] for k in requested_outs}
+        return_dict = {k: return_dict[k] for k in outputs}
 
         # -----------------------------------------
         #   Undo data preprocessing (eval only)
