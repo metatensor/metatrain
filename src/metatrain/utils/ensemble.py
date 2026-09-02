@@ -8,8 +8,11 @@ modules ``members`` times, keeping the (expensive) backbone shared and trained
 jointly. Deliberately minimal: an ensemble member is nothing more than one more
 call to a module factory, so this module provides exactly:
 
-* :class:`ShallowEnsembleHypers` -- the ``{scope, members}`` hyperparameter block,
-  and :func:`validate_shallow_ensemble_hypers`, its options-validation hook.
+* :class:`ShallowEnsembleHypers` -- the ``{scope, members, dropout, bagging}``
+  hyperparameter block, and :func:`validate_shallow_ensemble_hypers`, its
+  options-validation hook. ``dropout``/``bagging`` are two independent, optional
+  ways to inject more diversity between members than independent initialization
+  alone provides on a shared backbone -- see their own docstrings.
 * :func:`make_ensemble_members` -- wraps a module factory into ``members``
   independently-initialized copies, stored under ``member_{e}`` keys so that they
   show up as such in the state dict.
@@ -54,6 +57,41 @@ class ShallowEnsembleHypers(TypedDict):
     enabled -- a ``shallow_ensemble`` block with ``members: 1`` is rejected at
     options-validation time (use ``shallow_ensemble: null``, the default, to
     disable ensembling instead)."""
+    dropout: float = 0.0
+    """Dropout probability applied inside each ensemble member's own head MLP.
+
+    Only meaningful for ``scope="head"``: with ``scope="readout"`` the head is
+    shared and evaluated exactly once per forward pass, so every member would
+    see the identical dropout mask, injecting no diversity at all -- rejected
+    at options-validation time rather than silently doing nothing. With
+    ``scope="head"`` each member's head is its own module instance, evaluated
+    separately, so each draws its own independent mask: this gives members a
+    genuine source of diversity in their own training trajectory beyond
+    independent initialization, which on a shared backbone is otherwise the
+    only thing that keeps them from converging towards the same function. ``0``
+    (the default) disables it, reproducing the exact model structure and
+    behavior from before this hyperparameter was added.
+    """
+    bagging: float = 1.0
+    """Per-(member, atom) keep probability for an online-bagging-style training
+    regularizer (streaming approximation to bootstrap aggregation, e.g. Oza &
+    Russell, 2001).
+
+    During training only, each member's contribution to the mean prediction
+    that reaches the loss is included with this probability, drawn
+    independently per member, per atom, and per forward pass; an atom for
+    which every member happens to be excluded that draw falls back to the
+    plain, uniform mean, so the mean is never left undefined. This gives every
+    member a different, resampled view of the training signal on every step,
+    without needing separate dataloaders per member.
+
+    Does not affect the reported variance/uncertainty, which is always the
+    plain (unbiased) variance of the raw, unweighted member predictions, nor
+    evaluation: ``model.eval()`` always uses the plain, uniform mean,
+    regardless of this setting. ``1.0`` (the default, meaning "always keep
+    every member") disables it, reproducing the exact computation from before
+    this hyperparameter was added.
+    """
 
 
 def validate_shallow_ensemble_hypers(raw: Any) -> Any:
@@ -92,6 +130,21 @@ def validate_shallow_ensemble_hypers(raw: Any) -> Any:
             "'shallow_ensemble.members' must be > 1 for ensembling to have any "
             f"effect (got {filled['members']}). Use 'shallow_ensemble: null' "
             "(the default) to disable ensembling entirely."
+        )
+    if not (0.0 <= filled["dropout"] < 1.0):
+        raise ValueError(
+            f"'shallow_ensemble.dropout' must be in [0, 1) (got {filled['dropout']})."
+        )
+    if not (0.0 < filled["bagging"] <= 1.0):
+        raise ValueError(
+            f"'shallow_ensemble.bagging' must be in (0, 1] (got {filled['bagging']})."
+        )
+    if filled["dropout"] > 0.0 and filled["scope"] == "readout":
+        raise ValueError(
+            "'shallow_ensemble.dropout' has no effect with scope='readout': the "
+            "head is shared and evaluated once per forward pass, so every member "
+            "would see the identical dropout mask. Use scope='head' instead, or "
+            "leave 'dropout' at its default (0)."
         )
     return filled
 

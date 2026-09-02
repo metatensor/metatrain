@@ -89,6 +89,22 @@ class PETBackend(torch.nn.Module):
         self.shallow_ensemble_members: int = (
             shallow_ensemble["members"] if shallow_ensemble is not None else 1
         )
+        # Read via .get(), not direct indexing: a checkpoint saved before these
+        # two hypers were added has a ``shallow_ensemble`` dict without them, and
+        # checkpoint loading does not re-run options validation (which is what
+        # would otherwise fill in the defaults) -- see ``load_checkpoint``. Their
+        # defaults (0.0, 1.0) are themselves the inert "no effect" values, so an
+        # old checkpoint loads with exactly its original behavior.
+        self.shallow_ensemble_dropout: float = (
+            shallow_ensemble.get("dropout", 0.0)
+            if shallow_ensemble is not None
+            else 0.0
+        )
+        self.shallow_ensemble_bagging: float = (
+            shallow_ensemble.get("bagging", 1.0)
+            if shallow_ensemble is not None
+            else 1.0
+        )
 
         num_atomic_species = len(atomic_types)
         self.num_atomic_species = num_atomic_species
@@ -316,12 +332,20 @@ class PETBackend(torch.nn.Module):
             # outermost, so each member is an independent head+readout pipeline.
             self.node_heads_ensemble[target_name] = make_ensemble_members(
                 lambda: self._make_heads(
-                    self.d_node, self.d_head_node, heads_per_layer
+                    self.d_node,
+                    self.d_head_node,
+                    heads_per_layer,
+                    self.shallow_ensemble_dropout,
                 ),
                 self.shallow_ensemble_members,
             )
             self.edge_heads_ensemble[target_name] = make_ensemble_members(
-                lambda: self._make_heads(self.d_pet, self.d_head_edge, heads_per_layer),
+                lambda: self._make_heads(
+                    self.d_pet,
+                    self.d_head_edge,
+                    heads_per_layer,
+                    self.shallow_ensemble_dropout,
+                ),
                 self.shallow_ensemble_members,
             )
             self.node_last_layers_ensemble_head[target_name] = make_ensemble_members(
@@ -364,7 +388,7 @@ class PETBackend(torch.nn.Module):
         self.heads_per_layer.pop(target_name, None)
 
     def _make_heads(
-        self, d_in: int, d_out: int, heads_per_layer: int
+        self, d_in: int, d_out: int, heads_per_layer: int, dropout: float = 0.0
     ) -> torch.nn.ModuleList:
         """
         Build the flat, layer-major list of head MLPs for one target.
@@ -380,6 +404,14 @@ class PETBackend(torch.nn.Module):
             edges).
         :param d_out: Head output dimension (``d_head_node`` / ``d_head_edge``).
         :param heads_per_layer: Number of heads per readout layer.
+        :param dropout: Dropout probability inserted after every Linear+SiLU
+            pair. ``0`` (the default) inserts no ``Dropout`` module at all,
+            rather than one with ``p=0`` acting as a no-op, so that the module
+            structure -- and hence the state dict's layer indices -- is
+            byte-for-byte identical to before this parameter existed whenever
+            it is left at its default. Only :meth:`add_output`'s
+            ``scope="head"`` branch ever passes a nonzero value (see
+            ``shallow_ensemble.dropout``'s own docstring for why).
         :return: A ``ModuleList`` of head MLPs.
         """
         heads: List[torch.nn.Module] = []
@@ -388,8 +420,12 @@ class PETBackend(torch.nn.Module):
                 torch.nn.Linear(d_in, d_out),
                 torch.nn.SiLU(),
             ]
+            if dropout > 0.0:
+                layers.append(torch.nn.Dropout(p=dropout))
             for _ in range(self.num_head_layers - 1):
                 layers.extend([torch.nn.Linear(d_out, d_out), torch.nn.SiLU()])
+                if dropout > 0.0:
+                    layers.append(torch.nn.Dropout(p=dropout))
             heads.append(torch.nn.Sequential(*layers))
         return torch.nn.ModuleList(heads)
 
@@ -650,6 +686,57 @@ class PETBackend(torch.nn.Module):
 
         return node_features_list, edge_features_list
 
+    def _bagged_ensemble_mean(self, stacked: torch.Tensor) -> torch.Tensor:
+        """
+        Member-weighted mean over the ensemble, for online bagging.
+
+        See ``shallow_ensemble.bagging``'s own docstring for the motivation.
+        During training, and only when bagging is enabled, each member's row is
+        kept with probability ``self.shallow_ensemble_bagging``, independently
+        per member and per atom (this block's leading sample axis) -- so the
+        set of atoms a given member actually "sees" a nonzero gradient from
+        differs, and reshuffles, on every forward pass. An atom for which every
+        member is dropped that draw falls back to the plain, uniform mean for
+        that atom, so the mean is never left undefined by an unlucky draw. At
+        eval time, or with bagging disabled (the default), this is exactly
+        ``stacked.mean(dim=0)``, matching the computation before this method
+        existed.
+
+        :param stacked: per-member predictions for one block, member axis
+            first: ``(n_members, n_atoms, ...)``, any number of trailing
+            component/property dimensions.
+        :return: the (possibly bagging-weighted) mean over members, shape
+            ``stacked.shape[1:]``.
+        """
+        if not self.training or self.shallow_ensemble_bagging >= 1.0:
+            return stacked.mean(dim=0)
+
+        n_members = stacked.shape[0]
+        n_atoms = stacked.shape[1]
+        # trailing component/property dims, forced to size 1 so `weights`/`total`
+        # broadcast against `stacked` regardless of how many such dims it has
+        trailing_ones: List[int] = []
+        for _ in range(2, stacked.dim()):
+            trailing_ones.append(1)
+
+        weights = torch.bernoulli(
+            torch.full(
+                (n_members, n_atoms),
+                self.shallow_ensemble_bagging,
+                dtype=stacked.dtype,
+                device=stacked.device,
+            )
+        )
+        total = weights.sum(dim=0)  # (n_atoms,): how many members kept this atom
+        total_safe = torch.where(total > 0, total, torch.ones_like(total))
+
+        weights_view = weights.view([n_members, n_atoms] + trailing_ones)
+        total_view = total_safe.view([n_atoms] + trailing_ones)
+        weighted_mean = (weights_view * stacked).sum(dim=0) / total_view
+
+        all_dropped = (total == 0).view([n_atoms] + trailing_ones)
+        return torch.where(all_dropped, stacked.mean(dim=0), weighted_mean)
+
     def predict(
         self,
         node_features_list: List[torch.Tensor],
@@ -800,7 +887,7 @@ class PETBackend(torch.nn.Module):
                     stacked = torch.stack(
                         [member_block_sums[m][b] for m in range(n_members)], dim=0
                     )
-                    mean_blocks.append(stacked.mean(dim=0))
+                    mean_blocks.append(self._bagged_ensemble_mean(stacked))
                     variance_blocks.append(stacked.var(dim=0, unbiased=True))
                 atomic_predictions[output_name] = mean_blocks
                 uncertainty[output_name] = variance_blocks

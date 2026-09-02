@@ -342,11 +342,16 @@ class ModelHypers(TypedDict):
 
     - a plain loss (``mse``, ``mae``, ...): computed on the mean, exactly as
       without ensembling. Members only diverge through independent random
-      initialization.
+      initialization (and, if enabled, ``dropout``/``bagging`` below).
     - ``ensemble_nll``: a Gaussian negative log-likelihood scoring the mean
       against the target using the ensemble variance as the predictive
       variance (``0.5 * ((mean - target)^2 / var + log(var))``). Actively
       encourages the members' spread to track the actual error.
+
+    On a shared backbone, independent initialization alone is often not enough
+    diversity between members to reliably beat a single model on accuracy --
+    ``dropout`` and ``bagging`` are two independent, optional ways to inject
+    more, at no extra inference cost (both are training-only).
 
     ``None`` (default) disables ensembling: the model has a single (non-ensembled)
     head/readout per target, exactly as without this hyperparameter.
@@ -356,9 +361,11 @@ class ModelHypers(TypedDict):
         shallow_ensemble:
           scope: head      # or "readout"; see ShallowEnsembleHypers.scope
           members: 4       # must be > 1
+          dropout: 0.1     # optional, scope="head" only; default 0 (off)
+          bagging: 0.8     # optional; default 1.0 (off)
 
     See :class:`metatrain.utils.ensemble.ShallowEnsembleHypers` for the full
-    description of ``scope`` and ``members``.
+    description of ``scope``, ``members``, ``dropout`` and ``bagging``.
     """
     zbl: bool = False
     """Use ZBL potential for short-range repulsion"""

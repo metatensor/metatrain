@@ -88,11 +88,33 @@ def test_make_ensemble_members():
 def test_validate_shallow_ensemble_hypers():
     assert validate_shallow_ensemble_hypers(None) is None
     filled = validate_shallow_ensemble_hypers({"members": 4})
-    assert filled == {"scope": "head", "members": 4}
+    assert filled == {"scope": "head", "members": 4, "dropout": 0.0, "bagging": 1.0}
     with pytest.raises(ValueError, match="must be > 1"):
         validate_shallow_ensemble_hypers({"members": 1})
     with pytest.raises(ValueError, match="must be > 1"):
         validate_shallow_ensemble_hypers({})  # members defaults to 1
+
+
+@pytest.mark.parametrize("dropout", [-0.1, 1.0, 1.5])
+def test_dropout_out_of_range_rejected(dropout):
+    with pytest.raises(ValueError, match=r"dropout' must be in \[0, 1\)"):
+        validate_shallow_ensemble_hypers({"members": 4, "dropout": dropout})
+
+
+@pytest.mark.parametrize("bagging", [0.0, -0.1, 1.5])
+def test_bagging_out_of_range_rejected(bagging):
+    with pytest.raises(ValueError, match=r"bagging' must be in \(0, 1\]"):
+        validate_shallow_ensemble_hypers({"members": 4, "bagging": bagging})
+
+
+def test_dropout_with_readout_scope_rejected():
+    with pytest.raises(ValueError, match="no effect with scope='readout'"):
+        validate_shallow_ensemble_hypers(
+            {"scope": "readout", "members": 4, "dropout": 0.1}
+        )
+    # dropout=0 (the default) with scope="readout" is fine -- it's a no-op either way
+    filled = validate_shallow_ensemble_hypers({"scope": "readout", "members": 4})
+    assert filled["dropout"] == 0.0
 
 
 def test_uncertainty_output_name():
@@ -254,10 +276,168 @@ def test_shallow_ensemble_torchscript():
     )
 
 
+# ===== integration tests: dropout and bagging =====
+
+
+def _make_ensemble_model(scope="head", members=3, dropout=0.0, bagging=1.0):
+    hypers = copy.deepcopy(MODEL_HYPERS)
+    hypers["shallow_ensemble"] = {
+        "scope": scope,
+        "members": members,
+        "dropout": dropout,
+        "bagging": bagging,
+    }
+    return PET(hypers, _energy_dataset_info())
+
+
+_ENERGY_OUTPUTS = {
+    "energy": ModelOutput(sample_kind="system"),
+    "energy_uncertainty": ModelOutput(sample_kind="system"),
+}
+
+
+def test_dropout_leaves_structure_unchanged_when_zero():
+    """dropout=0 (the default) must not insert any Dropout module at all, so an
+    existing config (or checkpoint) that never mentions dropout sees exactly the
+    same model structure as before this hyperparameter was added."""
+    with_field = _make_ensemble_model(dropout=0.0)
+    without_field = PET(
+        {
+            **copy.deepcopy(MODEL_HYPERS),
+            "shallow_ensemble": {"scope": "head", "members": 3},
+        },
+        _energy_dataset_info(),
+    )
+    assert list(with_field.state_dict().keys()) == list(
+        without_field.state_dict().keys()
+    )
+    assert not any(isinstance(m, torch.nn.Dropout) for m in with_field.modules())
+
+
+def test_dropout_present_when_nonzero():
+    model = _make_ensemble_model(dropout=0.2)
+    assert any(isinstance(m, torch.nn.Dropout) for m in model.modules())
+
+
+def test_dropout_is_stochastic_in_train_and_deterministic_in_eval():
+    model = _make_ensemble_model(dropout=0.3, members=4)
+    system = _make_system(model)
+
+    model.train()
+    torch.manual_seed(0)
+    out_a = model([system], _ENERGY_OUTPUTS)["energy"].block().values.clone()
+    torch.manual_seed(1)
+    out_b = model([system], _ENERGY_OUTPUTS)["energy"].block().values.clone()
+    assert not torch.allclose(out_a, out_b), (
+        "different dropout masks should give different mean predictions in train mode"
+    )
+
+    model.eval()
+    out_c = model([system], _ENERGY_OUTPUTS)["energy"].block().values.clone()
+    out_d = model([system], _ENERGY_OUTPUTS)["energy"].block().values.clone()
+    torch.testing.assert_close(out_c, out_d)
+
+
+def test_bagging_off_matches_plain_mean_even_in_train_mode():
+    """bagging=1.0 (the default) must be a pure no-op: the same computation as
+    before this hyperparameter existed, in train mode too."""
+    model = _make_ensemble_model(bagging=1.0, members=4)
+    model.train()
+    system = _make_system(model)
+    torch.manual_seed(0)
+    out_a = model([system], _ENERGY_OUTPUTS)["energy"].block().values.clone()
+    torch.manual_seed(1234)
+    out_b = model([system], _ENERGY_OUTPUTS)["energy"].block().values.clone()
+    # no dropout here, and bagging is off, so train-mode is fully deterministic
+    torch.testing.assert_close(out_a, out_b)
+
+
+def test_bagging_is_stochastic_in_train_and_deterministic_in_eval():
+    model = _make_ensemble_model(bagging=0.5, members=4)
+    system = _make_system(model)
+
+    model.train()
+    torch.manual_seed(0)
+    out_a = model([system], _ENERGY_OUTPUTS)["energy"].block().values.clone()
+    torch.manual_seed(1)
+    out_b = model([system], _ENERGY_OUTPUTS)["energy"].block().values.clone()
+    assert not torch.allclose(out_a, out_b), (
+        "different bagging draws should give different mean predictions in train mode"
+    )
+
+    model.eval()
+    out_c = model([system], _ENERGY_OUTPUTS)["energy"].block().values.clone()
+    out_d = model([system], _ENERGY_OUTPUTS)["energy"].block().values.clone()
+    torch.testing.assert_close(out_c, out_d)
+
+
+def test_bagging_does_not_affect_reported_uncertainty():
+    """The variance must stay the plain, unweighted spread across members,
+    regardless of the bagging draw -- only the mean that reaches the loss is
+    reweighted."""
+    model = _make_ensemble_model(bagging=0.5, members=4)
+    model.train()
+    system = _make_system(model)
+
+    torch.manual_seed(0)
+    unc_a = (
+        model([system], _ENERGY_OUTPUTS)["energy_uncertainty"].block().values.clone()
+    )
+    torch.manual_seed(1)
+    unc_b = (
+        model([system], _ENERGY_OUTPUTS)["energy_uncertainty"].block().values.clone()
+    )
+    torch.testing.assert_close(unc_a, unc_b)
+
+
+def test_bagging_gradients_reach_all_members():
+    """Even with a harsh keep probability, backprop through the bagged mean
+    must still reach every member's parameters over enough forward passes (no
+    member silently starved of gradient by construction)."""
+    model = _make_ensemble_model(bagging=0.3, members=4, scope="head")
+    model.train()
+    system = _make_system(model)
+
+    member_params = [
+        p
+        for name, p in model.named_parameters()
+        if ".member_" in name and p.requires_grad
+    ]
+    assert len(member_params) > 0
+    seen_grad = [False] * len(member_params)
+    for seed in range(30):
+        model.zero_grad()
+        torch.manual_seed(seed)
+        out = model([system], {"energy": ModelOutput(sample_kind="system")})
+        out["energy"].block().values.sum().backward()
+        for i, p in enumerate(member_params):
+            if p.grad is not None and torch.any(p.grad != 0.0):
+                seen_grad[i] = True
+    assert all(seen_grad), "some member never received a nonzero gradient"
+
+
+def test_shallow_ensemble_torchscript_with_dropout_and_bagging():
+    model = _make_ensemble_model(dropout=0.2, bagging=0.5, members=2)
+    model.eval()
+    system = _make_system(model)
+    eager_out = model([system], _ENERGY_OUTPUTS)
+    scripted = torch.jit.script(model)
+    scripted_out = scripted([system], _ENERGY_OUTPUTS)
+    # eval mode: dropout/bagging are inactive either way, so this is a plain
+    # eager-vs-scripted equivalence check, exactly like the plain test above
+    torch.testing.assert_close(
+        eager_out["energy"].block().values, scripted_out["energy"].block().values
+    )
+    torch.testing.assert_close(
+        eager_out["energy_uncertainty"].block().values,
+        scripted_out["energy_uncertainty"].block().values,
+    )
+
+
 # ===== integration tests: training with both loss modes =====
 
 
-def _train_tiny_model(loss_type, scope="head", members=3):
+def _train_tiny_model(loss_type, scope="head", members=3, dropout=0.0, bagging=1.0):
     systems = read_systems(DATASET_PATH)[:20]
     conf = {
         "energy": {
@@ -279,7 +459,12 @@ def _train_tiny_model(loss_type, scope="head", members=3):
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
-    hypers["model"]["shallow_ensemble"] = {"scope": scope, "members": members}
+    hypers["model"]["shallow_ensemble"] = {
+        "scope": scope,
+        "members": members,
+        "dropout": dropout,
+        "bagging": bagging,
+    }
     hypers["model"]["d_pet"] = 8
     hypers["model"]["d_node"] = 8
     hypers["model"]["d_feedforward"] = 8
@@ -326,4 +511,25 @@ def test_shallow_ensemble_trains(loss_type):
     out = model([system], outputs)
     assert torch.isfinite(out["energy"].block().values).all()
     assert torch.isfinite(out["energy_uncertainty"].block().values).all()
-    assert (out["energy_uncertainty"].block().values >= 0).all()
+
+
+@pytest.mark.parametrize("loss_type", ["mse", "ensemble_nll"])
+def test_shallow_ensemble_trains_with_dropout_and_bagging(loss_type):
+    """As above, with both new diversity mechanisms active together."""
+    model = _train_tiny_model(loss_type, dropout=0.1, bagging=0.7)
+
+    model.eval()
+    system = _make_system(model)
+    outputs = {
+        "energy": ModelOutput(sample_kind="system"),
+        "energy_uncertainty": ModelOutput(sample_kind="system"),
+    }
+    # eval mode: dropout/bagging are inactive, so this is deterministic
+    out_a = model([system], outputs)
+    out_b = model([system], outputs)
+    torch.testing.assert_close(
+        out_a["energy"].block().values, out_b["energy"].block().values
+    )
+    assert torch.isfinite(out_a["energy"].block().values).all()
+    assert torch.isfinite(out_a["energy_uncertainty"].block().values).all()
+    assert (out_a["energy_uncertainty"].block().values >= 0).all()
