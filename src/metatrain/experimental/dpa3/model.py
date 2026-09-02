@@ -172,8 +172,7 @@ class DPA3(ModelInterface[ModelHypers]):
                     # Update the atomic types extracted from the dataset with the types
                     # from the pretrained model
                     dataset_info.atomic_types = [
-                        ase.data.atomic_numbers[element]
-                        for element in cfg["type_map"]
+                        ase.data.atomic_numbers[element] for element in cfg["type_map"]
                     ]
                     self.atomic_types = dataset_info.atomic_types
                     branch_sd = {

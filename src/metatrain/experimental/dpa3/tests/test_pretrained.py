@@ -3,7 +3,6 @@
 import collections
 import copy
 import json
-import re
 
 import pytest
 import torch
