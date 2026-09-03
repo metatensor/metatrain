@@ -481,7 +481,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         targets,
                         extra_data,
                     )
-                    if self.hypers["log_separate_blocks"] and False:
+                    if self.hypers["log_separate_blocks"]:
                         for matrix_name, matrix_spec in model.hypers["matrices"].items():
                             scaled_predictions.update(
                                 graph2mat_to_tensormap(
