@@ -211,20 +211,35 @@ class IntensiveGap(HookInterface[Hypers]):
         """
         return self._input_target_infos
 
-    def requested_inputs(self) -> dict[str, ModelOutput]:
+    def requested_hook_inputs(self, outputs: dict[str, ModelOutput]) -> dict[str, ModelOutput]:
         """
         Returns the list of requested inputs for the hook.
 
+        :param outputs: Dictionary of requested outputs. These can contain outputs that
+            are handled by other hooks or the main model. In that case, the hook
+            ignores those outputs.
         :return: A list of requested input names.
         """
-        return {
-            k: ModelOutput(
-                quantity=target_info.quantity,
-                unit=target_info.unit,
-                sample_kind="atom",
-            )
-            for k, target_info in self._input_target_infos.items()
-        }
+        req_inputs: dict[str, ModelOutput] = {}
+        for out_name, out_info in self.out_targets.items():
+            if out_name in outputs:
+                info = out_info.layout.info()
+                bottom_name = info["bottom_name"]
+                top_name = info["top_name"]
+
+                req_inputs[bottom_name] = ModelOutput(
+                    quantity=self._input_target_infos[bottom_name].quantity,
+                    unit=self._input_target_infos[bottom_name].unit,
+                    sample_kind="atom",
+                )
+
+                req_inputs[top_name] = ModelOutput(
+                    quantity=self._input_target_infos[top_name].quantity,
+                    unit=self._input_target_infos[top_name].unit,
+                    sample_kind="atom",
+                )
+
+        return req_inputs
 
     def supported_outputs(self) -> dict[str, ModelOutput]:
         """

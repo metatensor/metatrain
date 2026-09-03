@@ -87,7 +87,7 @@ class HookInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def requested_inputs(self, outputs: Optional[dict[str, ModelOutput]] = None) -> dict[str, ModelOutput]:
+    def requested_hook_inputs(self, outputs: dict[str, ModelOutput]) -> dict[str, ModelOutput]:
         """
         Returns the list of requested inputs for the hook.
 

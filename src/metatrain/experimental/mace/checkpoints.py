@@ -38,6 +38,17 @@ def model_update_v3_v4(checkpoint: dict) -> None:
     if "mace_head_name" not in checkpoint["model_data"]["hypers"]:
         checkpoint["model_data"]["hypers"]["mace_head_name"] = None
 
+def model_update_v4_v5(checkpoint: dict) -> None:
+    """
+    Update a v4 checkpoint to v5.
+
+    Forward hooks were introduced in this version.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    if "forward_hooks" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["forward_hooks"] = {}
+
 
 ###########################
 # TRAINER #################

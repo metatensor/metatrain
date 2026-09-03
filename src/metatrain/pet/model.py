@@ -66,7 +66,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 16
+    __checkpoint_version__ = 17
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -138,7 +138,7 @@ class PET(ModelInterface[ModelHypers]):
         # during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
-        forward_hooks, model_outs = setup_hooks(train_dataset_info)
+        forward_hooks, model_outs = setup_hooks(train_dataset_info, self.hypers["forward_hooks"])
         self.forward_hooks = torch.nn.ModuleList(forward_hooks)
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
@@ -229,8 +229,9 @@ class PET(ModelInterface[ModelHypers]):
     def restart(
         self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
     ) -> "PET":
-
+        hooks_hypers = {}
         if model_hypers is not None:
+            hooks_hypers = model_hypers.pop("forward_hooks", {})
             default_hypers = get_default_hypers("pet")["model"]
             raise_if_hypers_mismatch(
                 self.hypers, model_hypers, default_hypers=default_hypers
@@ -254,8 +255,9 @@ class PET(ModelInterface[ModelHypers]):
 
         if dataset_info.targets != self.dataset_info.targets:
             forward_hooks, model_outs = restart_hooks(
-                self.forward_hooks, train_dataset_info
+                self.forward_hooks, train_dataset_info, hooks_hypers
             )
+            self.hypers["forward_hooks"] = hooks_hypers
             self.forward_hooks = torch.nn.ModuleList(forward_hooks)
 
             new_targets = {
@@ -455,10 +457,10 @@ class PET(ModelInterface[ModelHypers]):
         # ----------------------------
         # Add outputs needed by hooks
         # ----------------------------
-        # TODO: In reality, we would have to check if the hook's output is requested
+        req_model_outputs = outputs.copy()
         for hook in self.forward_hooks:
-            requested_inputs = hook.requested_inputs()
-            outputs.update(requested_inputs)
+            requested_inputs = hook.requested_hook_inputs(req_model_outputs)
+            req_model_outputs.update(requested_inputs)
 
         device = systems[0].device
         return_dict: Dict[str, TensorMap] = {}
@@ -499,7 +501,7 @@ class PET(ModelInterface[ModelHypers]):
         _diagnostic_pair_labels: Optional[Labels] = None
         _diagnostic_handles: List[Any] = []
         if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
-            if any(k.startswith(DIAGNOSTIC_PREFIX) for k in outputs):
+            if any(k.startswith(DIAGNOSTIC_PREFIX) for k in req_model_outputs):
                 _diagnostic_pair_labels = get_pair_sample_labels(
                     sample_labels,
                     batch_data["centers"],
@@ -508,7 +510,7 @@ class PET(ModelInterface[ModelHypers]):
                 )
                 _diagnostic_handles = prepare_diagnostic_handles(
                     self,
-                    outputs,
+                    req_model_outputs,
                     return_dict,
                     batch_data["centers"],
                     batch_data["nef_to_edges_neighbor"],
@@ -517,14 +519,14 @@ class PET(ModelInterface[ModelHypers]):
                 )
         # ===== END DIAGNOSTIC-RELATED BLOCK
 
-        if "mtt::aux::cutoff_stats" in outputs:
+        if "mtt::aux::cutoff_stats" in req_model_outputs:
             with torch.profiler.record_function("PET::_get_cutoff_stats"):
                 return_dict["mtt::aux::cutoff_stats"] = self._get_cutoff_stats(
                     batch_data["atomic_cutoffs_stats"],
                     batch_data["padding_mask"],
                     sample_labels,
                     selected_atoms,
-                    outputs["mtt::aux::cutoff_stats"].sample_kind,
+                    req_model_outputs["mtt::aux::cutoff_stats"].sample_kind,
                 )
 
         with torch.profiler.record_function("PET::backend::compute_features"):
@@ -547,7 +549,7 @@ class PET(ModelInterface[ModelHypers]):
                 if _diagnostic_pair_labels is not None:
                     for name in FEATURIZER_INPUT_NAMES:
                         key = DIAGNOSTIC_PREFIX + name
-                        if key in outputs:
+                        if key in req_model_outputs:
                             return_dict[key] = create_diagnostic_feature_tensormap(
                                 standardize_featurizer_input_tensor(
                                     name, batch_data[name]
@@ -590,7 +592,7 @@ class PET(ModelInterface[ModelHypers]):
         with torch.profiler.record_function("PET::predict"):
             requested_target_names: List[str] = []
             for name in self.target_names:
-                if name in outputs:
+                if name in req_model_outputs:
                     requested_target_names.append(name)
             (
                 atomic_predictions,
@@ -607,14 +609,14 @@ class PET(ModelInterface[ModelHypers]):
 
         # **Stage 2: Intermediate Feature Output (Optional)**
         with torch.profiler.record_function("PET::_get_output_features"):
-            if "feature" in outputs:
+            if "feature" in req_model_outputs:
                 features_dict = self._get_output_features(
                     node_features_list,
                     edge_features_list,
                     batch_data["cutoff_factors"],
                     selected_atoms,
                     sample_labels,
-                    outputs,
+                    req_model_outputs,
                 )
                 # Since return_dict.update(features_dict) is not Torch-Scriptable,
                 # we use a simple iteration over the features_dict items.
@@ -629,7 +631,7 @@ class PET(ModelInterface[ModelHypers]):
                 batch_data["cutoff_factors"],
                 selected_atoms,
                 sample_labels,
-                outputs,
+                req_model_outputs,
             )
 
             for k, v in last_layer_features_dict.items():
@@ -640,7 +642,7 @@ class PET(ModelInterface[ModelHypers]):
             atomic_predictions_dict = self._get_output_atomic_predictions(
                 atomic_predictions,
                 sample_labels,
-                outputs,
+                req_model_outputs,
                 selected_atoms,
             )
 
@@ -664,11 +666,15 @@ class PET(ModelInterface[ModelHypers]):
             return_dict.update(
                 hook(
                     systems,
-                    outputs,
+                    req_model_outputs,
                     return_dict,
                     selected_atoms,
                 )
             )
+
+        # Remove intermediate outputs that were not requested by the user.
+        # (they were needed by other hooks)
+        return_dict = {k: return_dict[k] for k in outputs}
 
         # **Post-processing (Evaluation Only)**
         with torch.profiler.record_function("PET::post-processing"):
@@ -700,7 +706,7 @@ class PET(ModelInterface[ModelHypers]):
 
                 for additive_model in self.additive_models:
                     outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                    for name, output in outputs.items():
+                    for name, output in req_model_outputs.items():
                         if name in additive_model.outputs:
                             outputs_for_additive_model[name] = output
                     additive_contributions = additive_model(

@@ -55,7 +55,7 @@ from .utils.structures import create_batch
 class MetaMACE(ModelInterface[ModelHypers]):
     """Interface of MACE for metatrain."""
 
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 5
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -316,7 +316,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
     def restart(
         self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
     ) -> "MetaMACE":
-        
         hooks_hypers = {}
         if model_hypers is not None:
             hooks_hypers = model_hypers.pop("forward_hooks", {})
@@ -355,6 +354,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             forward_hooks, model_outs = restart_hooks(
                 list(self.forward_hooks), train_dataset_info, hooks_hypers
             )
+            self.hypers["forward_hooks"] = hooks_hypers
             self.forward_hooks = torch.nn.ModuleList(forward_hooks)
 
             # Add extra heads for the new targets. Targets produced by a hook
@@ -401,9 +401,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # Add outputs needed by hooks
         # ----------------------------
         req_model_outputs = outputs.copy()
-        # TODO: In reality, we would have to check if the hook's output is requested
         for hook in self.forward_hooks:
-            requested_inputs = hook.requested_inputs(req_model_outputs)
+            requested_inputs = hook.requested_hook_inputs(req_model_outputs)
             req_model_outputs.update(requested_inputs)
 
         # --------------------------

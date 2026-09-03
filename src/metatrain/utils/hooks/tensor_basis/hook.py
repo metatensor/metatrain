@@ -167,20 +167,26 @@ class TensorBasis(HookInterface[Hypers]):
         """
         return self._input_target_infos
 
-    def requested_inputs(self) -> dict[str, ModelOutput]:
+    def requested_hook_inputs(self, outputs: dict[str, ModelOutput]) -> dict[str, ModelOutput]:
         """
         Returns the list of requested inputs for the hook.
 
+        :param outputs: Dictionary of requested outputs. These can contain outputs that
+            are handled by other hooks or the main model. In that case, the hook
+            ignores those outputs.
         :return: A list of requested input names.
         """
-        return {
-            name: ModelOutput(
-                quantity=target.quantity,
-                unit=target.unit,
-                sample_kind="atom",
-            )
-            for name, target in self._input_target_infos.items()
-        }
+        req_inputs: dict[str, ModelOutput] = {}
+        for out_name in outputs:
+            if out_name in self._out_to_input_name:
+                input_name = self._out_to_input_name[out_name]
+                target_info = self._input_target_infos[input_name]
+                req_inputs[input_name] = ModelOutput(
+                    quantity=target_info.quantity,
+                    unit=target_info.unit,
+                    sample_kind="atom",
+                )
+        return req_inputs
 
     def supported_outputs(self) -> dict[str, ModelOutput]:
         """

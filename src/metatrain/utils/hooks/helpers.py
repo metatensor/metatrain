@@ -260,20 +260,25 @@ def setup_hooks(
 def restart_hooks(
     instantiated_hooks: list[HookInterface],
     dataset_info: DatasetInfo,
-    new_hooks_hypers: Optional[dict[str, dict[str, str] | str]] = None,
-) -> tuple[list[HookInterface], dict[str, TargetInfo]]:
+    new_hooks_hypers: dict[str, dict[str, str] | str],
+) -> tuple[list[HookInterface], dict[str, TargetInfo], dict]:
     """
     Restart hooks with new dataset information.
 
     :param hooks: List of existing hooks to restart.
     :param dataset_info: New dataset information to use for restarting the hooks.
-    :return: A tuple containing the list of restarted hooks and a dictionary
-      with the outputs that the model should produce before the hooks are applied.
-
+    :param new_hooks_hypers: The hook hypers passed for the hooks restart.
+    :return: A tuple containing:
+      - the list of restarted hooks,
+      - a dictionary with the outputs that the model should produce before
+        the hooks are applied,
+      - the hook hyperparameters that will regenerate the returned hooks
+        if passed to setup_hooks(). These should be stored in the checkpoint
+        of the model.
     """
     if len(instantiated_hooks) > 0:
         raise ValueError("Restarting from previous hooks is not supported yet.")
 
     forward_hooks, model_outs = setup_hooks(dataset_info, new_hooks_hypers)
 
-    return forward_hooks, model_outs
+    return forward_hooks, model_outs, new_hooks_hypers
