@@ -7,7 +7,7 @@ import random
 import re
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, cast
 
 import numpy as np
 import torch

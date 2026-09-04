@@ -29,6 +29,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
 )
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hooks import restart_hooks, setup_hooks
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
@@ -366,6 +367,9 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         # the model during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
+        forward_hooks, model_outs = setup_hooks(train_dataset_info)
+        self.forward_hooks = torch.nn.ModuleList(forward_hooks)
+
         self.num_properties: Dict[str, Dict[str, int]] = {}  # by target and block
         self.basis_calculators = torch.nn.ModuleDict({})
         self.heads = torch.nn.ModuleDict({})
@@ -377,8 +381,22 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         self.cartesian_rank1_targets: List[str] = []
         self.cartesian_rank2_targets: List[str] = []
-        for target_name, target in train_dataset_info.targets.items():
+        for target_name, target in model_outs.items():
             self._add_output(target_name, target)
+
+        # Register outputs that are produced only by post-processing hooks (i.e.
+        # those removed from ``model_outs`` because SOAP-BPNN does not predict
+        # them directly).
+        targets = dataset_info.targets
+        for target_name in train_dataset_info.targets:
+            if target_name not in model_outs:
+                self.outputs[target_name] = ModelOutput(
+                    quantity=targets[target_name].quantity
+                    if target_name in targets
+                    else "",
+                    unit=targets[target_name].unit if target_name in targets else "",
+                    sample_kind="atom",
+                )
 
         # Pre-compute spherical→Cartesian conversion matrix for rank-2 tensors.
         # W[i,j,M] maps 9 spherical components (l=0,1,2) to 3×3 Cartesian.
@@ -458,9 +476,18 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         # the model during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
-        # register new outputs as new last layers
-        for target_name in new_targets:
-            self._add_output(target_name, train_dataset_info.targets[target_name])
+        if dataset_info.targets != self.dataset_info.targets:
+            # Only re-run the hook setup when the targets changed; ``restart_hooks``
+            # does not support rebuilding already-instantiated hooks.
+            forward_hooks, model_outs = restart_hooks(
+                list(self.forward_hooks), train_dataset_info
+            )
+            self.forward_hooks = torch.nn.ModuleList(forward_hooks)
+
+            # register new outputs as new last layers
+            for target_name in new_targets:
+                if target_name in model_outs:
+                    self._add_output(target_name, model_outs[target_name])
 
         self.dataset_info = merged_info
 
@@ -486,6 +513,11 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        # Add the inputs that the post-processing hooks consume to the outputs
+        # the model is asked to produce.
+        for hook in self.forward_hooks:
+            outputs.update(hook.requested_inputs())
+
         device = systems[0].positions.device
         if self.neighbors_species_labels.device != device:
             self.neighbors_species_labels = self.neighbors_species_labels.to(device)
@@ -826,6 +858,10 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             else:
                 # sum the atomic property to get the total property
                 return_dict[output_name] = sum_over_atoms(atomic_property)
+
+        # Apply the post-processing hooks
+        for hook in self.forward_hooks:
+            return_dict.update(hook(systems, outputs, return_dict, selected_atoms))
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions

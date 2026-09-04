@@ -294,6 +294,10 @@ class ModelHypers(TypedDict):
     """
     use_agnostic_product: bool = False
     """Use element agnostic product"""
+    forward_hooks: dict = {}
+    """Hooks that the model needs to apply at the end of forward to
+    produce the final outputs.
+    """
 
 
 class TrainerHypers(TypedDict):
