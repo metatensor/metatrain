@@ -141,6 +141,11 @@ class PET(ModelInterface[ModelHypers]):
         forward_hooks, model_outs = setup_hooks(train_dataset_info, self.hypers["forward_hooks"])
         self.forward_hooks = torch.nn.ModuleList(forward_hooks)
 
+        # Register outputs that are produced by post-processing hooks.
+        for hook in self.forward_hooks:
+            for name, output in hook.supported_outputs().items():
+                self.outputs[name] = output
+
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
         self.key_labels: Dict[str, Labels] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
@@ -150,23 +155,6 @@ class PET(ModelInterface[ModelHypers]):
         for target_name, target_info in model_outs.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
-
-        # Register outputs that are produced only by post-processing hooks (i.e.
-        # those removed from ``model_outs`` because PET itself does not predict
-        # them directly).
-        targets = dataset_info.targets
-        for target_name in train_dataset_info.targets:
-            if target_name not in model_outs:
-                self.outputs[target_name] = ModelOutput(
-                    quantity=targets[target_name].quantity
-                    if target_name in targets
-                    else "",
-                    unit=targets[target_name].unit if target_name in targets else "",
-                    sample_kind="atom",
-                    description=targets[target_name].description
-                    if target_name in targets
-                    else "",
-                )
 
         # long-range module
         if self.hypers["long_range"]["enable"]:
@@ -281,24 +269,10 @@ class PET(ModelInterface[ModelHypers]):
                 self.target_names.append(target_name)
                 self._add_output(target_name, model_outs[target_name])
 
-            # Register outputs that are produced only by post-processing hooks (i.e.
-            # those removed from ``model_outs`` because PET itself does not predict
-            # them directly).
-            targets = dataset_info.targets
-            for target_name in train_dataset_info.targets:
-                if target_name not in model_outs:
-                    self.outputs[target_name] = ModelOutput(
-                        quantity=targets[target_name].quantity
-                        if target_name in targets
-                        else "",
-                        unit=targets[target_name].unit
-                        if target_name in targets
-                        else "",
-                        sample_kind="atom",
-                        description=targets[target_name].description
-                        if target_name in targets
-                        else "",
-                    )
+            # Register outputs that are produced by post-processing hooks.
+            for hook in self.forward_hooks:
+                for name, output in hook.supported_outputs().items():
+                    self.outputs[name] = output
         else:
             self.has_new_targets = False
             stale_targets = []
@@ -709,6 +683,7 @@ class PET(ModelInterface[ModelHypers]):
                     for name, output in req_model_outputs.items():
                         if name in additive_model.outputs:
                             outputs_for_additive_model[name] = output
+
                     additive_contributions = additive_model(
                         systems,
                         outputs_for_additive_model,

@@ -287,14 +287,18 @@ class MetaMACE(ModelInterface[ModelHypers]):
         )
 
         targets = dataset_info.targets
-        all_names = set([*train_dataset_info.targets, *model_outs, *self.layouts])
         self.outputs = {
             k: ModelOutput(
                 unit=targets[k].unit if k in targets else "",
                 sample_kind="atom",
             )
-            for k in all_names
+            for k in self.layouts
         }
+
+        # Register outputs that are produced by post-processing hooks.
+        for hook in self.forward_hooks:
+            for name, output in hook.supported_outputs().items():
+                self.outputs[name] = output
 
         # ---------------------------
         # Data preprocessing modules
