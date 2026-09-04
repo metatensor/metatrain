@@ -351,10 +351,10 @@ class MetaMACE(ModelInterface[ModelHypers]):
         if dataset_info.targets != self.dataset_info.targets:
             # Only re-run the hook setup when the targets changed; ``restart_hooks``
             # does not support rebuilding already-instantiated hooks.
-            forward_hooks, model_outs = restart_hooks(
+            forward_hooks, model_outs, new_hooks_hypers = restart_hooks(
                 list(self.forward_hooks), train_dataset_info, hooks_hypers
             )
-            self.hypers["forward_hooks"] = hooks_hypers
+            self.hypers["forward_hooks"] = new_hooks_hypers
             self.forward_hooks = torch.nn.ModuleList(forward_hooks)
 
             # Add extra heads for the new targets. Targets produced by a hook

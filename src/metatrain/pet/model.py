@@ -254,10 +254,10 @@ class PET(ModelInterface[ModelHypers]):
         train_dataset_info = self._train_dataset_info(merged_info)
 
         if dataset_info.targets != self.dataset_info.targets:
-            forward_hooks, model_outs = restart_hooks(
+            forward_hooks, model_outs, new_hooks_hypers = restart_hooks(
                 self.forward_hooks, train_dataset_info, hooks_hypers
             )
-            self.hypers["forward_hooks"] = hooks_hypers
+            self.hypers["forward_hooks"] = new_hooks_hypers
             self.forward_hooks = torch.nn.ModuleList(forward_hooks)
 
             new_targets = {
