@@ -123,6 +123,72 @@ class O3Augmenter:
 
         return new_systems, new_targets, new_extra_data
 
+    def replicate_and_augment(
+        self, systems: List[System], num_augmentations: int
+    ) -> Tuple[List[System], O3Transformations]:
+        """Replicates every system ``num_augmentations`` times and applies an
+        independently-drawn random transformation to each replica.
+
+        Unlike :meth:`apply_random_augmentations`, this does not touch any
+        targets: it exists for callers that need several independent views of
+        the *same* system (e.g. to estimate a model's equivariance error
+        on-line, during training), where the target is compared against a
+        prediction mapped back to the original frame afterwards -- see
+        :meth:`undo_augmentation`, not against a target rotated alongside the
+        system.
+
+        :param systems: the systems to replicate and augment.
+        :param num_augmentations: how many independent augmented copies to
+            produce per system, i.e. per entry of ``systems``.
+        :return: ``(augmented_systems, transformations)``, where
+            ``augmented_systems`` has length ``len(systems) *
+            num_augmentations`` -- every ``num_augmentations`` consecutive
+            entries are independent augmentations of the same original system,
+            in the same order as ``systems`` -- and ``transformations`` is the
+            batch of operations applied, one per entry of
+            ``augmented_systems``, kept for :meth:`undo_augmentation`.
+        """
+        replicated = [system for system in systems for _ in range(num_augmentations)]
+        dtype = replicated[0].positions.dtype
+        if self._group == "inversions":
+            signs = torch.randint(0, 2, (len(replicated),)) * 2 - 1
+            matrices = torch.stack([sign * torch.eye(3, dtype=dtype) for sign in signs])
+            transformations = O3Transformations(matrices, self._max_angular_momentum)
+        else:
+            transformations = random_transformations(
+                len(replicated),
+                self._max_angular_momentum,
+                device=torch.device("cpu"),
+                dtype=dtype,
+                add_inversions=True,
+            )
+        augmented = transformations.transform_systems(replicated)
+        return augmented, transformations
+
+    def undo_augmentation(
+        self,
+        predictions: Dict[str, TensorMap],
+        transformations: O3Transformations,
+    ) -> Dict[str, TensorMap]:
+        """Maps predictions made on transformed systems back to the frame the
+        (untransformed) systems passed to :meth:`replicate_and_augment` were
+        originally in.
+
+        :param predictions: predictions computed on the systems returned by
+            :meth:`replicate_and_augment` (or any systems transformed by
+            ``transformations``, in the same order).
+        :param transformations: the transformations to invert, as returned by
+            :meth:`replicate_and_augment`.
+        :return: ``predictions``, mapped back to the original frame.
+        """
+        n_operations = transformations.matrices.shape[0]
+        return {
+            name: transformations.inverse_transform_tensormap(
+                tmap, _tensor_system_ids(tmap, n_operations)
+            )
+            for name, tmap in predictions.items()
+        }
+
 
 def _tensor_system_ids(tensor: TensorMap, n_systems: int) -> Optional[torch.Tensor]:
     """Recover the "system" label value assigned to each of the ``n_systems``

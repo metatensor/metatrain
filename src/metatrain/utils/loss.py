@@ -16,6 +16,7 @@ from typing_extensions import NotRequired, TypedDict
 
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.ensemble import uncertainty_output_name
+from metatrain.utils.equivariance_penalty import equivariance_variance_output_name
 
 
 @with_config(ConfigDict(extra="allow"))
@@ -1125,6 +1126,157 @@ class TensorMapEnsembleNLLLoss(LossInterface):
         return self.torch_loss(mean_flat, target_flat, var_flat)
 
 
+class EquivariancePenaltyLoss(LossInterface):
+    r"""
+    On-line equivariance-error penalty: ``MSE(mean, target) + weight *
+    mean(variance)``, where mean and variance are taken over
+    ``num_augmentations`` random O(3) augmentations of each system.
+
+    This trains directly against a model's own equivariance error, rather
+    than only measuring it after the fact (as ``mtt eval``'s ``equivariance``
+    option does, via ``metatomic.torch.o3.SymmetrizedModel``): each system is
+    evaluated ``num_augmentations`` times under independent random rotations
+    (and, unless the group is restricted, reflections), every prediction is
+    mapped back to the system's original frame, and the resulting spread is
+    penalized directly. Unlike ``SymmetrizedModel``'s exact (but expensive)
+    quadrature integral, this is a cheap, unbiased *random-sample* estimate of
+    the same quantity, suited to being computed every training step rather
+    than only at evaluation time.
+
+    This loss does not perform the augmentation itself -- a single
+    ``LossInterface.compute()`` call only ever sees already-computed
+    predictions, and producing them here needs ``num_augmentations`` separate
+    forward passes. That is the trainer's job (see
+    ``metatrain.pet.trainer``): it detects a target configured with this loss,
+    augments and evaluates the model accordingly, and passes this loss its
+    mean prediction under ``name`` (exactly as for any other loss) and the
+    corresponding variance under
+    :func:`~metatrain.utils.equivariance_penalty.equivariance_variance_output_name`
+    (mirroring how :class:`TensorMapEnsembleNLLLoss` consumes a shallow
+    ensemble's variance, computed and exposed by the *model* rather than the
+    trainer).
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: must be ``None``; gradients are not supported (mapping a
+        gradient prediction back to the original frame after augmentation is
+        not implemented).
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: ``"mean"`` or ``"sum"``, applied to both terms.
+    :param num_augmentations: number of independent random augmentations per
+        system. Must be ``>= 2`` (a variance needs at least two samples).
+    :param variance_weight: weight of the variance term relative to the MSE
+        term.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+        num_augmentations: Optional[int] = None,
+        variance_weight: Optional[float] = None,
+    ):
+        super().__init__(name, gradient, weight, reduction)
+        if gradient is not None:
+            raise NotImplementedError(
+                "'equivariance_penalty' loss does not support gradient targets "
+                f"(got gradient={gradient!r} for target {name!r})"
+            )
+        if reduction not in ("mean", "sum"):
+            raise ValueError(
+                "'equivariance_penalty' loss only supports reduction 'mean' or "
+                f"'sum', got {reduction!r}"
+            )
+        if num_augmentations is None or num_augmentations < 2:
+            raise ValueError(
+                f"'equivariance_penalty' loss on target {name!r} requires "
+                "'num_augmentations' >= 2 (got "
+                f"{num_augmentations!r})"
+            )
+        if variance_weight is None:
+            raise ValueError(
+                f"'equivariance_penalty' loss on target {name!r} requires "
+                "'variance_weight', the weight of the variance term relative to "
+                "the MSE term"
+            )
+        self.num_augmentations = num_augmentations
+        self.variance_weight = variance_weight
+        self._mse = torch.nn.MSELoss(reduction=reduction)
+
+    @staticmethod
+    def _flatten(tensor_map: TensorMap) -> torch.Tensor:
+        return torch.cat([block.values.reshape(-1) for block in tensor_map.blocks()])
+
+    def compute_components(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Computes the two terms this loss combines, separately, mainly so the
+        trainer can log them individually (see ``metatrain.pet.trainer``): the
+        plain MSE against the target, and the (unweighted, i.e. not yet
+        multiplied by ``self.variance_weight``) mean/sum of the augmentation
+        variance.
+
+        :param predictions: must contain both ``self.target`` (the mean over
+            augmentations) and its
+            :func:`~metatrain.utils.equivariance_penalty
+            .equivariance_variance_output_name` counterpart (the variance over
+            augmentations).
+        :param targets: mapping of names to :py:class:`TensorMap`.
+        :return: ``(mse, variance_penalty)``.
+        """
+        variance_name = equivariance_variance_output_name(self.target)
+        if variance_name not in predictions:
+            raise RuntimeError(
+                f"'equivariance_penalty' loss for {self.target!r} requires the "
+                f"{variance_name!r} prediction; this is only produced by "
+                "metatrain.pet.trainer's on-line augmentation machinery, which "
+                "should already be active whenever this loss is configured -- "
+                "this is an internal wiring bug if seen otherwise"
+            )
+
+        mean_flat = self._flatten(predictions[self.target])
+        target_flat = self._flatten(targets[self.target])
+        variance_flat = self._flatten(predictions[variance_name])
+
+        # Don't include in the loss calculation any points where the target is NaN
+        not_nan = ~torch.isnan(target_flat)
+        mean_flat = mean_flat[not_nan]
+        target_flat = target_flat[not_nan]
+        variance_flat = variance_flat[not_nan]
+
+        if target_flat.numel() == 0:
+            zero = torch.zeros((), dtype=mean_flat.dtype, device=mean_flat.device)
+            return zero, zero
+
+        mse = self._mse(mean_flat, target_flat)
+        variance_penalty = (
+            variance_flat.mean() if self.reduction == "mean" else variance_flat.sum()
+        )
+        return mse, variance_penalty
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        """
+        :param predictions: must contain both ``self.target`` (the mean over
+            augmentations) and its
+            :func:`~metatrain.utils.equivariance_penalty
+            .equivariance_variance_output_name` counterpart (the variance over
+            augmentations).
+        :param targets: mapping of names to :py:class:`TensorMap`.
+        :param extra_data: ignored.
+        :return: scalar torch.Tensor loss.
+        """
+        mse, variance_penalty = self.compute_components(predictions, targets)
+        return mse + self.variance_weight * variance_penalty
+
+
 # --- aggregator -----------------------------------------------------------------------
 
 
@@ -1296,6 +1448,7 @@ class LossType(Enum):
     GAUSSIAN_CRPS = ("gaussian_crps_ensemble", TensorMapGaussianCRPSLoss)
     EMPIRICAL_CRPS = ("empirical_crps_ensemble", TensorMapEmpiricalCRPSLoss)
     ENSEMBLE_NLL = ("ensemble_nll", TensorMapEnsembleNLLLoss)
+    EQUIVARIANCE_PENALTY = ("equivariance_penalty", EquivariancePenaltyLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key

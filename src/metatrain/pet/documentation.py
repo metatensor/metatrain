@@ -366,6 +366,10 @@ class ModelHypers(TypedDict):
 
     See :class:`metatrain.utils.ensemble.ShallowEnsembleHypers` for the full
     description of ``scope``, ``members``, ``dropout`` and ``bagging``.
+
+    See also the ``equivariance_penalty`` loss (below, under
+    :attr:`TrainerHypers.loss`), an alternative, orthogonal way of directly
+    training against equivariance error, without ensembling at all.
     """
     zbl: bool = False
     """Use ZBL potential for short-range repulsion"""
@@ -492,7 +496,38 @@ class TrainerHypers(TypedDict):
     """Maximum gradient norm value."""
     loss: str | dict[str, LossSpecification | str] = "mse"
     """This section describes the loss function to be used. See the
-    :ref:`loss-functions` for more details."""
+    :ref:`loss-functions` for more details.
+
+    One target may use ``equivariance_penalty`` instead of a plain loss to
+    directly train against that target's own equivariance error, in place of
+    (or -- more commonly -- when finetuning after) plain-loss training. Each
+    system in a batch is replicated and independently randomly rotated
+    ``num_augmentations`` times (instead of the usual single random
+    augmentation per system), the model is evaluated on every replica, and
+    every prediction is mapped back to the system's original frame. The loss
+    is ``MSE(mean, target) + variance_weight * mean(variance)``, where mean
+    and variance are taken over the ``num_augmentations`` replicas -- so the
+    model is penalized directly for disagreeing with itself under rotation,
+    not just measured after the fact (as ``mtt eval``'s ``equivariance``
+    option does). See
+    :class:`~metatrain.utils.loss.EquivariancePenaltyLoss` for the full
+    parameter reference.
+
+    .. code-block:: yaml
+
+        loss:
+          mtt::shift:
+            type: equivariance_penalty
+            num_augmentations: 8    # required, >= 2
+            variance_weight: 0.1    # required
+
+    Since every system is now evaluated ``num_augmentations`` times per batch,
+    divide ``batch_size`` by ``num_augmentations`` to keep memory usage
+    comparable to plain-loss training (the trainer logs the resulting number
+    of systems actually processed per forward pass as a reminder). Both loss
+    components are logged per epoch as ``<target>_equivariance_penalty_mse``
+    and ``<target>_equivariance_penalty_variance``; RMSE/MAE metrics are
+    unaffected and keep reporting only on the plain target."""
     max_atoms_per_batch: Optional[int] = None
     """If set, use greedy atom-count packing instead of fixed ``batch_size``.
     Structures are accumulated into each batch until adding another would exceed this
