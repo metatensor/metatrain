@@ -8,7 +8,9 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatrain.utils.data import TargetInfo
+from metatrain.utils.equivariance_penalty import equivariance_variance_output_name
 from metatrain.utils.loss import (
+    EquivariancePenaltyLoss,
     GaussianCRPSLoss,
     LossAggregator,
     LossType,
@@ -753,3 +755,171 @@ def test_tensormap_gaussian_crps_loss(ensemble_tensor_maps):
     result = loss_fn.compute(predictions, targets)
     assert torch.isfinite(result)
     assert result.item() >= 0.0  # CRPS should be non-negative
+
+
+# --- EquivariancePenaltyLoss --------------------------------------------------------
+
+
+@pytest.fixture
+def equivariance_penalty_tensor_maps():
+    """A mean prediction, its per-sample augmentation variance, and a target,
+    for a single scalar "energy"-like quantity over 2 samples."""
+
+    def _map(values):
+        block = TensorBlock(
+            values=values,
+            samples=Labels.range("sample", values.shape[0]),
+            components=[],
+            properties=Labels.range("property", values.shape[1]),
+        )
+        return TensorMap(keys=Labels.single(), blocks=[block])
+
+    return {
+        "mean": _map(torch.tensor([[1.5], [3.1]])),
+        "variance": _map(torch.tensor([[0.1], [0.2]])),
+        "target": _map(torch.tensor([[1.6], [3.0]])),
+    }
+
+
+def test_equivariance_penalty_loss_matches_manual_computation(
+    equivariance_penalty_tensor_maps,
+):
+    """``mse + variance_weight * mean(variance)``, computed by hand from the same
+    values, must match ``compute()`` exactly."""
+    loss_fn = EquivariancePenaltyLoss(
+        name="energy",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+        num_augmentations=8,
+        variance_weight=0.5,
+    )
+    predictions = {
+        "energy": equivariance_penalty_tensor_maps["mean"],
+        equivariance_variance_output_name("energy"): equivariance_penalty_tensor_maps[
+            "variance"
+        ],
+    }
+    targets = {"energy": equivariance_penalty_tensor_maps["target"]}
+
+    result = loss_fn.compute(predictions, targets)
+
+    mse = ((1.5 - 1.6) ** 2 + (3.1 - 3.0) ** 2) / 2
+    variance_penalty = (0.1 + 0.2) / 2
+    expected = mse + 0.5 * variance_penalty
+    torch.testing.assert_close(result, torch.tensor(expected))
+
+
+def test_equivariance_penalty_loss_reduction_sum(equivariance_penalty_tensor_maps):
+    """With ``reduction="sum"``, both the MSE and the variance term are summed,
+    not averaged."""
+    loss_fn = EquivariancePenaltyLoss(
+        name="energy",
+        gradient=None,
+        weight=1.0,
+        reduction="sum",
+        num_augmentations=8,
+        variance_weight=2.0,
+    )
+    predictions = {
+        "energy": equivariance_penalty_tensor_maps["mean"],
+        equivariance_variance_output_name("energy"): equivariance_penalty_tensor_maps[
+            "variance"
+        ],
+    }
+    targets = {"energy": equivariance_penalty_tensor_maps["target"]}
+
+    result = loss_fn.compute(predictions, targets)
+
+    mse = (1.5 - 1.6) ** 2 + (3.1 - 3.0) ** 2
+    variance_penalty = 0.1 + 0.2
+    expected = mse + 2.0 * variance_penalty
+    torch.testing.assert_close(result, torch.tensor(expected))
+
+
+def test_equivariance_penalty_loss_missing_variance_raises(
+    equivariance_penalty_tensor_maps,
+):
+    """The trainer is responsible for producing the variance prediction; a missing
+    one is an internal wiring bug and must be reported as such, not silently
+    ignored."""
+    loss_fn = EquivariancePenaltyLoss(
+        name="energy",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+        num_augmentations=8,
+        variance_weight=0.5,
+    )
+    predictions = {"energy": equivariance_penalty_tensor_maps["mean"]}
+    targets = {"energy": equivariance_penalty_tensor_maps["target"]}
+
+    with pytest.raises(RuntimeError, match="energy_equivariance_variance"):
+        loss_fn.compute(predictions, targets)
+
+
+@pytest.mark.parametrize("num_augmentations", [None, 0, 1])
+def test_equivariance_penalty_loss_requires_at_least_two_augmentations(
+    num_augmentations,
+):
+    with pytest.raises(ValueError, match="num_augmentations"):
+        EquivariancePenaltyLoss(
+            name="energy",
+            gradient=None,
+            weight=1.0,
+            reduction="mean",
+            num_augmentations=num_augmentations,
+            variance_weight=0.5,
+        )
+
+
+def test_equivariance_penalty_loss_requires_variance_weight():
+    with pytest.raises(ValueError, match="variance_weight"):
+        EquivariancePenaltyLoss(
+            name="energy",
+            gradient=None,
+            weight=1.0,
+            reduction="mean",
+            num_augmentations=8,
+            variance_weight=None,
+        )
+
+
+def test_equivariance_penalty_loss_rejects_gradient():
+    with pytest.raises(NotImplementedError, match="gradient"):
+        EquivariancePenaltyLoss(
+            name="energy",
+            gradient="positions",
+            weight=1.0,
+            reduction="mean",
+            num_augmentations=8,
+            variance_weight=0.5,
+        )
+
+
+def test_equivariance_penalty_loss_rejects_reduction_none():
+    with pytest.raises(ValueError, match="reduction"):
+        EquivariancePenaltyLoss(
+            name="energy",
+            gradient=None,
+            weight=1.0,
+            reduction="none",
+            num_augmentations=8,
+            variance_weight=0.5,
+        )
+
+
+def test_equivariance_penalty_loss_registered_in_factory():
+    """``equivariance_penalty`` must be resolvable through the same
+    ``LossType``/``create_loss`` machinery as every other loss."""
+    assert LossType.from_key("equivariance_penalty").key == "equivariance_penalty"
+    loss = create_loss(
+        "equivariance_penalty",
+        name="energy",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+        num_augmentations=8,
+        variance_weight=0.5,
+    )
+    assert isinstance(loss, EquivariancePenaltyLoss)

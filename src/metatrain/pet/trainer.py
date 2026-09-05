@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
 
 import torch
-from metatomic.torch import ModelOutput
+from metatensor.torch import TensorMap
+from metatomic.torch import ModelOutput, System
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DistributedSampler
 
@@ -35,10 +36,12 @@ from metatrain.utils.distributed.slurm import (
     resolve_distributed,
 )
 from metatrain.utils.ensemble import uncertainty_output_name
+from metatrain.utils.equivariance_penalty import reduce_predictions_over_augmentations
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import (
+    EquivariancePenaltyLoss,
     LossAggregator,
     LossSpecification,
     TensorMapEnsembleNLLLoss,
@@ -268,6 +271,42 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.scaler.to(device)
         model.scaler.scales_to(device=device, dtype=torch.float64)
 
+        # Create a loss function. This has to happen before the collate functions are
+        # built below, since a target using the ``equivariance_penalty`` loss changes
+        # how training batches are augmented (see ``num_augmentations`` below).
+        loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
+        loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
+        # Targets configured with the ensemble-aware NLL loss need their
+        # ``{target}_uncertainty`` auxiliary output (the ensemble variance)
+        # requested from the model alongside the plain target.
+        ensemble_nll_targets = {
+            name
+            for name in train_targets
+            if isinstance(loss_fn.losses.get(name), TensorMapEnsembleNLLLoss)
+        }
+        # Targets configured with the on-line equivariance penalty need every batch
+        # replicated and augmented ``num_augmentations`` times instead of the usual
+        # single random augmentation per system (see ``O3Augmenter
+        # .replicate_and_augment``/``.undo_augmentation`` and ``_evaluate`` below).
+        equivariance_penalty_losses: Dict[str, EquivariancePenaltyLoss] = {}
+        for name in train_targets:
+            candidate_loss = loss_fn.losses.get(name)
+            if isinstance(candidate_loss, EquivariancePenaltyLoss):
+                equivariance_penalty_losses[name] = candidate_loss
+        num_augmentations: Optional[int] = None
+        if equivariance_penalty_losses:
+            distinct_num_augmentations = {
+                loss.num_augmentations for loss in equivariance_penalty_losses.values()
+            }
+            if len(distinct_num_augmentations) > 1:
+                raise ValueError(
+                    "all targets using the 'equivariance_penalty' loss must be "
+                    "configured with the same 'num_augmentations', got "
+                    f"{sorted(distinct_num_augmentations)} for "
+                    f"{sorted(equivariance_penalty_losses)}"
+                )
+            num_augmentations = distinct_num_augmentations.pop()
+
         # Create collate functions
 
         conditioning_keys = list(model.requested_inputs().keys())
@@ -298,14 +337,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
             get_remove_additive_transform(additive_models, train_targets),
             get_remove_scale_transform(scaler),
         ]
-        collate_fn_train = CollateFn(
-            target_keys=target_keys,
-            callables=[
-                atomic_basis_transform,
-                rotational_augmenter.apply_random_augmentations,
-                *base_callables,
-            ],
-        )
+        train_callables: List[Callable[..., Any]] = [atomic_basis_transform]
+        if num_augmentations is None:
+            train_callables.append(rotational_augmenter.apply_random_augmentations)
+        # else: the on-line equivariance penalty draws its own ``num_augmentations``
+        # augmentations per system in ``_evaluate`` below, replacing the usual single
+        # random augmentation that would otherwise be applied here
+        train_callables.extend(base_callables)
+        collate_fn_train = CollateFn(target_keys=target_keys, callables=train_callables)
         collate_fn_val = CollateFn(
             target_keys=target_keys,
             callables=[  # no augmentation for validation
@@ -356,18 +395,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
             for gradient_name in target_info.gradients:
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
-        # Create a loss function:
-        loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
-        loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
-        # Targets configured with the ensemble-aware NLL loss need their
-        # ``{target}_uncertainty`` auxiliary output (the ensemble variance)
-        # requested from the model alongside the plain target.
-        ensemble_nll_targets = {
-            name
-            for name in train_targets
-            if isinstance(loss_fn.losses.get(name), TensorMapEnsembleNLLLoss)
-        }
-
         def _requested_outputs(batch_target_names: Any) -> Dict[str, Any]:
             """Targets present in this batch, plus the ``{target}_uncertainty``
             auxiliary output for those configured with the ``ensemble_nll`` loss
@@ -391,6 +418,35 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
             return requested
 
+        variance_targets = list(equivariance_penalty_losses)
+
+        def _evaluate(
+            eval_systems: List[System], batch_target_names: Any, is_training: bool
+        ) -> Dict[str, TensorMap]:
+            """Evaluates the model, transparently running the on-line
+            equivariance penalty's replicate/augment/undo/reduce pipeline when
+            ``num_augmentations`` is set (see ``equivariance_penalty_losses``
+            above), or a plain forward pass otherwise."""
+            requested = _requested_outputs(batch_target_names)
+            if num_augmentations is None:
+                return evaluate_model(
+                    model, eval_systems, requested, is_training=is_training
+                )
+            augmented_systems, transformations = (
+                rotational_augmenter.replicate_and_augment(
+                    eval_systems, num_augmentations
+                )
+            )
+            raw_predictions = evaluate_model(
+                model, augmented_systems, requested, is_training=is_training
+            )
+            predictions = rotational_augmenter.undo_augmentation(
+                raw_predictions, transformations
+            )
+            return reduce_predictions_over_augmentations(
+                predictions, num_augmentations, variance_targets
+            )
+
         logging.info("Using the following loss functions:")
         for name, info in loss_fn.metadata.items():
             logging.info(f"{name}:")
@@ -405,6 +461,18 @@ class Trainer(TrainerInterface[TrainerHypers]):
             logging.info(
                 "Trained with the ensemble-aware NLL loss (spread calibrated "
                 f"to error): {sorted(ensemble_nll_targets)}"
+            )
+        if equivariance_penalty_losses:
+            per_forward_pass = self.hypers["batch_size"] * num_augmentations
+            logging.info(
+                "Trained with the on-line equivariance penalty "
+                f"(num_augmentations={num_augmentations}): "
+                f"{sorted(equivariance_penalty_losses)}. Every system is "
+                f"replicated and evaluated {num_augmentations} times per "
+                f"batch, so with 'batch_size: {self.hypers['batch_size']}' "
+                f"each forward pass processes {per_forward_pass} systems -- "
+                "consider dividing 'batch_size' by 'num_augmentations' to "
+                "keep memory usage comparable to training without this loss."
             )
 
         if self.hypers["weight_decay"] is not None:
@@ -457,6 +525,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
             train_loss = 0.0
+            # raw (unweighted-by-variance_weight) [mse_sum, variance_sum] per target
+            # using the on-line equivariance penalty, logged alongside "loss" below
+            train_equivariance_components: Dict[str, List[float]] = {
+                name: [0.0, 0.0] for name in equivariance_penalty_losses
+            }
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
@@ -464,12 +537,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device
                 )
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    _requested_outputs(targets.keys()),
-                    is_training=True,
-                )
+                predictions = _evaluate(systems, targets.keys(), is_training=True)
 
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
@@ -513,6 +581,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     # sum the loss over all processes
                     torch.distributed.all_reduce(train_loss_batch)
                 train_loss += train_loss_batch.item()
+
+                for name, penalty_loss in equivariance_penalty_losses.items():
+                    mse_component, variance_component = penalty_loss.compute_components(
+                        predictions, targets
+                    )
+                    if is_distributed:
+                        torch.distributed.all_reduce(mse_component)
+                        torch.distributed.all_reduce(variance_component)
+                    train_equivariance_components[name][0] += mse_component.item()
+                    train_equivariance_components[name][1] += variance_component.item()
 
                 # Reapply scales and accumulate quantities for computing train metrics,
                 # but only if this is an epoch to log
@@ -578,17 +656,15 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 any(target_info.gradients for target_info in train_targets.values())
             ):  # keep gradients on if any of the targets require them
                 val_loss = 0.0
+                val_equivariance_components: Dict[str, List[float]] = {
+                    name: [0.0, 0.0] for name in equivariance_penalty_losses
+                }
                 for batch in val_dataloader:
                     systems, targets, extra_data = unpack_batch(batch)
                     systems, targets, extra_data = batch_to(
                         systems, targets, extra_data, dtype=dtype, device=device
                     )
-                    predictions = evaluate_model(
-                        model,
-                        systems,
-                        _requested_outputs(targets.keys()),
-                        is_training=False,
-                    )
+                    predictions = _evaluate(systems, targets.keys(), is_training=False)
 
                     # average by the number of atoms
                     predictions = average_by_num_atoms(
@@ -619,6 +695,18 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         # sum the loss over all processes
                         torch.distributed.all_reduce(val_loss_batch)
                     val_loss += val_loss_batch.item()
+
+                    for name, penalty_loss in equivariance_penalty_losses.items():
+                        mse_component, variance_component = (
+                            penalty_loss.compute_components(predictions, targets)
+                        )
+                        if is_distributed:
+                            torch.distributed.all_reduce(mse_component)
+                            torch.distributed.all_reduce(variance_component)
+                        val_equivariance_components[name][0] += mse_component.item()
+                        val_equivariance_components[name][1] += (
+                            variance_component.item()
+                        )
 
                     # Reapply scales and accumulate quantities for computing val
                     # metrics. This is done for every epoch as validation metrics are
@@ -684,10 +772,25 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     "loss": train_loss,
                     **finalized_train_info,
                 }
+                # the on-line equivariance penalty's two components, logged as loss
+                # values (not RMSE/MAE, which stay target-only -- see _evaluate above)
+                for name, (
+                    mse_sum,
+                    variance_sum,
+                ) in train_equivariance_components.items():
+                    finalized_train_info[f"{name}_equivariance_penalty_mse"] = mse_sum
+                    finalized_train_info[f"{name}_equivariance_penalty_variance"] = (
+                        variance_sum
+                    )
             finalized_val_info = {
                 "loss": val_loss,
                 **finalized_val_info,
             }
+            for name, (mse_sum, variance_sum) in val_equivariance_components.items():
+                finalized_val_info[f"{name}_equivariance_penalty_mse"] = mse_sum
+                finalized_val_info[f"{name}_equivariance_penalty_variance"] = (
+                    variance_sum
+                )
 
             if epoch == start_epoch:
                 metric_logger = MetricLogger(

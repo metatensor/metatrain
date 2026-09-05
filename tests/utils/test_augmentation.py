@@ -805,6 +805,142 @@ def test_rotation_after_atomic_basis_prepare_transform():
     mts.allclose_raise(reversed_targets[target_name], fRX, atol=1e-5)
 
 
+def test_replicate_and_augment_replicates_in_order():
+    """The first ``num_augmentations`` entries of ``augmented_systems`` are
+    independent augmentations of the first original system, the next
+    ``num_augmentations`` of the second, and so on -- and every replica within a
+    group is independently drawn (vanishingly unlikely to coincide)."""
+    num_augmentations = 3
+    systems = [
+        System(
+            positions=torch.tensor(
+                [[float(i), 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 8]),
+            cell=torch.zeros((3, 3), dtype=torch.float64),
+            pbc=torch.tensor([False, False, False]),
+        )
+        for i in range(2)
+    ]
+    rotational_augmenter = O3Augmenter({}, {})
+
+    torch.manual_seed(0)
+    augmented_systems, transformations = rotational_augmenter.replicate_and_augment(
+        systems, num_augmentations
+    )
+
+    assert len(augmented_systems) == len(systems) * num_augmentations
+    assert transformations.matrices.shape[0] == len(systems) * num_augmentations
+
+    # every replica of system 0, mapped back by its own transformation's inverse
+    # (== its transpose, for an orthogonal matrix), recovers system 0's positions
+    # -- and likewise for system 1 -- confirming both the grouping order and that
+    # the recorded transformations are the ones actually applied
+    for original_index, system in enumerate(systems):
+        for replica in range(num_augmentations):
+            i = original_index * num_augmentations + replica
+            recovered = augmented_systems[i].positions @ transformations.matrices[i]
+            torch.testing.assert_close(recovered, system.positions)
+
+    # the three replicas of system 0 are independently drawn, not all identical
+    replicas_of_system_0 = [
+        augmented_systems[replica].positions for replica in range(num_augmentations)
+    ]
+    assert not all(
+        torch.allclose(replicas_of_system_0[0], other)
+        for other in replicas_of_system_0[1:]
+    )
+
+
+def test_replicate_and_augment_undo_round_trip():
+    """Simulates a perfectly O(3)-equivariant model: the "prediction" on each
+    augmented replica is set to that replica's own transformation applied to a
+    per-system reference vector, so ``undo_augmentation`` must map every one of
+    the ``num_augmentations`` replicas of every system back to that exact
+    reference vector."""
+    target_name = "mtt::vectors"
+    num_augmentations = 3
+    systems = [
+        System(
+            positions=torch.tensor(
+                [[0.1, 0.2, 0.3], [1.0, 0.0, 0.0]], dtype=torch.float64
+            ),
+            types=torch.tensor([1, 8]),
+            cell=torch.zeros((3, 3), dtype=torch.float64),
+            pbc=torch.tensor([False, False, False]),
+        )
+        for _ in range(2)
+    ]
+    reference_vectors = torch.tensor(
+        [[1.0, 2.0, 3.0], [-1.0, 0.5, 2.0]], dtype=torch.float64
+    )
+
+    dataset_info = _dataset_info(target_name, {"cartesian": {"rank": 1}}, "system")
+    rotational_augmenter = O3Augmenter(dataset_info.targets, {})
+
+    torch.manual_seed(0)
+    augmented_systems, transformations = rotational_augmenter.replicate_and_augment(
+        systems, num_augmentations
+    )
+    n_replicas = len(augmented_systems)
+
+    # forward-transform each replica's own reference vector, exactly as
+    # transform_tensormap would for a rank-1 Cartesian target (see
+    # test_cartesian_rank3/test_rotation_atom_pair_cartesian for that convention)
+    predicted_values = torch.stack(
+        [
+            transformations.matrices[i] @ reference_vectors[i // num_augmentations]
+            for i in range(n_replicas)
+        ]
+    ).unsqueeze(-1)
+    predictions = {
+        target_name: TensorMap(
+            keys=Labels(["_"], torch.tensor([[0]])),
+            blocks=[
+                TensorBlock(
+                    values=predicted_values,
+                    samples=Labels.range("system", n_replicas),
+                    components=[Labels(["xyz"], torch.arange(3).reshape(-1, 1))],
+                    properties=Labels.range("property", 1),
+                )
+            ],
+        )
+    }
+
+    back_transformed = rotational_augmenter.undo_augmentation(
+        predictions, transformations
+    )
+    out_values = back_transformed[target_name].block().values.squeeze(-1)
+    for i in range(n_replicas):
+        torch.testing.assert_close(
+            out_values[i], reference_vectors[i // num_augmentations]
+        )
+
+
+def test_replicate_and_augment_inversions_group():
+    """With ``group="inversions"``, every drawn transformation is either the
+    identity or the inversion -- never a proper or improper rotation."""
+    num_augmentations = 5
+    systems = [
+        System(
+            positions=torch.tensor([[0.1, 0.2, 0.3]], dtype=torch.float64),
+            types=torch.tensor([1]),
+            cell=torch.zeros((3, 3), dtype=torch.float64),
+            pbc=torch.tensor([False, False, False]),
+        )
+    ]
+    rotational_augmenter = O3Augmenter({}, {}, group="inversions")
+
+    torch.manual_seed(0)
+    _, transformations = rotational_augmenter.replicate_and_augment(
+        systems, num_augmentations
+    )
+
+    identity = torch.eye(3, dtype=torch.float64)
+    for matrix in transformations.matrices:
+        assert torch.allclose(matrix, identity) or torch.allclose(matrix, -identity)
+
+
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 @pytest.mark.parametrize("batch_size", [1, 2])
 def test_rotation_per_atom_spherical_rank2(batch_size, device):
