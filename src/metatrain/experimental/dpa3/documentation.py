@@ -48,7 +48,16 @@ Exporting a foundation DPA3 model
 
 As it is now, exporting a foundation DPA3 model from one of the `provided model
 files <https://huggingface.co/deepmodelingcommunity>`_ involves using ``mtt train`` with
-0 epochs. To do so, use the following ``options.yaml`` file:
+0 epochs.
+
+Point ``dpa3_model`` at the checkpoint exactly as you downloaded it. These
+checkpoints are trained on several datasets at once, and ``dpa3_model_branch``
+selects the task to export; there is no need to run ``dp --pt freeze`` first,
+and a frozen model is in fact rejected. If you do not know which tasks a
+checkpoint contains, leave ``dpa3_model_branch`` out: the resulting error lists
+every branch the checkpoint provides.
+
+Use the following ``options.yaml`` file:
 
 .. code-block:: yaml
 
@@ -218,15 +227,19 @@ class ModelHypers(TypedDict):
     """
 
     dpa3_model: Optional[str] = None
-    """Path to a pretrained DPA3 model file (deepmd-kit checkpoint or saved
-    Module).  When provided, the model weights are loaded from this file
-    instead of being initialised from scratch.  Energy biases and standard
-    deviations stored in the deepmd-kit model are extracted and handed to
-    metatrain's ``CompositionModel`` and ``Scaler`` so that fine-tuning starts
-    from the pretrained values."""
+    """Path to a deepmd-kit training checkpoint, used exactly as distributed
+    (for example ``DPA-3.3-1M.pt``).  A frozen model written by
+    ``dp --pt freeze`` is not accepted, since the branch selection and the
+    model configuration metatrain needs both live in the checkpoint.  When
+    provided, the model weights are loaded from this file instead of being
+    initialised from scratch.  Energy biases and standard deviations stored in
+    the deepmd-kit model are extracted and handed to metatrain's
+    ``CompositionModel`` and ``Scaler`` so that fine-tuning starts from the
+    pretrained values."""
     dpa3_model_branch: Optional[str] = None
-    """Branch name for the pretrained DPA3 model.  If not provided, and the
-    model has multiple branches, an error will be raised."""
+    """Name of the task to load from a multi-task pretrained DPA3 model.  If
+    the model has several branches and this is not set, the resulting error
+    lists the branches the checkpoint provides."""
     descriptor: DescriptorHypers = init_with_defaults(DescriptorHypers)
     """Descriptor configuration (RepFlow block and related settings)."""
     fitting_net: FittingNetHypers = init_with_defaults(FittingNetHypers)

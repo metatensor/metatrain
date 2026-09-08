@@ -58,7 +58,10 @@ def _small_pretrained_checkpoint(path, branches=None):
     state = collections.OrderedDict()
     for prefix in [f"model.{task}." for task in branches or ["Default"]]:
         for key, value in base.model.state_dict().items():
-            state[prefix + key] = value
+            if prefix == "model.Default.Beta":
+                state[prefix + key] = value + 1.0  # make Beta different from Alpha
+            else:
+                state[prefix + key] = value
 
     state["_extra_state"] = {
         "model_params": (

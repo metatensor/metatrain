@@ -1,4 +1,3 @@
-import collections
 import contextlib
 import copy
 import json
@@ -139,62 +138,64 @@ class DPA3(ModelInterface[ModelHypers]):
                     weights_only=False,
                     map_location=torch.device("cpu"),
                 )
-                sd = loaded["model"]
-                if isinstance(sd, torch.nn.Module):
-                    self.model = sd.cpu()
-                elif isinstance(sd, collections.OrderedDict):
-                    params = sd["_extra_state"]["model_params"]
-                    if "model_dict" not in params:
-                        # Very rare case: a single-task dpa3 model
-                        cfg, prefix = params, "model.Default."
-                    else:
-                        # A pretrained dpa3 model is usually a multi-task checkpoint
-                        # with branches
-                        branch = hypers["dpa3_model_branch"]
-                        available = sorted(params["model_dict"])
-                        if branch is None:
-                            raise ValueError(
-                                f"The pretrained DPA3 model has multiple branches. "
-                                f"Please specify the branch to load via the "
-                                f"'dpa3_model_branch' hyperparameter. Available "
-                                f"branches: {', '.join(available)}"
-                            )
-                        elif branch not in params["model_dict"]:
-                            raise ValueError(
-                                f"The specified branch '{branch}' is not available in "
-                                f"the pretrained DPA3 model. "
-                                f"Available branches: {', '.join(available)}"
-                            )
-                        cfg = params["model_dict"][branch]
-                        prefix = f"model.{branch}."
-                    with _build_on_cpu():
-                        self.model = get_standard_model(cfg)
-                    # Update the atomic types extracted from the dataset with the types
-                    # from the pretrained model
-                    dataset_info.atomic_types = [
-                        ase.data.atomic_numbers[element] for element in cfg["type_map"]
-                    ]
-                    self.atomic_types = dataset_info.atomic_types
-                    branch_sd = {
-                        k[len(prefix) :]: v
-                        for k, v in sd.items()
-                        if k.startswith(prefix)
-                    }
-                    missing, unexpected = self.model.load_state_dict(
-                        branch_sd, strict=False
+                state_dict = loaded.get("model") if isinstance(loaded, dict) else None
+                if not isinstance(state_dict, dict) or "_extra_state" not in state_dict:
+                    raise ValueError(
+                        f"'{dpa3_model}' is not a deepmd-kit training checkpoint. "
+                        f"Use the checkpoint distributed by deepmd-kit (for "
+                        f"example 'DPA-3.3-1M.pt') directly without freezing it via "
+                        f"'dp --pt freeze'."
                     )
-                    real = [k for k in missing + unexpected if "_extra_state" not in k]
-                    if real:
+
+                params = state_dict["_extra_state"]["model_params"]
+                if "model_dict" not in params:
+                    # Very rare case: a single-task dpa3 model
+                    cfg, prefix = params, "model.Default."
+                    branch = None
+                else:
+                    # A pretrained dpa3 model is usually a multi-task checkpoint
+                    # with branches
+                    branch = hypers["dpa3_model_branch"]
+                    available = sorted(params["model_dict"])
+                    if branch is None:
+                        raise ValueError(
+                            f"The pretrained DPA3 model has multiple branches. "
+                            f"Please specify the branch to load via the "
+                            f"'dpa3_model_branch' hyperparameter. Available "
+                            f"branches: {', '.join(available)}"
+                        )
+                    elif branch not in params["model_dict"]:
+                        raise ValueError(
+                            f"The specified branch '{branch}' is not available in "
+                            f"the pretrained DPA3 model. "
+                            f"Available branches: {', '.join(available)}"
+                        )
+                    cfg = params["model_dict"][branch]
+                    prefix = f"model.{branch}."
+                with _build_on_cpu():
+                    self.model = get_standard_model(cfg)
+                # Update the atomic types extracted from the dataset with the types
+                # from the pretrained model
+                dataset_info.atomic_types = [
+                    ase.data.atomic_numbers[element] for element in cfg["type_map"]
+                ]
+                self.atomic_types = dataset_info.atomic_types
+                branch_state_dict = {
+                    k[len(prefix) :]: v
+                    for k, v in state_dict.items()
+                    if k.startswith(prefix)
+                }
+                missing, unexpected = self.model.load_state_dict(
+                    branch_state_dict, strict=False
+                )
+                real = [k for k in missing + unexpected if "_extra_state" not in k]
+                if real:
+                    if branch is not None:
                         raise RuntimeError(
                             f"state_dict mismatch for branch {branch}: {real[:5]}"
                         )
-                else:
-                    raise ValueError(
-                        f"Failed to get the model from the provided path: "
-                        f"{dpa3_model}."
-                        f"The loaded model must contain a torch.nn.Module or a "
-                        f"collections.OrderedDict."
-                    )
+                    else:
+                        raise RuntimeError(f"state_dict mismatch: {real[:5]}")
             elif isinstance(dpa3_model, torch.nn.Module):
                 self.model = dpa3_model.cpu()
             elif isinstance(dpa3_model, dict):
@@ -243,8 +244,10 @@ class DPA3(ModelInterface[ModelHypers]):
             type_map = [ase.data.chemical_symbols[z] for z in self.atomic_types]
             # deepmd-kit expects precision as strings; convert at the boundary.
             deepmd_hypers: Dict[str, Any] = copy.deepcopy(dict(hypers))
-            # This key is only used in metatrain; deepmd-kit does not recognize it.
+            # The following two keys are only used in metatrain; deepmd-kit does not
+            # recognize it.
             deepmd_hypers.pop("dpa3_model", None)
+            deepmd_hypers.pop("dpa3_model_branch", None)
             deepmd_hypers["type_map"] = type_map
             deepmd_hypers["descriptor"]["precision"] = _INT_TO_DEEPMD_PREC[desc_prec]
             deepmd_hypers["fitting_net"]["precision"] = _INT_TO_DEEPMD_PREC[fit_prec]
