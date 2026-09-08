@@ -21,9 +21,6 @@ def model_update_v2_v3(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to update.
     """
-    # Remove the "dpa3_model" key from the hypers dictionary if it exists
-    if "dpa3_model" not in checkpoint["model_data"]["model_hypers"]:
-        checkpoint["model_data"]["model_hypers"]["dpa3_model"] = None
     if "dpa3_model_branch" not in checkpoint["model_data"]["model_hypers"]:
         checkpoint["model_data"]["model_hypers"]["dpa3_model_branch"] = None
 

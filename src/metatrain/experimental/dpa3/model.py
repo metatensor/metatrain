@@ -190,8 +190,10 @@ class DPA3(ModelInterface[ModelHypers]):
                         )
                 else:
                     raise ValueError(
-                        "The loaded model must be a torch.nn.Module or a "
-                        "collections.OrderedDict."
+                        f"Failed to get the model from the provided path: "
+                        f"{dpa3_model}."
+                        f"The loaded model must contain a torch.nn.Module or a "
+                        f"collections.OrderedDict."
                     )
             elif isinstance(dpa3_model, torch.nn.Module):
                 self.model = dpa3_model.cpu()
@@ -670,6 +672,9 @@ class DPA3(ModelInterface[ModelHypers]):
         if not torch.all(std == std[0]):
             raise NotImplementedError(
                 "Loaded DPA3 models with non-uniform per-type 'out_std' are "
-                "not supported."
+                "not supported. Currently, the std values are all 1.0 in all "
+                "pretrained DPA3 models. This might change in the future if "
+                "new models are trained to predict properties except from "
+                "the energy."
             )
         return {self.targets_keys: std[0].item()}
