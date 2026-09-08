@@ -46,8 +46,8 @@ def model_update_v4_v5(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to update.
     """
-    if "forward_hooks" not in checkpoint["model_data"]["model_hypers"]:
-        checkpoint["model_data"]["model_hypers"]["forward_hooks"] = {}
+    if "forward_hooks" not in checkpoint["model_data"]["hypers"]:
+        checkpoint["model_data"]["hypers"]["forward_hooks"] = {}
 
 
 ###########################
