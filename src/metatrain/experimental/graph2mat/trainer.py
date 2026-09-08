@@ -7,6 +7,8 @@ import metatensor.torch as mts
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
 
+from metatrain.composition import train_or_load_composition_model
+from metatrain.scaler import train_or_load_scaler
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.data import (
@@ -199,26 +201,28 @@ class Trainer(TrainerInterface[TrainerHypers]):
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
 
-        logging.info("Calculating composition weights")
-        model.additive_models[0].train_model(  # this is the composition model
-            train_datasets,
-            model.additive_models[1:],
-            self.hypers["batch_size"],
-            is_distributed,
-            {},  # self.hypers["atomic_baseline"],
+        atomic_baseline = self.hypers["atomic_baseline"]
+        train_or_load_composition_model(
+            composition_model=model.additive_models[0],
+            atomic_baseline=atomic_baseline,
+            train_datasets=train_datasets,
+            other_additive_models=list(model.additive_models[1:]),
+            batch_size=self.hypers["batch_size"],
+            is_distributed=is_distributed,
+            checkpoint_dir=checkpoint_dir,
         )
 
         if self.hypers["scale_targets"]:
-            logging.info("Calculating scaling weights")
-            model.scaler.train_model(
-                train_datasets,
-                model.additive_models,
-                self.hypers["batch_size"],
-                is_distributed,
-                {
-                    **model.get_fixed_scaling_weights(),
-                    **self.hypers["fixed_scaling_weights"],
-                },
+            scaling_weights = self.hypers["fixed_scaling_weights"]
+            train_or_load_scaler(
+                scaler=model.scaler,
+                fixed_weights=scaling_weights,
+                train_datasets=train_datasets,
+                additive_models=model.additive_models,
+                batch_size=self.hypers["batch_size"],
+                is_distributed=is_distributed,
+                checkpoint_dir=checkpoint_dir,
+                per_structure_targets=self.hypers["per_structure_targets"],
             )
 
         logging.info("Setting up data loaders")
