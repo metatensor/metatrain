@@ -15,6 +15,16 @@ def model_update_v1_v2(checkpoint: dict) -> None:
     update_per_property_scales(checkpoint)
 
 
+def model_update_v2_v3(checkpoint: dict) -> None:
+    """
+    Update a v2 checkpoint to v3.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    if "dpa3_model_branch" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["dpa3_model_branch"] = None
+
+
 ###########################
 # TRAINER #################
 ###########################
