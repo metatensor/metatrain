@@ -1317,7 +1317,7 @@ class MemmapDataset(TorchDataset):
         )
 
         # Information about the structures
-        self.ns = np.load(path / "ns.npy")
+        self.ns = int(np.load(path / "ns.npy").reshape(-1)[0])
         self.na = np.load(path / "na.npy")
         if self.na.dtype != np.int64:
             raise ValueError(
