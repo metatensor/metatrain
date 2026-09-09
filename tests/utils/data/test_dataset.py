@@ -766,7 +766,7 @@ def test_memmap_per_atom_labels_use_local_indices(tmp_path):
 
 
 def test_memmap_accepts_1d_ns(tmp_path):
-    """ns.npy may be stored either as a scalar or as a shape-(1,) array """
+    """ns.npy may be stored either as a scalar or as a shape-(1,) array"""
 
     na = np.array([0, 1], dtype=np.int64)
     np.save(tmp_path / "ns.npy", np.array([1], dtype=np.int64))
