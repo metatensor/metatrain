@@ -8,13 +8,22 @@ from omegaconf import OmegaConf
 from metatrain.pet import PET
 from metatrain.pet import Trainer as PETTrainer
 from metatrain.utils.architectures import get_default_hypers
+from metatrain.utils.data import DatasetInfo
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
 from metatrain.utils.testing import ArchitectureTests, CheckpointTests
+from metatrain.utils.testing.input import InputTests
 
 
 class LLPRTests(ArchitectureTests):
     architecture = "llpr"
+
+
+class TestInput(InputTests, LLPRTests):
+    def test_restart(
+        self, minimal_model_hypers: dict, dataset_info: DatasetInfo
+    ) -> None:
+        pytest.skip("LLPR's restart does not work without a model checkpoint.")
 
 
 class TestCheckpoints(CheckpointTests, LLPRTests):

@@ -223,6 +223,21 @@ def test_eval_no_targets(monkeypatch, tmp_path, model, options):
     assert Path("output.xyz").is_file()
 
 
+def test_eval_extxyz_input_and_output(monkeypatch, tmp_path, model, options):
+    """Test that eval can read systems from and write predictions to extxyz files."""
+    monkeypatch.chdir(tmp_path)
+
+    shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.extxyz")
+    options.pop("targets")
+    options["systems"] = "qm9_reduced_100.extxyz"
+
+    eval_model(model=model, options=options, output="predictions.extxyz")
+
+    frames = read("predictions.extxyz", ":")
+    assert len(frames) == 100
+    assert "energy" in frames[0].info
+
+
 @pytest.mark.parametrize("suffix", [".zip", "/"])
 def test_eval_no_targets_disallowed_for_dataset_writers(
     monkeypatch, tmp_path, model, options, suffix

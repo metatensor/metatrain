@@ -81,6 +81,8 @@ class TestCheckpoints(CheckpointTests, FlashMDTests):
 
 
 class TestTraining(TrainingTests, FlashMDTests):
+    supports_atomic_basis = False
+
     @pytest.fixture
     def default_hypers(self):
         hypers = get_default_hypers(self.architecture)

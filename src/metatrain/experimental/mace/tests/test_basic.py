@@ -210,7 +210,25 @@ class TestTorchscript(TorchscriptTests, MACETests):
 class TestExported(ExportedTests, MACETests): ...
 
 
-class TestTraining(TrainingTests, MACETests): ...
+class TestTraining(TrainingTests, MACETests):
+    def test_train_atomic_basis_target(
+        self,
+        source,
+        monkeypatch,
+        tmp_path,
+        dataset_info_spherical_atomic_basis,
+        default_hypers,
+        model_hypers,
+    ) -> None:
+        if source == "from_file":
+            pytest.skip("a pretrained MACE has an energy head, not an atomic basis")
+        super().test_train_atomic_basis_target(
+            monkeypatch,
+            tmp_path,
+            dataset_info_spherical_atomic_basis,
+            default_hypers,
+            model_hypers,
+        )
 
 
 class TestCheckpoints(CheckpointTests, MACETests):

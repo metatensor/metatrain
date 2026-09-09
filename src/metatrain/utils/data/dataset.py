@@ -2,6 +2,7 @@ import io
 import math
 import multiprocessing
 import os
+import sys
 import warnings
 import zipfile
 from pathlib import Path
@@ -94,7 +95,7 @@ class DatasetInfo:
     ):
         # verify that `length_unit` and `atomic_types` are valid for metatomic
         _ = ModelCapabilities(
-            outputs={"energy": ModelOutput()},
+            outputs={"energy": ModelOutput(unit="eV")},
             length_unit=length_unit,
             atomic_types=atomic_types,
         )
@@ -1148,7 +1149,7 @@ def get_num_workers() -> int:
     :return: A good number of workers for data loading.
     """
 
-    if multiprocessing.get_start_method(allow_none=False) != "fork":
+    if not fork_is_available():
         return 0
 
     # len(os.sched_getaffinity(0)) detects thread counts set by slurm,
@@ -1167,20 +1168,40 @@ def get_num_workers() -> int:
     return num_workers
 
 
+def fork_is_available() -> bool:
+    """
+    Whether the "fork" multiprocessing start method can be used for
+    ``DataLoader`` workers.
+
+    Restricted to Linux: fork is unsafe on macOS (system frameworks are not
+    fork-safe) and unavailable on Windows. Checked against the list of
+    available start methods rather than the default one, because the default
+    changed from "fork" to "forkserver" on Linux in Python 3.14 while fork
+    remains available; metatrain requests it explicitly when building
+    ``DataLoader`` objects.
+
+    :return: Whether "fork" can be used for ``DataLoader`` workers.
+    """
+    return (
+        sys.platform.startswith("linux")
+        and "fork" in multiprocessing.get_all_start_methods()
+    )
+
+
 def validate_num_workers(num_workers: int) -> None:
     """
     Gets a good number of workers for data loading.
 
     :param num_workers: The number of workers to validate.
     :raises ValueError: If the number of workers is greater than 0 and the
-        multiprocessing start method is not "fork".
+        "fork" multiprocessing start method is not available.
     """
 
-    if multiprocessing.get_start_method(allow_none=False) != "fork" and num_workers > 0:
+    if num_workers > 0 and not fork_is_available():
         raise ValueError(
-            "You are using a start method for multiprocessing that is not "
-            "'fork' (this is likely because you are on macOS or Windows). "
-            "In this case, num_workers must be set to 0."
+            "Parallel data loading relies on the 'fork' multiprocessing "
+            "start method, which is only available on Linux. On this "
+            "platform, num_workers must be set to 0."
         )
 
 

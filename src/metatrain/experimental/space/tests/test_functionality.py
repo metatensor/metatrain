@@ -159,7 +159,7 @@ def test_multiple_targets():
     model = SPACE(hypers, dataset_info)
     system = _make_system(model)
     outputs = {
-        "energy": ModelOutput(quantity="energy", unit="eV", sample_kind="system"),
+        "energy": ModelOutput(unit="eV", sample_kind="system"),
         "dipole": ModelOutput(sample_kind="system"),
         "non_conservative_stress": ModelOutput(sample_kind="system"),
     }

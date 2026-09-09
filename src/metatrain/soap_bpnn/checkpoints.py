@@ -4,7 +4,7 @@ import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from metatrain.utils.scaler.checkpoints import update_per_property_scales
+from metatrain.scaler.checkpoints import update_per_property_scales
 
 
 ###########################
@@ -394,3 +394,16 @@ def trainer_update_v10_v11(checkpoint: dict) -> None:
     min_bound, max_bound = train_hypers.pop("batch_atom_bounds", [None, None])
     train_hypers["max_atoms_per_batch"] = max_bound
     train_hypers["min_atoms_per_batch"] = min_bound if min_bound is not None else 0
+
+
+def trainer_update_v11_v12(checkpoint: dict) -> None:
+    """
+    Deprecate the ``distributed`` hyperparameter.
+
+    So that it doesn't show up in the restarting options.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    train_hypers = checkpoint["train_hypers"]
+    if "distributed" in train_hypers and train_hypers["distributed"] is None:
+        train_hypers.pop("distributed")

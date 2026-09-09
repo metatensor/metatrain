@@ -60,7 +60,7 @@ def test_regression_init():
 
     output = model(
         systems,
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind="system")},
+        {"mtt::U0": ModelOutput(unit="", sample_kind="system")},
     )
 
     expected_output = torch.tensor(
@@ -307,7 +307,7 @@ def test_regression_energy_non_conservative_stress(batch_size):
     outputs = model(
         eval_systems,
         {
-            "energy": ModelOutput(quantity="energy", unit="", sample_kind="system"),
+            "energy": ModelOutput(unit="", sample_kind="system"),
             "non_conservative_stress": ModelOutput(sample_kind="system"),
         },
     )
@@ -426,11 +426,7 @@ def test_regression_train_spherical(device):
     ]
     output = model(
         systems,
-        {
-            "mtt::electron_density_basis": ModelOutput(
-                quantity="", unit="", sample_kind="atom"
-            )
-        },
+        {"mtt::electron_density_basis": ModelOutput(unit="", sample_kind="atom")},
     )
 
     expected_output = torch.tensor(

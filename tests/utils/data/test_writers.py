@@ -229,7 +229,13 @@ def test_write_xyz_cell(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize(
     "filename",
-    ("test_output.xyz", "test_output.mts", "test_output.zip", "test_output/"),
+    (
+        "test_output.xyz",
+        "test_output.extxyz",
+        "test_output.mts",
+        "test_output.zip",
+        "test_output/",
+    ),
 )
 @pytest.mark.parametrize("fileformat", (None, "same_as_filename"))
 @pytest.mark.parametrize("cell", (None, torch.eye(3)))
@@ -253,7 +259,7 @@ def test_write_predictions(filename, fileformat, cell, monkeypatch, tmp_path):
     writer.write(systems, predictions)
     writer.finish()
 
-    if filename.endswith(".xyz"):
+    if filename.endswith((".xyz", ".extxyz")):
         frames = read(filename, index=":")
         assert len(frames) == len(systems)
         for i, frame in enumerate(frames):

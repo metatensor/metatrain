@@ -91,7 +91,7 @@ class Classifier(ModelInterface[ModelHypers]):
 
         # Store capabilities
         outputs = {name: ModelOutput() for name in self.dataset_info.targets.keys()}
-        outputs["feature"] = ModelOutput(quantity="", unit="", sample_kind="system")
+        outputs["feature"] = ModelOutput(unit="", sample_kind="system")
         self.capabilities = ModelCapabilities(
             outputs=outputs,
             atomic_types=old_capabilities.atomic_types,
@@ -123,7 +123,9 @@ class Classifier(ModelInterface[ModelHypers]):
         # Final classification layer
         self.linear = torch.nn.Linear(current_size, num_classes, bias=False)
 
-    def restart(self, dataset_info: DatasetInfo) -> "Classifier":
+    def restart(
+        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+    ) -> "Classifier":
         raise ValueError("Restarting from a Classifier model is not supported.")
 
     def forward(

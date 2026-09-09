@@ -269,7 +269,6 @@ def _get_model_outputs(
             length_unit="",  # this is only needed for unit conversions in MD engines
             outputs={
                 key: ModelOutput(
-                    quantity=value.quantity,
                     unit=value.unit,
                     sample_kind=value.sample_kind,
                     description=value.description,
@@ -283,7 +282,6 @@ def _get_model_outputs(
             systems,
             {
                 key: ModelOutput(
-                    quantity=value.quantity,
                     unit=value.unit,
                     sample_kind=value.sample_kind,
                     description=value.description,

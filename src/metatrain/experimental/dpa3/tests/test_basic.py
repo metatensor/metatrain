@@ -124,6 +124,8 @@ class TestExported(ExportedTests, DPA3Tests):
 
 
 class TestTraining(TrainingTests, DPA3Tests):
+    supports_atomic_basis = False
+
     @pytest.mark.skip(reason="DPA3: multi-epoch training too slow for CI time limits")
     def test_continue_restart_num_epochs(self, *a, **kw):
         pass

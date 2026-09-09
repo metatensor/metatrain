@@ -15,7 +15,6 @@ from metatomic.torch import AtomisticModel, ModelOutput
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import Subset
 
-from metatrain.cli.formatter import CustomHelpFormatter
 from metatrain.utils.data import (
     CollateFn,
     Dataset,
@@ -66,11 +65,7 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
 
     # If you change the synopsis of these commands or add new ones adjust the completion
     # script at `src/metatrain/share/metatrain-completion.bash`.
-    parser = subparser.add_parser(
-        "eval",
-        description=description,
-        formatter_class=CustomHelpFormatter,
-    )
+    parser = subparser.add_parser("eval", description=description)
     parser.set_defaults(callable="eval_model")
     parser.add_argument(
         "path",

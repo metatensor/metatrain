@@ -52,8 +52,8 @@ class TargetInfo:
         self._check_layout(layout)
         self.layout = layout
 
-        # verify that `quantity`, `unit` and `description` are valid for metatomic
-        _ = ModelOutput(quantity=quantity, unit=unit, description=description)
+        # verify that `unit` and `description` are valid for metatomic
+        _ = ModelOutput(unit=unit, description=description)
 
         self.quantity = quantity
         self.unit = unit

@@ -14,9 +14,10 @@ parameters provided by the training YAML input. For a minimal example of a YAML 
 file, suitable to start a first training, we refer the viewer to the sample YAML file in
 the :ref:`Quickstart <label_quickstart>` section.
 
-The YAML input file can be divided into five sections:
+The YAML input file can be divided into six sections:
 
 - :ref:`computational-parameters-section`
+- :ref:`logging-section`
 - :ref:`architecture-section`
 - :ref:`loss-section`
 - :ref:`data-section`
@@ -27,8 +28,8 @@ The YAML input file can be divided into five sections:
 Computational Parameters
 ========================
 
-The computational parameters define the computational ``device``, ``base_precision`` and
-``seed``. These parameters are optional.
+The computational parameters define the computational ``device``, ``base_precision``
+and ``seed``. These parameters are optional.
 
 .. code-block:: yaml
 
@@ -45,6 +46,29 @@ The computational parameters define the computational ``device``, ``base_precisi
         :no-index:
 
     .. autoattribute:: metatrain.share.base_hypers.BaseHypers.seed
+        :no-index:
+
+.. _logging-section:
+
+Logging
+=======
+
+These parameters control the logs of the ``mtt train`` command.
+Apart from training, the command does some additional steps to produce helpful
+logs. However, these steps can sometimes be expensive and users might prefer
+to skip them.
+
+.. code-block:: yaml
+
+    final_eval: true
+    print_stats: auto
+
+.. container:: mtt-hypers-remove-classname
+
+    .. autoattribute:: metatrain.share.base_hypers.BaseHypers.final_eval
+        :no-index:
+
+    .. autoattribute:: metatrain.share.base_hypers.BaseHypers.print_stats
         :no-index:
 
 .. _architecture-section:

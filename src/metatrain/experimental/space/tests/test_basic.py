@@ -11,6 +11,7 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.testing import (
     ArchitectureTests,
     CheckpointTests,
+    InputTests,
     OutputTests,
     TorchscriptTests,
 )
@@ -29,6 +30,9 @@ class SPACETests(ArchitectureTests):
         hypers = copy.deepcopy(hypers)
         hypers["num_element_channels"] = 4
         return hypers
+
+
+class TestInput(InputTests, SPACETests): ...
 
 
 class TestOutput(OutputTests, SPACETests):

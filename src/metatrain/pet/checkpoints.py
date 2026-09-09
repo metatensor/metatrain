@@ -2,7 +2,7 @@ import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from metatrain.utils.scaler.checkpoints import update_per_property_scales
+from metatrain.scaler.checkpoints import update_per_property_scales
 
 
 ###########################
@@ -361,10 +361,16 @@ def model_update_v15_v16(checkpoint: dict) -> None:
         if (state_dict := checkpoint.get(key)) is not None:
             # Rebuild the dict in the original order with the moved keys renamed, so
             # that the order-sensitive dtype probe in ``load_checkpoint`` keeps working.
-            updated = {
-                (f"backend.{name}" if name.startswith(moved_prefixes) else name): value
-                for name, value in state_dict.items()
-            }
+            updated = {}
+            for name, value in state_dict.items():
+                if name.startswith(moved_prefixes):
+                    updated[f"backend.{name}"] = value
+                    if name.startswith("system_conditioning."):
+                        # ``PET`` aliases ``self.system_conditioning`` to the backend
+                        # module, so these entries appear under both names.
+                        updated[name] = value
+                else:
+                    updated[name] = value
             checkpoint[key] = updated
 
 
@@ -556,3 +562,16 @@ def trainer_update_v13_v14(checkpoint: dict) -> None:
             train_hypers["max_atoms_per_batch"] = max_bound
         if min_bound is not None:
             train_hypers["min_atoms_per_batch"] = min_bound
+
+
+def trainer_update_v14_v15(checkpoint: dict) -> None:
+    """
+    Deprecate the ``distributed`` hyperparameter.
+
+    So that it doesn't show up in the restarting options.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    train_hypers = checkpoint["train_hypers"]
+    if "distributed" in train_hypers and train_hypers["distributed"] is None:
+        train_hypers.pop("distributed")
