@@ -4,10 +4,10 @@ PET
 
 PET is a cleaner, more user-friendly reimplementation of the original
 PET model :footcite:p:`pozdnyakov_smooth_2023`. It is designed for better
-modularity and maintainability, while preseving compatibility with the original
+modularity and maintainability, while preserving compatibility with the original
 PET implementation in ``metatrain``. It also adds new features like long-range
 features, better fine-tuning implementation, a possibility to train on
-arbitrarty targets, and a faster inference due to the ``fast attention``.
+arbitrary targets, and a faster inference due to the ``fast attention``.
 
 {{SECTION_INSTALLATION}}
 
