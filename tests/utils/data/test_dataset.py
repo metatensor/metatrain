@@ -765,34 +765,13 @@ def test_memmap_per_atom_labels_use_local_indices(tmp_path):
     )
 
 
-def test_memmap_accepts_1d_ns(tmp_path):
-    """ns.npy may be stored either as a scalar or as a shape-(1,) array"""
-
-    na = np.array([0, 1], dtype=np.int64)
+def test_memmap_rejects_non_scalar_ns(tmp_path):
+    """ns.npy must hold a scalar"""
+    target_options, _ = _write_minimal_memmap(tmp_path, ns=1)
     np.save(tmp_path / "ns.npy", np.array([1], dtype=np.int64))
-    np.save(tmp_path / "na.npy", na)
-    np.zeros((1, 3), dtype="float32").tofile(tmp_path / "x.bin")
-    np.ones((1,), dtype="int32").tofile(tmp_path / "a.bin")
-    np.zeros((1, 3, 3), dtype="float32").tofile(tmp_path / "c.bin")
-    np.zeros((1, 1), dtype="float32").tofile(tmp_path / "e.bin")
 
-    target_options = {
-        "energy": {
-            "key": "e",
-            "sample_kind": "system",
-            "num_subtargets": 1,
-            "type": "scalar",
-            "quantity": "energy",
-            "forces": False,
-            "stress": False,
-            "virial": False,
-        }
-    }
-
-    dataset = MemmapDataset(tmp_path, target_options)
-
-    assert len(dataset) == 1
-    assert len(dataset[0].system) == 1
+    with pytest.raises(ValueError, match="ns.npy must contain a scalar"):
+        MemmapDataset(tmp_path, target_options)
 
 
 @pytest.mark.parametrize("bad_dtype", [np.int32, np.uint64, np.float64])
@@ -824,7 +803,7 @@ def test_memmap_rejects_non_int64_na(tmp_path, bad_dtype):
 
 
 # ============================================================
-# Helpers shared by MemmapDataset extra_data tests
+# Helpers shared by MemmapDataset tests
 # ============================================================
 
 
