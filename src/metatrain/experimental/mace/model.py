@@ -32,6 +32,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hooks import restart_hooks, setup_hooks
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.sum_over_atoms import sum_over_atoms
@@ -54,7 +55,7 @@ from .utils.structures import create_batch
 class MetaMACE(ModelInterface[ModelHypers]):
     """Interface of MACE for metatrain."""
 
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 5
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -267,10 +268,13 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # the model during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
+        forward_hooks, model_outs = setup_hooks(train_dataset_info, self.hypers["forward_hooks"])
+        self.forward_hooks = torch.nn.ModuleList(forward_hooks)
+
         # Create heads for each target, store the layout for each of them.
         self.heads = torch.nn.ModuleDict()
         self.layouts: Dict[str, TensorMap] = {}
-        for target_name, target_info in train_dataset_info.targets.items():
+        for target_name, target_info in model_outs.items():
             self._add_output(target_name, target_info)
 
         self.layouts["mtt::aux::mace_features"] = get_e3nn_mts_layout(
@@ -290,6 +294,11 @@ class MetaMACE(ModelInterface[ModelHypers]):
             )
             for k in self.layouts
         }
+
+        # Register outputs that are produced by post-processing hooks.
+        for hook in self.forward_hooks:
+            for name, output in hook.supported_outputs().items():
+                self.outputs[name] = output
 
         # ---------------------------
         # Data preprocessing modules
@@ -311,8 +320,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
     def restart(
         self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
     ) -> "MetaMACE":
-
+        hooks_hypers = {}
         if model_hypers is not None:
+            hooks_hypers = model_hypers.pop("forward_hooks", {})
             default_hypers = get_default_hypers("experimental.mace")["model"]
             raise_if_hypers_mismatch(
                 self.hypers, model_hypers, default_hypers=default_hypers
@@ -342,9 +352,29 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # the model during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
-        # Add extra heads for the new targets
-        for target_name in new_targets:
-            self._add_output(target_name, train_dataset_info.targets[target_name])
+        if dataset_info.targets != self.dataset_info.targets:
+            # Only re-run the hook setup when the targets changed; ``restart_hooks``
+            # does not support rebuilding already-instantiated hooks.
+            forward_hooks, model_outs, new_hooks_hypers = restart_hooks(
+                list(self.forward_hooks), train_dataset_info, hooks_hypers
+            )
+            self.hypers["forward_hooks"] = new_hooks_hypers
+            self.forward_hooks = torch.nn.ModuleList(forward_hooks)
+
+            # Add extra heads for the new targets. Targets produced by a hook
+            # are not in ``model_outs``, since the model does not predict them
+            # directly; they only need to be registered as outputs.
+            targets = merged_info.targets
+            for target_name in new_targets:
+                if target_name in model_outs:
+                    self._add_output(target_name, model_outs[target_name])
+                self.outputs[target_name] = ModelOutput(
+                    quantity=targets[target_name].quantity
+                    if target_name in targets
+                    else "",
+                    unit=targets[target_name].unit if target_name in targets else "",
+                    sample_kind="atom",
+                )
 
         self.dataset_info = merged_info
 
@@ -370,6 +400,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+
+        # ----------------------------
+        # Add outputs needed by hooks
+        # ----------------------------
+        req_model_outputs = outputs.copy()
+        for hook in self.forward_hooks:
+            requested_inputs = hook.requested_hook_inputs(req_model_outputs)
+            req_model_outputs.update(requested_inputs)
 
         # --------------------------
         # Moving to device and dtype
@@ -427,8 +465,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # Run heads
         for output_name, head in self.heads.items():
             ll_features_name = self._llf_name(output_name)
-            requested_target = output_name in outputs
-            requested_llf = ll_features_name in outputs
+            requested_target = output_name in req_model_outputs
+            requested_llf = ll_features_name in req_model_outputs
 
             # Only use this head if its output or its last layer features were requested
             if requested_target or requested_llf:
@@ -469,9 +507,27 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
             return_dict[output_name] = (
                 per_atom_output
-                if outputs[output_name].sample_kind == "atom"
+                if req_model_outputs[output_name].sample_kind == "atom"
                 else sum_over_atoms(per_atom_output)
             )
+
+        # -----------------------------------
+        #            Apply hooks
+        # -----------------------------------
+
+        for hook in self.forward_hooks:
+            return_dict.update(
+                hook(
+                    systems,
+                    req_model_outputs,
+                    return_dict,
+                    selected_atoms,
+                )
+            )
+
+        # Remove intermediate outputs that were not requested by the user.
+        # (they were needed by other hooks)
+        return_dict = {k: return_dict[k] for k in outputs}
 
         # -----------------------------------------
         #   Undo data preprocessing (eval only)
