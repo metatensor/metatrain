@@ -7,7 +7,6 @@ import pytest
 import torch
 
 from metatrain.experimental.dpa3 import DPA3
-from metatrain.experimental.dpa3.documentation import ModelHypers
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
@@ -57,9 +56,6 @@ class DPA3Tests(ArchitectureTests):
             length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
         )
 
-    def _to_model_hypers(self, hypers: dict) -> ModelHypers:
-        return copy.deepcopy(hypers)
-
     @pytest.fixture(params=("cpu",))
     def device(self, request):
         """DPA3 model construction (get_standard_model) is expensive.
@@ -88,11 +84,12 @@ class DPA3Tests(ArchitectureTests):
 
         if source == "from_file" and not dpa3_model_path.exists():
             hypers["dpa3_model"] = str(dpa3_model_path)
-            hypers_for_file = self._to_model_hypers(
-                _minimal_hypers("experimental.dpa3")
-            )
+            hypers_for_file = _minimal_hypers("experimental.dpa3")
             hypers_for_file["descriptor"]["precision"] = 32
-            base = DPA3(hypers_for_file, self._make_dataset_info())
+            base = DPA3(
+                hypers_for_file,  # type: ignore[arg-type]
+                self._make_dataset_info(),
+            )
             config = json.loads(base.model.get_model_def_script())
 
             state = collections.OrderedDict()
