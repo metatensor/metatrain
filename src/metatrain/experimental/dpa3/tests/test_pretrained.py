@@ -18,6 +18,10 @@ from . import DATASET_PATH, MODEL_HYPERS
 from .test_basic import _minimal_hypers
 
 
+# To keep the beta branch different from the alpha branch
+_BETA_SHIFT = 1.0
+
+
 def _make_dataset_info():
     targets = {
         "mtt::U0": get_energy_target_info(
@@ -58,8 +62,8 @@ def _small_pretrained_checkpoint(path, branches=None):
     state = collections.OrderedDict()
     for prefix in [f"model.{task}." for task in branches or ["Default"]]:
         for key, value in base.model.state_dict().items():
-            if prefix == "model.Default.Beta":
-                state[prefix + key] = value + 1.0  # make Beta different from Alpha
+            if prefix == "model.Beta.":
+                state[prefix + key] = value + _BETA_SHIFT
             else:
                 state[prefix + key] = value
 
@@ -85,19 +89,23 @@ def _hypers_for(checkpoint_path, branch=None):
     return hypers
 
 
-def test_multi_task_branch_loading(tmp_path):
+@pytest.mark.parametrize("branch", ["Alpha", "Beta"])
+def test_multi_task_branch_loading(tmp_path, branch):
     """One branch of a multi-task checkpoint is loaded as a standalone model."""
     path = tmp_path / "multi_task.pt"
     base = _small_pretrained_checkpoint(path, branches=["Alpha", "Beta"])
 
-    pretrained = DPA3(_hypers_for(path, "Beta"), _make_dataset_info())
+    pretrained = DPA3(_hypers_for(path, branch), _make_dataset_info())
 
-    # The structure comes from the branch configuration, not from the hypers
+    shift = _BETA_SHIFT if branch == "Beta" else 0.0
     base_state = base.model.state_dict()
     loaded_state = pretrained.model.state_dict()
     assert set(loaded_state) == set(base_state)
     for key, value in base_state.items():
-        torch.testing.assert_close(loaded_state[key], value)
+        if key in ("atomic_model.out_bias", "atomic_model.out_std"):
+            # These are not weights
+            continue
+        torch.testing.assert_close(loaded_state[key], value + shift)
 
 
 def test_single_task_loading(tmp_path):
