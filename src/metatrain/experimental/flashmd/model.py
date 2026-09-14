@@ -158,9 +158,9 @@ class FlashMD(ModelInterface[ModelHypers]):
         }
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
-        self.register_buffer("key_labels", {})
-        self.register_buffer("component_labels", {})
-        self.register_buffer("property_labels", {})
+        self.register_buffer("key_labels", {}, persistent=False)
+        self.register_buffer("component_labels", {}, persistent=False)
+        self.register_buffer("property_labels", {}, persistent=False)
 
         self.target_names: List[str] = []
         for target_name, target_info in dataset_info.targets.items():
@@ -220,7 +220,7 @@ class FlashMD(ModelInterface[ModelHypers]):
         scaler_hypers = get_default_hypers("scaler")["model"]
         self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
-        self.register_buffer("single_label", Labels.single())
+        self.register_buffer("single_label", Labels.single(), persistent=False)
 
         self.finetune_config: Dict[str, Any] = {}
 
@@ -439,7 +439,6 @@ class FlashMD(ModelInterface[ModelHypers]):
             metatensor metadata (samples, components, properties).
         """
 
-        device = systems[0].device
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
 
@@ -1359,7 +1358,6 @@ class FlashMD(ModelInterface[ModelHypers]):
         self.key_labels.pop(target_name, None)
         self.component_labels.pop(target_name, None)
         self.property_labels.pop(target_name, None)
-
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:

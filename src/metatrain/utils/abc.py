@@ -27,7 +27,6 @@ from metatrain.utils.data.dataset import Dataset, DatasetInfo
 HypersType = TypeVar("HypersType")
 
 
-
 class ModelInterface(nn.Module, Generic[HypersType], metaclass=ABCMeta):
     """
     Abstract base class for a machine learning model in metatrain.

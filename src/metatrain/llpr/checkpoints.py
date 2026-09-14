@@ -107,9 +107,7 @@ def model_update_v4_v5(checkpoint: dict) -> None:
     # added _mts_helper and _extra_state buffers
     state_dict = checkpoint["model_state_dict"]
     dummy_buffer = next(iter(state_dict.values()))
-    empty_tensor = torch.zeros(
-        0, dtype=dummy_buffer.dtype, device=dummy_buffer.device
-    )
+    empty_tensor = torch.zeros(0, dtype=dummy_buffer.dtype, device=dummy_buffer.device)
     state_dict["_mts_helper"] = empty_tensor
     state_dict["_extra_state"] = {}
 

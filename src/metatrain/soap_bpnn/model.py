@@ -324,17 +324,25 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             self.bpnn_for_tensors = torch.nn.Identity()
             self.bpnn = MLPMap(self.atomic_types, hypers_bpnn)
 
-        self.register_buffer("neighbors_species_labels", Labels(
-            names=["neighbor_1_type", "neighbor_2_type"],
-            values=torch.combinations(
-                torch.tensor(self.atomic_types, dtype=torch.int),
-                with_replacement=True,
+        self.register_buffer(
+            "neighbors_species_labels",
+            Labels(
+                names=["neighbor_1_type", "neighbor_2_type"],
+                values=torch.combinations(
+                    torch.tensor(self.atomic_types, dtype=torch.int),
+                    with_replacement=True,
+                ),
+                persistent=False,
             ),
-        ))
-        self.register_buffer("center_type_labels", Labels(
-            names=["center_type"],
-            values=torch.tensor(self.atomic_types).reshape(-1, 1),
-        ))
+        )
+        self.register_buffer(
+            "center_type_labels",
+            Labels(
+                names=["center_type"],
+                values=torch.tensor(self.atomic_types).reshape(-1, 1),
+                persistent=False,
+            ),
+        )
 
         if hypers_bpnn["num_hidden_layers"] == 0:
             self.n_inputs_last_layer = soap_size
@@ -364,19 +372,23 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             "feature": ModelOutput(sample_kind="atom", description="internal features")
         }
 
-        self.register_buffer("single_label", Labels.single())
-        self.register_buffer("_feature_labels", Labels(
-            names=["feature"],
-            values=torch.arange(self.n_inputs_last_layer).unsqueeze(1),
-        ))
+        self.register_buffer("single_label", Labels.single(), persistent=False)
+        self.register_buffer(
+            "_feature_labels",
+            Labels(
+                names=["feature"],
+                values=torch.arange(self.n_inputs_last_layer).unsqueeze(1),
+            ),
+            persistent=False,
+        )
 
         # Modified dataset_info with the targets as they will be seen by
         # the model during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
-        self.register_buffer("key_labels", {})
-        self.register_buffer("component_labels", {})
-        self.register_buffer("property_labels", {})
+        self.register_buffer("key_labels", {}, persistent=False)
+        self.register_buffer("component_labels", {}, persistent=False)
+        self.register_buffer("property_labels", {}, persistent=False)
         self.num_properties: Dict[str, Dict[str, int]] = {}  # by target and block
         self.basis_calculators = torch.nn.ModuleDict({})
         self.heads = torch.nn.ModuleDict({})

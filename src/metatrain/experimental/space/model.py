@@ -111,9 +111,9 @@ class SPACE(ModelInterface[ModelHypers]):
             )
             self.outputs[ll_features_name] = ModelOutput(sample_kind="atom")
 
-        self.register_buffer("key_labels", {})
-        self.register_buffer("component_labels", {})
-        self.register_buffer("property_labels", {})
+        self.register_buffer("key_labels", {}, persistent=False)
+        self.register_buffer("component_labels", {}, persistent=False)
+        self.register_buffer("property_labels", {}, persistent=False)
         self.cartesian_rank2_targets: List[str] = []
 
         # Pre-compute spherical→Cartesian conversion matrix for rank-2 tensors.
@@ -166,7 +166,7 @@ class SPACE(ModelInterface[ModelHypers]):
         scaler_hypers = get_default_hypers("scaler")["model"]
         self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
-        self.register_buffer("single_label", Labels.single())
+        self.register_buffer("single_label", Labels.single(), persistent=False)
 
         self.finetune_config: Dict[str, Any] = {}
 
