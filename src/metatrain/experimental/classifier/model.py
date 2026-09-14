@@ -17,11 +17,12 @@ from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 
+from . import checkpoints
 from .documentation import ModelHypers
 
 
 class Classifier(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
 
     # all torch devices and dtypes are supported, if they are supported by the wrapped
     # model; the check is performed in the trainer
@@ -35,6 +36,8 @@ class Classifier(ModelInterface[ModelHypers]):
             ],
         }
     )
+    _mts_buffer_names: List[str]
+    _mts_non_persistent_buffers: List[str]
 
     """A classifier model that trains on top of a pre-trained backbone.
 
@@ -343,7 +346,12 @@ class Classifier(ModelInterface[ModelHypers]):
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        # Currently at version 1, no upgrades needed yet
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["model_ckpt_version"] == v:
+                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["model_ckpt_version"] = v + 1
+
         if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using model "
