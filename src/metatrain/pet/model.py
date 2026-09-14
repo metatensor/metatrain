@@ -71,6 +71,8 @@ class PET(ModelInterface[ModelHypers]):
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
+    key_labels: Dict[str, Labels]
+    property_labels: Dict[str, List[Labels]]
     component_labels: Dict[str, List[List[Labels]]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
     _mts_buffer_names: List[str]
@@ -139,10 +141,10 @@ class PET(ModelInterface[ModelHypers]):
         # during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
+        self.register_buffer("key_labels", {}, persistent=False)
+        self.register_buffer("property_labels", {}, persistent=False)
+        self.register_buffer("component_labels", {}, persistent=False)
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
-        self.key_labels: Dict[str, Labels] = {}
-        self.property_labels: Dict[str, List[Labels]] = {}
-        self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
         self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         for target_name, target_info in train_dataset_info.targets.items():
@@ -406,9 +408,6 @@ class PET(ModelInterface[ModelHypers]):
         device = systems[0].device
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
-
-        if self.single_label.values.device != device:
-            self._move_labels_to_device(device)
 
         with torch.profiler.record_function("PET::concatenate_structures"):
             # **Stage 0: Input Preparation**

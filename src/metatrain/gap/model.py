@@ -41,6 +41,7 @@ class GAP(ModelInterface[ModelHypers]):
             ],
         }
     )
+    _species_labels: Labels
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -140,7 +141,7 @@ class GAP(ModelInterface[ModelHypers]):
                 "aggregate_names": ["atom", "center_type"],
             },
         )
-        self._species_labels: Labels = Labels.empty("_")
+        self.register_buffer("_species_labels", Labels.empty("_"))
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
