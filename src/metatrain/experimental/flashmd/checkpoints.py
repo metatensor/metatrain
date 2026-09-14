@@ -1,6 +1,6 @@
 import metatensor.torch as mts
-from metatensor.torch import Labels, TensorBlock, TensorMap
 import torch
+from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatrain.composition.checkpoints import (
     model_update_v1_v2 as composition_update_v1_v2,

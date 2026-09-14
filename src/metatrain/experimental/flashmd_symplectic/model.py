@@ -155,9 +155,9 @@ class FlashMDSymplectic(ModelInterface):
             "feature": ModelOutput(unit="", sample_kind="atom")
         }  # the model is always capable of outputting the internal features
 
-        self.register_buffer("key_labels", {})
-        self.register_buffer("component_labels", {})
-        self.register_buffer("property_labels", {})
+        self.register_buffer("key_labels", {}, persistent=False)
+        self.register_buffer("component_labels", {}, persistent=False)
+        self.register_buffer("property_labels", {}, persistent=False)
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
         self.target_names: List[str] = []
         for target_name, target_info in dataset_info.targets.items():
@@ -209,7 +209,7 @@ class FlashMDSymplectic(ModelInterface):
         scaler_hypers = get_default_hypers("scaler")["model"]
         self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
-        self.register_buffer("single_label", Labels.single())
+        self.register_buffer("single_label", Labels.single(), persistent=False)
 
         self.finetune_config: Dict[str, Any] = {}
 
@@ -1415,7 +1415,6 @@ class FlashMDSymplectic(ModelInterface):
         self.key_labels.pop(target_name, None)
         self.component_labels.pop(target_name, None)
         self.property_labels.pop(target_name, None)
-
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
