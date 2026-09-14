@@ -13,6 +13,7 @@ from typing import (
 
 import torch
 from metatensor.torch import Labels, TensorMap
+from metatensor.torch.learn import nn
 from metatomic.torch import (
     AtomisticModel,
     ModelMetadata,
@@ -26,7 +27,8 @@ from metatrain.utils.data.dataset import Dataset, DatasetInfo
 HypersType = TypeVar("HypersType")
 
 
-class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
+
+class ModelInterface(nn.Module, Generic[HypersType], metaclass=ABCMeta):
     """
     Abstract base class for a machine learning model in metatrain.
 
@@ -135,9 +137,7 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
-    ) -> "ModelInterface":
+    def restart(self, dataset_info: DatasetInfo) -> "ModelInterface":
         """
         Update a model to restart training, potentially with different dataset and/or
         targets.
@@ -148,8 +148,6 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
 
         :param dataset_info: Information about the new dataset, including the targets
             that will be used for training.
-
-        :param model_hypers: The new hyperparameters for the model.
 
         :return: The updated model, or a new instance of the model, that is able to
             handle the new dataset.
