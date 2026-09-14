@@ -67,6 +67,8 @@ def model_update_v1_v2(checkpoint: dict, prefix: str = "") -> None:
 
         state_dict[f"{scaler_key}._mts_helper"] = empty_tensor
         state_dict[f"{scaler_key}._extra_state"] = extra_state
+        state_dict[f"{prefix}_mts_helper"] = empty_tensor
+        state_dict[f"{prefix}_extra_state"] = extra_state
 
 
 def update_per_property_scales(checkpoint: dict, scaler_key: str = "scaler") -> None:
