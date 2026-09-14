@@ -65,6 +65,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
             ]
         }
     )
+    _mts_buffer_names: List[str]
+    _mts_non_persistent_buffers: List[str]
 
     # Attributes of the model. We can't uncomment these descriptions because
     # torchscript complains.

@@ -63,6 +63,8 @@ class SPACE(ModelInterface[ModelHypers]):
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(references={})
+    _mts_buffer_names: List[str]
+    _mts_non_persistent_buffers: List[str]
 
     component_labels: Dict[str, List[List[Labels]]]
     U_dict: Dict[int, torch.Tensor]

@@ -98,6 +98,8 @@ class DPA3(ModelInterface[ModelHypers]):
             ],
         }
     )
+    _mts_buffer_names: List[str]
+    _mts_non_persistent_buffers: List[str]
 
     component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
 

@@ -1259,9 +1259,12 @@ class FlashMDSymplectic(ModelInterface):
             model = apply_finetuning_strategy(
                 model, finetune_config, apply_inherit_heads=False
             )
-        state_dict_iter = iter(model_state_dict.values())
-        next(state_dict_iter)  # skip the species_to_species_index
-        dtype = next(state_dict_iter).dtype
+        state_dict_iter = iter(model_state_dict.keys())
+        while True:
+            key = next(state_dict_iter)
+            if key.endswith("weight"):
+                break
+        dtype = model_state_dict[key].dtype
         model.to(dtype).load_state_dict(model_state_dict)
 
         # Loading the metadata from the checkpoint
