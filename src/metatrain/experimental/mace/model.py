@@ -272,7 +272,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         # Create heads for each target, store the layout for each of them.
         self.heads = torch.nn.ModuleDict()
-        self.register_buffer("layouts", {})
+        self.register_buffer("layouts", {}, persistent=False)
         for target_name, target_info in train_dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -373,15 +373,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-
-        # --------------------------
-        # Moving to device and dtype
-        # --------------------------
-        # We can't overwrite the to() method because this does not work with
-        # torchscript, so we do the necessary operations here.
-        # Get device and dtype from the first system
-        device = systems[0].device
-
         # --------------------------
         #  Prepare inputs for MACE
         # --------------------------
