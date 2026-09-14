@@ -353,6 +353,19 @@ def _make_sparse_tensor_atompair(layout):
 
 
 # ---------------------------------------------------------------------------
+# JIT compiling tests
+# ---------------------------------------------------------------------------
+
+
+def test_jit_densify_atomic_basis_target():
+    torch.jit.script(densify_atomic_basis_target)
+
+
+def test_jit_sparsify_atomic_basis_target():
+    torch.jit.script(sparsify_atomic_basis_target)
+
+
+# ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
