@@ -14,7 +14,6 @@ def model_update_v1_v2(checkpoint: dict, prefix: str = "") -> None:
         another architecture's ``additive_models[0]``).
     """
     scaler_key = f"{prefix}model"
-
     for key in ["model_state_dict", "best_model_state_dict"]:
         if (state_dict := checkpoint.get(key)) is None:
             continue
@@ -30,6 +29,8 @@ def model_update_v1_v2(checkpoint: dict, prefix: str = "") -> None:
         )
 
         extra_state: dict[str, dict] = {"weights": {}}
+        state_dict[f"{prefix}_mts_helper"] = empty_tensor
+        state_dict[f"{prefix}_extra_state"] = {}
 
         for target_name in checkpoint["model_data"]["dataset_info"].targets:
             buffer_key = f"{prefix}{target_name}_composition_buffer"
