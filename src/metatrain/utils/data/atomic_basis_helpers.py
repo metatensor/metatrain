@@ -86,7 +86,7 @@ def _densify_atomic_basis_target(
     # First ensure that the tensor has all keys present in the layout tensor (i.e. the
     # global basis set definition). If any blocks aren't present, they are added as
     # zero-sample blocks with the correct components and properties.
-    blocks = []
+    blocks: list[TensorBlock] = []
     for key, layout_block in layout.items():
         if key in tensor.keys:
             existing_block = tensor.block(key)
@@ -105,70 +105,16 @@ def _densify_atomic_basis_target(
 
     # Now densification can be done.
 
-    # =====
-    # TODO: the following is a manual densification, but this will be replaced with
-    # `keys_to_samples(..., fill_value)` once publicly available in
-    # metatensor-operations.
-    # return mts.keys_to_samples(tensor, fill_value=fill_value, sort_samples=True)
-    # =====
-
-    # =====
-    # For now, implement a manual densification:
-    # =====
-
-    # First, identify the "atom_type"-like and non-"atom_type"-like key dimensions.
-    type_indices = [
-        i for i, name in enumerate(tensor.keys.names) if name.endswith("atom_type")
-    ]
-    non_type_indices = [
-        i for i, name in enumerate(tensor.keys.names) if not name.endswith("atom_type")
-    ]
-    type_names = [tensor.keys.names[i] for i in type_indices]
-
-    # Using the layout TensorMap, build the union of the property labels values across
-    # all atom types
-    union_properties = {}
-    for key, block in layout.items():
-        key_vals = tuple([key.values[i].item() for i in non_type_indices])
-        if key_vals not in union_properties:
-            union_properties[key_vals] = block.properties
-        else:
-            union_properties[key_vals] = union_properties[key_vals].union(
-                block.properties
-            )
-
-    # For each block, pad the properties using the dense properties
-    padded_blocks = []
-    for key, block in tensor.items():
-        key_vals = tuple([key.values[i].item() for i in non_type_indices])
-        properties = union_properties[key_vals]
-
-        # Create a values array filled with the fill value
-        padded_values = torch.full(
-            (
-                len(block.samples),
-                *[len(c) for c in block.components],
-                len(properties),
-            ),
-            fill_value,
-            dtype=block.values.dtype,
-        )
-
-        # Now broadcast the existing values to the new shape
-        properties_mask = properties.select(block.properties)
-        padded_values[..., properties_mask] = block.values
-        padded_block = TensorBlock(
-            values=padded_values,
-            samples=block.samples,
-            components=block.components,
-            properties=properties,
-        )
-        padded_blocks.append(padded_block)
-
-    tensor = TensorMap(tensor.keys, padded_blocks)
+    # First, identify the "atom_type"-like key dimensions.
+    type_names: list[str] = []
+    for name in tensor.keys.names:
+        if name.endswith("atom_type"):
+            type_names.append(name)
 
     # Now move the "atom_type"-like key dimension to the samples and remove them
-    tensor = tensor.keys_to_samples(type_names, sort_samples=True)
+    tensor = tensor.keys_to_samples(
+        type_names, fill_value=fill_value, sort_samples=True
+    )
     for name in type_names:
         tensor = mts.remove_dimension(tensor, "samples", name)
 
