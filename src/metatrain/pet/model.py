@@ -73,6 +73,8 @@ class PET(ModelInterface[ModelHypers]):
     )
     component_labels: Dict[str, List[List[Labels]]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
+    _mts_buffer_names: List[str]
+    _mts_non_persistent_buffers: List[str]
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -985,9 +987,12 @@ class PET(ModelInterface[ModelHypers]):
             model = apply_finetuning_strategy(
                 model, finetune_config, apply_inherit_heads=False
             )
-        state_dict_iter = iter(model_state_dict.values())
-        next(state_dict_iter)  # skip the species_to_species_index
-        dtype = next(state_dict_iter).dtype
+        state_dict_iter = iter(model_state_dict.keys())
+        while True:
+            key = next(state_dict_iter)
+            if key.endswith("weight"):
+                break
+        dtype = model_state_dict[key].dtype
         model.to(dtype).load_state_dict(model_state_dict)
 
         # Loading the metadata from the checkpoint
