@@ -61,6 +61,8 @@ class CompositionModel(ModelInterface[ModelHypers]):
     atomic_types: List[int]
     target_infos: Dict[str, TargetInfo]
     _new_outputs: List[str]
+    _mts_buffer_names: List[str]
+    _mts_non_persistent_buffers: List[str]
 
     @staticmethod
     def requested_neighbor_lists() -> List[NeighborListOptions]:
