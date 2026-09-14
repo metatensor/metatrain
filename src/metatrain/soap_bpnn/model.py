@@ -206,7 +206,13 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         }
     )
 
-    component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
+    neighbors_species_labels: Labels
+    center_type_labels: Labels
+    single_label: Labels
+    _feature_labels: Labels
+    key_labels: Dict[str, Labels]
+    component_labels: Dict[str, List[List[Labels]]]
+    property_labels: Dict[str, List[Labels]]
     cartesian_rank1_targets: List[str]  # torchscript needs this
     cartesian_rank2_targets: List[str]  # torchscript needs this
     _mts_buffer_names: List[str]
@@ -318,17 +324,17 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             self.bpnn_for_tensors = torch.nn.Identity()
             self.bpnn = MLPMap(self.atomic_types, hypers_bpnn)
 
-        self.neighbors_species_labels = Labels(
+        self.register_buffer("neighbors_species_labels", Labels(
             names=["neighbor_1_type", "neighbor_2_type"],
             values=torch.combinations(
                 torch.tensor(self.atomic_types, dtype=torch.int),
                 with_replacement=True,
             ),
-        )
-        self.center_type_labels = Labels(
+        ))
+        self.register_buffer("center_type_labels", Labels(
             names=["center_type"],
             values=torch.tensor(self.atomic_types).reshape(-1, 1),
-        )
+        ))
 
         if hypers_bpnn["num_hidden_layers"] == 0:
             self.n_inputs_last_layer = soap_size
@@ -358,24 +364,24 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             "feature": ModelOutput(sample_kind="atom", description="internal features")
         }
 
-        self.single_label = Labels.single()
-        self._feature_labels = Labels(
+        self.register_buffer("single_label", Labels.single())
+        self.register_buffer("_feature_labels", Labels(
             names=["feature"],
             values=torch.arange(self.n_inputs_last_layer).unsqueeze(1),
-        )
+        ))
 
         # Modified dataset_info with the targets as they will be seen by
         # the model during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
+        self.register_buffer("key_labels", {})
+        self.register_buffer("component_labels", {})
+        self.register_buffer("property_labels", {})
         self.num_properties: Dict[str, Dict[str, int]] = {}  # by target and block
         self.basis_calculators = torch.nn.ModuleDict({})
         self.heads = torch.nn.ModuleDict({})
         self.head_types = self.hypers["heads"]
         self.last_layers = torch.nn.ModuleDict({})
-        self.key_labels: Dict[str, Labels] = {}
-        self.component_labels: Dict[str, List[List[Labels]]] = {}
-        self.property_labels: Dict[str, List[Labels]] = {}
         self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         self.cartesian_rank1_targets: List[str] = []
         self.cartesian_rank2_targets: List[str] = []
@@ -489,29 +495,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         device = systems[0].positions.device
-        if self.neighbors_species_labels.device != device:
-            self.neighbors_species_labels = self.neighbors_species_labels.to(device)
-        if self.center_type_labels.device != device:
-            self.center_type_labels = self.center_type_labels.to(device)
-        if self._feature_labels.values.device != device:
-            self._feature_labels = self._feature_labels.to(device)
-        if self.single_label.values.device != device:
-            self.single_label = self.single_label.to(device)
-            self.key_labels = {
-                output_name: label.to(device)
-                for output_name, label in self.key_labels.items()
-            }
-            self.component_labels = {
-                output_name: [
-                    [labels.to(device) for labels in components_block]
-                    for components_block in components_tmap
-                ]
-                for output_name, components_tmap in self.component_labels.items()
-            }
-            self.property_labels = {
-                output_name: [labels.to(device) for labels in properties_tmap]
-                for output_name, properties_tmap in self.property_labels.items()
-            }
 
         # initialize the return dictionary
         return_dict: Dict[str, TensorMap] = {}
