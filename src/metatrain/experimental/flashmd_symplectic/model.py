@@ -57,7 +57,10 @@ class FlashMDSymplectic(ModelInterface):
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2508.01068"]}
     )
+    single_label: Labels
+    key_labels: Dict[str, Labels]
     component_labels: Dict[str, List[List[Labels]]]
+    property_labels: Dict[str, List[Labels]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
@@ -152,10 +155,10 @@ class FlashMDSymplectic(ModelInterface):
             "feature": ModelOutput(unit="", sample_kind="atom")
         }  # the model is always capable of outputting the internal features
 
+        self.register_buffer("key_labels", {})
+        self.register_buffer("component_labels", {})
+        self.register_buffer("property_labels", {})
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
-        self.key_labels: Dict[str, Labels] = {}
-        self.property_labels: Dict[str, List[Labels]] = {}
-        self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
@@ -206,7 +209,7 @@ class FlashMDSymplectic(ModelInterface):
         scaler_hypers = get_default_hypers("scaler")["model"]
         self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
-        self.single_label = Labels.single()
+        self.register_buffer("single_label", Labels.single())
 
         self.finetune_config: Dict[str, Any] = {}
 
@@ -428,9 +431,6 @@ class FlashMDSymplectic(ModelInterface):
         device = systems[0].device
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
-
-        if self.single_label.values.device != device:
-            self._move_labels_to_device(device)
 
         # Here, we verify that all systems have masses attached.
         verify_masses(systems, self.masses)
@@ -1416,23 +1416,6 @@ class FlashMDSymplectic(ModelInterface):
         self.component_labels.pop(target_name, None)
         self.property_labels.pop(target_name, None)
 
-    def _move_labels_to_device(self, device: torch.device) -> None:
-        self.single_label = self.single_label.to(device)
-        self.key_labels = {
-            output_name: label.to(device)
-            for output_name, label in self.key_labels.items()
-        }
-        self.component_labels = {
-            output_name: [
-                [labels.to(device) for labels in components_block]
-                for components_block in components_tmap
-            ]
-            for output_name, components_tmap in self.component_labels.items()
-        }
-        self.property_labels = {
-            output_name: [labels.to(device) for labels in properties_tmap]
-            for output_name, properties_tmap in self.property_labels.items()
-        }
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:

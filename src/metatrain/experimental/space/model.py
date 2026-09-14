@@ -66,7 +66,10 @@ class SPACE(ModelInterface[ModelHypers]):
     _mts_buffer_names: List[str]
     _mts_non_persistent_buffers: List[str]
 
+    single_label: Labels
+    key_labels: Dict[str, Labels]
     component_labels: Dict[str, List[List[Labels]]]
+    property_labels: Dict[str, List[Labels]]
     U_dict: Dict[int, torch.Tensor]
     cartesian_rank2_targets: List[str]  # torchscript needs this
     _sph_to_cart_rank2: torch.Tensor  # torchscript needs this
@@ -108,9 +111,9 @@ class SPACE(ModelInterface[ModelHypers]):
             )
             self.outputs[ll_features_name] = ModelOutput(sample_kind="atom")
 
-        self.key_labels: Dict[str, Labels] = {}
-        self.component_labels: Dict[str, List[List[Labels]]] = {}
-        self.property_labels: Dict[str, List[Labels]] = {}
+        self.register_buffer("key_labels", {})
+        self.register_buffer("component_labels", {})
+        self.register_buffer("property_labels", {})
         self.cartesian_rank2_targets: List[str] = []
 
         # Pre-compute spherical→Cartesian conversion matrix for rank-2 tensors.
@@ -163,7 +166,7 @@ class SPACE(ModelInterface[ModelHypers]):
         scaler_hypers = get_default_hypers("scaler")["model"]
         self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
-        self.single_label = Labels.single()
+        self.register_buffer("single_label", Labels.single())
 
         self.finetune_config: Dict[str, Any] = {}
 
@@ -246,25 +249,7 @@ class SPACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        # transfer labels, if needed
         device = systems[0].device
-        if self.single_label.values.device != device:
-            self.single_label = self.single_label.to(device)
-            self.key_labels = {
-                output_name: label.to(device)
-                for output_name, label in self.key_labels.items()
-            }
-            self.component_labels = {
-                output_name: [
-                    [label.to(device) for label in component]
-                    for component in components
-                ]
-                for output_name, components in self.component_labels.items()
-            }
-            self.property_labels = {
-                output_name: [label.to(device) for label in labels]
-                for output_name, labels in self.property_labels.items()
-            }
 
         # Convert systems to batch format
         neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
