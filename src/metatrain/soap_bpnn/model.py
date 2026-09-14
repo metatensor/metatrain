@@ -209,6 +209,8 @@ class SoapBpnn(ModelInterface[ModelHypers]):
     component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
     cartesian_rank1_targets: List[str]  # torchscript needs this
     cartesian_rank2_targets: List[str]  # torchscript needs this
+    _mts_buffer_names: List[str]
+    _mts_non_persistent_buffers: List[str]
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -975,9 +977,12 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
         )
-        iterator = iter(model_state_dict.values())
-        next(iterator)  # skip types buffer (int dtype)
-        dtype = next(iterator).dtype
+        iterator = iter(model_state_dict.keys())
+        while True:
+            key = next(iterator)
+            if key.endswith("weight"):
+                break
+        dtype = model_state_dict[key].dtype
         model.to(dtype).load_state_dict(model_state_dict)
 
         # Loading the metadata from the checkpoint
