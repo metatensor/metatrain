@@ -1,9 +1,15 @@
+import collections
 import copy
+import json
+from pathlib import Path
 
 import pytest
 import torch
 
+from metatrain.experimental.dpa3 import DPA3
 from metatrain.utils.architectures import get_default_hypers
+from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.testing import (
     ArchitectureTests,
     AutogradTests,
@@ -32,6 +38,24 @@ def _minimal_hypers(arch: str) -> dict:
 class DPA3Tests(ArchitectureTests):
     architecture = "experimental.dpa3"
 
+    @pytest.fixture(params=[True, False], ids=["multitask", "single_task"])
+    def dpa3_multitask(self, request: pytest.FixtureRequest):
+        return request.param
+
+    @pytest.fixture(params=["from_hypers", "from_file"])
+    def source(self, request: pytest.FixtureRequest):
+        return request.param
+
+    def _make_dataset_info(self) -> DatasetInfo:
+        targets = {
+            "mtt::U0": get_energy_target_info(
+                "mtt::U0", {"quantity": "energy", "unit": "eV"}
+            )
+        }
+        return DatasetInfo(
+            length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
+        )
+
     @pytest.fixture(params=("cpu",))
     def device(self, request):
         """DPA3 model construction (get_standard_model) is expensive.
@@ -40,6 +64,54 @@ class DPA3Tests(ArchitectureTests):
         test_regression.py which test the device-handling code paths
         directly."""
         return torch.device(request.param)
+
+    @pytest.fixture
+    def model_hypers(
+        self,
+        tmp_path: Path,
+        source: str,
+        dpa3_multitask: bool,
+    ) -> dict:
+        hypers = copy.deepcopy(get_default_hypers(self.architecture)["model"])
+        if dpa3_multitask:
+            dpa3_model_path = tmp_path / "multi_task.pt"
+            branches = ["Alpha", "Beta"]
+            hypers["dpa3_model_branch"] = branches[0]
+        else:
+            dpa3_model_path = tmp_path / "single_task.pt"
+            branches = None
+            hypers["dpa3_model_branch"] = None
+
+        if source == "from_file" and not dpa3_model_path.exists():
+            hypers["dpa3_model"] = str(dpa3_model_path)
+            hypers_for_file = _minimal_hypers("experimental.dpa3")
+            hypers_for_file["descriptor"]["precision"] = 32
+            base = DPA3(
+                hypers_for_file,  # type: ignore[arg-type]
+                self._make_dataset_info(),
+            )
+            config = json.loads(base.model.get_model_def_script())
+
+            state = collections.OrderedDict()
+            for prefix in [f"model.{task}." for task in branches or ["Default"]]:
+                for key, value in base.model.state_dict().items():
+                    if prefix == "model.Beta.":
+                        state[prefix + key] = (
+                            value + 1.0
+                        )  # make Beta different from Alpha
+                    else:
+                        state[prefix + key] = value
+
+            state["_extra_state"] = {
+                "model_params": (
+                    {"model_dict": {branch: config for branch in branches}}
+                    if branches
+                    else config
+                ),
+                "train_infos": {"lr": 0, "step": 0},
+            }
+            torch.save({"model": state}, dpa3_model_path)
+        return hypers
 
     @pytest.fixture
     def minimal_model_hypers(self) -> dict:
@@ -61,12 +133,17 @@ class TestOutput(OutputTests, DPA3Tests):
     supports_features = False
     supports_last_layer_features = False
 
-    def test_prediction_energy_subset_atoms(self, model_hypers, dataset_info):
+    def test_prediction_energy_subset_atoms(self, model_hypers, dataset_info, source):
         # deepmd-kit precision is a construction-time setting.  This test sets
         # torch.set_default_dtype(float64) internally, but deepmd-kit's linear
         # layers use self.prec (set at construction).  Build with float64
         # precision to avoid numerical noise from neighbor list construction
         # across different system sizes.
+        if source == "from_file":
+            pytest.skip(
+                "the precision of a pretrained model comes from its checkpoint, "
+                "so the float64 model this test requires cannot be built from a file"
+            )
         model_hypers = copy.deepcopy(model_hypers)
         model_hypers["descriptor"]["precision"] = 64
         model_hypers["fitting_net"]["precision"] = 64
@@ -136,4 +213,4 @@ class TestTraining(TrainingTests, DPA3Tests):
 
 
 class TestCheckpoints(CheckpointTests, DPA3Tests):
-    incompatible_trainer_checkpoints = []
+    incompatible_trainer_checkpoints: list[str] = []
