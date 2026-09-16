@@ -32,6 +32,7 @@ jobs:
           PIP_EXTRA_INDEX_URL: https://download.pytorch.org/whl/cpu
 
       - name: put documentation in the website
+        if: github.event_name == 'push'
         run: |
           git clone https://github.com/$GITHUB_REPOSITORY --branch gh-pages gh-pages
           rm -rf gh-pages/.git
