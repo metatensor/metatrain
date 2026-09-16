@@ -332,16 +332,16 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                     torch.tensor(self.atomic_types, dtype=torch.int),
                     with_replacement=True,
                 ),
-                persistent=False,
             ),
+            persistent=False,
         )
         self.register_buffer(
             "center_type_labels",
             Labels(
                 names=["center_type"],
                 values=torch.tensor(self.atomic_types).reshape(-1, 1),
-                persistent=False,
             ),
+            persistent=False,
         )
 
         if hypers_bpnn["num_hidden_layers"] == 0:
