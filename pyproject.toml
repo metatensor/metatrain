@@ -12,7 +12,7 @@ dependencies = [
     "ase",
     "huggingface_hub",
     "numpy",
-    "metatensor-learn >=0.6.1,<0.7",
+    "metatensor-learn >=0.6.2,<0.7",
     "metatensor-operations >=0.5.0,<0.6",
     "metatensor-torch >=0.10.3,<0.11",
     "metatomic-torch >=0.1.17,<0.2",
