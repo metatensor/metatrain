@@ -12,6 +12,7 @@ from metatrain.utils.loss import (
     GaussianCRPSLoss,
     LossAggregator,
     LossType,
+    TensorMapEmpiricalCRPSLoss,
     TensorMapGaussianCRPSLoss,
     TensorMapGaussianNLLLoss,
     TensorMapHuberLoss,
@@ -712,6 +713,71 @@ def ensemble_tensor_maps():
         "mean": mean_map,
         "ensemble": ensemble_map,
     }
+
+
+@pytest.fixture
+def cartesian_ensemble_tensor_maps():
+    """Same as ``ensemble_tensor_maps``, for a Cartesian (vector) target."""
+    n_samples = 2
+    n_ensemble = 3
+    n_properties = 1
+
+    # Ensemble predictions: shape (n_samples, 3, n_ensemble * n_properties)
+    ensemble_values = torch.tensor(
+        [
+            [[1.0, 1.5, 2.0], [0.0, 0.1, -0.1], [2.0, 2.5, 2.2]],
+            [[3.0, 3.2, 3.1], [1.0, 0.8, 1.2], [-1.0, -1.2, -0.9]],
+        ]
+    )
+
+    # Original prediction (mean) and target: shape (n_samples, 3, n_properties)
+    mean_values = ensemble_values.mean(dim=-1, keepdim=True)
+    target_values = mean_values + 0.1
+
+    samples = Labels.range("sample", n_samples)
+    components = [Labels.range("xyz", 3)]
+    properties_mean = Labels.range("property", n_properties)
+    properties_ensemble = Labels.range("property", n_ensemble * n_properties)
+
+    def _map(values, properties):
+        block = TensorBlock(
+            values=values,
+            samples=samples,
+            components=components,
+            properties=properties,
+        )
+        return TensorMap(keys=Labels.single(), blocks=[block])
+
+    return {
+        "target": _map(target_values, properties_mean),
+        "mean": _map(mean_values, properties_mean),
+        "ensemble": _map(ensemble_values, properties_ensemble),
+    }
+
+
+@pytest.mark.parametrize(
+    "loss_class",
+    [TensorMapGaussianNLLLoss, TensorMapGaussianCRPSLoss, TensorMapEmpiricalCRPSLoss],
+)
+def test_ensemble_losses_with_cartesian_target(
+    loss_class, cartesian_ensemble_tensor_maps
+):
+    """Ensemble losses must also work for targets that have components."""
+    loss_fn = loss_class(
+        name="mtt::forces",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+    )
+
+    predictions = {
+        "mtt::forces": cartesian_ensemble_tensor_maps["mean"],
+        "mtt::aux::forces_ensemble": cartesian_ensemble_tensor_maps["ensemble"],
+    }
+    targets = {"mtt::forces": cartesian_ensemble_tensor_maps["target"]}
+
+    result = loss_fn.compute(predictions, targets)
+    assert torch.isfinite(result)
 
 
 def test_tensormap_gaussian_nll_loss(ensemble_tensor_maps):

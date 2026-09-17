@@ -727,17 +727,22 @@ class TensorMapEnsembleLoss(BaseTensorMapLoss):
         tmap_pred_ens = predictions[ens_name]
         tmap_targ = targets[self.target]
 
-        # number of ensembles extracted from TensorMaps
+        # number of ensembles extracted from TensorMaps. The ensemble members are
+        # stacked along the properties dimension, which is the last one, so reading
+        # it off axis 1 would pick up the components of a non-scalar target instead.
         n_ens = (
-            tmap_pred_ens.block(0).values.shape[1]
-            // tmap_pred_orig.block(0).values.shape[1]
+            tmap_pred_ens.block(0).values.shape[-1]
+            // tmap_pred_orig.block(0).values.shape[-1]
         )
 
-        ens_pred_values = tmap_pred_ens.block().values  # shape: samples, properties
+        # shape: samples, *components, n_ens * properties
+        ens_pred_values = tmap_pred_ens.block().values
 
-        ens_pred_values = ens_pred_values.reshape(ens_pred_values.shape[0], n_ens, -1)
-        ens_pred_mean = ens_pred_values.mean(dim=1)
-        ens_pred_var = ens_pred_values.var(dim=1, unbiased=True)
+        ens_pred_values = ens_pred_values.reshape(
+            list(ens_pred_values.shape[:-1]) + [n_ens, -1]
+        )
+        ens_pred_mean = ens_pred_values.mean(dim=-2)
+        ens_pred_var = ens_pred_values.var(dim=-2, unbiased=True)
 
         tmap_pred_mean = TensorMap(
             keys=Labels(
@@ -1011,23 +1016,25 @@ class TensorMapEmpiricalCRPSLoss(TensorMapEnsembleLoss):
         tmap_pred_ens = predictions[ens_name]
         tmap_targ = targets[self.target]
 
-        # number of ensembles extracted from TensorMaps
+        # number of ensembles extracted from TensorMaps (see the comment in
+        # TensorMapEnsembleLoss.compute about the choice of axis)
         n_ens = (
-            tmap_pred_ens.block(0).values.shape[1]
-            // tmap_pred_orig.block(0).values.shape[1]
+            tmap_pred_ens.block(0).values.shape[-1]
+            // tmap_pred_orig.block(0).values.shape[-1]
         )
 
-        ens_pred_values = tmap_pred_ens.block().values  # shape: samples, properties
-        ens_pred_values = ens_pred_values.reshape(ens_pred_values.shape[0], n_ens, -1)
+        # shape: samples, *components, n_ens * properties
+        ens_pred_values = tmap_pred_ens.block().values
+        ens_pred_values = ens_pred_values.reshape(
+            list(ens_pred_values.shape[:-1]) + [n_ens, -1]
+        )
 
         # For empirical CRPS, we need the full ensemble predictions
-        target_values = tmap_targ.block().values  # (S, P)
+        target_values = tmap_targ.block().values  # (S, *C, P)
 
-        S, M, P = ens_pred_values.shape
-
-        # Reorder to (S, P, M) and then flatten S*P into B:
-        # y_ensemble: (B, M), y_target: (B,)
-        y_ensemble = ens_pred_values.permute(0, 2, 1).reshape(-1, M)
+        # Move the ensemble members last and flatten everything else into B:
+        # y_ensemble: (B, n_ens), y_target: (B,)
+        y_ensemble = ens_pred_values.movedim(-2, -1).reshape(-1, n_ens)
         y_target = target_values.reshape(-1)
 
         return self.torch_loss(y_ensemble, y_target)
