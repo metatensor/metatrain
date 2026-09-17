@@ -7,7 +7,19 @@ import warnings
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, NamedTuple, Optional, Set, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Collection,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 import torch
@@ -380,7 +392,117 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     return sorted(set(target_names))
 
 
+@dataclass
+class Batch:
+    """A collated batch, as the model consumes it.
+
+    :py:class:`CollateFn` serializes batches into a byte blob to get them
+    across the ``DataLoader`` worker boundary, and :py:func:`unpack_batch`
+    reconstructs them. A ``Batch`` is the same content without that round
+    trip, for the paths that do not need it (``num_workers=0``, or a future
+    transport that moves tensors rather than buffers).
+    """
+
+    systems: List[System]
+    targets: Dict[str, TensorMap]
+    extra_data: Dict[str, TensorMap]
+
+
+def collate_batch(
+    batch: List[Dict[str, Any]],
+    target_keys: Collection[str],
+    callables: Sequence[Callable] = (),
+    join_kwargs: Optional[Dict[str, Any]] = None,
+) -> Batch:
+    """Group a list of samples into a batch and apply the transformations.
+
+    :param batch: The samples to collate.
+    :param target_keys: Names of the collated fields that are targets; the
+        others are treated as extra data.
+    :param callables: Transformations to apply to the collated batch, in
+        order. Each takes and returns ``(systems, targets, extra_data)``.
+    :param join_kwargs: Extra arguments for ``group_and_join``.
+    :return: The collated batch.
+    """
+    with timed("group_and_join"):
+        collated = group_and_join(
+            batch, join_kwargs=join_kwargs or {"different_keys": "union"}
+        )
+        data = collated._asdict()
+
+        # pull off systems
+        systems = data.pop("system")
+
+        # split into targets vs extra data
+        targets: Dict[str, TensorMap] = {}
+        extra: Dict[str, TensorMap] = {}
+
+        for key, value in data.items():
+            if key in target_keys:
+                targets[key] = value
+            else:
+                extra[key] = value
+
+    with timed("transforms"):
+        for callable in callables:
+            systems, targets, extra = callable(systems, targets, extra)
+
+    return Batch(systems, targets, extra)
+
+
+def serialize_batch(
+    batch: Batch,
+) -> Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]:
+    """Serialize a batch into a single tensor, plus what it takes to undo that.
+
+    This is how batches cross the ``DataLoader`` worker boundary;
+    :py:func:`unpack_batch` is the inverse.
+
+    :param batch: The batch to serialize.
+    :return: A tuple containing:
+        - a single tensor containing all systems, targets and extra data
+        - a list with the sizes of each system buffer
+        - a list with the names of each target
+        - a list with the sizes of each target buffer
+        - a list with the names of each extra data
+        - a list with the sizes of each extra data buffer
+    """
+    with timed("serialize"):
+        target_names = list(batch.targets.keys())
+        extra_names = list(batch.extra_data.keys())
+
+        system_buffers = [
+            save_system_buffer(_make_system_contiguous(s)) for s in batch.systems
+        ]
+        target_buffers = [
+            save_buffer(make_contiguous(batch.targets[name])) for name in target_names
+        ]
+        extra_buffers = [
+            save_buffer(make_contiguous(batch.extra_data[name])) for name in extra_names
+        ]
+
+        system_sizes = [len(b) for b in system_buffers]
+        target_sizes = [len(b) for b in target_buffers]
+        extra_sizes = [len(b) for b in extra_buffers]
+
+        blob = torch.concatenate(system_buffers + target_buffers + extra_buffers)
+
+    return blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes
+
+
 class CollateFn:
+    """Collate samples into a batch, serialized for transport.
+
+    Equivalent to :py:func:`collate_batch` followed by
+    :py:func:`serialize_batch`.
+
+    :param target_keys: Names of the collated fields that are targets; the
+        others are treated as extra data.
+    :param callables: Transformations to apply to the collated batch, in
+        order. Each takes and returns ``(systems, targets, extra_data)``.
+    :param join_kwargs: Extra arguments for ``group_and_join``.
+    """
+
     def __init__(
         self,
         target_keys: List[str],
@@ -397,73 +519,11 @@ class CollateFn:
     ) -> Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]:
         """
         :param batch: A batch
-        :return: A tuple containing:
-            - a single tensor containing all systems, targets and extra data
-            - a list with the sizes of each system buffer
-            - a list with the names of each target
-            - a list with the sizes of each target buffer
-            - a list with the names of each extra data
-            - a list with the sizes of each extra data buffer
+        :return: The serialized batch, see :py:func:`serialize_batch`.
         """
-        # group & join
-        with timed("group_and_join"):
-            collated = group_and_join(batch, join_kwargs=self.join_kwargs)
-            data = collated._asdict()
-
-            # pull off systems
-            systems = data.pop("system")
-
-            # split into targets vs extra data
-            targets: Dict[str, TensorMap] = {}
-            extra: Dict[str, TensorMap] = {}
-
-            for key, value in data.items():
-                if key in self.target_keys:
-                    targets[key] = value
-                else:
-                    extra[key] = value
-
-        with timed("transforms"):
-            for callable in self.callables:
-                systems, targets, extra = callable(systems, targets, extra)
-
-        with timed("serialize"):
-            target_names = list(targets.keys())
-            extra_names = list(extra.keys())
-
-            system_buffers = [
-                save_system_buffer(_make_system_contiguous(s)) for s in systems
-            ]
-            target_buffers = [
-                save_buffer(make_contiguous(targets[name])) for name in target_names
-            ]
-            extra_buffers = [
-                save_buffer(make_contiguous(extra[name])) for name in extra_names
-            ]
-
-            system_sizes = [len(b) for b in system_buffers]
-            target_sizes = [len(b) for b in target_buffers]
-            extra_sizes = [len(b) for b in extra_buffers]
-
-            blob = torch.concatenate(system_buffers + target_buffers + extra_buffers)
-
-        return blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes
-
-
-@dataclass
-class Batch:
-    """A collated batch, as the model consumes it.
-
-    :py:class:`CollateFn` serializes batches into a byte blob to get them
-    across the ``DataLoader`` worker boundary, and :py:func:`unpack_batch`
-    reconstructs them. A ``Batch`` is the same content without that round
-    trip, for the paths that do not need it (``num_workers=0``, or a future
-    transport that moves tensors rather than buffers).
-    """
-
-    systems: List[System]
-    targets: Dict[str, TensorMap]
-    extra_data: Dict[str, TensorMap]
+        return serialize_batch(
+            collate_batch(batch, self.target_keys, self.callables, self.join_kwargs)
+        )
 
 
 def unpack_batch(
