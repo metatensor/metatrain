@@ -11,3 +11,6 @@ To install this architecture along with the ``metatrain`` package, run:
 
 where the square brackets indicate that you want to install the optional
 dependencies required for ``{{architecture}}``.
+
+For conda installation instructions, see the :ref:`label_installation` page. Note
+that conda may not provide all optional architecture-specific dependencies.
