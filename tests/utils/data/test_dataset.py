@@ -8,6 +8,7 @@ from metatomic.torch import System
 from omegaconf import OmegaConf
 
 from metatrain.utils.data import (
+    Batch,
     CollateFn,
     Dataset,
     DatasetInfo,
@@ -415,6 +416,52 @@ def test_dataset():
     for batch in dataloader:
         batch = unpack_batch(batch)
         assert batch[1]["energy"].block().values.shape == (10, 1)
+
+
+def test_unpack_batch_accepts_batch_and_serialized():
+    """``unpack_batch`` handles both a ``Batch`` and the serialized tuple that
+    ``CollateFn`` returns, and returns the same content either way."""
+    filename = str(RESOURCES_PATH / "qm9_reduced_100.xyz")
+    systems = read_systems(filename)
+    conf = {
+        "energy": {
+            "quantity": "energy",
+            "read_from": filename,
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "type": "scalar",
+            "sample_kind": "system",
+            "num_subtargets": 1,
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets, target_info_dict = read_targets(OmegaConf.create(conf))
+    dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
+    samples = [dataset[i] for i in range(4)]
+
+    systems_, targets_, extra_ = unpack_batch(
+        CollateFn(target_keys=["energy"])(samples)
+    )
+
+    # the same content, handed over as a Batch instead of a serialized blob
+    assert unpack_batch(Batch(systems_, targets_, extra_)) == (
+        systems_,
+        targets_,
+        extra_,
+    )
+
+    # and the serialized path really did reconstruct the samples
+    assert len(systems_) == 4
+    for system, sample in zip(systems_, samples, strict=True):
+        torch.testing.assert_close(system.positions, sample.system.positions)
+        torch.testing.assert_close(system.types, sample.system.types)
+    torch.testing.assert_close(
+        targets_["energy"].block().values,
+        torch.cat([sample.energy.block().values for sample in samples]),
+    )
 
 
 def test_get_atomic_types():
