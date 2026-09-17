@@ -14,6 +14,7 @@ from metatrain.utils.data import (
     DatasetInfo,
     TargetInfo,
     check_datasets,
+    collate_batch,
     get_all_targets,
     get_atomic_types,
     get_stats,
@@ -21,6 +22,7 @@ from metatrain.utils.data import (
     read_extra_data,
     read_systems,
     read_targets,
+    serialize_batch,
     unpack_batch,
 )
 from metatrain.utils.data.dataset import MemmapDataset
@@ -461,6 +463,78 @@ def test_unpack_batch_accepts_batch_and_serialized():
     torch.testing.assert_close(
         targets_["energy"].block().values,
         torch.cat([sample.energy.block().values for sample in samples]),
+    )
+
+
+def test_collate_batch_matches_collate_fn():
+    """``CollateFn`` is ``collate_batch`` followed by ``serialize_batch``: the
+    transformations run in order and the two paths agree."""
+    filename = str(RESOURCES_PATH / "qm9_reduced_100.xyz")
+    systems = read_systems(filename)
+    conf = {
+        "energy": {
+            "quantity": "energy",
+            "read_from": filename,
+            "reader": "ase",
+            "key": "U0",
+            "unit": "eV",
+            "type": "scalar",
+            "sample_kind": "system",
+            "num_subtargets": 1,
+            "forces": False,
+            "stress": False,
+            "virial": False,
+        }
+    }
+    targets, _ = read_targets(OmegaConf.create(conf))
+    dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
+    samples = [dataset[i] for i in range(4)]
+
+    order = []
+
+    def shift_energy(systems, targets, extra):
+        order.append("shift")
+        block = targets["energy"].block()
+        targets["energy"] = TensorMap(
+            keys=targets["energy"].keys,
+            blocks=[
+                TensorBlock(
+                    values=block.values + 1.0,
+                    samples=block.samples,
+                    components=block.components,
+                    properties=block.properties,
+                )
+            ],
+        )
+        return systems, targets, extra
+
+    def record_only(systems, targets, extra):
+        order.append("record")
+        return systems, targets, extra
+
+    callables = [shift_energy, record_only]
+
+    batch = collate_batch(samples, {"energy"}, callables)
+    assert order == ["shift", "record"]
+    assert isinstance(batch, Batch)
+
+    order.clear()
+    from_collate_fn = unpack_batch(
+        CollateFn(target_keys=["energy"], callables=callables)(samples)
+    )
+    assert order == ["shift", "record"]
+
+    from_split = unpack_batch(serialize_batch(batch))
+    for system, expected in zip(from_split[0], from_collate_fn[0], strict=True):
+        torch.testing.assert_close(system.positions, expected.positions)
+    torch.testing.assert_close(
+        from_split[1]["energy"].block().values,
+        from_collate_fn[1]["energy"].block().values,
+    )
+    # the transformation was applied, rather than the original energies
+    torch.testing.assert_close(
+        from_split[1]["energy"].block().values,
+        torch.cat([sample.energy.block().values for sample in samples]) + 1.0,
     )
 
 

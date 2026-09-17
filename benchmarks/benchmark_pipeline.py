@@ -30,7 +30,14 @@ from omegaconf import OmegaConf
 from metatrain.pet import PET, Trainer
 from metatrain.utils import timing
 from metatrain.utils.architectures import get_default_hypers
-from metatrain.utils.data import Dataset, DatasetInfo, get_atomic_types
+from metatrain.utils.data import (
+    CollateFn,
+    Dataset,
+    DatasetInfo,
+    collate_batch,
+    get_atomic_types,
+    unpack_batch,
+)
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
@@ -67,6 +74,37 @@ def build_dataset(path: str, key: str) -> Tuple[Dataset, Dict[str, Any]]:
     systems = read_systems(path)
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
     return dataset, target_info
+
+
+def compare_transport(dataset: Dataset, batch_size: int, repeats: int = 20) -> str:
+    """Time the serialized transport against handing over a batch directly.
+
+    Both paths do the same collation; the difference is the blob round trip
+    that gets a batch across the worker boundary.
+
+    :param dataset: The dataset to take samples from.
+    :param batch_size: Number of samples per batch.
+    :param repeats: How many times to collate the same batch.
+    :return: The formatted comparison.
+    """
+    samples = [dataset[i] for i in range(min(batch_size, len(dataset)))]
+    collate_fn = CollateFn(target_keys=["energy"])
+    paths = {
+        "CollateFn + unpack_batch": lambda: unpack_batch(collate_fn(samples)),
+        "collate_batch (no blob)": lambda: unpack_batch(
+            collate_batch(samples, {"energy"})
+        ),
+    }
+
+    lines = [f"transport of a {len(samples)}-structure batch, no transformations:"]
+    for name, path in paths.items():
+        start = time.perf_counter()
+        for _ in range(repeats):
+            path()
+        lines.append(
+            f"{name:<28}{1e3 * (time.perf_counter() - start) / repeats:>8.2f} ms"
+        )
+    return "\n".join(lines)
 
 
 def parse_args() -> argparse.Namespace:
@@ -134,6 +172,8 @@ def main() -> None:
         f"epochs={args.epochs}, {wall:.1f} s wall (incl. validation)\n"
     )
     print(timing.report())
+    # after the report, so these batches are not part of it
+    print("\n" + compare_transport(dataset, args.batch_size))
 
 
 if __name__ == "__main__":

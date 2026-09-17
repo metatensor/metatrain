@@ -8,11 +8,13 @@ from .dataset import (  # noqa: F401
     DiskDataset,
     _is_disk_dataset,
     check_datasets,
+    collate_batch,
     get_all_targets,
     get_atomic_types,
     get_num_workers,
     get_stats,
     load_indices,
+    serialize_batch,
     unpack_batch,
     validate_num_workers,
 )
