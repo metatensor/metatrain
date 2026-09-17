@@ -37,6 +37,8 @@ Added
 Changed
 #######
 
+- Batches are now pinned when training on a CUDA device, so that transferring
+  them to the GPU can overlap computation.
 - Dataloader workers are now kept alive between epochs instead of being
   recreated at the start of each one.
 - Dataloaders now draw their worker seeds from a generator of their own, so how

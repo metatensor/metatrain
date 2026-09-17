@@ -91,6 +91,8 @@ def build_train_dataloaders(
                     generator=seeded_generator(),
                     # avoid recreating worker processes at every epoch
                     persistent_workers=num_workers > 0,
+                    # only pinned batches transfer asynchronously
+                    pin_memory=torch.cuda.is_available(),
                 )
             )
         else:
@@ -116,6 +118,8 @@ def build_train_dataloaders(
                     generator=seeded_generator(),
                     # avoid recreating worker processes at every epoch
                     persistent_workers=num_workers > 0,
+                    # only pinned batches transfer asynchronously
+                    pin_memory=torch.cuda.is_available(),
                 )
             )
     return dataloaders, epoch_samplers
@@ -178,6 +182,8 @@ def build_val_dataloaders(
                     generator=seeded_generator(),
                     # avoid recreating worker processes at every epoch
                     persistent_workers=num_workers > 0,
+                    # only pinned batches transfer asynchronously
+                    pin_memory=torch.cuda.is_available(),
                 )
             )
         else:
@@ -194,6 +200,8 @@ def build_val_dataloaders(
                     generator=seeded_generator(),
                     # avoid recreating worker processes at every epoch
                     persistent_workers=num_workers > 0,
+                    # only pinned batches transfer asynchronously
+                    pin_memory=torch.cuda.is_available(),
                 )
             )
     return dataloaders
