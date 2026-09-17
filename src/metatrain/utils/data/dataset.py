@@ -5,6 +5,7 @@ import os
 import sys
 import warnings
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
@@ -449,15 +450,37 @@ class CollateFn:
         return blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes
 
 
+@dataclass
+class Batch:
+    """A collated batch, as the model consumes it.
+
+    :py:class:`CollateFn` serializes batches into a byte blob to get them
+    across the ``DataLoader`` worker boundary, and :py:func:`unpack_batch`
+    reconstructs them. A ``Batch`` is the same content without that round
+    trip, for the paths that do not need it (``num_workers=0``, or a future
+    transport that moves tensors rather than buffers).
+    """
+
+    systems: List[System]
+    targets: Dict[str, TensorMap]
+    extra_data: Dict[str, TensorMap]
+
+
 def unpack_batch(
     batch: Any,
 ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
     """
     Unpacks a batch into its constituent parts.
 
+    Accepts both a :py:class:`Batch` and the serialized tuple that
+    :py:class:`CollateFn` returns.
+
     :param batch: The batch to unpack.
     :return: A tuple with the unpacked batch
     """
+    if isinstance(batch, Batch):
+        return batch.systems, batch.targets, batch.extra_data
+
     blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes = batch
 
     all_buffers = torch.split(blob, system_sizes + target_sizes + extra_sizes)
