@@ -284,7 +284,7 @@ def compute_batch_tensors(
     # static (backed) shape.
     num_neighbors = torch.zeros(
         num_nodes, dtype=centers.dtype, device=centers.device
-    ).scatter_add_(0, centers, torch.ones_like(centers))
+    ).scatter_add_(0, centers.long(), torch.ones_like(centers))
     # ``max_edges_per_node`` (the largest neighbour count of any atom) becomes the size
     # of the NEF grid's second dimension. The ``numel`` guard keeps empty systems
     # (no atoms) well defined.
