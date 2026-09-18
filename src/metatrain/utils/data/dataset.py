@@ -57,7 +57,7 @@ from metatrain.utils.data.target_info import (
     get_generic_target_info,
 )
 from metatrain.utils.external_naming import to_external_name
-from metatrain.utils.timing import timed
+from metatrain.utils.timing import timed, timed_transform
 from metatrain.utils.units import get_gradient_units
 
 
@@ -445,7 +445,8 @@ def collate_batch(
 
     with timed("transforms"):
         for callable in callables:
-            systems, targets, extra = callable(systems, targets, extra)
+            with timed_transform(callable):
+                systems, targets, extra = callable(systems, targets, extra)
 
     return Batch(systems, targets, extra)
 
