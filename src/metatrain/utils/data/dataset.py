@@ -5,7 +5,8 @@ import os
 import sys
 import warnings
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import lru_cache
 from pathlib import Path
 from typing import (
     Any,
@@ -31,17 +32,15 @@ from metatensor.torch import (
     TensorMap,
     load_buffer,
     make_contiguous,
-    make_contiguous_block,
     save_buffer,
 )
 from metatomic.torch import (
     ModelCapabilities,
     ModelOutput,
+    NeighborListOptions,
     System,
     load_system,
-    load_system_buffer,
 )
-from metatomic.torch import save_buffer as save_system_buffer
 from omegaconf import DictConfig
 from torch.utils.data import Dataset as TorchDataset
 from torch.utils.data import Subset
@@ -396,16 +395,122 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
 class Batch:
     """A collated batch, as the model consumes it.
 
-    :py:class:`CollateFn` serializes batches into a byte blob to get them
-    across the ``DataLoader`` worker boundary, and :py:func:`unpack_batch`
-    reconstructs them. A ``Batch`` is the same content without that round
-    trip, for the paths that do not need it (``num_workers=0``, or a future
-    transport that moves tensors rather than buffers).
+    :py:class:`CollateFn` flattens batches into tensors to get them across the
+    ``DataLoader`` worker boundary, and :py:func:`unpack_batch` reconstructs
+    them. A ``Batch`` is the same content without that round trip, for the
+    paths that do not need it, such as ``num_workers=0``.
     """
 
     systems: List[System]
     targets: Dict[str, TensorMap]
     extra_data: Dict[str, TensorMap]
+
+
+NEIGHBOR_SAMPLE_NAMES = [
+    "first_atom",
+    "second_atom",
+    "cell_shift_a",
+    "cell_shift_b",
+    "cell_shift_c",
+]
+"""Sample names of a neighbor list block, which are the same for every list."""
+
+
+@lru_cache(maxsize=1)
+def neighbor_list_metadata() -> Tuple[List[Labels], Labels]:
+    """Metadata every neighbor list block shares.
+
+    Built on first use rather than at import: the documentation build imports
+    this module against metatensor's documentation-only classes, which refuse
+    to be instantiated.
+
+    :return: The components, which are the three pair vector directions, and
+        the single ``distance`` property.
+    """
+    return (
+        [Labels("xyz", torch.tensor([[0], [1], [2]]))],
+        Labels("distance", torch.tensor([[0]])),
+    )
+
+
+@dataclass
+class SerializedNeighborList:
+    """One neighbor list of a batch, with every system's pairs concatenated.
+
+    :param options: The options the list was computed with.
+    :param values: The pair vectors of every system, concatenated.
+    :param samples: The pair indices and cell shifts, likewise concatenated.
+    :param pair_counts: How many pairs each system contributed.
+    """
+
+    options: NeighborListOptions
+    values: torch.Tensor
+    samples: torch.Tensor
+    pair_counts: List[int]
+
+
+@dataclass
+class SerializedBatch:
+    """A batch flattened into tensors, ready to cross the worker boundary.
+
+    ``DataLoader`` hands tensors to the parent process through shared memory,
+    so unlike a serialized buffer they need no parsing on arrival: rebuilding
+    the systems from these costs a handful of object constructions.
+
+    :param positions: Every system's positions, concatenated.
+    :param types: Every system's atomic types, concatenated.
+    :param cells: One cell per system.
+    :param pbcs: One periodic boundary condition triple per system.
+    :param atom_counts: How many atoms each system contributed.
+    :param neighbor_lists: The neighbor lists the systems carried.
+    :param blob: The targets, the extra data and the systems' attached data,
+        serialized back to back.
+    :param target_names: Name of each target in ``blob``.
+    :param target_sizes: Buffer size of each target in ``blob``.
+    :param extra_names: Name of each extra data field in ``blob``.
+    :param extra_sizes: Buffer size of each extra data field in ``blob``.
+    :param data_names: Name of the data attached to every system.
+    :param data_sizes: Buffer size of each system's attached data, one system
+        after the other.
+    """
+
+    positions: torch.Tensor
+    types: torch.Tensor
+    cells: torch.Tensor
+    pbcs: torch.Tensor
+    atom_counts: List[int]
+    neighbor_lists: List[SerializedNeighborList]
+    blob: torch.Tensor
+    target_names: List[str]
+    target_sizes: List[int]
+    extra_names: List[str]
+    extra_sizes: List[int]
+    data_names: List[str]
+    data_sizes: List[int]
+
+    def pin_memory(self) -> "SerializedBatch":
+        """Pin the tensors, so the transfer to a CUDA device can overlap compute.
+
+        ``DataLoader`` calls this when built with ``pin_memory=True``.
+
+        :return: The same batch with its tensors in pinned memory.
+        """
+        return replace(
+            self,
+            positions=self.positions.pin_memory(),
+            types=self.types.pin_memory(),
+            cells=self.cells.pin_memory(),
+            pbcs=self.pbcs.pin_memory(),
+            neighbor_lists=[
+                replace(
+                    neighbors,
+                    values=neighbors.values.pin_memory(),
+                    samples=neighbors.samples.pin_memory(),
+                )
+                for neighbors in self.neighbor_lists
+            ],
+            blob=self.blob.pin_memory(),
+        )
 
 
 def collate_batch(
@@ -451,44 +556,71 @@ def collate_batch(
     return Batch(systems, targets, extra)
 
 
-def serialize_batch(
-    batch: Batch,
-) -> Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]:
-    """Serialize a batch into a single tensor, plus what it takes to undo that.
+def serialize_batch(batch: Batch) -> SerializedBatch:
+    """Flatten a batch into tensors, plus what it takes to undo that.
 
     This is how batches cross the ``DataLoader`` worker boundary;
     :py:func:`unpack_batch` is the inverse.
 
     :param batch: The batch to serialize.
-    :return: A tuple containing:
-        - a single tensor containing all systems, targets and extra data
-        - a list with the sizes of each system buffer
-        - a list with the names of each target
-        - a list with the sizes of each target buffer
-        - a list with the names of each extra data
-        - a list with the sizes of each extra data buffer
+    :return: The flattened batch.
     """
     with timed("serialize"):
+        systems = batch.systems
         target_names = list(batch.targets.keys())
         extra_names = list(batch.extra_data.keys())
+        data_names = systems[0].known_data() if systems else []
 
-        system_buffers = [
-            save_system_buffer(_make_system_contiguous(s)) for s in batch.systems
-        ]
+        neighbor_lists = []
+        for options in systems[0].known_neighbor_lists() if systems else []:
+            blocks = [system.get_neighbor_list(options) for system in systems]
+            neighbor_lists.append(
+                SerializedNeighborList(
+                    options=options,
+                    values=torch.concatenate([block.values for block in blocks]),
+                    samples=torch.concatenate(
+                        [block.samples.values for block in blocks]
+                    ),
+                    pair_counts=[len(block.values) for block in blocks],
+                )
+            )
+
+        # only the targets and the attached data still go through a buffer: they
+        # are small, and unlike systems they carry metadata that does not
+        # flatten into a handful of tensors
         target_buffers = [
             save_buffer(make_contiguous(batch.targets[name])) for name in target_names
         ]
         extra_buffers = [
             save_buffer(make_contiguous(batch.extra_data[name])) for name in extra_names
         ]
+        data_buffers = [
+            save_buffer(make_contiguous(system.get_data(name)))
+            for system in systems
+            for name in data_names
+        ]
+        buffers = target_buffers + extra_buffers + data_buffers
 
-        system_sizes = [len(b) for b in system_buffers]
-        target_sizes = [len(b) for b in target_buffers]
-        extra_sizes = [len(b) for b in extra_buffers]
-
-        blob = torch.concatenate(system_buffers + target_buffers + extra_buffers)
-
-    return blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes
+        return SerializedBatch(
+            positions=torch.concatenate([system.positions for system in systems]),
+            types=torch.concatenate([system.types for system in systems]),
+            cells=torch.stack([system.cell for system in systems]),
+            pbcs=torch.stack([system.pbc for system in systems]),
+            atom_counts=[len(system) for system in systems],
+            neighbor_lists=neighbor_lists,
+            # evaluation collates systems with nothing attached to them
+            blob=(
+                torch.concatenate(buffers)
+                if buffers
+                else torch.empty(0, dtype=torch.uint8)
+            ),
+            target_names=target_names,
+            target_sizes=[len(b) for b in target_buffers],
+            extra_names=extra_names,
+            extra_sizes=[len(b) for b in extra_buffers],
+            data_names=data_names,
+            data_sizes=[len(b) for b in data_buffers],
+        )
 
 
 class CollateFn:
@@ -514,10 +646,7 @@ class CollateFn:
         self.callables: List[Callable] = callables if callables is not None else []
         self.join_kwargs: Dict[str, Any] = join_kwargs or {"different_keys": "union"}
 
-    def __call__(
-        self,
-        batch: List[Dict[str, Any]],
-    ) -> Tuple[torch.Tensor, List[int], List[str], List[int], List[str], List[int]]:
+    def __call__(self, batch: List[Dict[str, Any]]) -> SerializedBatch:
         """
         :param batch: A batch
         :return: The serialized batch, see :py:func:`serialize_batch`.
@@ -542,30 +671,46 @@ def unpack_batch(
     if isinstance(batch, Batch):
         return batch.systems, batch.targets, batch.extra_data
 
-    blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes = batch
-
-    all_buffers = torch.split(blob, system_sizes + target_sizes + extra_sizes)
-    systems = all_buffers[: len(system_sizes)]
-    targets = {
-        name: buf
-        for name, buf in zip(
-            target_names,
-            all_buffers[len(system_sizes) : len(system_sizes) + len(target_names)],
+    systems = [
+        System(types=types, positions=positions, cell=cell, pbc=pbc)
+        for types, positions, cell, pbc in zip(
+            torch.split(batch.types, batch.atom_counts),
+            torch.split(batch.positions, batch.atom_counts),
+            batch.cells,
+            batch.pbcs,
             strict=True,
         )
-    }
-    extra_data = {
-        name: buf
-        for name, buf in zip(
-            extra_names,
-            all_buffers[len(system_sizes) + len(target_names) :],
-            strict=True,
-        )
-    }
+    ]
 
-    systems = list(load_system_buffer(s) for s in systems)
-    targets = {key: load_buffer(t) for key, t in targets.items()}
-    extra_data = {key: load_buffer(t) for key, t in extra_data.items()}
+    components, properties = neighbor_list_metadata()
+    for neighbors in batch.neighbor_lists:
+        for system, values, samples in zip(
+            systems,
+            torch.split(neighbors.values, neighbors.pair_counts),
+            torch.split(neighbors.samples, neighbors.pair_counts),
+            strict=True,
+        ):
+            system.add_neighbor_list(
+                neighbors.options,
+                TensorBlock(
+                    values=values,
+                    samples=Labels(NEIGHBOR_SAMPLE_NAMES, samples),
+                    components=components,
+                    properties=properties,
+                ),
+            )
+
+    buffers = iter(
+        torch.split(
+            batch.blob, batch.target_sizes + batch.extra_sizes + batch.data_sizes
+        )
+    )
+    targets = {name: load_buffer(next(buffers)) for name in batch.target_names}
+    extra_data = {name: load_buffer(next(buffers)) for name in batch.extra_names}
+    for system in systems:
+        for name in batch.data_names:
+            system.add_data(name, load_buffer(next(buffers)))
+
     return systems, targets, extra_data
 
 
@@ -1291,31 +1436,6 @@ def validate_num_workers(num_workers: int) -> None:
             "start method, which is only available on Linux. On this "
             "platform, num_workers must be set to 0."
         )
-
-
-def _make_system_contiguous(system: System) -> System:
-    """
-    Return a copy of a ``System`` object with contiguous arrays.
-
-    :param system: The system to make contiguous.
-    :return: A copy of the system with contiguous arrays.
-    """
-    new_system = System(
-        positions=system.positions.contiguous(),
-        types=system.types.contiguous(),
-        cell=system.cell.contiguous(),
-        pbc=system.pbc.contiguous(),
-    )
-    for nl_options in system.known_neighbor_lists():
-        nl = system.get_neighbor_list(nl_options)
-        new_system.add_neighbor_list(
-            nl_options,
-            make_contiguous_block(nl),
-        )
-    for key in system.known_data():
-        data = system.get_data(key)
-        new_system.add_data(key, make_contiguous(data))
-    return new_system
 
 
 class MemmapArray:
