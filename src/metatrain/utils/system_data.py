@@ -33,7 +33,7 @@ def get_system_data_transform(
         ``(systems, targets, extra) -> (systems, targets, extra)``.
     """
 
-    def transform(
+    def add_system_data(
         systems: List[System],
         targets: Dict[str, TensorMap],
         extra: Dict[str, TensorMap],
@@ -83,4 +83,4 @@ def get_system_data_transform(
                 )
         return systems, targets, extra
 
-    return transform
+    return add_system_data
