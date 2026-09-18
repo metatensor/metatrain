@@ -19,6 +19,7 @@ Examples::
 """
 
 import argparse
+import json
 import threading
 import time
 from contextlib import contextmanager
@@ -196,6 +197,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--val-fraction", type=float, default=0.2)
     parser.add_argument(
+        "--model-hypers-json",
+        default=None,
+        help="JSON dict merged into the default PET model hypers, e.g. to "
+        "test a larger model size",
+    )
+    parser.add_argument(
+        "--max-atoms-per-batch",
+        type=int,
+        default=None,
+        help="pack batches under this total atom count instead of a fixed "
+        "--batch-size structure count; for size-diverse datasets",
+    )
+    parser.add_argument(
         "--device", default="cuda" if torch.cuda.is_available() else "cpu"
     )
     return parser.parse_args()
@@ -225,7 +239,14 @@ def main() -> None:
         num_workers=args.num_workers,
         loss=loss,
     )
+    if args.max_atoms_per_batch:
+        hypers["training"]["max_atoms_per_batch"] = args.max_atoms_per_batch
+    if args.model_hypers_json:
+        hypers["model"].update(json.loads(args.model_hypers_json))
     model = PET(hypers["model"], dataset_info)
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"model hypers: {hypers['model']}")
+    print(f"model parameters: {n_params}")
 
     # a disjoint split: the validation loop is not part of the timing report,
     # but it is part of an epoch, and it gets its own loader and workers
@@ -233,6 +254,9 @@ def main() -> None:
     split = len(dataset) - val_size
     train_dataset = torch.utils.data.Subset(dataset, range(split))
     val_dataset = torch.utils.data.Subset(dataset, range(split, len(dataset)))
+
+    if args.device == "cuda":
+        torch.cuda.reset_peak_memory_stats()
 
     with TemporaryDirectory() as checkpoint_dir, monitor_memory() as stats:
         start = time.perf_counter()
@@ -252,6 +276,13 @@ def main() -> None:
         if stats
         else "memory not measured (needs psutil)"
     )
+    if args.device == "cuda":
+        gpu_alloc = torch.cuda.max_memory_allocated() / 1e9
+        gpu_reserved = torch.cuda.max_memory_reserved() / 1e9
+        memory += (
+            f"; GPU {gpu_alloc:.2f} GB max allocated, "
+            f"{gpu_reserved:.2f} GB max reserved"
+        )
     print(
         f"\nPET, {len(train_dataset)} train + {len(val_dataset)} validation "
         f"structures, batch_size={args.batch_size}, "
