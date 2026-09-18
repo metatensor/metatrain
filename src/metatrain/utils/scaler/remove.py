@@ -38,7 +38,7 @@ def get_remove_scale_transform(scaler: Scaler) -> Callable:
     :return: A function that removes the scaling from the targets.
     """
 
-    def transform(
+    def divide_by_scale(
         systems: List[System],
         targets: Dict[str, TensorMap],
         extra: Dict[str, TensorMap],
@@ -52,4 +52,4 @@ def get_remove_scale_transform(scaler: Scaler) -> Callable:
         new_targets = remove_scale(systems, targets, scaler)
         return systems, new_targets, extra
 
-    return transform
+    return divide_by_scale
