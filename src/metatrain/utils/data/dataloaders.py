@@ -10,6 +10,22 @@ from .samplers import MaxAtomDistributedBatchSampler
 DatasetLike = Union[Dataset, torch.utils.data.Subset]
 
 
+def seeded_generator() -> torch.Generator:
+    """Build a generator for one ``DataLoader``, seeded from the global RNG.
+
+    A ``DataLoader`` left to the default generator draws a worker seed from the
+    global RNG every time an iterator is created, so how often a loader is
+    iterated leaks into whatever the training loop draws next. Giving each
+    loader its own generator moves those draws off the global RNG, and taking
+    the seed from it keeps ``torch.manual_seed`` in charge of the run.
+
+    :return: The seeded generator.
+    """
+    generator = torch.Generator()
+    generator.manual_seed(int(torch.empty((), dtype=torch.int64).random_().item()))
+    return generator
+
+
 def build_train_dataloaders(
     train_datasets: List[DatasetLike],
     train_distributed_samplers: List[Optional[DistributedSampler]],
@@ -72,6 +88,7 @@ def build_train_dataloaders(
                     collate_fn=collate_fn_train,
                     num_workers=num_workers,
                     multiprocessing_context=mp_context,
+                    generator=seeded_generator(),
                 )
             )
         else:
@@ -94,6 +111,7 @@ def build_train_dataloaders(
                     collate_fn=collate_fn_train,
                     num_workers=num_workers,
                     multiprocessing_context=mp_context,
+                    generator=seeded_generator(),
                 )
             )
     return dataloaders, epoch_samplers
@@ -153,6 +171,7 @@ def build_val_dataloaders(
                     collate_fn=collate_fn_val,
                     num_workers=num_workers,
                     multiprocessing_context=mp_context,
+                    generator=seeded_generator(),
                 )
             )
         else:
@@ -166,6 +185,7 @@ def build_val_dataloaders(
                     collate_fn=collate_fn_val,
                     num_workers=num_workers,
                     multiprocessing_context=mp_context,
+                    generator=seeded_generator(),
                 )
             )
     return dataloaders
