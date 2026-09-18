@@ -441,9 +441,6 @@ class Scaler(ModelInterface[ModelHypers]):
             if hasattr(self, buffer_name):
                 delattr(self, buffer_name)
 
-        print(list(self.dataset_info.targets.keys()))
-        print(list(self.target_infos.keys()))
-
     def scales_to(self, device: torch.device, dtype: torch.dtype) -> None:
         if len(self.model.scales) != 0:
             if self.model.scales[list(self.model.scales.keys())[0]].device != device:
