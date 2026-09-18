@@ -27,6 +27,11 @@ Unreleased
 Fixed
 #####
 
+- ``ZBL`` now accepts every spelling of the angstrom that metatomic accepts
+  (``angstrom``, ``Angstrom``, ``A``, ...), instead of only the exact string
+  ``angstrom``. It still refuses other length units, and now also refuses a
+  dataset that declares no length unit at all.
+
 Added
 #####
 
