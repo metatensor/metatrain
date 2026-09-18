@@ -19,10 +19,12 @@ Examples::
 """
 
 import argparse
+import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Iterator, Tuple
 
 import torch
 from omegaconf import OmegaConf
@@ -42,6 +44,11 @@ from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
 
+
+try:
+    import psutil
+except ModuleNotFoundError:  # measuring memory is optional
+    psutil = None  # type: ignore[assignment]
 
 DEFAULT_DATASET = (
     Path(__file__).parents[1] / "tests/resources/qm9_reduced_100.xyz"
@@ -74,6 +81,75 @@ def build_dataset(path: str, key: str) -> Tuple[Dataset, Dict[str, Any]]:
     systems = read_systems(path)
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
     return dataset, target_info
+
+
+def _memory_of(process: "psutil.Process") -> int:
+    """Memory used by one process, counting shared pages only once.
+
+    :param process: The process to measure.
+    :return: Its proportional set size where available, otherwise its resident
+        set size, in bytes.
+    """
+    try:
+        return int(process.memory_full_info().pss)
+    except (AttributeError, psutil.Error):
+        # no PSS outside Linux: RSS instead, which counts the pages the workers
+        # share with the parent once per process
+        return int(process.memory_info().rss)
+
+
+def _tree_memory() -> int:
+    """Memory used by this process and its (worker) children.
+
+    :return: The total, in bytes.
+    """
+    process = psutil.Process()
+    total = _memory_of(process)
+    for child in process.children(recursive=True):
+        try:
+            total += _memory_of(child)
+        except psutil.Error:  # the child exited while we were looking
+            pass
+    return total
+
+
+@contextmanager
+def monitor_memory(interval: float = 0.1) -> Iterator[Dict[str, float]]:
+    """Sample the memory use of the process tree while the block runs.
+
+    Persistent workers hold their process state for the lifetime of the loader,
+    so what matters is how much the run adds on top of what the parent process
+    already holds.
+
+    :param interval: Seconds between samples.
+    :yield: The stats, filled in once the block is done; empty without psutil.
+    :ytype: Dict[str, float]
+    """
+    stats: Dict[str, float] = {}
+    if psutil is None:
+        yield stats
+        return
+
+    baseline = peak = _tree_memory()
+    stop = threading.Event()
+
+    def sample() -> None:
+        nonlocal peak
+        while True:  # sample before the first wait, so short runs get a value
+            peak = max(peak, _tree_memory())
+            if stop.wait(interval):
+                break
+
+    thread = threading.Thread(target=sample, daemon=True)
+    thread.start()
+    try:
+        yield stats
+    finally:
+        stop.set()
+        thread.join()
+        stats["baseline_gb"] = baseline / 1e9
+        stats["peak_gb"] = peak / 1e9
+        stats["added_gb"] = (peak - baseline) / 1e9
 
 
 def compare_transport(dataset: Dataset, batch_size: int, repeats: int = 20) -> str:
@@ -118,6 +194,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--val-fraction", type=float, default=0.2)
     parser.add_argument(
         "--device", default="cuda" if torch.cuda.is_available() else "cpu"
     )
@@ -150,26 +227,37 @@ def main() -> None:
     )
     model = PET(hypers["model"], dataset_info)
 
-    # a small validation set: it is not part of the report, and a full second
-    # pass over the data per epoch would only add wall time
-    val_dataset = torch.utils.data.Subset(dataset, range(min(len(dataset), 8)))
+    # a disjoint split: the validation loop is not part of the timing report,
+    # but it is part of an epoch, and it gets its own loader and workers
+    val_size = max(1, round(args.val_fraction * len(dataset)))
+    split = len(dataset) - val_size
+    train_dataset = torch.utils.data.Subset(dataset, range(split))
+    val_dataset = torch.utils.data.Subset(dataset, range(split, len(dataset)))
 
-    with TemporaryDirectory() as checkpoint_dir:
+    with TemporaryDirectory() as checkpoint_dir, monitor_memory() as stats:
         start = time.perf_counter()
         Trainer(hypers["training"]).train(
             model=model,
             dtype=torch.float32,
             devices=[torch.device(args.device)],
-            train_datasets=[dataset],
+            train_datasets=[train_dataset],
             val_datasets=[val_dataset],
             checkpoint_dir=checkpoint_dir,
         )
         wall = time.perf_counter() - start
 
+    memory = (
+        f"memory {stats['peak_gb']:.2f} GB peak, {stats['added_gb']:.2f} GB added "
+        f"over a {stats['baseline_gb']:.2f} GB baseline"
+        if stats
+        else "memory not measured (needs psutil)"
+    )
     print(
-        f"\nPET, {len(dataset)} structures, batch_size={args.batch_size}, "
+        f"\nPET, {len(train_dataset)} train + {len(val_dataset)} validation "
+        f"structures, batch_size={args.batch_size}, "
         f"num_workers={args.num_workers}, device={args.device}, "
-        f"epochs={args.epochs}, {wall:.1f} s wall (incl. validation)\n"
+        f"epochs={args.epochs}, {wall:.1f} s wall (incl. validation), "
+        f"{memory}\n"
     )
     print(timing.report())
     # after the report, so these batches are not part of it
