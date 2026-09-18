@@ -15,7 +15,9 @@ further, and are therefore reported as a fraction of ``loader + step``.
 The :py:data:`COLLATE_STAGES` are recorded inside ``DataLoader`` workers,
 whose accumulators die with the worker process; they are only reported when
 running with ``num_workers=0``. With workers, that time shows up as ``loader``
-wait in the main process instead.
+wait in the main process instead. Each collate transform is timed separately
+under :py:data:`TRANSFORM_PREFIX`, which is what says whether the expensive
+part of collation is the neighbor lists, the augmentation, or something else.
 """
 
 import os
@@ -38,6 +40,9 @@ STEP_BREAKDOWN = ("unpack", "h2d", "forward", "loss", "backward", "optimizer")
 
 COLLATE_STAGES = ("group_and_join", "transforms", "serialize")
 """Stages inside the collate function, i.e. inside the ``loader`` wait."""
+
+TRANSFORM_PREFIX = "transforms/"
+"""Prefix of the per-transform stages that break ``transforms`` down."""
 
 _totals: Dict[str, float] = defaultdict(float)
 _calls: Dict[str, int] = defaultdict(int)
@@ -108,6 +113,20 @@ def timed(stage: str) -> ContextManager[None]:
     return _timed(stage) if ENABLED else nullcontext()
 
 
+def timed_transform(transform: Any) -> ContextManager[None]:
+    """Time one collate transform, in a stage named after the callable.
+
+    The name is only built when timing is on, so the disabled path stays free.
+
+    :param transform: The collate transform about to run.
+    :return: A context manager around the timed block.
+    """
+    if not ENABLED:
+        return nullcontext()
+    name = getattr(transform, "__name__", type(transform).__name__)
+    return _timed(f"{TRANSFORM_PREFIX}{name}")
+
+
 def _timed_iter(iterable: Iterable[Any], stage: str, body: str) -> Iterator[Any]:
     """Iterate ``iterable``, timing both the waits and the loop body.
 
@@ -155,11 +174,12 @@ def count_systems(systems: List[System]) -> None:
         _counters["atoms"] += sum(len(system) for system in systems)
 
 
-def _rows(stages: Iterable[str], total: float) -> List[str]:
+def _rows(stages: Iterable[str], total: float, width: int = 16) -> List[str]:
     """Format one table row per recorded stage.
 
     :param stages: Stage names to include; those never recorded are skipped.
     :param total: Time each stage's percentage share is computed against.
+    :param width: Width of the stage name column.
     :return: The formatted rows.
     """
     rows = []
@@ -168,7 +188,7 @@ def _rows(stages: Iterable[str], total: float) -> List[str]:
             continue
         ms = 1e3 * _totals[stage] / _calls[stage]
         share = 100 * _totals[stage] / total if total else 0.0
-        rows.append(f"{stage:<16}{_calls[stage]:>8}{ms:>10.2f}{share:>10.1f}%")
+        rows.append(f"{stage:<{width}}{_calls[stage]:>8}{ms:>10.2f}{share:>10.1f}%")
     return rows
 
 
@@ -181,14 +201,18 @@ def report() -> str:
         return "no timings recorded (set METATRAIN_TIMING=1 to enable)"
 
     total = sum(_totals[stage] for stage in TOP_STAGES if stage in _totals)
-    lines = [f"{'stage':<16}{'calls':>8}{'ms/call':>10}{'% of step':>11}"]
-    lines += _rows(TOP_STAGES, total)
+    width = max(16, 2 + max(len(stage) for stage in _totals))
+    lines = [f"{'stage':<{width}}{'calls':>8}{'ms/call':>10}{'% of step':>11}"]
+    lines += _rows(TOP_STAGES, total, width)
 
-    breakdown = _rows(STEP_BREAKDOWN, total)
+    breakdown = _rows(STEP_BREAKDOWN, total, width)
     if breakdown:
         lines += ["", "breakdown of `step`:"] + breakdown
 
-    collate = _rows(COLLATE_STAGES, total)
+    # the per-transform stages break `transforms` down, so they belong under it
+    transforms = sorted(s for s in _totals if s.startswith(TRANSFORM_PREFIX))
+    group_and_join, aggregate, serialize = COLLATE_STAGES
+    collate = _rows((group_and_join, aggregate, *transforms, serialize), total, width)
     if collate:
         lines += [
             "",
@@ -196,14 +220,14 @@ def report() -> str:
         ] + collate
 
     known = set(TOP_STAGES) | set(STEP_BREAKDOWN) | set(COLLATE_STAGES)
-    other = _rows(sorted(set(_totals) - known), total)
+    other = _rows(sorted(set(_totals) - known - set(transforms)), total, width)
     if other:
         lines += ["", "other:"] + other
 
     if total and _counters:
         lines.append("")
         lines += [
-            f"{name + '/s':<16}{value / total:>18.1f}"
+            f"{name + '/s':<{width}}{value / total:>18.1f}"
             for name, value in sorted(_counters.items())
         ]
 

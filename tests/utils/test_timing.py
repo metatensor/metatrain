@@ -64,6 +64,32 @@ def test_timed_iter_splits_wait_from_body(enabled):
         assert line.split()[1] == "4"
 
 
+def test_timed_transform_names_the_callable(enabled):
+    """Each transform gets its own stage, named after the callable, so the
+    aggregate `transforms` stage can be broken down."""
+
+    def add_neighbor_lists(*args):
+        return args
+
+    class Augmenter:
+        def __call__(self, *args):
+            return args
+
+    for transform in (add_neighbor_lists, Augmenter()):
+        with timing.timed_transform(transform):
+            pass
+
+    report = timing.report()
+    assert "transforms/add_neighbor_lists" in report
+    assert "transforms/Augmenter" in report
+
+
+def test_timed_transform_is_free_when_disabled():
+    with timing.timed_transform(lambda *args: args):
+        pass
+    assert timing.report() == "no timings recorded (set METATRAIN_TIMING=1 to enable)"
+
+
 def test_counters(enabled):
     class FakeSystem:
         def __len__(self):
