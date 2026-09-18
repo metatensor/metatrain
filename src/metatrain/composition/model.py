@@ -594,8 +594,6 @@ class CompositionModel(ModelInterface[ModelHypers]):
         :return: An instance of :py:class:`metatomic.torch.AtomisticModel`.
         """
         dtype = self.dummy_buffer.dtype
-        if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for composition model")
 
         self.to(dtype)
         self.weights_to(torch.device("cpu"), torch.float64)

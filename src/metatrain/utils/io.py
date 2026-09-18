@@ -208,6 +208,11 @@ def model_from_checkpoint(
 
     """
     architecture_name = checkpoint["architecture_name"]
+
+    if architecture_name == "metatrain_wrapper":
+        from .wrapper import MetatrainWrapper
+        return MetatrainWrapper.load_checkpoint(checkpoint, context=context)
+
     if architecture_name not in find_all_architectures():
         raise ValueError(
             f"Checkpoint architecture '{architecture_name}' not found "
@@ -279,6 +284,10 @@ def trainer_from_checkpoint(
 
     """
     architecture_name = checkpoint["architecture_name"]
+
+    if architecture_name == "metatrain_wrapper":
+        architecture_name = checkpoint["model"]["architecture_name"]
+
     if architecture_name not in find_all_architectures():
         raise ValueError(
             f"Checkpoint architecture '{architecture_name}' not found "
