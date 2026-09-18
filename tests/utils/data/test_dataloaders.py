@@ -11,6 +11,7 @@ enough: it removes the duplication without losing coverage.
 
 from pathlib import Path
 
+import torch
 from metatensor.learn.data import Dataset
 from omegaconf import OmegaConf
 
@@ -106,3 +107,31 @@ def test_max_atoms_per_batch_end_to_end():
     for batch in val_batch_sampler.all_batches:
         atom_count = sum(len(dataset[i].system) for i in batch)
         assert atom_count <= 20
+
+
+def test_iterating_a_loader_does_not_shift_the_global_rng():
+    """How often a loader is iterated must not change what is drawn next.
+
+    A ``DataLoader`` on the default generator draws a worker seed from the
+    global RNG every time an iterator is created, which leaked the number of
+    passes (and, through ``get_num_workers``, the host's core count) into the
+    random numbers the training loop drew afterwards.
+    """
+    dataset = _build_dataset()
+    dataloaders = build_val_dataloaders(
+        val_datasets=[dataset],
+        val_distributed_samplers=[None],
+        collate_fn_val=CollateFn(target_keys=["energy"]),
+        batch_size=5,
+        max_atoms_per_batch=None,
+        num_workers=0,
+    )
+
+    def draw_after(passes: int) -> float:
+        torch.manual_seed(0)
+        for _ in range(passes):
+            for _ in dataloaders[0]:
+                pass
+        return torch.rand(1).item()
+
+    assert draw_after(1) == draw_after(2)
