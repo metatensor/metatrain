@@ -41,6 +41,9 @@ Added
 Changed
 #######
 
+- Dataloaders now draw their worker seeds from a generator of their own, so how
+  often a loader is iterated no longer changes the random numbers a training run
+  draws afterwards. This moves PET's regression reference values once.
 - Models now check that the model hypers passed for restarting are the same as
   those used for the original training. If no model hypers are specified in the
   yaml file for restarting, that is fine, only the ones explicitly specified
