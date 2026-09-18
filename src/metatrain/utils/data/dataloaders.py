@@ -89,6 +89,8 @@ def build_train_dataloaders(
                     num_workers=num_workers,
                     multiprocessing_context=mp_context,
                     generator=seeded_generator(),
+                    # avoid recreating worker processes at every epoch
+                    persistent_workers=num_workers > 0,
                 )
             )
         else:
@@ -112,6 +114,8 @@ def build_train_dataloaders(
                     num_workers=num_workers,
                     multiprocessing_context=mp_context,
                     generator=seeded_generator(),
+                    # avoid recreating worker processes at every epoch
+                    persistent_workers=num_workers > 0,
                 )
             )
     return dataloaders, epoch_samplers
@@ -172,6 +176,8 @@ def build_val_dataloaders(
                     num_workers=num_workers,
                     multiprocessing_context=mp_context,
                     generator=seeded_generator(),
+                    # avoid recreating worker processes at every epoch
+                    persistent_workers=num_workers > 0,
                 )
             )
         else:
@@ -186,6 +192,8 @@ def build_val_dataloaders(
                     num_workers=num_workers,
                     multiprocessing_context=mp_context,
                     generator=seeded_generator(),
+                    # avoid recreating worker processes at every epoch
+                    persistent_workers=num_workers > 0,
                 )
             )
     return dataloaders
