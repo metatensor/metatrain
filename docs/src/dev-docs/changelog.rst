@@ -41,6 +41,8 @@ Added
 Changed
 #######
 
+- Dataloader workers are now kept alive between epochs instead of being
+  recreated at the start of each one.
 - Dataloaders now draw their worker seeds from a generator of their own, so how
   often a loader is iterated no longer changes the random numbers a training run
   draws afterwards. This moves PET's regression reference values once.
