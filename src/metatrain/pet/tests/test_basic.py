@@ -2,6 +2,7 @@ import copy
 
 import pytest
 
+from metatrain.utils.additive import ZBL
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.testing import (
     ArchitectureTests,
@@ -32,7 +33,16 @@ class PETTests(ArchitectureTests):
         return hypers
 
 
-class TestInput(InputTests, PETTests): ...
+class TestInput(InputTests, PETTests):
+    def test_zbl_is_an_additive_model(self, minimal_model_hypers, dataset_info):
+        """Asking for ZBL attaches a ZBL additive model over the dataset types."""
+        hypers = copy.deepcopy(minimal_model_hypers)
+        hypers["zbl"] = True
+        model = self.model_cls(hypers, dataset_info)
+
+        zbl_models = [m for m in model.additive_models if isinstance(m, ZBL)]
+        assert len(zbl_models) == 1
+        assert zbl_models[0].dataset_info.atomic_types == dataset_info.atomic_types
 
 
 class TestOutput(OutputTests, PETTests):
