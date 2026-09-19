@@ -88,7 +88,14 @@ def get_scheduler(
     steps_per_epoch: int,
 ) -> LambdaLR:
     """
-    Get a CosineAnnealing learning-rate scheduler with warmup
+    Get a warmup / hold / cosine-annealing learning-rate scheduler.
+
+    The schedule has three phases over ``num_epochs * steps_per_epoch`` steps:
+    linear warmup from 0 to the base learning rate over the first
+    ``warmup_fraction`` of the steps, a hold at the base learning rate for the
+    next ``hold_fraction`` of the steps, and cosine annealing to zero over
+    whatever remains. With ``hold_fraction: 0`` (the default) this is the usual
+    warmup-then-cosine schedule.
 
     :param optimizer: The optimizer for which to create the scheduler.
     :param train_hypers: The training hyperparameters.
@@ -96,17 +103,31 @@ def get_scheduler(
     :return: The learning rate scheduler.
     """
     total_steps = train_hypers["num_epochs"] * steps_per_epoch
-    warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
+    warmup_fraction = train_hypers["warmup_fraction"]
+    # ``.get`` so that trainer hypers restored from a checkpoint written before
+    # this hyper existed keep their old schedule.
+    hold_fraction = train_hypers.get("hold_fraction", 0.0)
+    if warmup_fraction + hold_fraction > 1.0:
+        raise ValueError(
+            f"warmup_fraction ({warmup_fraction}) + hold_fraction ({hold_fraction}) "
+            "must not exceed 1.0: there would be no steps left for the cosine decay."
+        )
+    warmup_steps = int(warmup_fraction * total_steps)
+    hold_steps = int(hold_fraction * total_steps)
+    decay_start = warmup_steps + hold_steps
     min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
 
     def lr_lambda(current_step: int) -> float:
         if current_step < warmup_steps:
             # Linear warmup
             return float(current_step) / float(max(1, warmup_steps))
+        elif current_step < decay_start:
+            # Hold at the base learning rate
+            return 1.0
         else:
             # Cosine decay
-            progress = (current_step - warmup_steps) / float(
-                max(1, total_steps - warmup_steps)
+            progress = (current_step - decay_start) / float(
+                max(1, total_steps - decay_start)
             )
             cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
             return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay

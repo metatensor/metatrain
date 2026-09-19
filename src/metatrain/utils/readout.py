@@ -21,6 +21,14 @@ from typing import List, Optional
 import torch
 
 
+def _row_scale(bias_scale: torch.Tensor, n_dims: int) -> torch.Tensor:
+    """Reshape a ``(n_rows,)`` scale so it broadcasts against ``n_dims``-D features."""
+    shape: List[int] = [bias_scale.shape[0]]
+    for _ in range(n_dims - 1):
+        shape.append(1)
+    return bias_scale.reshape(shape)
+
+
 class LinearReadout(torch.nn.Module):
     """Linear readout, optionally conditioned on a per-row group index.
 
@@ -141,34 +149,56 @@ class LinearReadout(torch.nn.Module):
         else:
             self.register_parameter("bias", None)
 
-    def forward(self, features: torch.Tensor, group_idx: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        features: torch.Tensor,
+        group_idx: torch.Tensor,
+        bias_scale: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         """
         :param features: ``(n_rows, in_features)`` (e.g. node features) or
             ``(n_rows, n_columns, in_features)`` (e.g. edge features in NEF
             layout, or equivariant features with a component dimension).
         :param group_idx: Long tensor of shape ``(n_rows,)`` selecting the gating
             group for each row of ``features``. Ignored when ungated.
+        :param bias_scale: Optional ``(n_rows,)`` tensor multiplying the bias of
+            each row. Use it when ``features`` is a weighted sum over some set of
+            inputs (e.g. neighbours), so that the bias is applied once per summed
+            input rather than once per row: ``sum_j w_j (W f_j + b) =
+            W (sum_j w_j f_j) + b sum_j w_j``. ``None`` (default) applies the
+            bias once per row. Ignored when the readout has no bias.
         :return: Same leading dimensions as ``features``, with last dimension
             ``out_features``.
         """
         if not self.gated:
-            out = torch.nn.functional.linear(features, self.weight, self.bias)
+            if bias_scale is None:
+                out = torch.nn.functional.linear(features, self.weight, self.bias)
+            else:
+                out = torch.nn.functional.linear(features, self.weight)
+                bias = self.bias
+                if bias is not None:
+                    out = out + bias * _row_scale(bias_scale, features.dim())
         elif self.grouped and features.dim() == 2:
-            out = self._forward_grouped(features, group_idx)
+            out = self._forward_grouped(features, group_idx, bias_scale)
         else:
-            out = self._forward_dense(features, group_idx)
+            out = self._forward_dense(features, group_idx, bias_scale)
         if self.scale != 1.0:
             out = out * self.scale
         return out
 
     def _forward_dense(
-        self, features: torch.Tensor, group_idx: torch.Tensor
+        self,
+        features: torch.Tensor,
+        group_idx: torch.Tensor,
+        bias_scale: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """One GEMM against every group's weights, then keep the group each row needs.
 
         :param features: ``(n_rows, in_features)`` or
             ``(n_rows, n_columns, in_features)``.
         :param group_idx: Long tensor of shape ``(n_rows,)``.
+        :param bias_scale: Optional ``(n_rows,)`` per-row bias multiplier; see
+            :meth:`forward`.
         :return: ``features`` with its last dimension replaced by ``out_features``.
         """
         # Promote 2-D features to 3-D so the node and edge cases are handled
@@ -180,10 +210,11 @@ class LinearReadout(torch.nn.Module):
         n_columns = features.shape[1]
 
         # Folding the bias into the same call means the gather below picks up the
-        # matching bias for free.
+        # matching bias for free. With a per-row bias scale the bias is instead
+        # gathered separately and added after the scale.
         bias = self.bias
         flat_bias: Optional[torch.Tensor] = None
-        if bias is not None:
+        if bias is not None and bias_scale is None:
             flat_bias = bias.reshape(self.n_groups * self.out_features)
         out = torch.nn.functional.linear(
             features,
@@ -199,12 +230,18 @@ class LinearReadout(torch.nn.Module):
         )
         out = out.gather(2, index).squeeze(2)
 
+        if bias is not None and bias_scale is not None:
+            out = out + bias[group_idx].unsqueeze(1) * bias_scale.reshape(n_rows, 1, 1)
+
         if is_2d:
             out = out.squeeze(1)
         return out
 
     def _forward_grouped(
-        self, features: torch.Tensor, group_idx: torch.Tensor
+        self,
+        features: torch.Tensor,
+        group_idx: torch.Tensor,
+        bias_scale: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Sort the rows by group and run one dense matmul per non-empty group.
 
@@ -214,11 +251,16 @@ class LinearReadout(torch.nn.Module):
 
         :param features: ``(n_rows, in_features)``.
         :param group_idx: Long tensor of shape ``(n_rows,)``.
+        :param bias_scale: Optional ``(n_rows,)`` per-row bias multiplier; see
+            :meth:`forward`.
         :return: ``(n_rows, out_features)``, back in the original row order.
         """
         order = torch.argsort(group_idx)
         counts: List[int] = torch.bincount(group_idx, minlength=self.n_groups).tolist()
         sorted_features = features.index_select(0, order)
+        sorted_scale: Optional[torch.Tensor] = None
+        if bias_scale is not None:
+            sorted_scale = bias_scale.index_select(0, order).unsqueeze(1)
 
         out = torch.empty(
             features.shape[0],
@@ -231,14 +273,23 @@ class LinearReadout(torch.nn.Module):
         for group in range(self.n_groups):
             count = counts[group]
             if count > 0:
-                bias_group: Optional[torch.Tensor] = None
-                if bias is not None:
-                    bias_group = bias[group]
-                out[start : start + count] = torch.nn.functional.linear(
-                    sorted_features[start : start + count],
-                    self.weight[group],
-                    bias_group,
-                )
+                if bias is not None and sorted_scale is not None:
+                    out[start : start + count] = (
+                        torch.nn.functional.linear(
+                            sorted_features[start : start + count],
+                            self.weight[group],
+                        )
+                        + bias[group] * sorted_scale[start : start + count]
+                    )
+                else:
+                    bias_group: Optional[torch.Tensor] = None
+                    if bias is not None:
+                        bias_group = bias[group]
+                    out[start : start + count] = torch.nn.functional.linear(
+                        sorted_features[start : start + count],
+                        self.weight[group],
+                        bias_group,
+                    )
             start += count
         return out.index_select(0, torch.argsort(order))
 
@@ -338,12 +389,19 @@ class MoEReadout(torch.nn.Module):
             ]
         )
 
-    def forward(self, features: torch.Tensor, group_idx: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        features: torch.Tensor,
+        group_idx: torch.Tensor,
+        bias_scale: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         """
         :param features: ``(n_rows, in_features)`` or
             ``(n_rows, n_columns, in_features)``.
         :param group_idx: Long tensor of shape ``(n_rows,)`` with the group (e.g.
             central-atom type) index.
+        :param bias_scale: Optional ``(n_rows,)`` per-row bias multiplier, passed
+            through to every expert; see :meth:`LinearReadout.forward`.
         :return: Same leading dimensions as ``features``, with last dimension
             ``out_features``.
         """
@@ -356,7 +414,7 @@ class MoEReadout(torch.nn.Module):
         # Routed experts: evaluate all, then combine with the sparse weights.
         routed_outs: List[torch.Tensor] = torch.jit.annotate(List[torch.Tensor], [])
         for expert in self.routed_experts:
-            routed_outs.append(expert(features, group_idx))
+            routed_outs.append(expert(features, group_idx, bias_scale))
         stacked = torch.stack(routed_outs, dim=1)  # (n_rows, I, ...)
 
         if stacked.dim() == 3:
@@ -368,6 +426,6 @@ class MoEReadout(torch.nn.Module):
 
         # Shared experts: always active, unit weight.
         for expert in self.shared_experts:
-            output = output + expert(features, group_idx)
+            output = output + expert(features, group_idx, bias_scale)
 
         return output
