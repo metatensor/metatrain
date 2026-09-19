@@ -538,6 +538,37 @@ def _quadratic_form(vector: torch.Tensor, matrix: torch.Tensor) -> torch.Tensor:
     return torch.dot(vector, torch.mv(matrix, vector))
 
 
+
+def _to_batch_order(tensor_map: TensorMap, extra_data: Any) -> TensorMap:
+    """Relabel a prepared extra-data map from dataset "system" ids to the batch-local
+    ids the model output uses, and put its rows in (system, atom) order.
+
+    The atomic-basis preparation leaves extra data with the dataset's own system ids,
+    rows sorted by that id, whereas predictions carry batch-local ids ``0..B-1`` in
+    ``systems`` order (the order the metric matrices are built in). The mapping between
+    the two is the batch's ``mtt::aux::system_index`` entry (dataset ids in batch order).
+    """
+    if extra_data is None or "mtt::aux::system_index" not in extra_data:
+        return tensor_map
+    dataset_ids = extra_data["mtt::aux::system_index"].block().values[:, 0].to(torch.int64)
+    lookup = torch.full((int(dataset_ids.max()) + 1,), -1, dtype=torch.int64, device=dataset_ids.device)
+    lookup[dataset_ids] = torch.arange(len(dataset_ids), dtype=torch.int64, device=dataset_ids.device)
+    blocks = []
+    for key, block in tensor_map.items():
+        samples = block.samples.values.clone()
+        ids = samples[:, 0].to(torch.int64).to(lookup.device)
+        if bool((ids > len(lookup) - 1).any()) or bool((lookup[ids] < 0).any()):
+            return tensor_map  # already batch-local (or foreign ids): leave untouched
+        samples[:, 0] = lookup[ids].to(samples.dtype).to(samples.device)
+        if samples.shape[1] > 1:
+            order = torch.argsort(samples[:, 0] * (int(samples[:, 1].max()) + 1) + samples[:, 1])
+        else:
+            order = torch.argsort(samples[:, 0])
+        blocks.append(TensorBlock(values=block.values[order], samples=Labels(block.samples.names, samples[order]),
+                                  components=block.components, properties=block.properties))
+    return TensorMap(tensor_map.keys, blocks)
+
+
 class _DensityLoss(LossInterface):
     """
     Shared machinery for the two quadratic density losses.
@@ -811,6 +842,7 @@ class DensityMSELossViaW(_DensityLoss):
         extra_data: Optional[Any] = None,
     ) -> torch.Tensor:
         projections = self._require(extra_data, self.projections_key)
+        projections = _to_batch_order(projections, extra_data)
 
         # Flatten predictions and projections under the same code path so the two
         # flat vectors index the same basis functions. Only the projections carry
@@ -838,7 +870,7 @@ class DensityMSELossViaW(_DensityLoss):
 
         constant_name = ri_density_fit_constant_name(self.target)
         if extra_data is not None and constant_name in extra_data:
-            constant = extra_data[constant_name].block().values.reshape(-1)
+            constant = _to_batch_order(extra_data[constant_name], extra_data).block().values.reshape(-1)
             per_system = per_system + constant.to(
                 dtype=per_system.dtype, device=per_system.device
             )
