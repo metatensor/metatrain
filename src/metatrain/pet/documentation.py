@@ -406,6 +406,11 @@ class TrainerHypers(TypedDict):
     """Number of epochs."""
     warmup_fraction: float = 0.01
     """Fraction of training steps used for learning rate warmup."""
+    hold_fraction: float = 0.0
+    """Fraction of training steps, after the warmup, during which the learning
+    rate is held at its base value before the cosine annealing starts. The
+    annealing then runs over the remaining ``1 - warmup_fraction - hold_fraction``
+    of the steps. ``0.0`` gives the plain warmup-then-cosine schedule."""
     learning_rate: float = 1e-4
     """Learning rate."""
     weight_decay: Optional[float] = None
