@@ -295,10 +295,10 @@ def trainer_from_checkpoint(
         trainer_ckpt_version = 1
         checkpoint["trainer_ckpt_version"] = trainer_ckpt_version
 
+    base_msg = f"Unable to load the trainer checkpoint for the '{architecture_name}' architecture:"
     if trainer_ckpt_version > architecture.__trainer__.__checkpoint_version__:
         raise RuntimeError(
-            f"Unable to load the trainer checkpoint for the '{architecture_name}' "
-            f"architecture: the checkpoint uses checkpoint format version "
+            f"{base_msg} the checkpoint uses checkpoint format version "
             f"{trainer_ckpt_version}, but the installed '{architecture_name}' "
             f"architecture only supports up to version "
             f"{architecture.__trainer__.__checkpoint_version__}. You are using "
@@ -317,8 +317,7 @@ def trainer_from_checkpoint(
             checkpoint = architecture.__trainer__.upgrade_checkpoint(checkpoint)
         except Exception as e:
             raise RuntimeError(
-                f"Unable to load the trainer checkpoint for "
-                f"the '{architecture_name}' architecture: the checkpoint is using "
+                f"{base_msg} the checkpoint is using "
                 f"version {trainer_ckpt_version}, while the current version is "
                 f"{architecture.__trainer__.__checkpoint_version__}; and trying to "
                 "upgrade the checkpoint failed."
