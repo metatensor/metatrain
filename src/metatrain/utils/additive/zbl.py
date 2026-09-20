@@ -5,7 +5,12 @@ import metatensor.torch as mts
 import torch
 from ase.data import covalent_radii
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import ModelOutput, NeighborListOptions, System
+from metatomic.torch import (
+    ModelOutput,
+    NeighborListOptions,
+    System,
+    unit_conversion_factor,
+)
 
 from ..data import DatasetInfo, TargetInfo
 from ..sum_over_atoms import sum_over_atoms
@@ -37,11 +42,14 @@ class ZBL(torch.nn.Module):
                 f"Got: {hypers}."
             )
 
-        # Check dataset length units
-        if dataset_info.length_unit != "angstrom":
+        # Check dataset length units. Metatomic spells the angstrom several ways
+        # ("angstrom", "Angstrom", "A", ...), and an empty unit means the dataset
+        # never said, which for a potential tabulated in angstroms is not a yes.
+        length_unit = dataset_info.length_unit
+        if length_unit == "" or unit_conversion_factor(length_unit, "angstrom") != 1.0:
             raise ValueError(
                 "ZBL only supports angstrom units, but a "
-                f"{dataset_info.length_unit} unit was provided."
+                f"'{length_unit}' unit was provided."
             )
 
         for target_name, target_info in dataset_info.targets.items():
