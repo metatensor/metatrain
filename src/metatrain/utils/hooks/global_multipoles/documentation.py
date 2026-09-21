@@ -46,7 +46,8 @@ translates with it, so the dependence cancels exactly, whatever the value of
 :math:`\sum_i q_i`. The centre of nuclear charge is a convention used by some electronic
 structure codes, but not all.
 
-This is controlled by the ``origin`` hyperparameter: set it to ``"absolute"`` to keep
+This is controlled by the ``origin`` hyperparameter: set it to ``"centroid"`` to use
+the unweighted average of the atomic positions instead, or to ``"absolute"`` to keep
 the positions as they are stored, and recover the origin-dependent behaviour described
 above.
 
@@ -83,7 +84,7 @@ class Hypers(TypedDict):
     kind ``"system"``.
     """
 
-    origin: Literal["center_of_charge", "absolute"] = "center_of_charge"
+    origin: Literal["center_of_charge", "centroid", "absolute"] = "center_of_charge"
     """
     Origin (per-system) that the atomic positions are referred to when assembling the
     multipole.
@@ -94,9 +95,49 @@ class Hypers(TypedDict):
       predicted multipole is invariant under a rigid translation whatever the value of
       :math:`\\sum_i q_i`. This is a convention used by some electronic structure codes,
       but not all.
+    - ``"centroid"``: subtract each system's unweighted geometric centroid,
+      :math:`\\mathbf{R} = \\frac{1}{N}\\sum_i \\mathbf{r}_i`, from its positions. Like
+      ``"center_of_charge"`` this is defined by the system itself, so translational
+      invariance holds regardless of :math:`\\sum_i q_i`; unlike it, the origin does not
+      depend on the (learned) atomic charges and is not biased towards heavy atoms.
     - ``"absolute"``: use the positions as they are stored, without shifting the origin.
       The predicted multipole is then **not** translationally invariant unless the local
       charges happen to sum to zero: translating a system by :math:`\\mathbf{a}` changes
       it by :math:`\\left(\\sum_i q_i\\right)\\mathbf{a}`. Use this only when the
       absolute frame is meaningful, or to reproduce earlier behaviour.
+    """
+
+    zero_init_monopole: bool = False
+    """
+    If ``True``, zero-initialize the weights of the readout that predicts the local
+    monopole (the :math:`\\ell = 0` input, e.g. the local charges for a dipole
+    output) instead of the architecture's usual random initialization.
+
+    At random init the :math:`\\sum_i q_i \\mathbf{r}_i` term of the assembled
+    multipole is typically much larger in magnitude than the local
+    :math:`\\sum_i \\mathbf{p}_i` term it is added to (the former scales with the
+    molecule's size, the latter does not), which can make training disproportionately
+    fit the monopole term early on at the expense of the local contribution. Starting
+    the monopole at exactly zero removes that imbalance at step zero; the weights
+    remain learnable and free to move away from zero during training.
+    """
+
+    charge_neutrality_weight: Optional[float] = None
+    """
+    Weight of a soft charge-neutrality penalty added to the training loss, or
+    ``None`` (default) to disable it.
+
+    For each requested input, the local monopoles (:math:`\\ell = 0`) are summed
+    per system and penalized towards zero with an MSE term, weighted by this value:
+    :math:`\\text{weight} \\times \\text{mean}_{\\text{systems}}\\left[\\left(\\sum_i
+    q_i\\right)^2\\right]`. This assumes every system in the dataset is neutral
+    (total charge zero); there is currently no way to penalize towards a per-system
+    non-zero reference charge.
+
+    Without this penalty nothing constrains :math:`\\sum_i q_i`, and it typically
+    drifts away from zero during training even when the dataset is neutral, which
+    both breaks the origin-independence guarantee of ``origin="absolute"`` and (for
+    ``origin="center_of_charge"``/``"centroid"``) leaves the :math:`\\sum_i q_i
+    \\mathbf{r}_i` term free to take on arbitrarily large values that the local
+    :math:`\\sum_i \\mathbf{p}_i` term then has to compensate for.
     """

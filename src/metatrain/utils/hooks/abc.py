@@ -101,3 +101,25 @@ class HookInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
 
         :return: A dictionary of the supported outputs by this hook.
         """
+
+    def auxiliary_losses(
+        self, systems: list[System], inputs: dict[str, TensorMap]
+    ) -> dict[str, torch.Tensor]:
+        """
+        Optional extra loss terms a hook wants included in the training loss,
+        computed from its own inputs (the same ``inputs`` dictionary
+        :meth:`forward` receives).
+
+        The default implementation returns no extra terms. Override this to add
+        penalties that are not naturally expressed as a supervised loss against a
+        target quantity (see e.g.
+        :meth:`~metatrain.utils.hooks.global_multipoles.hook.GlobalMultipole.auxiliary_losses`).
+        Callers are expected to sum the returned terms (already weighted) into the
+        training loss.
+
+        :param systems: List of systems the inputs were computed for.
+        :param inputs: Same ``inputs`` dictionary :meth:`forward` receives.
+        :return: Mapping from a descriptive term name to its scalar loss
+            contribution.
+        """
+        return {}

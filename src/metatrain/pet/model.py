@@ -34,6 +34,7 @@ from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.ensemble import uncertainty_output_name
 from metatrain.utils.hooks import restart_hooks, setup_hooks
+from metatrain.utils.hooks.global_multipoles.hook import GlobalMultipole
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.sum_over_atoms import sum_over_atoms
@@ -1248,6 +1249,43 @@ class PET(ModelInterface[ModelHypers]):
         """
         return densify_atomic_basis_dataset_info(dataset_info)
 
+    def _maybe_zero_init_monopole(
+        self, target_name: str, monopole_block_keys: List[str]
+    ) -> None:
+        """Zero-initialize the readout weights of ``target_name``'s monopole
+        (:math:`\\ell = 0`) block(s), if some :class:`GlobalMultipole` hook that
+        consumes ``target_name`` as an input was configured with
+        ``zero_init_monopole``.
+
+        See ``documentation.Hypers.zero_init_monopole`` (in
+        ``metatrain.utils.hooks.global_multipoles``) for the rationale.
+
+        :param target_name: Name of the target just registered.
+        :param monopole_block_keys: Dict keys (into
+            ``self.backend.node_last_layers[target_name]``/``edge_last_layers``)
+            of the target's :math:`\\ell = 0` block(s).
+        """
+        wants_zero_init = any(
+            isinstance(hook, GlobalMultipole)
+            and target_name in hook.requested_inputs()
+            and hook.hypers.get("zero_init_monopole", False)
+            for hook in self.forward_hooks
+        )
+        if not wants_zero_init:
+            return
+        if self.shallow_ensemble_enabled:
+            raise NotImplementedError(
+                "'zero_init_monopole' is not supported together with shallow "
+                "ensembles."
+            )
+        with torch.no_grad():
+            for layer_readouts in self.backend.node_last_layers[target_name]:
+                for key in monopole_block_keys:
+                    layer_readouts[key].weight.zero_()
+            for layer_readouts in self.backend.edge_last_layers[target_name]:
+                for key in monopole_block_keys:
+                    layer_readouts[key].weight.zero_()
+
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         """
         Register a new output target by creating corresponding heads and last layers.
@@ -1258,6 +1296,7 @@ class PET(ModelInterface[ModelHypers]):
         """
         # one output shape for each tensor block, grouped by target (i.e. tensormap)
         self.output_shapes[target_name] = torch.jit.annotate(Dict[str, List[int]], {})
+        monopole_block_keys: List[str] = []
         for key, block in target_info.layout.items():
             dict_key = target_name
             for n, k in zip(key.names, key.values, strict=True):
@@ -1265,6 +1304,8 @@ class PET(ModelInterface[ModelHypers]):
             self.output_shapes[target_name][dict_key] = [
                 len(comp.values) for comp in block.components
             ] + [len(block.properties.values)]
+            if "o3_lambda" in key.names and int(key["o3_lambda"]) == 0:
+                monopole_block_keys.append(dict_key)
 
         self.outputs[target_name] = ModelOutput(
             unit=target_info.unit,
@@ -1274,6 +1315,9 @@ class PET(ModelInterface[ModelHypers]):
 
         # The learnable heads and last layers live on the pure-PyTorch backend.
         self.backend.add_output(target_name, self.output_shapes[target_name])
+
+        if monopole_block_keys:
+            self._maybe_zero_init_monopole(target_name, monopole_block_keys)
 
         # Register last-layer parameters, in the same order as they are returned as
         # last-layer features in the model (the modules live on ``self.backend``).

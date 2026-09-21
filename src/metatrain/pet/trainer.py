@@ -2,7 +2,7 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union, cast
 
 import torch
 from metatensor.torch import TensorMap
@@ -447,6 +447,26 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 predictions, num_augmentations, variance_targets
             )
 
+        def _hook_auxiliary_loss(
+            eval_systems: List[System], predictions: Dict[str, TensorMap]
+        ) -> Tuple[torch.Tensor, Dict[str, float]]:
+            """Sums the extra loss terms requested by the model's hooks (see
+            ``HookInterface.auxiliary_losses``), e.g. the global-multipoles
+            hook's charge-neutrality penalty. ``predictions`` must already
+            contain the hooks' own inputs -- true of anything produced by
+            ``_evaluate``/``evaluate_model``, since the model always requests
+            them (see ``PET.forward``)."""
+            hook_model = model.module if is_distributed else model
+            total = torch.zeros((), dtype=dtype, device=device)
+            components: Dict[str, float] = {}
+            for hook in hook_model.forward_hooks:
+                for name, value in hook.auxiliary_losses(
+                    eval_systems, predictions
+                ).items():
+                    total = total + value
+                    components[name] = value.item()
+            return total, components
+
         logging.info("Using the following loss functions:")
         for name, info in loss_fn.metadata.items():
             logging.info(f"{name}:")
@@ -530,6 +550,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             train_equivariance_components: Dict[str, List[float]] = {
                 name: [0.0, 0.0] for name in equivariance_penalty_losses
             }
+            train_hook_components: Dict[str, float] = {}
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
@@ -561,6 +582,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
+
+                hook_loss, hook_components = _hook_auxiliary_loss(systems, predictions)
+                train_loss_batch = train_loss_batch + hook_loss
+                for name, value in hook_components.items():
+                    train_hook_components[name] = (
+                        train_hook_components.get(name, 0.0) + value
+                    )
 
                 if is_distributed:
                     # make sure all parameters contribute to the gradient calculation
@@ -659,6 +687,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 val_equivariance_components: Dict[str, List[float]] = {
                     name: [0.0, 0.0] for name in equivariance_penalty_losses
                 }
+                val_hook_components: Dict[str, float] = {}
                 for batch in val_dataloader:
                     systems, targets, extra_data = unpack_batch(batch)
                     systems, targets, extra_data = batch_to(
@@ -690,6 +719,15 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     )
 
                     val_loss_batch = loss_fn(predictions, targets, extra_data)
+
+                    hook_loss, hook_components = _hook_auxiliary_loss(
+                        systems, predictions
+                    )
+                    val_loss_batch = val_loss_batch + hook_loss
+                    for name, value in hook_components.items():
+                        val_hook_components[name] = (
+                            val_hook_components.get(name, 0.0) + value
+                        )
 
                     if is_distributed:
                         # sum the loss over all processes
@@ -782,6 +820,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     finalized_train_info[f"{name}_equivariance_penalty_variance"] = (
                         variance_sum
                     )
+                # extra loss terms requested by hooks, e.g. the global-multipoles
+                # hook's charge-neutrality penalty -- see ``_hook_auxiliary_loss``
+                for name, value in train_hook_components.items():
+                    finalized_train_info[name] = value
             finalized_val_info = {
                 "loss": val_loss,
                 **finalized_val_info,
@@ -791,6 +833,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 finalized_val_info[f"{name}_equivariance_penalty_variance"] = (
                     variance_sum
                 )
+            for name, value in val_hook_components.items():
+                finalized_val_info[name] = value
 
             if epoch == start_epoch:
                 metric_logger = MetricLogger(

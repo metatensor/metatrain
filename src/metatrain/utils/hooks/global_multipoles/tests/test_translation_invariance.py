@@ -149,6 +149,11 @@ def hook():
 
 
 @pytest.fixture
+def centroid_hook():
+    return _make_hook("centroid")
+
+
+@pytest.fixture
 def absolute_hook():
     return _make_hook("absolute")
 
@@ -201,7 +206,27 @@ def test_translation_invariance(hook, outputs, generator, shift):
     torch.testing.assert_close(original, moved, rtol=0.0, atol=1e-9)
 
 
-@pytest.mark.parametrize("origin", ["center_of_charge", "absolute"])
+@pytest.mark.parametrize(
+    "shift",
+    [
+        [100.0, 0.0, 0.0],
+        [-13.0, 7.0, -21.0],
+        [1e4, 1e4, 1e4],
+    ],
+)
+def test_translation_invariance_centroid(centroid_hook, outputs, generator, shift):
+    """Same as above, for ``origin="centroid"``."""
+    systems = _random_systems(generator)
+    inputs = _random_local_multipoles(systems, generator)
+    translated = _translate(systems, torch.tensor(shift, dtype=torch.float64))
+
+    original = centroid_hook(systems, outputs, inputs)[OUTPUT_NAME].block(0).values
+    moved = centroid_hook(translated, outputs, inputs)[OUTPUT_NAME].block(0).values
+
+    torch.testing.assert_close(original, moved, rtol=0.0, atol=1e-9)
+
+
+@pytest.mark.parametrize("origin", ["center_of_charge", "centroid", "absolute"])
 def test_independent_of_batching(outputs, generator, origin):
     """The origin is per system, so batching must not change the result."""
     hook = _make_hook(origin)
@@ -261,6 +286,36 @@ def test_matches_centre_of_nuclear_charge(hook, outputs, generator):
         positions = system.positions
         nuclear_charges = system.types.to(positions.dtype)
         origin = (nuclear_charges.unsqueeze(1) * positions).sum(0) / nuclear_charges.sum()
+        # (x, y, z) -> (y, z, x), the spherical harmonics convention
+        shifted = (positions - origin)[:, [1, 2, 0]]
+        expected.append(
+            (charges[start:stop].unsqueeze(1) * shifted).sum(0)
+            + local_dipoles[start:stop].sum(0)
+        )
+        start = stop
+
+    torch.testing.assert_close(
+        predicted.squeeze(-1), torch.stack(expected), rtol=1e-10, atol=1e-10
+    )
+
+
+def test_matches_centroid(centroid_hook, outputs, generator):
+    """With ``origin="centroid"`` the global dipole is built about the unweighted
+    geometric centroid of the system, not its centre of nuclear charge."""
+    systems = _random_systems(generator)
+    inputs = _random_local_multipoles(systems, generator)
+
+    predicted = centroid_hook(systems, outputs, inputs)[OUTPUT_NAME].block(0).values
+
+    block = inputs[INPUT_NAME]
+    charges = block.block(0).values.reshape(-1)
+    local_dipoles = block.block(1).values.squeeze(-1)
+
+    expected, start = [], 0
+    for system in systems:
+        stop = start + len(system)
+        positions = system.positions
+        origin = positions.mean(0)
         # (x, y, z) -> (y, z, x), the spherical harmonics convention
         shifted = (positions - origin)[:, [1, 2, 0]]
         expected.append(

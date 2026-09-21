@@ -31,10 +31,10 @@ class GlobalMultipole(HookInterface[Hypers]):
         # Origin the positions are referred to. Stored as a plain string so
         # that the forward stays TorchScript-friendly.
         origin = hypers.get("origin", "center_of_charge")
-        if origin not in ("center_of_charge", "absolute"):
+        if origin not in ("center_of_charge", "centroid", "absolute"):
             raise ValueError(
                 f"Invalid 'origin' for the global multipoles hook: {origin!r}. "
-                f"Expected either 'center_of_charge' or 'absolute'."
+                f"Expected one of 'center_of_charge', 'centroid' or 'absolute'."
             )
         self.origin: str = origin
 
@@ -168,28 +168,34 @@ class GlobalMultipole(HookInterface[Hypers]):
 
         positions = torch.cat([system.positions for system in systems], dim=0)
 
-        if self.origin == "center_of_charge":
+        if self.origin == "center_of_charge" or self.origin == "centroid":
             # Enforce origin independence by referring the positions of each
-            # system to its own centre of nuclear charge. The per-system sums
-            # are done with a scatter over the concatenated batch; note that
-            # the origin is computed per system and never over the whole batch,
-            # which would make the prediction depend on how systems are
-            # batched together.
-            nuclear_charges = torch.cat(
-                [system.types for system in systems], dim=0
-            ).to(positions.dtype)
+            # system to its own centre of nuclear charge (weights = atomic
+            # numbers) or geometric centroid (weights = 1 per atom). The
+            # per-system sums are done with a scatter over the concatenated
+            # batch; note that the origin is computed per system and never
+            # over the whole batch, which would make the prediction depend on
+            # how systems are batched together.
             sizes = torch.tensor(
                 [len(system) for system in systems], device=device, dtype=torch.long
             )
             system_indices = torch.repeat_interleave(
                 torch.arange(len(systems), device=device), sizes
             )
+            if self.origin == "center_of_charge":
+                weights = torch.cat(
+                    [system.types for system in systems], dim=0
+                ).to(positions.dtype)
+            else:
+                weights = torch.ones(
+                    positions.shape[0], dtype=positions.dtype, device=device
+                )
             totals = torch.zeros(
                 len(systems), dtype=positions.dtype, device=device
-            ).index_add_(0, system_indices, nuclear_charges)
+            ).index_add_(0, system_indices, weights)
             origins = torch.zeros(
                 (len(systems), 3), dtype=positions.dtype, device=device
-            ).index_add_(0, system_indices, nuclear_charges.unsqueeze(1) * positions)
+            ).index_add_(0, system_indices, weights.unsqueeze(1) * positions)
             origins = origins / totals.unsqueeze(1)
 
             positions = positions - origins[system_indices]
@@ -250,3 +256,43 @@ class GlobalMultipole(HookInterface[Hypers]):
             return_dict[out_name] = sum_over_atoms(local_tmap)
 
         return return_dict
+
+    def auxiliary_losses(
+        self, systems: list[System], inputs: dict[str, TensorMap]
+    ) -> dict[str, torch.Tensor]:
+        """
+        Soft charge-neutrality penalty: for each requested input, MSEs the
+        per-system sum of the local monopoles (:math:`\\ell = 0`) towards zero,
+        weighted by the ``charge_neutrality_weight`` hyperparameter. Returns no
+        terms when that hyperparameter is unset (the default).
+
+        See ``documentation.Hypers.charge_neutrality_weight`` for the rationale.
+        """
+        weight = self.hypers.get("charge_neutrality_weight", None)
+        if not weight:
+            return {}
+
+        penalties: dict[str, torch.Tensor] = {}
+        for in_name in self._input_target_infos:
+            if in_name not in inputs:
+                continue
+            monopole_block = inputs[in_name].block(dict(o3_lambda=0, o3_sigma=1))
+            monopole_tmap = TensorMap(
+                keys=Labels(
+                    names=["_"],
+                    values=torch.zeros(
+                        (1, 1), dtype=torch.int32, device=monopole_block.values.device
+                    ),
+                ),
+                blocks=[
+                    TensorBlock(
+                        values=monopole_block.values,
+                        samples=monopole_block.samples,
+                        components=monopole_block.components,
+                        properties=monopole_block.properties,
+                    )
+                ],
+            )
+            totals = sum_over_atoms(monopole_tmap).block(0).values.reshape(-1)
+            penalties[f"{in_name}_charge_neutrality"] = weight * (totals**2).mean()
+        return penalties
