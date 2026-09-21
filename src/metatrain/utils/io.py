@@ -295,7 +295,10 @@ def trainer_from_checkpoint(
         trainer_ckpt_version = 1
         checkpoint["trainer_ckpt_version"] = trainer_ckpt_version
 
-    base_msg = f"Unable to load the trainer checkpoint for the '{architecture_name}' architecture:"
+    base_msg = (
+        f"Unable to load the trainer checkpoint for the '{architecture_name}' "
+        "architecture:"
+    )
     if trainer_ckpt_version > architecture.__trainer__.__checkpoint_version__:
         raise RuntimeError(
             f"{base_msg} the checkpoint uses checkpoint format version "
