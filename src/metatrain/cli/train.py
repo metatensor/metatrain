@@ -1,6 +1,7 @@
 import argparse
 import copy
 import itertools
+import json
 import logging
 import os
 import random
@@ -740,6 +741,21 @@ def train_model(
         model = load_model(checkpoint_output)
 
         logging.info(f"Final checkpoint: {checkpoint_output.absolute().resolve()}")
+
+    # Hook hypers can mix value types (str, bool, float, ...) per hook, which
+    # TorchScript's Dict[str, Any] cannot infer a consistent element type for.
+    # JSON-encode them so the exported model stays scriptable; this only runs
+    # on the final, already-trained model, after hooks have been constructed.
+    # Several submodules (the model itself, hooks, composition/scaler/ZBL
+    # additive models, ...) each keep their own ``dataset_info`` attribute, so
+    # every one of them needs sanitizing, not just the top-level model's.
+    sanitized_hooks = {
+        name: json.dumps(hypers) for name, hypers in model.dataset_info.hooks.items()
+    }
+    for module in model.modules():
+        module_dataset_info = getattr(module, "dataset_info", None)
+        if isinstance(getattr(module_dataset_info, "hooks", None), dict):
+            module_dataset_info.hooks = dict(sanitized_hooks)
 
     mts_atomistic_model = model.export()
     # Final device could be different from devices[0] defined above in the case of
