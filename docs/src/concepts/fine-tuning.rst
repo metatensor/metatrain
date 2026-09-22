@@ -3,92 +3,284 @@
 Fine-tune a pre-trained model
 =============================
 
-.. warning::
+Fine-tuning starts a new training run from an existing checkpoint. The model
+architecture and weights are loaded from the checkpoint, while the optimizer and
+learning-rate scheduler are initialized from the new options file. When restarting an
+interrupted training run, the optimizer and scheduler states are restored as well.
 
-  Finetuning may not be supported by every architecture and if supported the syntax to
-  start a finetuning may be different from how it is explained here.
-  This section describes the process of fine-tuning a pre-trained model to adapt it to
-  new tasks or datasets. Fine-tuning is a common technique used in machine learning,
-  where a model is trained on a large dataset and then fine-tuned on a smaller dataset
-  to improve its performance on specific tasks. So far the fine-tuning capabilities are
-  only available for the PET, FlashMD, FlashMDSymplectic and SPACE models.
+Fine-tuning support and configuration depend on the architecture. See the
+:ref:`architecture reference <available-architectures>` for supported methods and
+options. The examples and detailed behavior described below refer to PET.
 
-There is a complete example in the tutorial section
-:ref:`sphx_glr_generated_examples_0-beginner_02-fine-tuning.py`.
+The YAML snippets below are configuration fragments to include in your options file. For
+a complete options file and a worked example, see the :ref:`fine-tuning tutorial
+<finetuning-tutorial>`. Once the options file is ready, start the run with ``mtt train
+options.yaml``.
+
+Choosing a strategy
+-------------------
+
+The ``method`` option controls which model parameters are trained after loading the
+checkpoint.
+
+.. image:: /../static/images/fine-tuning.svg
+   :class: only-light
+   :width: 700px
+   :align: center
+   :alt: Trainable and frozen components for full, heads-only, and LoRA fine-tuning.
+
+.. image:: /../static/images/fine-tuning_dark.svg
+   :class: only-dark
+   :width: 700px
+   :align: center
+   :alt: Trainable and frozen components for full, heads-only, and LoRA fine-tuning.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Method
+     - What is trained
+     - When to consider it
+   * - ``full``
+     - All model parameters
+     - A general starting point for adapting a pretrained model to your dataset,
+       especially when it covers structures poorly represented in the original training
+       data.
+   * - ``heads``
+     - Selected prediction heads and final layers, with the backbone frozen
+     - When adapting to reference labels for similar structures, for example, another
+       DFT functional.
+   * - ``lora``
+     - Low-rank adapters in selected linear layers, with original parameters frozen
+     - When you want to adapt the representation while training fewer parameters than
+       full fine-tuning.
+
+These are starting points for choosing a strategy. Compare validation performance on
+your task: dataset size or a change in level of theory alone does not determine the
+best method.
+
+Both ``full`` and ``lora`` can change the backbone representation used by the prediction
+heads. Full fine-tuning updates the original parameters, while LoRA freezes them and
+trains an added low-rank contribution inside selected linear layers. With ``heads``, the
+backbone is unchanged. The strategy also determines whether existing targets are
+retained, see :ref:`multi-fidelity-fine-tuning`.
+
+All three strategies can use ``inherit_heads`` to initialize a new target head from an
+existing one instead of starting from random weights (see :ref:`inheriting-heads`).
+
+By default, before model training starts, metatrain fits a composition baseline
+for each new energy target using the fine-tuning data. This baseline is a sum of
+contributions from each element, weighted by the number of atoms of that element in the
+structure. The fitted coefficients stay fixed during model training. Existing
+energy targets keep the baseline coefficients stored in the checkpoint. This default
+behavior applies to all three fine-tuning methods.
+
+The ``architecture.training.atomic_baseline`` option can override the default with fixed
+coefficients or a compatible composition-model checkpoint. See ``atomic_baseline`` in
+the :ref:`architecture reference <available-architectures>` for the supported options.
+
+The number of trainable parameters and their fraction of the total are logged at the
+start of the run. These counts provide a quick check that freezing was applied as
+expected.
+
+Fine-tuning methods
+-------------------
+
+Full fine-tuning
+^^^^^^^^^^^^^^^^
+
+Full fine-tuning trains all model parameters, including the backbone, prediction heads,
+and final layers:
+
+.. code-block:: yaml
+
+   architecture:
+     name: pet
+     training:
+       learning_rate: 1e-5
+       finetune:
+         method: full
+         read_from: path/to/checkpoint.ckpt
+
+A lower learning rate than the one used for the original training is usually a good
+starting point. For example, if the original training used ``1e-4``, try ``1e-5`` and
+adjust based on validation performance.
 
 .. note::
 
-  Please note that the fine-tuning recommendations in this section are not universal
-  and require testing on your specific dataset to achieve the best results. You might
-  need to experiment with different fine-tuning strategies depending on your needs.
+   Full fine-tuning removes targets that are not part of the new training set. To keep
+   the checkpoint's original energy target, include that target and its reference labels
+   during fine-tuning as described in :ref:`multi-fidelity-fine-tuning`.
 
+Heads only
+^^^^^^^^^^
 
-Basic Fine-tuning
------------------
-
-The basic way to fine-tune a model is to use the ``mtt train`` command with the
-available pre-trained model defined in an ``options.yaml`` file. In this case, all the
-weights of the model will be adapted to the new dataset. In contrast to the
-training continuation, the optimizer and scheduler state will be reset. You can still
-adjust the training hyperparameters in the ``options.yaml`` file, but the model
-architecture will be taken from the checkpoint.
-To set the path to the pre-trained model checkpoint, you need to specify the
-``read_from`` parameter in the ``options.yaml`` file:
+Head-only fine-tuning freezes the backbone and trains only the selected readout:
 
 .. code-block:: yaml
 
-  architecture:
-    training:
-      finetune:
-        method: "full" # This stands for the full fine-tuning
-        read_from: path/to/checkpoint.ckpt
+   architecture:
+     name: pet
+     training:
+       learning_rate: 1e-5
+       finetune:
+         method: heads
+         read_from: path/to/checkpoint.ckpt
+         config:
+           head_modules: ["node_heads", "edge_heads"]
+           last_layer_modules: ["node_last_layers", "edge_last_layers"]
 
-We recommend to use a lower learning rate than the one used for the original training,
-as this will help stabilizing the training process. I.e. if the default learning rate is
-``1e-4``, you can set it to ``1e-5`` or even lower, using the following in the
-``options.yaml`` file:
+The ``*_heads`` modules are usually multilayer perceptrons that transform the backbone
+features. The ``*_last_layers`` modules are the final layers that map the resulting
+features to target contributions.
 
-.. code-block:: yaml
+With the configuration above, heads for targets in the training data are updated.
+Existing targets absent from that data are kept. Because the backbone remains frozen,
+their heads still receive the representation they were trained on.
 
-  architecture:
-    training:
-      learning_rate: 1e-5
+LoRA
+^^^^
 
-Please note, that in most use cases you should invoke a new energy head by specifying
-a new energy variant. A variant is a version of a target quantity, such as ``energy``.
-A model can have multiple variants, that can be selected during training and inference.
-More on variants can be found in `metatomic`_
-
-.. _metatomic: https://docs.metatensor.org/metatomic/latest/engines/index.html
-
-Variant names follow the simple pattern ``energy/{variantname}``, where we used
-``energy`` as the target quantity. A reasonable name could be the energy functional or
-level of theory your finetuning dataset was trained on, e.g. ``energy/pbe``,
-``energy/SCAN`` or even ``energy/dataset1``. Further we recommend adding a short
-:attr:`description` for the new variant, that you can specify in ``description`` of
-your ``options.yaml`` file.
-
+LoRA fine-tuning adds trainable low-rank adapters to selected linear layers and freezes
+the original model parameters:
 
 .. code-block:: yaml
 
-  training_set:
-      systems:
-        read_from: path/to/dataset.xyz
-        length_unit: angstrom
-      targets:
-        energy/<variantname>:
-          quantity: energy
-          key: <energy-key>
-          unit: <energy-unit>
-          description: "description of your variant"
+   architecture:
+     name: pet
+     training:
+       learning_rate: 1e-5
+       finetune:
+         method: lora
+         read_from: path/to/checkpoint.ckpt
+         config:
+           rank: 4
+           alpha: 8
+           target_modules: ["input_linear", "output_linear"]
 
+The ``target_modules`` entries are matched against layer attribute names. The values
+shown above are the defaults. ``rank`` controls the size of the low-rank update, and the
+adapter contribution is multiplied by ``alpha / rank``. Tune these settings using
+validation performance.
 
-The new energy variant can be selected for evaluation either with ``mtt eval`` by
-specifying it in the options.yaml for evaluation:
+With the configuration above, prediction heads remain frozen. When fine-tuning a new
+target variant, its newly created head weights therefore stay at their initialization.
+If a compatible source head is available, use ``inherit_heads`` to copy its initial
+weights instead of keeping a random initialization. The inherited head remains frozen
+and only the LoRA adapter weights are trained.
+
+Working with target variants
+----------------------------
+
+A variant is an alternative version of a target, distinguished by a suffix in the target
+name, such as ``energy/pbe``. A model can hold several variants of the same target. The
+variant to use can be selected at evaluation and simulation time.
+
+Creating a new variant
+^^^^^^^^^^^^^^^^^^^^^^
+
+When fine-tuning to a new energy definition, create a new energy variant to distinguish
+it from the checkpoint's original ``energy`` target:
 
 .. code-block:: yaml
 
-   systems: path/to/dataset.xyz
+   training_set:
+     systems:
+       read_from: path/to/dataset.xyz
+       length_unit: angstrom
+     targets:
+       energy/<variantname>:
+         quantity: energy
+         key: <energy-key>
+         unit: <energy-unit>
+         description: "description of your variant"
+
+Energy variant names follow the pattern ``energy/<variantname>``. Choose a name that
+identifies the level of theory, functional, or dataset, for example ``energy/pbe`` or
+``energy/my-dataset``.
+
+.. _inheriting-heads:
+
+Inheriting weights from existing heads
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If the new target is close to a target already present in the checkpoint, its head can
+be initialized from the existing one:
+
+.. code-block:: yaml
+
+   architecture:
+     name: pet
+     training:
+       finetune:
+         method: full
+         read_from: path/to/checkpoint.ckpt
+         inherit_heads:
+           energy/<variantname>: energy
+
+The keys of ``inherit_heads`` are the destination targets defined in the training data.
+The values are source targets in the checkpoint. Their head dimensions must be
+compatible.
+
+``inherit_heads`` copies head and final-layer weights. It does not copy composition
+baselines or scaler settings, so the new variant need not initially produce the same
+predictions as the source target.
+
+The selected strategy determines whether the copied weights are trainable. They are
+trainable with ``full`` and with ``heads`` when the destination modules are selected,
+but remain frozen with the documented ``lora`` configuration. The source target does not
+need to be part of the new training set: its weights are copied before missing targets
+are removed.
+
+.. _multi-fidelity-fine-tuning:
+
+Retaining multiple energy targets
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+With ``full`` and ``lora``, the backbone representation can change. PET therefore
+removes targets that are absent from the current training set. To retain several energy
+targets, include reference labels for all of them during fine-tuning:
+
+.. code-block:: yaml
+
+   training_set:
+     - systems:
+         read_from: dataset_1.xyz
+         length_unit: angstrom
+       targets:
+         energy/<variant1>:
+           quantity: energy
+           key: my_energy_label1
+           unit: eV
+           description: "my variant1 description"
+     - systems:
+         read_from: dataset_2.xyz
+         length_unit: angstrom
+       targets:
+         energy/<variant2>:
+           quantity: energy
+           key: my_energy_label2
+           unit: eV
+           description: "my variant2 description"
+
+The two targets can also come from the same structures file if both labels are stored
+there. In that case, use the corresponding ``key`` for each target. See the
+:ref:`Training YAML reference <train_yaml_config>` for details on training with multiple
+datasets.
+
+Using the fine-tuned model
+--------------------------
+
+Evaluating a variant
+^^^^^^^^^^^^^^^^^^^^
+
+Select a fine-tuned variant during evaluation by using its full target name in the
+evaluation options:
+
+.. code-block:: yaml
+
+   systems:
+     read_from: path/to/dataset.xyz
    targets:
      energy/<variantname>:
        key: <energy-key>
@@ -96,181 +288,36 @@ specifying it in the options.yaml for evaluation:
        forces:
          key: forces
 
-When using the finetuned model in simulation engines the default target name expected
-by the ``metatomic`` package in order to use the model in ASE and LAMMPS calculations
-is ``energy``. When loading the model in ``metatomic`` you have to specify which
-variant should be used for energy and force prediction.
+The ``key`` entries identify the reference energy and force labels in the dataset.
 
-Using variants with ASE
-^^^^^^^^^^^^^^^^^^^^^^^
+Using variants in simulation engines
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-When creating a ``MetatomicCalculator`` in ASE, you must specify the variant to use
-via the ``variants`` parameter. For example, if you fine-tuned with the variant
-``energy/finetune``, you would use:
+Simulation engines usually request the standard ``energy`` output. To use a target such
+as ``energy/finetune``, select its variant explicitly. With ASE, select the variant
+using the ``variants`` argument of ``MetatomicCalculator``:
 
 .. code-block:: python
 
-  from metatomic_ase import MetatomicCalculator
+   from metatomic_ase import MetatomicCalculator
 
-  calc = MetatomicCalculator("model-ft.pt", variants={"energy": "finetune"})
-  atoms.calc = calc
+   calc = MetatomicCalculator("model-ft.pt", variants={"energy": "finetune"})
+   atoms.calc = calc
 
-The ``variants`` dictionary maps the target quantity (e.g., ``energy``) to the variant
-name (e.g., ``finetune``). This allows the calculator to use the correct fine-tuned
-energy head for your calculations.
+Here, ``"energy": "finetune"`` selects the model output ``energy/finetune`` for energy
+and force calculations. Use the part of the target name after ``energy/`` as the variant
+name.
 
-Using variants with LAMMPS
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+With LAMMPS, use the ``variant`` keyword:
 
-When using a fine-tuned model in LAMMPS, you need to specify the variant in your
-LAMMPS input script using the ``variant`` keyword:
+.. code-block:: text
 
-.. code-block::
+   pair_style metatomic model-ft.pt [...other arguments...] variant finetune
 
-  pair_style metatomic model-ft.pt [...other arguments...] variant finetune
+Replace ``finetune`` with the part of the target name after ``energy/``.
 
-Replace ``finetune`` with the name of your variant (the part after ``energy/`` in your
-training configuration). The syntax ``variant finetune`` tells LAMMPS to use
-the ``energy/finetune`` variant for energy and force calculations.
-
-For more details on using variants in simulation engines, see the
-:ref:`tutorial <sphx_glr_generated_examples_0-beginner_02-fine-tuning.py>` and the
-`metatomic ASE documentation`_ and `metatomic LAMMPS documentation`_.
+For more details, see the :ref:`fine-tuning tutorial <finetuning-tutorial>`, the
+`metatomic ASE documentation`_, and the `metatomic LAMMPS documentation`_.
 
 .. _metatomic ASE documentation: https://docs.metatensor.org/metatomic/latest/engines/ase.html#metatomic_ase.MetatomicCalculator
 .. _metatomic LAMMPS documentation: https://docs.metatensor.org/metatomic/latest/engines/lammps.html
-
-
-Until here, our model would train on all weights of the model, create a new energy head
-and a new composition model.
-
-The basic fine-tuning strategy is a good choice for most use cases. Below, we present
-a few more advanced topics.
-
-Inheriting weights from existing heads
---------------------------------------
-
-In some cases, the new targets might be similar to the existing targets
-in the pre-trained model. For example, if the pre-trained model is trained
-on energies and forces computed with the PBE functional, and the new targets
-are energies and forces coming from the PBE0 calculations, it might be beneficial
-to initialize the new PBE0 heads and last layers with the weights of the PBE
-heads and last layers. This can be done by specifying the ``inherit_heads``
-parameter in the ``options.yaml`` file:
-
-.. code-block:: yaml
-
-  architecture:
-    training:
-      finetune:
-        method: full
-        read_from: path/to/checkpoint.ckpt
-        inherit_heads:
-          energy/<variantname>: energy # inherit weights from the "energy" head
-
-The ``inherit_heads`` parameter is a dictionary mapping the new trainable
-targets specified in the ``training_set/targets`` section to the existing
-targets in the pre-trained model. The weights of the corresponding heads and
-last layers will be copied from the source heads to the destination heads
-instead of random initialization. These weights are still trainable and
-will be adapted to the new dataset during the training process.
-
-
-Multi-fidelity training
------------------------
-With the ``full`` and ``lora`` fine-tuning methods, the backbone weights change, which
-means that any target *not* part of the current fine-tuning run's dataset would end up
-with a head that no longer matches the (now different) feature space produced by the
-backbone. To avoid keeping such now-useless heads around, they are automatically
-removed from the model: after a ``full`` or ``lora`` fine-tuning run, the model only
-retains the targets that were part of that run's training set. Targets you want to
-keep must therefore be included in the training set of every subsequent ``full``/
-``lora`` fine-tuning run, even if you do not care about further improving them.
-
-If you want to fine-tune and retain multiple functional heads, the recommended way is
-to do full fine-tuning on a new target, but keep training the old energy head as well,
-by including it in the same run's targets (for instance by using ``inherit_heads`` to
-initialize the new head from the old one, see above, while still listing both targets
-below). This will leave you with a model capable of using different variants for
-energy and force prediction. Again, you are able to select the preferred head in
-``LAMMPS`` or when creating a ``metatomic`` calculator object. Thus, you should specify
-both variants in the ``targets`` section of your ``options.yaml``. In the code
-snippet, we additionally assume that the energy labels come from different datasets.
-Please note, if you have both references in one file, they can be selected by
-selecting the corresponding keys from the same system, the same dataset.
-
-.. code-block:: yaml
-
-  training_set:
-      - systems:
-            read_from: dataset_1.xyz
-            length_unit: angstrom
-        targets:
-            energy/<variant1>:
-                quantity: energy
-                key: my_energy_label1
-                unit: eV
-                description: 'my variant1 description'
-      - systems:
-            read_from: dataset_2.xyz
-            length_unit: angstrom
-        targets:
-            energy/<variant2>:
-                quantity: energy
-                key: my_energy_label2
-                unit: eV
-                description: 'my variant2 description'
-
-
-
-You can find more about setting up training with multiple files in the
-:ref:`Training YAML reference <train_yaml_config>`.
-
-
-Training only the head weights can be an alternative, if one wants to keep the old energy
-head, but the reference data it was trained are not available. In that case, the
-internal model weights are frozen, and only the weights of the new target are trained.
-Since the backbone does not change with this method, all existing targets/heads are
-kept automatically, whether or not they are part of the current run's dataset (see
-below).
-
-
-Fine-tuning model Heads only
-----------------------------
-
-Adapting all the model weights to a new dataset is not always the best approach. If the
-new dataset consist of the same or similar data computed with a slightly different level
-of theory compared to the pre-trained models' dataset, you might want to keep the
-learned representations of the crystal structures and only adapt the readout layers
-(i.e. the model heads) to the new dataset. Since the backbone is frozen and therefore
-unchanged, all targets/heads already present in the model are kept, regardless of
-whether they are part of the current run's dataset -- unlike ``full``/``lora``
-fine-tuning, which drops targets not included in the current run (see
-"Multi-fidelity training" above).
-In this case, the ``mtt train`` command needs to be accompanied by the specific training
-options in the ``options.yaml`` file. The following options need to be set:
-
-.. code-block:: yaml
-
-  architecture:
-    training:
-      finetune:
-        method: "heads"
-        read_from: path/to/checkpoint.ckpt
-        config:
-          head_modules: ['node_heads', 'edge_heads']
-          last_layer_modules: ['node_last_layers', 'edge_last_layers']
-
-
-The ``method`` parameter specifies the fine-tuning method to be used and the
-``read_from`` parameter specifies the path to the pre-trained model checkpoint. The
-``head_modules`` and ``last_layer_modules`` parameters specify the modules to be
-fine-tuned. Here, the ``node_*`` and ``edge_*`` modules represent different parts of the
-model readout layers related to the atom-based and bond-based features. The
-``*_last_layer`` modules are the last layers of the corresponding heads, implemented as
-multi-layer perceptron (MLPs). You can select different combinations of the node and
-edge heads and last layers to be fine-tuned.
-
-We recommend to first start the fine-tuning including all the modules listed above and
-experiment with their different combinations if needed. You might also consider using a
-lower learning rate, e.g. ``1e-5`` or even lower, to stabilize the training process.
