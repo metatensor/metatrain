@@ -41,6 +41,8 @@ Changed
   those used for the original training. If no model hypers are specified in the
   yaml file for restarting, that is fine, only the ones explicitly specified
   will be checked.
+- ``MemmapDataset`` now reads the periodicity of each structure from an optional
+  ``pbc.npy`` file instead of always inferring it from the non-zero cell vectors
 
 Removed
 #######
