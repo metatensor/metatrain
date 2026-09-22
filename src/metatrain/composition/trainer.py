@@ -29,10 +29,10 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists_transf
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
-from .documentation import TrainerHypers
+from .documentation import TrainerHypers, ModelHypers
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 2
 
     def __init__(self, hypers: TrainerHypers):

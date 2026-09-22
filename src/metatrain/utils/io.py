@@ -11,6 +11,8 @@ from metatomic.torch import check_atomistic_model, load_atomistic_model
 
 from .. import __version__
 from .architectures import find_all_architectures, import_architecture
+from .abc import ModelInterface
+from .wrapper import MetatrainModel
 
 
 hf_pattern = re.compile(
@@ -186,11 +188,10 @@ def load_model(
         checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         return model_from_checkpoint(checkpoint, context="export")
 
-
 def model_from_checkpoint(
     checkpoint: Dict[str, Any],
     context: Literal["restart", "finetune", "export"],
-) -> torch.nn.Module:
+) -> MetatrainModel:
     """
     Load the checkpoint at the given ``path``, and create the corresponding model
     instance. The model architecture is determined from information stored inside the
@@ -207,11 +208,17 @@ def model_from_checkpoint(
     :return: the loaded model instance.
 
     """
-    architecture_name = checkpoint["architecture_name"]
 
-    if architecture_name == "metatrain_wrapper":
-        from .wrapper import MetatrainWrapper
-        return MetatrainWrapper.load_checkpoint(checkpoint, context=context)
+    return MetatrainModel.load_checkpoint(
+        checkpoint,
+        context=context,
+    )
+    
+def arch_model_from_checkpoint(
+    checkpoint: Dict[str, Any],
+    context: Literal["restart", "finetune", "export"]
+) -> ModelInterface:
+    architecture_name = checkpoint["architecture_name"]
 
     if architecture_name not in find_all_architectures():
         raise ValueError(
@@ -283,9 +290,10 @@ def trainer_from_checkpoint(
     :return: the loaded trainer instance.
 
     """
-    architecture_name = checkpoint["architecture_name"]
-
-    if architecture_name == "metatrain_wrapper":
+    if "architecture_name" in checkpoint:
+        # This is an old checkpoint
+        architecture_name = checkpoint["architecture_name"]
+    else:
         architecture_name = checkpoint["model"]["architecture_name"]
 
     if architecture_name not in find_all_architectures():

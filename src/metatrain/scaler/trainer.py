@@ -31,10 +31,10 @@ from metatrain.utils.neighbor_lists import (
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.transfer import batch_to
 
-from .documentation import TrainerHypers
+from .documentation import TrainerHypers, ModelHypers
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 1
 
     def __init__(self, hypers: TrainerHypers):

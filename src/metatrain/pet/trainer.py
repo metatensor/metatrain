@@ -49,7 +49,7 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.system_data import get_system_data_transform
 from metatrain.utils.transfer import batch_to
-from metatrain.utils.wrapper import MetatrainWrapper
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
 from .documentation import ModelHypers, TrainerHypers
@@ -90,7 +90,7 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 15
 
     has_new_targets: bool
@@ -112,7 +112,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
     def setup(
         self, model_hypers: ModelHypers, dataset_info: DatasetInfo
-    ) -> ModelInterface:
+    ) -> MetatrainModel:
         self.dataset_info = dataset_info
         model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
 
@@ -147,21 +147,19 @@ class Trainer(TrainerInterface[TrainerHypers]):
         scaler_hypers = get_default_hypers("scaler")["model"]
         scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
-        return MetatrainWrapper(
-            hypers=dict(
-                model=model,
-                additive_models=additive_models,
-                scaler=scaler,
-            ),
+        return MetatrainModel(
+            model=model,
+            additive_models=additive_models,
+            scaler=scaler,
             dataset_info=dataset_info   
         )
 
     def restart(
         self,
-        model: MetatrainWrapper,
+        model: MetatrainModel,
         dataset_info: DatasetInfo,
         model_hypers: ModelHypers
-    ) -> MetatrainWrapper:
+    ) -> MetatrainModel:
 
         # merge old and new dataset info
         merged_info = model.dataset_info.union(dataset_info)
@@ -194,7 +192,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
     def train(
         self,
-        model: MetatrainWrapper,
+        model: MetatrainModel,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],

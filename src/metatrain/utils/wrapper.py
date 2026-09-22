@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Literal, Optional, NotRequired, Union
+from typing import Any, Dict, List, Literal, Optional, NotRequired, Union, Callable
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -8,55 +8,32 @@ from metatomic.torch import (
     ModelMetadata,
     ModelOutput,
     ModelCapabilities,
-    ModelEvaluationOptions,
     System,
     NeighborListOptions,
 )
 from typing_extensions import TypedDict
 
-from metatrain.scaler import Scaler
+#from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.architectures import import_architecture
 from metatrain.utils.data import DatasetInfo
-from metatrain.utils.data.atomic_basis_helpers import (
-    sparsify_atomic_basis_target,
-)
 from metatrain.utils.dtype import dtype_to_str
 
-
-class WrapperHypers(TypedDict):
-    """Hypers to initialize the model.
-
-    These are only use on a first initialization.
-    When loading a checkpoint, the hypers are ignored
-    and instead the components of the model are loaded.
-    """
-
-    # Models passed directly
-    model: NotRequired[dict]
-    additive_models: NotRequired[list[dict]]
-    scaler: NotRequired[dict]
-
-
-class MetatrainWrapper(ModelInterface[WrapperHypers]):
+class MetatrainModel(torch.nn.Module):
     __checkpoint_version__ = 1
-    __supported_devices__ = ["cuda", "cpu"]
-    __supported_dtypes__ = [torch.float32, torch.float64]
-    __default_metadata__ = ModelMetadata()
-    component_labels: Dict[str, List[List[Labels]]]
-    NUM_FEATURE_TYPES: int = 2  # node + edge features
 
     def __init__(
         self,
-        hypers: WrapperHypers,
+        model: ModelInterface,
+        additive_models: list[ModelInterface],
+        scaler: Optional[ModelInterface], #Scaler,
         dataset_info: DatasetInfo,
     ):
-        super().__init__(hypers=hypers, dataset_info=dataset_info, metadata=self.__default_metadata__)
-
-        if "model" in hypers:
-            self.model = hypers["model"]
-            self.additive_models = torch.nn.ModuleList(hypers["additive_models"])
-            self.scaler = hypers["scaler"]
+        super().__init__()
+        self.model = model
+        self.additive_models = torch.nn.ModuleList(additive_models)
+        self.scaler = scaler
+        self.dataset_info = dataset_info
 
     def forward(
         self,
@@ -70,14 +47,15 @@ class MetatrainWrapper(ModelInterface[WrapperHypers]):
 
         with torch.profiler.record_function("MTT_WRAPPER::post-processing"):
             if not self.training:
-                # at evaluation, we also introduce the scaler and additive contributions
-                return_dict = self.scaler.apply_scales(
-                    systems,
-                    return_dict,
-                    selected_atoms=selected_atoms,
-                    use_per_target_scales=True,
-                    use_per_property_scales=True,
-                )
+                if self.scaler is not None:
+                    # at evaluation, we also introduce the scaler and additive contributions
+                    return_dict = self.scaler.apply_scales(
+                        systems,
+                        return_dict,
+                        selected_atoms=selected_atoms,
+                        use_per_target_scales=True,
+                        use_per_property_scales=True,
+                    )
 
                 # For atomic basis targets, sparsify to create blocks with "atom_type"
                 # in the key dimensions, and ensure properties are unpadded. This is
@@ -152,7 +130,8 @@ class MetatrainWrapper(ModelInterface[WrapperHypers]):
         for additive_model in self.additive_models:
             _add_model_requested_inputs(additive_model)
 
-        _add_model_requested_inputs(self.scaler)
+        if self.scaler is not None:
+            _add_model_requested_inputs(self.scaler)
         _add_model_requested_inputs(self.model)
 
         return requested_inputs
@@ -170,7 +149,8 @@ class MetatrainWrapper(ModelInterface[WrapperHypers]):
         for additive_model in self.additive_models:
             _add_model_requested_neighbor_lists(additive_model)
 
-        _add_model_requested_neighbor_lists(self.scaler)
+        if self.scaler is not None:
+            _add_model_requested_neighbor_lists(self.scaler)
         _add_model_requested_neighbor_lists(self.model)
 
         return requested_neighbor_lists
@@ -198,12 +178,15 @@ class MetatrainWrapper(ModelInterface[WrapperHypers]):
         model = self.model.export(metadata)
         dtype = getattr(torch, model.capabilities().dtype)
         additive_models = [model.to(dtype).export(metadata) for model in self.additive_models]
-        scaler = self.scaler.to(dtype).export(metadata)
+        if self.scaler is not None:
+            scaler = self.scaler.to(dtype).export(metadata)
+        else:
+            scaler = None
 
         # Get a list of the capabilities of each model
         all_capabilities = [model.capabilities()] + [
             model.capabilities() for model in additive_models
-        ] + [scaler.capabilities()]
+        ] + [scaler.capabilities()] if scaler is not None else []
 
         # The interaction range of the model is the maximum interaction range
         # of all the models involved.
@@ -218,11 +201,9 @@ class MetatrainWrapper(ModelInterface[WrapperHypers]):
 
         # Build the wrapper model again with the exported modules.
         to_export = self.__class__(
-            hypers=dict(
-                model=model.module,
-                additive_models=[model.module for model in additive_models],
-                scaler=scaler.module,
-            ),
+            model=model.module,
+            additive_models=[model.module for model in additive_models],
+            scaler=scaler.module,
             dataset_info=self.dataset_info,
         )
 
@@ -240,29 +221,85 @@ class MetatrainWrapper(ModelInterface[WrapperHypers]):
 
         return AtomisticModel(to_export.eval(), metadata, capabilities)
 
+    @staticmethod
+    def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
+        """
+        Convert a checkpoint from an architecture to one that can be loaded
+        by MetatrainModel.
+         
+        This is specially useful for converting checkpoints that were generated
+        before the introduction of the MetatrainModel class.
+        """
+        from metatrain.utils.io import trainer_from_checkpoint
+        # Use the trainer to setup a MetatrainModel
+        trainer = trainer_from_checkpoint(checkpoint, context="restart", hypers={})
+        model_data = checkpoint["model_data"]
+        mtt_model = trainer.setup(
+            model_hypers=model_data.get("hypers", model_data.get("model_hypers")),
+            dataset_info=model_data["dataset_info"]
+        )
+
+        # Get the new checkpoint skeleton from the MetatrainModel
+        new_ckpt = mtt_model.get_checkpoint()
+
+        # Copy all the trainer keys.
+        for k in list(checkpoint):
+            if k not in new_ckpt["model"]:
+                new_ckpt[k] = checkpoint.pop(k)
+
+        # The checkpoint of the model now goes to the "model" key.
+        # (here we replace completely the model in new_ckpt, since that one
+        # is simply an untrained model)
+        new_ckpt["model"] = checkpoint
+
+        # Fill the state dicts of the scaler and additive models by finding
+        # them in the state dict of the original checkpoint.
+        scaler_state_dict = {}
+        additive_models_state_dict = [{}] * len(new_ckpt["additive_models"])
+
+        state_dict = checkpoint["model_state_dict"]
+        for k, v in state_dict.items():
+            if k.startswith("scaler."):
+                scaler_state_dict[k.replace("scaler.", "")] = v
+            for i, additive_model_state_dict in enumerate(additive_models_state_dict):
+                if k.startswith(f"additive_models.{i}."):
+                    additive_model_state_dict[k.replace(f"additive_models.{i}.", "")] = v
+
+        if new_ckpt["scaler"] is None:
+            if len(scaler_state_dict) > 0:
+                raise ValueError(
+                    "The checkpoint contains a scaler state dict, but the model "
+                    "does not have a scaler."
+                )
+        else:
+            new_ckpt["scaler"]["model_state_dict"] = scaler_state_dict
+            new_ckpt["scaler"]["best_model_state_dict"] = scaler_state_dict
+
+        for i, additive_model_state_dict in enumerate(additive_models_state_dict):
+            new_ckpt["additive_models"][i]["model_state_dict"] = additive_model_state_dict
+            new_ckpt["additive_models"][i]["best_model_state_dict"] = additive_model_state_dict
+
+        return new_ckpt
+
     @classmethod
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
     ) -> "ModelInterface":
-        hypers = {}
-        for k in ["model", "scaler"]:
-            subcheckpoint = checkpoint[k]
+        from .io import arch_model_from_checkpoint
+        if "architecture_name" in checkpoint:
+            checkpoint = cls._ckpt_from_arch_ckpt(checkpoint)
 
-            architecture_name = subcheckpoint["architecture_name"]
-            model_cls = import_architecture(architecture_name).__model__
-            hypers[k] = model_cls.load_checkpoint(subcheckpoint, context)
-
-        hypers["additive_models"] = []
-        for additive_model_checkpoint in checkpoint["additive_models"]:
-            architecture_name = additive_model_checkpoint["architecture_name"]
-            model_cls = import_architecture(architecture_name).__model__
-            hypers["additive_models"].append(
-                model_cls.load_checkpoint(additive_model_checkpoint, context)
-            )
-
-        return cls(hypers=hypers, dataset_info=checkpoint["dataset_info"])
+        return cls(
+            model=arch_model_from_checkpoint(checkpoint["model"], context=context),
+            additive_models=[
+                arch_model_from_checkpoint(additive_model_checkpoint, context=context)
+                for additive_model_checkpoint in checkpoint["additive_models"]
+            ],
+            scaler=arch_model_from_checkpoint(checkpoint["scaler"], context=context) if checkpoint["scaler"] is not None else None,
+            dataset_info=checkpoint["dataset_info"]
+        )
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict["str", Any]) -> Dict["str", Any]:
@@ -300,13 +337,11 @@ class MetatrainWrapper(ModelInterface[WrapperHypers]):
         :return: The model's checkpoint.
         """
         checkpoint = {
-            "architecture_name": "metatrain_wrapper",
             "model_ckpt_version": self.__checkpoint_version__,
-            "metadata": self.metadata,
             "dataset_info": self.dataset_info,
             "model": self.model.get_checkpoint(),
             "additive_models": [m.get_checkpoint() for m in self.additive_models],
-            "scaler": self.scaler.get_checkpoint(),
+            "scaler": self.scaler.get_checkpoint() if self.scaler is not None else None,
         }
         return checkpoint
     
@@ -322,20 +357,22 @@ class MetatrainWrapper(ModelInterface[WrapperHypers]):
         """
         self.model.restart(dataset_info, model_hypers)
 
-        composition_model = self.additive_models[0]
-        self.additive_models[0] = composition_model.restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=dataset_info.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if composition_model.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
+        if len(self.additive_models) > 0:
+            composition_model = self.additive_models[0]
+            self.additive_models[0] = composition_model.restart(
+                dataset_info=DatasetInfo(
+                    length_unit=dataset_info.length_unit,
+                    atomic_types=dataset_info.atomic_types,
+                    targets={
+                        target_name: target_info
+                        for target_name, target_info in dataset_info.targets.items()
+                        if composition_model.is_valid_target(target_name, target_info)
+                    },
+                ),
+            )
 
-        self.scaler = self.scaler.restart(dataset_info)
+        if self.scaler is not None:
+            self.scaler = self.scaler.restart(dataset_info)
 
         self.dataset_info = dataset_info
 
@@ -354,7 +391,7 @@ class MetatrainWrapper(ModelInterface[WrapperHypers]):
             if target_name in additive_model.supported_outputs():
                 additive_model.remove_output(target_name)
 
-        if target_name in self.scaler.supported_outputs():
+        if self.scaler is not None and target_name in self.scaler.supported_outputs():
             self.scaler.remove_output(target_name)
 
         self.dataset_info.targets.pop(target_name, None)
