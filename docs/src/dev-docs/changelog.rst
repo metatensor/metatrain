@@ -27,6 +27,10 @@ Unreleased
 Fixed
 #####
 
+- ``ZBL`` now accepts every spelling of the angstrom that metatomic accepts
+  (``angstrom``, ``Angstrom``, ``A``, ...), instead of only the exact string
+  ``angstrom``.
+
 Added
 #####
 
