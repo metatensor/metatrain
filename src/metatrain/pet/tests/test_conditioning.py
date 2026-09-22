@@ -137,6 +137,9 @@ def _train_steps(model, n_steps=20):
 @pytest.mark.parametrize("featurizer_type", ["feedforward", "residual"])
 def test_conditioning_changes_output(featurizer_type):
     """Same structure with different charges should produce different predictions."""
+    # seed the model init too: with an unlucky ambient RNG state the conditioning
+    # contribution can fall below the allclose tolerance and flake
+    torch.manual_seed(42)
     hypers = _small_hypers(featurizer_type=featurizer_type)
     model = PET(hypers, _dataset_info())
     _train_steps(model)

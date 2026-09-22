@@ -40,13 +40,13 @@ def average_by_num_atoms(
 def divide_by_num_atoms(tensor_map: TensorMap, num_atoms: torch.Tensor) -> TensorMap:
     """Takes the average values per atom of a ``TensorMap``.
 
-    Since some quantities might already be per atom (e.g., atomic energies
-    or position gradients), this function only divides a block (or gradient
-    block) by the number of atoms if the block's samples do not contain
-    the "atom" key. In practice, this guarantees the desired behavior for
-    the majority of the cases, including energies, forces, and virials, where
-    the energies and virials should be divided by the number of atoms, while
-    the forces should not.
+    Since some quantities might already be per atom (e.g., atomic energies or position
+    gradients) or per atom-pair (e.g. atom-pair targets), this function only divides a
+    block (or gradient block) by the number of atoms if the block's samples do not
+    contain the "atom" or "first_atom" key. In practice, this guarantees the desired
+    behavior for the majority of the cases, including energies, forces, and virials,
+    where the energies and virials should be divided by the number of atoms, while the
+    forces should not.
 
     :param tensor_map: The input tensor map.
     :param num_atoms: The number of atoms in each system.
@@ -56,7 +56,7 @@ def divide_by_num_atoms(tensor_map: TensorMap, num_atoms: torch.Tensor) -> Tenso
 
     blocks = []
     for block in tensor_map.blocks():
-        if "atom" in block.samples.names:
+        if "atom" in block.samples.names or "first_atom" in block.samples.names:
             new_block = block.copy(deep=False)
         else:
             values = block.values / num_atoms.view(
@@ -69,7 +69,10 @@ def divide_by_num_atoms(tensor_map: TensorMap, num_atoms: torch.Tensor) -> Tenso
                 properties=block.properties,
             )
             for gradient_name, gradient in block.gradients():
-                if "atom" in gradient.samples.names:
+                if (
+                    "atom" in gradient.samples.names
+                    or "first_atom" in gradient.samples.names
+                ):
                     new_gradient = gradient.copy(deep=False)
                 else:
                     values = gradient.values / num_atoms.view(

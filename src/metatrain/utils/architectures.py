@@ -1,6 +1,7 @@
 import difflib
 import importlib
 import sys
+from copy import deepcopy
 from importlib.util import find_spec
 from pathlib import Path
 from types import ModuleType
@@ -278,7 +279,9 @@ def get_default_hypers(name: str, base_precision: Optional[int] = None) -> Dict:
     :param name: Name of the architecture
     :param base_precision: If given, resolve ``${base_precision}`` interpolations
         to this value before returning.
-    :return: Default hyperparameters of the architecture
+    :return: Default hyperparameters of the architecture. This dict is a deep copy
+        of the defaults, so it can be modified without affecting the
+        original defaults.
     """
     check_architecture_name(name)
 
@@ -294,9 +297,9 @@ def get_default_hypers(name: str, base_precision: Optional[int] = None) -> Dict:
         cfg = OmegaConf.create({"base_precision": base_precision, **defaults})
         container = OmegaConf.to_container(cfg, resolve=True)
         container.pop("base_precision")
-        return container
+        return deepcopy(container)
 
-    return defaults
+    return deepcopy(defaults)
 
 
 def write_hypers_yaml(name: str, output_path: Path | str) -> None:

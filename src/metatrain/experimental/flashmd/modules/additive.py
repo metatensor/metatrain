@@ -41,7 +41,6 @@ class PositionAdditive(torch.nn.Module):
                 # skip momenta targets unless `also_momenta` is True
                 continue
             self.outputs[key] = ModelOutput(
-                quantity=value.quantity,
                 unit=value.unit,
                 sample_kind="atom",
                 description=value.description,
@@ -63,12 +62,20 @@ class PositionAdditive(torch.nn.Module):
                 # skip momenta targets unless `also_momenta` is True
                 continue
             self.outputs[key] = ModelOutput(
-                quantity=value.quantity,
                 unit=value.unit,
                 sample_kind="atom",
                 description=value.description,
             )
         return self
+
+    def remove_output(self, target_name: str) -> None:
+        """
+        Remove a previously registered output target.
+
+        :param target_name: Name of the target to remove.
+        """
+        self.outputs.pop(target_name, None)
+        self.dataset_info.targets.pop(target_name, None)
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs

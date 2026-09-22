@@ -8,5 +8,4 @@ can be added to one or more architectures.
    :maxdepth: 1
 
    remove_additive
-   composition
    zbl

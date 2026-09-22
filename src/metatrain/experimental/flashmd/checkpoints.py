@@ -1,9 +1,9 @@
 import metatensor.torch as mts
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
+from metatrain.scaler.checkpoints import update_per_property_scales
 from metatrain.utils.data.target_info import TargetInfo
 from metatrain.utils.omegaconf import DEPRECATED_METATOMIC_TARGET_NAMES
-from metatrain.utils.scaler.checkpoints import update_per_property_scales
 
 
 def _rename_column_in_labels(labels: Labels, old_name: str, new_name: str) -> Labels:
@@ -217,3 +217,34 @@ def trainer_update_v4_v5(checkpoint: dict) -> None:
             "config": {},
             "inherit_heads": {},
         }
+
+
+def trainer_update_v5_v6(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 5 to version 6.
+
+    The ``batch_atom_bounds`` field has been removed from the trainer schema
+    (max-atom packing is now done by the sampler, via ``max_atoms_per_batch``
+    and ``min_atoms_per_batch``). ``batch_atom_bounds`` bounds are translated
+    into the equivalent sampler settings; if it was unset, the new sampler
+    settings default to no packing.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    train_hypers = checkpoint["train_hypers"]
+    min_bound, max_bound = train_hypers.pop("batch_atom_bounds", [None, None])
+    train_hypers["max_atoms_per_batch"] = max_bound
+    train_hypers["min_atoms_per_batch"] = min_bound if min_bound is not None else 0
+
+
+def trainer_update_v6_v7(checkpoint: dict) -> None:
+    """
+    Deprecate the ``distributed`` hyperparameter.
+
+    So that it doesn't show up in the restarting options.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    train_hypers = checkpoint["train_hypers"]
+    if "distributed" in train_hypers and train_hypers["distributed"] is None:
+        train_hypers.pop("distributed")

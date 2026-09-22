@@ -49,7 +49,7 @@ def test_scalar_output(legacy):
     system = _make_system(model)
     output = model(
         [system],
-        {"energy": ModelOutput(quantity="energy", unit="eV", sample_kind="system")},
+        {"energy": ModelOutput(unit="eV", sample_kind="system")},
     )
     values = output["energy"].block().values
     assert values.shape == (1, 1)
@@ -163,7 +163,7 @@ def test_mlp_head(add_lambda_basis):
     system = _make_system(model)
     output = model(
         [system],
-        {"energy": ModelOutput(quantity="energy", unit="eV", sample_kind="system")},
+        {"energy": ModelOutput(unit="eV", sample_kind="system")},
     )
     values = output["energy"].block().values
     assert values.shape == (1, 1)
@@ -195,7 +195,7 @@ def test_multiple_targets(legacy, add_lambda_basis):
     model = SoapBpnn(hypers, dataset_info)
     system = _make_system(model)
     outputs = {
-        "energy": ModelOutput(quantity="energy", unit="eV", sample_kind="system"),
+        "energy": ModelOutput(unit="eV", sample_kind="system"),
         "non_conservative_stress": ModelOutput(sample_kind="system"),
     }
     result = model([system], outputs)

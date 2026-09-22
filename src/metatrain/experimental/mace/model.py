@@ -21,16 +21,19 @@ from metatomic.torch import (
     System,
 )
 
+from metatrain.composition import CompositionModel
+from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import CompositionModel
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
@@ -105,6 +108,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
+        check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
 
         # ---------------------------
         # Get the MACE model instance
@@ -281,7 +285,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
         targets = dataset_info.targets
         self.outputs = {
             k: ModelOutput(
-                quantity=targets[k].quantity if k in targets else "",
                 unit=targets[k].unit if k in targets else "",
                 sample_kind="atom",
             )
@@ -295,25 +298,26 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # The composition model and scaler are handled by the trainer during training.
         # Their purpose is to adapt the data for optimal training.
         # At evaluation time, the model applies them on forward.
-        composition_model = CompositionModel(
-            hypers={},
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in train_dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
+        composition_model = CompositionModel.from_valid_targets(
+            dataset_info, self.atomic_types
         )
         self.additive_models = torch.nn.ModuleList([composition_model])
 
-        self.scaler = Scaler(hypers={}, dataset_info=train_dataset_info)
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
         self.finetune_config: Dict[str, Any] = {}
 
-    def restart(self, dataset_info: DatasetInfo) -> "MetaMACE":
+    def restart(
+        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+    ) -> "MetaMACE":
+
+        if model_hypers is not None:
+            default_hypers = get_default_hypers("experimental.mace")["model"]
+            raise_if_hypers_mismatch(
+                self.hypers, model_hypers, default_hypers=default_hypers
+            )
+
         # Check that the new dataset info does not contain new atomic types
         if new_atomic_types := set(dataset_info.atomic_types) - set(
             self.dataset_info.atomic_types
@@ -347,16 +351,16 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # restart the composition and scaler models
         self.additive_models[0] = self.additive_models[0].restart(
             dataset_info=DatasetInfo(
-                length_unit=train_dataset_info.length_unit,
+                length_unit=dataset_info.length_unit,
                 atomic_types=self.dataset_info.atomic_types,
                 targets={
                     target_name: target_info
-                    for target_name, target_info in train_dataset_info.targets.items()
+                    for target_name, target_info in dataset_info.targets.items()
                     if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
-        self.scaler = self.scaler.restart(train_dataset_info)
+        self.scaler = self.scaler.restart(dataset_info)
 
         return self
 
@@ -475,18 +479,17 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         # At evaluation, we also introduce the scaler and additive contributions
         if not self.training:
-            return_dict = self.scaler(
+            return_dict = self.scaler.apply_scales(
                 systems,
                 return_dict,
                 selected_atoms=selected_atoms,
                 use_per_target_scales=True,
                 use_per_property_scales=True,
             )
-            self.add_additive_contributions(
-                return_dict, systems, outputs, selected_atoms
-            )
             # For atomic basis targets, sparsify to create blocks with "atom_type"
-            # in the key dimensions, and ensure properties are unpadded.
+            # in the key dimensions, and ensure properties are unpadded. This is
+            # done before adding the additive contributions, which are also
+            # sparsified (by the additive models themselves, in eval mode).
             targets = self.dataset_info.targets
             for k, v in return_dict.items():
                 if k in targets and targets[k].is_atomic_basis:
@@ -495,6 +498,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
                         v,
                         targets[k].layout,
                     )
+            self.add_additive_contributions(
+                return_dict, systems, outputs, selected_atoms
+            )
 
         return return_dict
 

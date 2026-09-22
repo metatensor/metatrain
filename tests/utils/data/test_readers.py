@@ -16,10 +16,11 @@ from metatrain.utils.data import TargetInfo, read_extra_data, read_systems, read
 
 
 @pytest.mark.parametrize("reader", (None, "ase"))
-def test_read_systems(reader, monkeypatch, tmp_path):
+@pytest.mark.parametrize("suffix", (".xyz", ".extxyz"))
+def test_read_systems(reader, suffix, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
-    filename = "systems.xyz"
+    filename = f"systems.{suffix}"
     systems = ase_systems()
     ase.io.write(filename, systems)
 

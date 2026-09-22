@@ -14,59 +14,6 @@ from .nef import (
 from .utilities import cutoff_func_bump, cutoff_func_cosine
 
 
-def get_pair_sample_labels(
-    sample_labels: Labels,
-    centers: torch.Tensor,
-    neighbors: torch.Tensor,
-    cell_shifts: torch.Tensor,
-) -> Labels:
-    """
-    Create per-pair sample labels from center and neighbor atom indices and cell shifts.
-
-    Each row in the returned Labels corresponds to one directed edge (center → neighbor)
-    in the neighbor list, identified in the same way as a standard metatensor neighbor
-    list: by system index, center atom index, neighbor atom index, and the integer cell
-    shift vector ``(cell_shift_a, cell_shift_b, cell_shift_c)``.
-
-    :param sample_labels: Labels for all atoms in the batch, with dimensions
-        ``["system", "atom"]``, as returned by :func:`systems_to_batch`.
-    :param centers: Flat tensor of center atom global indices, shape ``(n_edges,)``.
-        These are post-adaptive-cutoff indices into the concatenated atom list.
-    :param neighbors: Flat tensor of neighbor atom global indices, shape ``(n_edges,)``.
-        These are post-adaptive-cutoff indices into the concatenated atom list.
-    :param cell_shifts: Integer cell shift vectors for each edge, shape ``(n_edges,
-        3)``. These are the post-adaptive-cutoff cell shifts matching
-        ``centers``/``neighbors``.
-    :return: Labels with columns ``["system", "first_atom", "second_atom",
-        "cell_shift_a", "cell_shift_b", "cell_shift_c"]``, shape ``(n_edges, 6)``.
-    """
-    sample_values = sample_labels.values  # (n_atoms, 2): [system, atom]
-    center_values = sample_values[centers]  # (n_edges, 2): [system, first_atom]
-    neighbor_values = sample_values[neighbors]  # (n_edges, 2): [system, second_atom]
-
-    pair_values = torch.cat(
-        [
-            center_values[:, :1],  # system        (n_edges, 1)
-            center_values[:, 1:],  # first_atom    (n_edges, 1)
-            neighbor_values[:, 1:],  # second_atom   (n_edges, 1)
-            cell_shifts,  # a, b, c       (n_edges, 3)
-        ],
-        dim=1,
-    )
-
-    return Labels(
-        names=[
-            "system",
-            "first_atom",
-            "second_atom",
-            "cell_shift_a",
-            "cell_shift_b",
-            "cell_shift_c",
-        ],
-        values=pair_values,
-    )
-
-
 def concatenate_structures(
     systems: List[System],
     neighbor_list_options: NeighborListOptions,

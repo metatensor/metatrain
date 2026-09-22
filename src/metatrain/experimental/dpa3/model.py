@@ -1,5 +1,6 @@
 import contextlib
 import copy
+import json
 import logging
 import sys
 from pathlib import Path
@@ -19,13 +20,16 @@ from metatomic.torch import (
     System,
 )
 
+from metatrain.composition import CompositionModel
+from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import CompositionModel
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import TargetInfo
+from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
@@ -35,6 +39,7 @@ from .modules.structures import concatenate_structures
 
 _PRECISION_INT_TO_DTYPE = {32: torch.float32, 64: torch.float64}
 _INT_TO_DEEPMD_PREC = {32: "float32", 64: "float64"}
+_DEEPMD_PREC_TO_INT = {v: k for k, v in _INT_TO_DEEPMD_PREC.items()}
 
 
 @contextlib.contextmanager
@@ -82,7 +87,7 @@ def _register_untracked_tensors(model: torch.nn.Module) -> None:
 
 
 class DPA3(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -100,6 +105,7 @@ class DPA3(ModelInterface[ModelHypers]):
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
+        check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
         self.atomic_types = dataset_info.atomic_types
 
         # Resolve precision: descriptor.precision is the authority.
@@ -117,11 +123,6 @@ class DPA3(ModelInterface[ModelHypers]):
             )
         self.dtype: torch.dtype = _PRECISION_INT_TO_DTYPE[desc_prec]
 
-        self.requested_nl = NeighborListOptions(
-            cutoff=self.hypers["descriptor"]["repflow"]["e_rcut"],
-            full_list=True,
-            strict=True,
-        )
         self.targets_keys = list(dataset_info.targets.keys())[0]
 
         # Pretrained model loading: if dpa3_model is provided, load it
@@ -129,30 +130,100 @@ class DPA3(ModelInterface[ModelHypers]):
         self.loaded_dpa3 = self.hypers.get("dpa3_model") is not None
         self._loaded_out_bias: Optional[torch.Tensor] = None
         self._loaded_out_std: Optional[torch.Tensor] = None
-
         if self.loaded_dpa3:
             dpa3_model = self.hypers["dpa3_model"]
             if isinstance(dpa3_model, (str, Path)):
-                loaded = torch.load(str(dpa3_model), weights_only=False)
-            elif isinstance(dpa3_model, torch.nn.Module):
-                loaded = dpa3_model
-            else:
-                raise ValueError(
-                    "The 'dpa3_model' hyper must be a file path or a torch.nn.Module."
+                loaded = torch.load(
+                    str(dpa3_model),
+                    weights_only=False,
+                    map_location=torch.device("cpu"),
                 )
-
-            # If loaded is a dict (deepmd-kit checkpoint), extract the model.
-            if isinstance(loaded, dict):
-                if "model" in loaded:
-                    loaded = loaded["model"]
-                else:
+                state_dict = loaded.get("model") if isinstance(loaded, dict) else None
+                if not isinstance(state_dict, dict) or "_extra_state" not in state_dict:
                     raise ValueError(
-                        "Cannot find 'model' key in the checkpoint dict. "
-                        "Expected a deepmd-kit checkpoint or a saved Module."
+                        f"'{dpa3_model}' is not a deepmd-kit training checkpoint. "
+                        f"Use the checkpoint distributed by deepmd-kit (for "
+                        f"example 'DPA-3.3-1M.pt') directly without freezing it via "
+                        f"'dp --pt freeze'."
                     )
 
-            # Normalize to CPU; .to(device) during training moves to GPU.
-            self.model = loaded.cpu()
+                params = state_dict["_extra_state"]["model_params"]
+                if "model_dict" not in params:
+                    # Very rare case: a single-task dpa3 model
+                    cfg, prefix = params, "model.Default."
+                    branch = None
+                else:
+                    # A pretrained dpa3 model is usually a multi-task checkpoint
+                    # with branches
+                    branch = hypers["dpa3_model_branch"]
+                    available = sorted(params["model_dict"])
+                    if branch is None:
+                        raise ValueError(
+                            f"The pretrained DPA3 model has multiple branches. "
+                            f"Please specify the branch to load via the "
+                            f"'dpa3_model_branch' hyperparameter. Available "
+                            f"branches: {', '.join(available)}"
+                        )
+                    elif branch not in params["model_dict"]:
+                        raise ValueError(
+                            f"The specified branch '{branch}' is not available in "
+                            f"the pretrained DPA3 model. "
+                            f"Available branches: {', '.join(available)}"
+                        )
+                    cfg = params["model_dict"][branch]
+                    prefix = f"model.{branch}."
+                with _build_on_cpu():
+                    self.model = get_standard_model(cfg)
+                # Update the atomic types extracted from the dataset with the types
+                # from the pretrained model
+                dataset_info.atomic_types = [
+                    ase.data.atomic_numbers[element] for element in cfg["type_map"]
+                ]
+                self.atomic_types = dataset_info.atomic_types
+                branch_state_dict = {
+                    k[len(prefix) :]: v
+                    for k, v in state_dict.items()
+                    if k.startswith(prefix)
+                }
+                missing, unexpected = self.model.load_state_dict(
+                    branch_state_dict, strict=False
+                )
+                real = [k for k in missing + unexpected if "_extra_state" not in k]
+                if real:
+                    if branch is not None:
+                        raise RuntimeError(
+                            f"state_dict mismatch for branch {branch}: {real[:5]}"
+                        )
+                    else:
+                        raise RuntimeError(f"state_dict mismatch: {real[:5]}")
+            elif isinstance(dpa3_model, torch.nn.Module):
+                self.model = dpa3_model.cpu()
+            elif isinstance(dpa3_model, dict):
+                # An already-extracted deepmd-kit multi-task model
+                with _build_on_cpu():
+                    self.model = get_standard_model(dpa3_model)
+                self.model._metatrain_extracted_scaleshift = True
+            else:
+                raise ValueError(
+                    "The 'dpa3_model' hyper must be a file path or a torch.nn.Module "
+                    "or a dict."
+                )
+
+            self._deepmd_cfg = json.loads(self.model.get_model_def_script())
+            cfg = self._deepmd_cfg
+            self.hypers["descriptor"]["precision"] = _DEEPMD_PREC_TO_INT[
+                cfg["descriptor"]["precision"]
+            ]
+            self.hypers["fitting_net"]["precision"] = _DEEPMD_PREC_TO_INT[
+                cfg["fitting_net"]["precision"]
+            ]
+            self.hypers["descriptor"]["repflow"]["e_rcut"] = cfg["descriptor"][
+                "repflow"
+            ]["e_rcut"]
+            self.dtype = _PRECISION_INT_TO_DTYPE[self.hypers["descriptor"]["precision"]]
+            self.atomic_types = [ase.data.atomic_numbers[s] for s in cfg["type_map"]]
+            dataset_info.atomic_types = self.atomic_types
+
             _register_untracked_tensors(self.model)
 
             # Extract output bias and std from the atomic model, then zero
@@ -173,6 +244,10 @@ class DPA3(ModelInterface[ModelHypers]):
             type_map = [ase.data.chemical_symbols[z] for z in self.atomic_types]
             # deepmd-kit expects precision as strings; convert at the boundary.
             deepmd_hypers: Dict[str, Any] = copy.deepcopy(dict(hypers))
+            # The following two keys are only used in metatrain; deepmd-kit does not
+            # recognize it.
+            deepmd_hypers.pop("dpa3_model", None)
+            deepmd_hypers.pop("dpa3_model_branch", None)
             deepmd_hypers["type_map"] = type_map
             deepmd_hypers["descriptor"]["precision"] = _INT_TO_DEEPMD_PREC[desc_prec]
             deepmd_hypers["fitting_net"]["precision"] = _INT_TO_DEEPMD_PREC[fit_prec]
@@ -180,7 +255,8 @@ class DPA3(ModelInterface[ModelHypers]):
                 self.model = get_standard_model(deepmd_hypers)
             _register_untracked_tensors(self.model)
 
-        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
         self.outputs: Dict[str, ModelOutput] = {}
         self.single_label = Labels.single()
 
@@ -192,17 +268,13 @@ class DPA3(ModelInterface[ModelHypers]):
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
 
-        composition_model = CompositionModel(
-            hypers={},
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
+        self.requested_nl = NeighborListOptions(
+            cutoff=self.hypers["descriptor"]["repflow"]["e_rcut"],
+            full_list=True,
+            strict=True,
+        )
+        composition_model = CompositionModel.from_valid_targets(
+            dataset_info, self.atomic_types
         )
         additive_models = [composition_model]
         self.additive_models = torch.nn.ModuleList(additive_models)
@@ -219,7 +291,6 @@ class DPA3(ModelInterface[ModelHypers]):
             block.properties for block in target.layout.blocks()
         ]
         self.outputs[target_name] = ModelOutput(
-            quantity=target.quantity,
             unit=target.unit,
             sample_kind="atom",
         )
@@ -373,7 +444,7 @@ class DPA3(ModelInterface[ModelHypers]):
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler(
+            return_dict = self.scaler.apply_scales(
                 systems,
                 return_dict,
                 selected_atoms=selected_atoms,
@@ -398,7 +469,16 @@ class DPA3(ModelInterface[ModelHypers]):
 
         return return_dict
 
-    def restart(self, dataset_info: DatasetInfo) -> "DPA3":
+    def restart(
+        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+    ) -> "DPA3":
+
+        if model_hypers is not None:
+            default_hypers = get_default_hypers("experimental.dpa3")["model"]
+            raise_if_hypers_mismatch(
+                self.hypers, model_hypers, default_hypers=default_hypers
+            )
+
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -538,7 +618,10 @@ class DPA3(ModelInterface[ModelHypers]):
         # deepmd-kit modules contain locally-defined classes (e.g.
         # make_embedding_network.<locals>.EN) that cannot be pickled.
         # Never store a Module in hypers; state_dict captures all weights.
-        hypers.pop("dpa3_model", None)
+        if hasattr(self, "_deepmd_cfg"):
+            hypers["dpa3_model"] = self._deepmd_cfg
+        else:
+            hypers.pop("dpa3_model", None)
 
         checkpoint = {
             "architecture_name": "experimental.dpa3",
@@ -587,8 +670,14 @@ class DPA3(ModelInterface[ModelHypers]):
             return {}
         # out_std shape: [n_out, ntypes, max_out_size]
         std = self._loaded_out_std[0, :, 0]  # [ntypes]
-        return {
-            self.targets_keys: {
-                z: std[i].item() for i, z in enumerate(self.atomic_types)
-            }
-        }
+        # The Scaler only accepts a scalar fixed weight for per-structure
+        # targets such as the energy, so a per-type std cannot be represented.
+        if not torch.all(std == std[0]):
+            raise NotImplementedError(
+                "Loaded DPA3 models with non-uniform per-type 'out_std' are "
+                "not supported. Currently, the std values are all 1.0 in all "
+                "pretrained DPA3 models. This might change in the future if "
+                "new models are trained to predict properties except from "
+                "the energy."
+            )
+        return {self.targets_keys: std[0].item()}

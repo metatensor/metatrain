@@ -37,24 +37,35 @@ model:
 | [PET][arch-pet]                               | Point Edge Transformer (PET), interatomic machine learning potential                                                                 |
 | [SOAP-BPNN][arch-soap_bpnn]                   | A Behler-Parrinello neural network with SOAP features                                                                                |
 | [MACE][arch-mace]                             | A higher order equivariant message passing neural network.                                                                           |
-| [PhACE][arch-phace]                           | SO(3)-equivariant message-passing model with physical radial functions and fast tensor products.                                     |
+| [SPACE][arch-space]                           | SO(3)-equivariant message-passing model with physical radial functions and fast tensor products.                                     |
 | [GAP][arch-gap]                               | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
 | [FlashMD][arch-flashmd]                       | An architecture for the direct prediction of molecular dynamics                                                                      |
 | [DPA3][arch-dpa3]                             | An invariant graph neural network based on line graph series representations                                                         |
 | [Symplectic FlashMD][arch-flashmd_symplectic] | A symplectic variant of FlashMD for the direct prediction of molecular dynamics.                                                     |
 
+It also contains architectures meant to simplify tasks or augment the capabilities of the models:
+
+| Name                                          | Description                                                                                                                          |
+|-----------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| [Composition][arch-composition]               | Per-species linear fit to training targets                                                                                           |
+| [Scaler][arch-scaler]                         | Per-species, target and property scales for training targets.                                                                        |
+| [LLPR][arch-llpr]                             | Cheap uncertainty quantification via the last-layer prediction rigidity (LLPR) approach                                              |
+
 <!-- marker-arch-links -->
 
 <!-- links for the different architectures. To be replaced if we are building the docs locally or
 on a PR, since the docs use this README file directly.-->
+[arch-composition]: https://docs.metatensor.org/metatrain/latest/architectures/generated/composition.html
+[arch-scaler]: https://docs.metatensor.org/metatrain/latest/architectures/generated/scaler.html
 [arch-dpa3]: https://docs.metatensor.org/metatrain/latest/architectures/generated/dpa3.html
 [arch-flashmd]: https://docs.metatensor.org/metatrain/latest/architectures/generated/flashmd.html
 [arch-gap]: https://docs.metatensor.org/metatrain/latest/architectures/generated/gap.html
 [arch-mace]: https://docs.metatensor.org/metatrain/latest/architectures/generated/mace.html
 [arch-pet]: https://docs.metatensor.org/metatrain/latest/architectures/generated/pet.html
-[arch-phace]: https://docs.metatensor.org/metatrain/latest/architectures/generated/phace.html
+[arch-space]: https://docs.metatensor.org/metatrain/latest/architectures/generated/space.html
 [arch-soap_bpnn]: https://docs.metatensor.org/metatrain/latest/architectures/generated/soap_bpnn.html
 [arch-flashmd_symplectic]: https://docs.metatensor.org/metatrain/latest/architectures/generated/flashmd_symplectic.html
+[arch-llpr]: https://docs.metatensor.org/metatrain/latest/architectures/generated/llpr.html
 
 <!-- marker-documentation -->
 
@@ -152,7 +163,10 @@ Thanks goes to all people who make metatrain possible:
 
 [![Contributors](https://contrib.rocks/image?repo=metatensor/metatrain)](https://github.com/metatensor/metatrain/graphs/contributors)
 
-The overall metatrain project is [maintained](https://github.com/lab-cosmo/.github/blob/main/Maintainers.md) by @frostedoyster, @pfebrer, and @PicoCentauri who will reply to issues and pull requests opened on this repository as soon as possible. You can mention them directly if you did not receive an answer after a couple of days. Additionally, different architectures are maintained by separate maintainers, you can find their names in the corresponding [documentation](https://docs.metatensor.org/metatrain/latest/architectures/)
+The overall metatrain project is [maintained](https://github.com/lab-cosmo/.github/blob/main/Maintainers.md) by @pfebrer and @PicoCentauri who will reply to issues and pull requests opened on this repository as soon as possible. You can mention them directly if you did not receive an answer after a couple of days.
+It was previously maintained by @frostedoyster (2023 to 2026), many thanks to them for their work making metatrain awesome!
+
+Additionally, different architectures are maintained by separate maintainers, you can find their names in the corresponding [documentation](https://docs.metatensor.org/metatrain/latest/architectures/)
 
 <!-- marker-cite -->
 

@@ -9,10 +9,13 @@ learning-rate scheduler are initialized from the new options file. This is diffe
 from restarting an interrupted training run, where the optimizer and scheduler states
 are restored as well.
 
-Not every architecture supports fine-tuning, and the exact options depend on the
-architecture. To check if an architecture supports fine-tuning, see whether its training
-options include ``architecture.training.finetune`` in the :ref:`architecture reference
-<available-architectures>`. The examples use the PET syntax.
+Finetuning may not be supported by every architecture and if supported the syntax to
+start a finetuning may be different from how it is explained here. This section
+describes the process of fine-tuning a pre-trained model to adapt it to new tasks or
+datasets. Fine-tuning is a common technique used in machine learning, where a model is
+trained on a large dataset and then fine-tuned on a smaller dataset to improve its
+performance on specific tasks. So far the fine-tuning capabilities are only available
+for the PET, FlashMD, FlashMDSymplectic and SPACE models.
 
 Once the options file is set up, start the run with ``mtt train options.yaml``. There is
 a complete example in the tutorial section: :ref:`finetuning-tutorial`.
@@ -208,8 +211,79 @@ training set are removed from the model.
 Making a variant the default target
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Simulation engines look for a target literally named ``energy``. To make a fine-tuned
-variant available under that name, set ``default_target``:
+Multi-fidelity training
+-----------------------
+With the ``full`` and ``lora`` fine-tuning methods, the backbone weights change, which
+means that any target *not* part of the current fine-tuning run's dataset would end up
+with a head that no longer matches the (now different) feature space produced by the
+backbone. To avoid keeping such now-useless heads around, they are automatically
+removed from the model: after a ``full`` or ``lora`` fine-tuning run, the model only
+retains the targets that were part of that run's training set. Targets you want to
+keep must therefore be included in the training set of every subsequent ``full``/
+``lora`` fine-tuning run, even if you do not care about further improving them.
+
+If you want to fine-tune and retain multiple functional heads, the recommended way is
+to do full fine-tuning on a new target, but keep training the old energy head as well,
+by including it in the same run's targets (for instance by using ``inherit_heads`` to
+initialize the new head from the old one, see above, while still listing both targets
+below). This will leave you with a model capable of using different variants for
+energy and force prediction. Again, you are able to select the preferred head in
+``LAMMPS`` or when creating a ``metatomic`` calculator object. Thus, you should specify
+both variants in the ``targets`` section of your ``options.yaml``. In the code
+snippet, we additionally assume that the energy labels come from different datasets.
+Please note, if you have both references in one file, they can be selected by
+selecting the corresponding keys from the same system, the same dataset.
+
+.. code-block:: yaml
+
+  training_set:
+      - systems:
+            read_from: dataset_1.xyz
+            length_unit: angstrom
+        targets:
+            energy/<variant1>:
+                quantity: energy
+                key: my_energy_label1
+                unit: eV
+                description: 'my variant1 description'
+      - systems:
+            read_from: dataset_2.xyz
+            length_unit: angstrom
+        targets:
+            energy/<variant2>:
+                quantity: energy
+                key: my_energy_label2
+                unit: eV
+                description: 'my variant2 description'
+
+
+
+You can find more about setting up training with multiple files in the
+:ref:`Training YAML reference <train_yaml_config>`.
+
+
+Training only the head weights can be an alternative, if one wants to keep the old energy
+head, but the reference data it was trained are not available. In that case, the
+internal model weights are frozen, and only the weights of the new target are trained.
+Since the backbone does not change with this method, all existing targets/heads are
+kept automatically, whether or not they are part of the current run's dataset (see
+below).
+
+
+Fine-tuning model Heads only
+----------------------------
+
+Adapting all the model weights to a new dataset is not always the best approach. If the
+new dataset consist of the same or similar data computed with a slightly different level
+of theory compared to the pre-trained models' dataset, you might want to keep the
+learned representations of the crystal structures and only adapt the readout layers
+(i.e. the model heads) to the new dataset. Since the backbone is frozen and therefore
+unchanged, all targets/heads already present in the model are kept, regardless of
+whether they are part of the current run's dataset -- unlike ``full``/``lora``
+fine-tuning, which drops targets not included in the current run (see
+"Multi-fidelity training" above).
+In this case, the ``mtt train`` command needs to be accompanied by the specific training
+options in the ``options.yaml`` file. The following options need to be set:
 
 .. code-block:: yaml
 

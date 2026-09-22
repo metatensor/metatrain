@@ -16,18 +16,24 @@ from metatomic.torch import (
     System,
 )
 
+from metatrain.composition import CompositionModel
+from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL, CompositionModel
+from metatrain.utils.additive import ZBL
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.data.atom_pair_helpers import (
+    check_no_atom_pair_targets,
+    get_pair_sample_labels,
+)
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
     sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.finetuning import apply_finetuning_strategy
+from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
@@ -40,7 +46,8 @@ from .modules.diagnostic import (
     prepare_diagnostic_handles,
     standardize_featurizer_input_tensor,
 )
-from .modules.structures import concatenate_structures, get_pair_sample_labels
+from .modules.finetuning import apply_finetuning_strategy, compute_stale_targets
+from .modules.structures import concatenate_structures
 
 
 AVAILABLE_FEATURIZERS = typing.get_args(ModelHypers.__annotations__["featurizer_type"])
@@ -69,6 +76,7 @@ class PET(ModelInterface[ModelHypers]):
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
+        check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
 
         # Cache the hyperparameters that PET itself (as opposed to the pure-PyTorch
         # backend) needs. The remaining hyperparameters are cached on ``self.backend``.
@@ -162,17 +170,8 @@ class PET(ModelInterface[ModelHypers]):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel(
-            hypers={},
-            dataset_info=DatasetInfo(
-                length_unit=train_dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in train_dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
+        composition_model = CompositionModel.from_valid_targets(
+            dataset_info, self.atomic_types
         )
         additive_models = [composition_model]
 
@@ -196,7 +195,8 @@ class PET(ModelInterface[ModelHypers]):
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(hypers={}, dataset_info=train_dataset_info)
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
 
@@ -205,7 +205,16 @@ class PET(ModelInterface[ModelHypers]):
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
-    def restart(self, dataset_info: DatasetInfo) -> "PET":
+    def restart(
+        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+    ) -> "PET":
+
+        if model_hypers is not None:
+            default_hypers = get_default_hypers("pet")["model"]
+            raise_if_hypers_mismatch(
+                self.hypers, model_hypers, default_hypers=default_hypers
+            )
+
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -217,6 +226,14 @@ class PET(ModelInterface[ModelHypers]):
             if key not in self.dataset_info.targets
         }
         self.has_new_targets = len(new_targets) > 0
+
+        # Targets that were present before this run but are not part of the current
+        # run's dataset: with a backbone-altering finetuning method (full/lora), their
+        # heads are no longer meaningful and are dropped once training starts, by
+        # ``apply_finetuning_strategy`` (which decides based on the method).
+        stale_targets = compute_stale_targets(
+            self.dataset_info.targets, dataset_info.targets
+        )
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -238,16 +255,22 @@ class PET(ModelInterface[ModelHypers]):
         # restart the composition and scaler models
         self.additive_models[0] = self.additive_models[0].restart(
             dataset_info=DatasetInfo(
-                length_unit=train_dataset_info.length_unit,
+                length_unit=dataset_info.length_unit,
                 atomic_types=self.atomic_types,
                 targets={
                     target_name: target_info
-                    for target_name, target_info in train_dataset_info.targets.items()
+                    for target_name, target_info in dataset_info.targets.items()
                     if CompositionModel.is_valid_target(target_name, target_info)
                 },
             ),
         )
-        self.scaler = self.scaler.restart(train_dataset_info)
+        self.scaler = self.scaler.restart(dataset_info)
+
+        # Actual removal (if any) is deferred to ``apply_finetuning_strategy``
+        # (called later, once training starts), since ``inherit_heads`` needs these
+        # stale targets' heads to still be around to copy weights from, and only
+        # backbone-altering methods (``full``/``lora``) actually drop them.
+        self._stale_finetune_targets = stale_targets
 
         return self
 
@@ -257,7 +280,7 @@ class PET(ModelInterface[ModelHypers]):
     def requested_inputs(self) -> Dict[str, ModelOutput]:
         if self.system_conditioning is not None:
             return {
-                key: ModelOutput(quantity="", unit="", sample_kind="system")
+                key: ModelOutput(unit="", sample_kind="system")
                 for key in self.system_conditioning.required_data_keys
             }
         return {}
@@ -579,13 +602,27 @@ class PET(ModelInterface[ModelHypers]):
         with torch.profiler.record_function("PET::post-processing"):
             if not self.training:
                 # at evaluation, we also introduce the scaler and additive contributions
-                return_dict = self.scaler(
+                return_dict = self.scaler.apply_scales(
                     systems,
                     return_dict,
                     selected_atoms=selected_atoms,
                     use_per_target_scales=True,
                     use_per_property_scales=True,
                 )
+
+                # For atomic basis targets, sparsify to create blocks with "atom_type"
+                # in the key dimensions, and ensure properties are unpadded. This is
+                # done before adding the additive contributions, which are also
+                # sparsified (by the additive models themselves, in eval mode).
+                for k in atomic_predictions_dict.keys():
+                    if self.dataset_info.targets[k].is_atomic_basis:
+                        return_dict[k] = sparsify_atomic_basis_target(
+                            systems,
+                            return_dict[k],
+                            self.dataset_info.targets[k].layout,
+                            species,
+                        )
+
                 for additive_model in self.additive_models:
                     outputs_for_additive_model: Dict[str, ModelOutput] = {}
                     for name, output in outputs.items():
@@ -630,17 +667,6 @@ class PET(ModelInterface[ModelHypers]):
                                 )
                         return_dict[name] = TensorMap(
                             return_dict[name].keys, output_blocks
-                        )
-
-                # For atomic basis targets, sparsify to create blocks with "atom_type"
-                # in the key dimensions, and ensure properties are unpadded.
-                for k in atomic_predictions_dict.keys():
-                    if self.dataset_info.targets[k].is_atomic_basis:
-                        return_dict[k] = sparsify_atomic_basis_target(
-                            systems,
-                            return_dict[k],
-                            self.dataset_info.targets[k].layout,
-                            species,
                         )
 
         return return_dict
@@ -951,8 +977,14 @@ class PET(ModelInterface[ModelHypers]):
 
         finetune_config = model_state_dict.pop("finetune_config", {})
         if finetune_config:
-            # Apply the finetuning strategy
-            model = apply_finetuning_strategy(model, finetune_config)
+            # Re-apply the finetuning strategy to restore the trainable/frozen
+            # parameter state (and LoRA layers, if any). ``inherit_heads`` is
+            # skipped here: it is a one-time weight-copy initialization step that
+            # already ran when finetuning first started, and by now its source
+            # target may have been pruned as stale.
+            model = apply_finetuning_strategy(
+                model, finetune_config, apply_inherit_heads=False
+            )
         state_dict_iter = iter(model_state_dict.values())
         next(state_dict_iter)  # skip the species_to_species_index
         dtype = next(state_dict_iter).dtype
@@ -1029,7 +1061,6 @@ class PET(ModelInterface[ModelHypers]):
             ] + [len(block.properties.values)]
 
         self.outputs[target_name] = ModelOutput(
-            quantity=target_info.quantity,
             unit=target_info.unit,
             sample_kind="atom",
             description=target_info.description,
@@ -1061,6 +1092,24 @@ class PET(ModelInterface[ModelHypers]):
         self.property_labels[target_name] = [
             block.properties for block in target_info.layout.blocks()
         ]
+
+    def remove_output(self, target_name: str) -> None:
+        """
+        Remove a previously registered output target, mirroring ``_add_output``.
+
+        Used to drop targets whose heads are no longer meaningful after a
+        backbone-altering fine-tuning run (``full``/``lora``).
+
+        :param target_name: Name of the target to remove.
+        """
+        self.output_shapes.pop(target_name, None)
+        self.outputs.pop(target_name, None)
+        self.outputs.pop(get_last_layer_features_name(target_name), None)
+        self.backend.remove_output(target_name)
+        self.last_layer_parameter_names.pop(target_name, None)
+        self.key_labels.pop(target_name, None)
+        self.component_labels.pop(target_name, None)
+        self.property_labels.pop(target_name, None)
 
     def _move_labels_to_device(self, device: torch.device) -> None:
         self.single_label = self.single_label.to(device)

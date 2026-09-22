@@ -71,7 +71,9 @@ class MyModel(ModelInterface):
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         raise NotImplementedError()
 
-    def restart(self, dataset_info: DatasetInfo) -> ModelInterface:
+    def restart(
+        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+    ) -> ModelInterface:
         raise NotImplementedError()
 
     @classmethod
@@ -110,3 +112,20 @@ def test_model_interface():
             _ = MyModel({}, DatasetInfo("", [], {}), ModelMetadata())
 
         setattr(MyModel, attr, None)
+
+
+def test_model_interface_default_remove_output():
+    """Architectures that do not override ``remove_output`` should raise
+    ``NotImplementedError``, since not every architecture supports it."""
+    for attr in [
+        "__checkpoint_version__",
+        "__supported_devices__",
+        "__supported_dtypes__",
+        "__default_metadata__",
+    ]:
+        setattr(MyModel, attr, None)
+
+    model = MyModel({}, DatasetInfo("", [], {}), ModelMetadata())
+
+    with pytest.raises(NotImplementedError, match="does not support"):
+        model.remove_output("some_target")

@@ -3,9 +3,9 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatrain.experimental.flashmd import FlashMD
+from metatrain.pet.modules.finetuning import apply_finetuning_strategy
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import TargetInfo
-from metatrain.utils.finetuning import apply_finetuning_strategy
 
 from . import MODEL_HYPERS
 
@@ -122,3 +122,132 @@ def test_heads_finetuning_unknown_modules():
 
     with pytest.raises(ValueError, match="No parameters were found matching"):
         apply_finetuning_strategy(model, finetuning_strategy)
+
+
+def _get_single_target_dataset_info(target_name):
+    return DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 6],
+        targets={
+            target_name: TargetInfo(
+                layout=TensorMap(
+                    keys=Labels.single(),
+                    blocks=[
+                        TensorBlock(
+                            values=torch.empty((0, 3, 1), dtype=torch.float64),
+                            samples=Labels(
+                                names=["system", "atom"],
+                                values=torch.empty((0, 2), dtype=int),
+                            ),
+                            components=[
+                                Labels.range("xyz", 3),
+                            ],
+                            properties=Labels.range("length", 1),
+                        )
+                    ],
+                ),
+                quantity="length",
+                unit="angstrom",
+            )
+        },
+    )
+
+
+def _finetuning_strategy(method):
+    if method == "lora":
+        config = {
+            "target_modules": ["input_linear", "output_linear"],
+            "rank": 4,
+            "alpha": 8,
+        }
+    elif method == "heads":
+        config = {
+            "head_modules": ["node_heads", "edge_heads"],
+            "last_layer_modules": ["node_last_layers", "edge_last_layers"],
+        }
+    else:
+        config = {}
+    return {"read_from": None, "method": method, "config": config, "inherit_heads": {}}
+
+
+@pytest.mark.parametrize("method", ["full", "lora"])
+def test_finetune_full_lora_prunes_stale_targets(method):
+    """A target not part of the current full/lora finetuning run's dataset (here
+    ``"position"``) is dropped from the model, since its head is no longer
+    compatible with the fine-tuned backbone.
+
+    Removal only happens once ``apply_finetuning_strategy`` runs (as it would when
+    training actually starts): ``restart`` alone must not remove it yet, since
+    ``inherit_heads`` (applied within ``apply_finetuning_strategy``) may still need
+    to copy weights from the stale target's head."""
+    model = FlashMD(MODEL_HYPERS, _get_dataset_info())
+    new_dataset_info = _get_single_target_dataset_info("momentum")
+
+    model.restart(new_dataset_info)
+    assert "position" in model.node_heads
+
+    apply_finetuning_strategy(model, _finetuning_strategy(method))
+
+    assert "position" not in model.dataset_info.targets
+    assert "position" not in model.supported_outputs()
+    assert "position" not in model.node_heads
+    assert "position" not in model.edge_heads
+    assert "position" not in model.node_last_layers
+    assert "position" not in model.edge_last_layers
+    assert "momentum" in model.dataset_info.targets
+    assert "momentum" in model.node_heads
+
+
+def test_finetune_heads_keeps_stale_targets():
+    """With heads-only finetuning, the backbone is unchanged, so a target not part
+    of the current run's dataset must be kept."""
+    model = FlashMD(MODEL_HYPERS, _get_dataset_info())
+    new_dataset_info = _get_single_target_dataset_info("momentum")
+
+    model.restart(new_dataset_info)
+    apply_finetuning_strategy(model, _finetuning_strategy("heads"))
+
+    assert "position" in model.dataset_info.targets
+    assert "position" in model.node_heads
+    assert "momentum" in model.dataset_info.targets
+    assert "momentum" in model.node_heads
+
+
+def test_plain_restart_keeps_stale_targets():
+    """A plain restart (not part of a finetuning run) must not prune any target."""
+    model = FlashMD(MODEL_HYPERS, _get_dataset_info())
+    new_dataset_info = _get_single_target_dataset_info("momentum")
+
+    model.restart(new_dataset_info)
+
+    assert "position" in model.dataset_info.targets
+    assert "position" in model.node_heads
+    assert "momentum" in model.dataset_info.targets
+    assert "momentum" in model.node_heads
+
+
+def _get_three_target_dataset_info():
+    return DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 6],
+        targets={
+            **_get_dataset_info().targets,  # "position", "momentum"
+            **_get_single_target_dataset_info("mtt::extra").targets,
+        },
+    )
+
+
+def test_restart_with_fewer_targets_does_not_crash():
+    """Continuing training (plain restart, not part of a finetuning run) from a
+    model that has 3 targets, specifying only 2 of them, must not raise -- the 3rd
+    target's head is kept in the model, untouched, rather than being required to
+    be part of every subsequent run."""
+    model = FlashMD(MODEL_HYPERS, _get_three_target_dataset_info())
+    reduced_dataset_info = _get_dataset_info()  # only "position", "momentum"
+
+    model.restart(reduced_dataset_info)
+
+    assert "mtt::extra" in model.dataset_info.targets
+    assert "mtt::extra" in model.node_heads
+    assert "position" in model.dataset_info.targets
+    assert "momentum" in model.dataset_info.targets

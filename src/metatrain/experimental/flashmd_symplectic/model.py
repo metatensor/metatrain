@@ -17,19 +17,25 @@ from metatomic.torch import (
 )
 from torch.profiler import record_function
 
+from metatrain.composition import CompositionModel
 from metatrain.experimental.flashmd.modules.encoder import NodeEncoder
 from metatrain.experimental.flashmd.modules.structures import systems_to_batch
+from metatrain.pet.modules.finetuning import (
+    apply_finetuning_strategy,
+    compute_stale_targets,
+)
 from metatrain.pet.modules.transformer import CartesianTransformer
 from metatrain.pet.modules.utilities import cutoff_func_bump as cutoff_func
+from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import CompositionModel
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.finetuning import apply_finetuning_strategy
+from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.scaler import Scaler
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
@@ -56,6 +62,7 @@ class FlashMDSymplectic(ModelInterface):
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
+        check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
 
         # Cache frequently accessed hyperparameters
         self.cutoff = float(self.hypers["cutoff"])
@@ -189,23 +196,15 @@ class FlashMDSymplectic(ModelInterface):
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel(
-            hypers={},
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
+        composition_model = CompositionModel.from_valid_targets(
+            dataset_info, self.atomic_types
         )
         additive_models = [composition_model]
         self.additive_models = torch.nn.ModuleList(additive_models)
 
         # scaler: this is also handled by the trainer at training time
-        self.scaler = Scaler(hypers={}, dataset_info=dataset_info)
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
 
@@ -226,7 +225,18 @@ class FlashMDSymplectic(ModelInterface):
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
-    def restart(self, dataset_info: DatasetInfo) -> "FlashMDSymplectic":
+    def restart(
+        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+    ) -> "FlashMDSymplectic":
+
+        if model_hypers is not None:
+            default_hypers = get_default_hypers("experimental.flashmd_symplectic")[
+                "model"
+            ]
+            raise_if_hypers_mismatch(
+                self.hypers, model_hypers, default_hypers=default_hypers
+            )
+
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -238,6 +248,14 @@ class FlashMDSymplectic(ModelInterface):
             if key not in self.dataset_info.targets
         }
         self.has_new_targets = len(new_targets) > 0
+
+        # Targets that were present before this run but are not part of the current
+        # run's dataset: with a backbone-altering finetuning method (full/lora), their
+        # heads are no longer meaningful and are dropped once training starts, by
+        # ``apply_finetuning_strategy`` (which decides based on the method).
+        stale_targets = compute_stale_targets(
+            self.dataset_info.targets, dataset_info.targets
+        )
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -269,6 +287,12 @@ class FlashMDSymplectic(ModelInterface):
         )
         self.scaler = self.scaler.restart(dataset_info)
 
+        # Actual removal (if any) is deferred to ``apply_finetuning_strategy``
+        # (called later, once training starts), since ``inherit_heads`` needs these
+        # stale targets' heads to still be around to copy weights from, and only
+        # backbone-altering methods (``full``/``lora``) actually drop them.
+        self._stale_finetune_targets = stale_targets
+
         return self
 
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
@@ -276,10 +300,8 @@ class FlashMDSymplectic(ModelInterface):
 
     def requested_inputs(self) -> Dict[str, ModelOutput]:
         return {
-            "momentum": ModelOutput(
-                quantity="momentum", unit="(eV*u)^(1/2)", sample_kind="atom"
-            ),
-            "mass": ModelOutput(quantity="mass", unit="u", sample_kind="atom"),
+            "momentum": ModelOutput(unit="(eV*u)^(1/2)", sample_kind="atom"),
+            "mass": ModelOutput(unit="u", sample_kind="atom"),
         }
 
     def forward(
@@ -610,7 +632,7 @@ class FlashMDSymplectic(ModelInterface):
         if not self.training:
             with record_function("FlashMD::post-processing"):
                 # at evaluation, we also introduce the scaler and additive contributions
-                return_dict = self.scaler(
+                return_dict = self.scaler.apply_scales(
                     systems,
                     return_dict,
                     selected_atoms=selected_atoms,
@@ -1229,8 +1251,14 @@ class FlashMDSymplectic(ModelInterface):
 
         finetune_config = model_state_dict.pop("finetune_config", {})
         if finetune_config:
-            # Apply the finetuning strategy
-            model = apply_finetuning_strategy(model, finetune_config)
+            # Re-apply the finetuning strategy to restore the trainable/frozen
+            # parameter state (and LoRA layers, if any). ``inherit_heads`` is
+            # skipped here: it is a one-time weight-copy initialization step that
+            # already ran when finetuning first started, and by now its source
+            # target may have been pruned as stale.
+            model = apply_finetuning_strategy(
+                model, finetune_config, apply_inherit_heads=False
+            )
         state_dict_iter = iter(model_state_dict.values())
         next(state_dict_iter)  # skip the species_to_species_index
         dtype = next(state_dict_iter).dtype
@@ -1365,6 +1393,31 @@ class FlashMDSymplectic(ModelInterface):
         self.property_labels[target_name] = [
             block.properties for block in target_info.layout.blocks()
         ]
+
+    def remove_output(self, target_name: str) -> None:
+        """
+        Remove a previously registered output target, mirroring ``_add_output``.
+
+        Used to drop targets whose heads are no longer meaningful after a
+        backbone-altering fine-tuning run (``full``/``lora``).
+
+        :param target_name: Name of the target to remove.
+        """
+        self.output_shapes.pop(target_name, None)
+        self.outputs.pop(target_name, None)
+        self.outputs.pop(get_last_layer_features_name(target_name), None)
+        # ``torch.nn.ModuleDict.pop`` has no ``default`` argument.
+        if target_name in self.node_heads:
+            del self.node_heads[target_name]
+        if target_name in self.edge_heads:
+            del self.edge_heads[target_name]
+        if target_name in self.node_last_layers:
+            del self.node_last_layers[target_name]
+        if target_name in self.edge_last_layers:
+            del self.edge_last_layers[target_name]
+        self.key_labels.pop(target_name, None)
+        self.component_labels.pop(target_name, None)
+        self.property_labels.pop(target_name, None)
 
     def _move_labels_to_device(self, device: torch.device) -> None:
         self.single_label = self.single_label.to(device)

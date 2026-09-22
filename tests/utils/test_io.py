@@ -78,7 +78,10 @@ def test_load_model_checkpoint(load_path_ckpt):
     # currently weights of the `"export"` and the `"restart"` context are the same...
 
 
-def test_load_model_checkpoint_wrong_version(monkeypatch, tmp_path, MODEL_PATH_64_BIT):
+def test_load_model_checkpoint_newer_version(monkeypatch, tmp_path, MODEL_PATH_64_BIT):
+    """A checkpoint version newer than the installed architecture should tell the
+    user to upgrade metatrain, instead of trying (and failing) to upgrade the
+    checkpoint."""
     monkeypatch.chdir(tmp_path)
     path = MODEL_PATH_64_BIT.with_suffix(".ckpt")
     model = torch.load(path, weights_only=False, map_location="cpu")
@@ -89,7 +92,32 @@ def test_load_model_checkpoint_wrong_version(monkeypatch, tmp_path, MODEL_PATH_6
 
     message = (
         "Unable to load the model checkpoint for the 'soap_bpnn' architecture: the "
-        r"checkpoint is using version 5000000, while the current version is \d+; "
+        r"checkpoint uses checkpoint format version 5000000, but the installed "
+        r"'soap_bpnn' architecture only supports up to version \d+\. You are using "
+        r"metatrain version .*, which is too old to read this checkpoint\. Please "
+        "upgrade metatrain to a newer version."
+    )
+    with pytest.raises(RuntimeError, match=message):
+        checkpoint = torch.load(file, weights_only=False, map_location="cpu")
+        model_from_checkpoint(checkpoint, context="restart")
+
+
+def test_load_model_checkpoint_older_version_upgrade_fails(
+    monkeypatch, tmp_path, MODEL_PATH_64_BIT
+):
+    """A checkpoint version older than the installed architecture, for which the
+    upgrade path fails, should keep raising the generic upgrade-failure error."""
+    monkeypatch.chdir(tmp_path)
+    path = MODEL_PATH_64_BIT.with_suffix(".ckpt")
+    model = torch.load(path, weights_only=False, map_location="cpu")
+    model["model_ckpt_version"] = 0
+
+    file = "model-version-0.ckpt"
+    torch.save(model, file)
+
+    message = (
+        "Unable to load the model checkpoint for the 'soap_bpnn' architecture: the "
+        r"checkpoint is using version 0, while the current version is \d+; "
         "and trying to upgrade the checkpoint failed."
     )
     with pytest.raises(RuntimeError, match=message):

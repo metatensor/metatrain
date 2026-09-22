@@ -43,19 +43,45 @@ cost of training time.  ``descriptor.repflow.e_rcut`` controls the interaction
 range and should be chosen based on the physical system.  Reduce ``e_sel`` and
 ``a_sel`` for faster iteration on small systems.
 
-Using a pretrained model
-------------------------
+Exporting a foundation DPA3 model
+---------------------------------
 
-Set ``dpa3_model`` to a deepmd-kit model file to fine-tune from pretrained
-weights instead of training from scratch:
+As it is now, exporting a foundation DPA3 model from one of the `provided model
+files <https://huggingface.co/deepmodelingcommunity>`_ involves using ``mtt train`` with
+0 epochs.
+
+Point ``dpa3_model`` at the checkpoint exactly as you downloaded it. These
+checkpoints are trained on several datasets at once, and ``dpa3_model_branch``
+selects the task to export; there is no need to run ``dp --pt freeze`` first,
+and a frozen model is in fact rejected. If you do not know which tasks a
+checkpoint contains, leave ``dpa3_model_branch`` out: the resulting error lists
+every branch the checkpoint provides.
+
+Use the following ``options.yaml`` file:
 
 .. code-block:: yaml
 
-    model:
-      dpa3_model: path/to/deepmd-model.pt
+    architecture:
+        name: experimental.dpa3
+        model:
+            dpa3_model: path/to/deepmd-model.pt
+            dpa3_model_branch: OMol25
+        training:
+            num_epochs: 0
+            batch_size: 1
 
-Energy biases and standard deviations are extracted from the loaded model and
-handed to metatrain's composition model and scaler automatically.
+    training_set: ./dummy_dataset.xyz
+    validation_set: ./dummy_dataset.xyz
+
+with ``dummy_dataset.xyz`` being any dataset containing at least one structure with just
+the ``energy`` property. For example, you can use:
+
+.. code-block::
+
+    2
+    Properties=species:S:1:pos:R:3:forces:R:3 energy=-2.1
+    H 0.0 0.0 0.0 0.0 0.0 0.0
+    H 1.0 0.0 0.0 0.0 0.0 0.0
 
 {{SECTION_MODEL_HYPERS}}
 
@@ -77,9 +103,9 @@ with the following definitions needed to fully understand some of the parameters
 
 from typing import Literal, Optional
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
-from metatrain.utils.additive import FixedCompositionWeights
+from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
 
@@ -201,12 +227,19 @@ class ModelHypers(TypedDict):
     """
 
     dpa3_model: Optional[str] = None
-    """Path to a pretrained DPA3 model file (deepmd-kit checkpoint or saved
-    Module).  When provided, the model weights are loaded from this file
-    instead of being initialised from scratch.  Energy biases and standard
-    deviations stored in the deepmd-kit model are extracted and handed to
-    metatrain's ``CompositionModel`` and ``Scaler`` so that fine-tuning starts
-    from the pretrained values."""
+    """Path to a deepmd-kit training checkpoint, used exactly as distributed
+    (for example ``DPA-3.3-1M.pt``).  A frozen model written by
+    ``dp --pt freeze`` is not accepted, since the branch selection and the
+    model configuration metatrain needs both live in the checkpoint.  When
+    provided, the model weights are loaded from this file instead of being
+    initialised from scratch.  Energy biases and standard deviations stored in
+    the deepmd-kit model are extracted and handed to metatrain's
+    ``CompositionModel`` and ``Scaler`` so that fine-tuning starts from the
+    pretrained values."""
+    dpa3_model_branch: Optional[str] = None
+    """Name of the task to load from a multi-task pretrained DPA3 model.  If
+    the model has several branches and this is not set, the resulting error
+    lists the branches the checkpoint provides."""
     descriptor: DescriptorHypers = init_with_defaults(DescriptorHypers)
     """Descriptor configuration (RepFlow block and related settings)."""
     fitting_net: FittingNetHypers = init_with_defaults(FittingNetHypers)
@@ -221,8 +254,10 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for training DPA3 models."""
 
-    distributed: bool = False
-    """Whether to use distributed training."""
+    distributed: NotRequired[bool]
+    """Whether to use distributed training. When not set, distributed training
+    is enabled automatically when running under more than one SLURM task.
+    Setting this option explicitly is deprecated."""
     distributed_port: int = 39591
     """Port for DDP communication."""
     batch_size: int = 8
@@ -230,6 +265,17 @@ class TrainerHypers(TypedDict):
     hyperparameter controls the tradeoff between training speed and memory usage. In
     general, larger batch sizes will lead to faster training, but might require more
     memory."""
+    max_atoms_per_batch: Optional[int] = None
+    """If set, use greedy atom-count packing instead of fixed ``batch_size``.
+    Structures are accumulated into each batch until adding another would exceed this
+    limit, producing variable numbers of structures per batch. Supported with any
+    dataset type. When set, ``batch_size`` is ignored for constructing training
+    and validation batches (it is still used internally for composition model and
+    scaler fitting)."""
+    min_atoms_per_batch: int = 0
+    """Minimum total number of atoms required to keep a batch when
+    ``max_atoms_per_batch`` is set. Batches whose total atom count falls below this
+    threshold are discarded during packing. Defaults to ``0`` (no minimum)."""
     num_epochs: int = 100
     """Number of epochs."""
     learning_rate: float = 0.001
@@ -262,7 +308,7 @@ class TrainerHypers(TypedDict):
 
     This is passed to the ``fixed_weights`` argument of
     :meth:`CompositionModel.train_model
-    <metatrain.utils.additive.composition.CompositionModel.train_model>`,
+    <metatrain.composition.CompositionModel.train_model>`,
     see its documentation to understand exactly what to pass here.
     """
     per_structure_targets: list[str] = []

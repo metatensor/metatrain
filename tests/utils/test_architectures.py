@@ -25,18 +25,20 @@ def is_None(*args, **kwargs) -> None:
 def test_find_all_architectures():
     all_arches = find_all_architectures()
 
-    assert len(all_arches) == 10
+    assert len(all_arches) == 12
 
     assert "gap" in all_arches
     assert "pet" in all_arches
     assert "soap_bpnn" in all_arches
     assert "experimental.flashmd" in all_arches
     assert "experimental.flashmd_symplectic" in all_arches
-    assert "experimental.phace" in all_arches
+    assert "experimental.space" in all_arches
     assert "experimental.classifier" in all_arches
     assert "experimental.dpa3" in all_arches
     assert "llpr" in all_arches
     assert "experimental.mace" in all_arches
+    assert "composition" in all_arches
+    assert "scaler" in all_arches
 
 
 def test_get_architecture_path():

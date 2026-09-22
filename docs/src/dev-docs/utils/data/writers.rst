@@ -41,3 +41,7 @@ the ``Writer`` abstract class.
     :members:
     :undoc-members:
     :show-inheritance:
+.. autoclass:: metatrain.utils.data.writers.MemmapWriter
+    :members:
+    :undoc-members:
+    :show-inheritance:

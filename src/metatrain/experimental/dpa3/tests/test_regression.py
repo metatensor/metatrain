@@ -44,7 +44,7 @@ def test_regression_init():
 
     output = model(
         systems,
-        {"mtt::U0": ModelOutput(quantity="energy", unit="", sample_kind="system")},
+        {"mtt::U0": ModelOutput(unit="", sample_kind="system")},
     )
 
     expected_output = torch.tensor(
@@ -59,8 +59,8 @@ def test_regression_init():
     )
 
     # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["mtt::U0"].block().values)
+    # torch.set_printoptions(precision=12)
+    # print(output["mtt::U0"].block().values)
 
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
 
