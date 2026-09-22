@@ -1338,12 +1338,7 @@ class MemmapDataset(TorchDataset):
         )
 
         # Information about the structures
-        ns = np.load(path / "ns.npy")
-        if ns.ndim != 0:
-            raise ValueError(
-                f"ns.npy must contain a scalar, got an array of shape {ns.shape}"
-            )
-        self.ns = int(ns)
+        self.ns = np.load(path / "ns.npy")
         self.na = np.load(path / "na.npy")
         if self.na.dtype != np.int64:
             raise ValueError(
