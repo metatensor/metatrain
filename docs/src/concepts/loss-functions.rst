@@ -296,3 +296,94 @@ In practice, all three scoring rules encourage calibrated uncertainty estimates,
 The Gaussian NLL is quadratic in the residual and therefore more sensitive to large deviations.
 The analytical Gaussian CRPS grows linearly with the residual and often yields smoother behaviour when the residual distribution departs from strict Gaussianity.
 The empirical CRPS is fully non-parametric and can in principle capture skewness, multimodality, or other non-Gaussian features present in the ensemble predictions.
+
+.. _multipole-charge-penalty-loss:
+
+Multipole charge penalty
+------------------------
+
+The ``multipole_charge_penalty`` loss is meant for a global multipole (a dipole, say)
+that is assembled from local contributions by the ``global_multipoles`` hook,
+
+.. math::
+
+    \boldsymbol{\mu} = \sum_i \left( q_i \mathbf{r}_i + \mathbf{p}_i \right),
+
+where the atomic charges :math:`q_i` and local dipoles :math:`\mathbf{p}_i` are both
+learned. Such a decomposition is not unique: a small total dipole can be reproduced by
+arbitrarily large charges whose position-weighted contributions almost cancel. A plain
+MSE on :math:`\boldsymbol{\mu}` is insensitive to this, but derived quantities are
+not -- :math:`\partial \boldsymbol{\mu} / \partial \mathbf{r}_i` (and therefore IR
+intensities) can be enormous when the cancellation is large.
+
+This loss adds the two restraints introduced for the same reason by
+`Veit et al. <https://doi.org/10.1063/5.0009106>`_ (J. Chem. Phys. **153**, 024113
+(2020), Sec. III A):
+
+.. math::
+
+    L = \mathrm{MSE}(\hat{\boldsymbol{\mu}}, \boldsymbol{\mu})
+        + w_q \, \frac{1}{N_\mathrm{atoms}} \sum_i q_i^2
+        + w_Q \, \frac{1}{N_\mathrm{systems}} \sum_A
+          \Big( \sum_{i \in A} q_i \Big)^2 ,
+
+with :math:`w_q` = ``charge_weight`` (the *charge regularizer*, which keeps individual
+charges small) and :math:`w_Q` = ``total_charge_weight`` (the *total charge restraint*,
+which keeps each system's charges summing to approximately zero, i.e. assumes neutral
+systems). Both default to ``0.0``, in which case this loss is exactly ``mse``.
+
+YAML configuration:
+
+.. code-block:: yaml
+
+    loss:
+      mtt::total_dipole:
+        type: multipole_charge_penalty
+        charge_weight: 0.01
+        total_charge_weight: 0.01
+
+.. warning::
+
+    The charges the penalty sees are the model's raw output for
+    ``mtt::aux::local_multipoles::<target>``, which is **not** passed through the
+    target scaler (only the hook's own output is). They are therefore in the model's
+    internal scaled units rather than in :math:`e`, so ``charge_weight`` is **not** a
+    physical :math:`e^{-2}` and its useful range depends on the scale of the target in
+    the dataset. Calibrate it for a new dataset rather than transferring a value.
+
+Choosing the weights
+^^^^^^^^^^^^^^^^^^^^
+
+Raise the weight until the charges reach the physical scale you expect (a few
+:math:`10^{-2}\,e` for organic molecules), watching what it costs in target accuracy.
+To read the charges in physical units, multiply the raw values by the scaler factor of
+the target.
+
+As a reference point, on SPICE-alpha dipoles (targets in :math:`e\,\mathrm{\AA}`,
+scaler factor :math:`\approx 0.02`), setting ``charge_weight`` and
+``total_charge_weight`` to the same value gives:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 30 30
+
+   * - weight
+     - rms :math:`|q_i|`
+     - dipole MAE vs. no penalty
+   * - ``0.0`` (no penalty)
+     - 0.15 :math:`e`
+     - --
+   * - ``0.01``
+     - 0.001 :math:`e`
+     - +1 to +4 %
+   * - ``0.1``
+     - 0.0004 :math:`e`
+     - +47 %
+
+A weight of ``0.01`` is thus enough to leave the large-cancelling-charge regime at
+negligible cost in accuracy, while ``0.1`` over-constrains the model.
+
+A hard constraint is deliberately *not* offered here: Veit et al. found that imposing
+the total charge exactly (via Lagrange multipliers) degraded the fit badly, in most
+cases collapsing all partial charges to zero. The restraint above is the soft
+alternative they adopted instead.

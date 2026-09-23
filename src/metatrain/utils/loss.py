@@ -1280,6 +1280,132 @@ class EquivariancePenaltyLoss(LossInterface):
 # --- aggregator -----------------------------------------------------------------------
 
 
+class MultipoleChargePenaltyLoss(LossInterface):
+    r"""
+    MSE on a global multipole assembled by the ``global_multipoles`` hook, plus
+    two penalties on the local charges that enter it:
+
+    .. math::
+
+        L = \mathrm{MSE}(\hat{y}, y)
+            + w_q \, \frac{1}{N_\mathrm{atoms}} \sum_i q_i^2
+            + w_Q \, \frac{1}{N_\mathrm{systems}} \sum_A
+              \Big( \sum_{i \in A} q_i \Big)^2
+
+    The :math:`w_q` term is the "charge regularizer" and the :math:`w_Q` term the
+    "total charge restraint" of Veit et al. (JCP **153**, 024113 (2020), Sec. III A).
+    Both exist because a dipole written as :math:`\sum_i q_i \mathbf{r}_i +
+    \mathbf{p}_i` can be reproduced by arbitrarily large charges that almost
+    cancel: the fit is insensitive to that, but every downstream derivative
+    (:math:`\partial\mu/\partial\mathbf{r}`, and hence IR intensities) is not.
+    :math:`w_q` keeps the individual charges small; :math:`w_Q` keeps each system's
+    charges summing to (approximately) zero, i.e. assumes neutral systems. Note
+    that Veit et al. found a *hard* total-charge constraint to be harmful -- it
+    collapsed all charges to zero -- which is why this is a soft restraint.
+
+    **Choosing the weights.** The charges seen here are the model's raw output for
+    ``mtt::aux::local_multipoles::<target>``, which is **not** passed through the
+    target scaler (only the hook's own output is). They are therefore in the
+    model's internal scaled units, not in :math:`e`, and consequently
+    ``charge_weight`` is *not* a physical :math:`e^{-2}`: its useful range depends
+    on the target scale of the dataset. Calibrate it by training briefly and
+    looking at the resulting charges in physical units -- multiply the raw charges
+    by the scaler factor for the target, or simply check that the model's dipole is
+    no longer built from large cancelling terms.
+
+    As a reference point, on SPICE-alpha dipoles (targets in
+    :math:`e\,\mathrm{\AA}`, scaler factor :math:`\approx 0.02`), with
+    ``charge_weight = total_charge_weight``:
+
+    ==================  ====================  =======================
+    weight              rms :math:`|q_i|`     dipole MAE vs. no penalty
+    ==================  ====================  =======================
+    0 (no penalty)      0.15 :math:`e`        --
+    0.01                0.001 :math:`e`       +1 to +4 %
+    0.1                 0.0004 :math:`e`      +47 %
+    ==================  ====================  =======================
+
+    So 0.01 is enough to leave the large-cancelling-charge regime at negligible
+    cost, while 0.1 over-constrains the model. Start there and raise the weight
+    only until the charges reach the physical scale you want (a few
+    :math:`10^{-2}\,e` for organic molecules), watching the target MAE.
+
+    Setting both weights to zero makes this loss exactly ``mse``, and the local
+    multipoles are then not read at all.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: must be ``None``.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction for the MSE term (``"mean"`` or ``"sum"``).
+    :param charge_weight: :math:`w_q`, weight of the mean squared charge term.
+        See "Choosing the weights" above: this is in the model's internal scaled
+        units, not in :math:`e^{-2}`.
+    :param total_charge_weight: :math:`w_Q`, weight of the mean squared total
+        charge term, in the same units as ``charge_weight``.
+    :param local_name: name of the local multipoles in the predictions; defaults
+        to the ``global_multipoles`` hook's convention,
+        ``mtt::aux::local_multipoles::<target without the mtt:: prefix>``.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+        charge_weight: float = 0.0,
+        total_charge_weight: float = 0.0,
+        local_name: Optional[str] = None,
+    ):
+        super().__init__(name, gradient, weight, reduction)
+        if gradient is not None:
+            raise NotImplementedError(
+                "'multipole_charge_penalty' loss does not support gradient targets"
+            )
+        if reduction not in ("mean", "sum"):
+            raise ValueError(
+                "'multipole_charge_penalty' loss only supports reduction 'mean' or "
+                f"'sum', got {reduction!r}"
+            )
+        self.charge_weight = float(charge_weight)
+        self.total_charge_weight = float(total_charge_weight)
+        self.local_name = (
+            local_name
+            if local_name is not None
+            else f"mtt::aux::local_multipoles::{name.replace('mtt::', '')}"
+        )
+        self._mse = TensorMapMSELoss(name, gradient, weight=1.0, reduction=reduction)
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Dict[str, TensorMap]] = None,
+    ) -> torch.Tensor:
+        loss = self._mse.compute(predictions, targets, extra_data)
+        if self.charge_weight == 0.0 and self.total_charge_weight == 0.0:
+            return loss
+        if self.local_name not in predictions:
+            raise ValueError(
+                f"'multipole_charge_penalty' loss on {self.target!r} needs the local "
+                f"multipoles {self.local_name!r} in the predictions"
+            )
+        block = predictions[self.local_name].block({"o3_lambda": 0, "o3_sigma": 1})
+        charges = block.values.reshape(block.values.shape[0], -1)
+        if self.charge_weight != 0.0:
+            loss = loss + self.charge_weight * (charges**2).mean()
+        if self.total_charge_weight != 0.0:
+            system_indices = block.samples.column("system")
+            num_systems = int(system_indices.max().item()) + 1
+            totals = torch.zeros(
+                (num_systems, charges.shape[1]),
+                dtype=charges.dtype,
+                device=charges.device,
+            ).index_add_(0, system_indices, charges)
+            loss = loss + self.total_charge_weight * (totals**2).mean()
+        return loss
+
+
 class LossAggregator(LossInterface):
     """
     Aggregate multiple :py:class:`LossInterface` terms with scheduled weights and
@@ -1449,6 +1575,7 @@ class LossType(Enum):
     EMPIRICAL_CRPS = ("empirical_crps_ensemble", TensorMapEmpiricalCRPSLoss)
     ENSEMBLE_NLL = ("ensemble_nll", TensorMapEnsembleNLLLoss)
     EQUIVARIANCE_PENALTY = ("equivariance_penalty", EquivariancePenaltyLoss)
+    MULTIPOLE_CHARGE_PENALTY = ("multipole_charge_penalty", MultipoleChargePenaltyLoss)
 
     def __init__(self, key: str, cls: Type[LossInterface]) -> None:
         self._key = key
