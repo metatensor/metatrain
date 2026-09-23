@@ -34,6 +34,10 @@ Fixed
 Added
 #####
 
+- Setting the ``METATRAIN_TIMING`` environment variable now reports where a PET
+  training step spends its time (waiting for the dataloader versus running the
+  model), and ``benchmarks/benchmark_pipeline.py`` drives that report.
+
 Changed
 #######
 

@@ -45,6 +45,12 @@ from metatrain.utils.neighbor_lists import (
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.system_data import get_system_data_transform
+from metatrain.utils.timing import (
+    count_systems,
+    timed,
+    timed_iter,
+)
+from metatrain.utils.timing import reset as reset_timings
 from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
@@ -400,6 +406,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.best_metric is None:
             self.best_metric = float("inf")
         logging.info("Starting training")
+        # only time the training loop itself, not the composition/scaler fitting
+        # that ran above through their own dataloaders
+        reset_timings()
         epoch = start_epoch
 
         for epoch in range(start_epoch, self.hypers["num_epochs"]):
@@ -414,57 +423,68 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
             train_loss = 0.0
-            for batch in train_dataloader:
+            for batch in timed_iter(train_dataloader, "loader", "step"):
                 optimizer.zero_grad()
 
-                systems, targets, extra_data = unpack_batch(batch)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype, device=device
-                )
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    {key: train_targets[key] for key in targets.keys()},
-                    is_training=True,
-                )
+                with timed("unpack"):
+                    systems, targets, extra_data = unpack_batch(batch)
+                with timed("h2d"):
+                    systems, targets, extra_data = batch_to(
+                        systems, targets, extra_data, dtype=dtype, device=device
+                    )
+                count_systems(systems)
 
-                # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
-
-                # Apply per-property scales to the predictions before loss computation.
-                # The targets from the dataloader have only been scaled per-target, and
-                # not per-property. This transformation only applies to targets with
-                # per-property scales (i.e. multiple blocks or multiple properties), and
-                # leaves the others unchanged.
-                predictions = (
-                    model.module if is_distributed else model
-                ).scaler.apply_scales(
-                    systems,
-                    predictions,
-                    remove=False,
-                    use_per_target_scales=False,  # never before loss
-                    use_per_property_scales=True,
-                )
-
-                train_loss_batch = loss_fn(predictions, targets, extra_data)
-
-                if is_distributed:
-                    # make sure all parameters contribute to the gradient calculation
-                    # to make torch DDP happy (e.g. when a target's head is kept in
-                    # the model but not part of the current run's targets)
-                    train_loss_batch += 0.0 * sum(
-                        p.sum() for p in model.parameters() if p.requires_grad
+                with timed("forward"):
+                    predictions = evaluate_model(
+                        model,
+                        systems,
+                        {key: train_targets[key] for key in targets.keys()},
+                        is_training=True,
                     )
 
-                train_loss_batch.backward()
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), self.hypers["grad_clip_norm"]
-                )
-                optimizer.step()
-                lr_scheduler.step()
+                with timed("loss"):
+                    # average by the number of atoms
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(
+                        targets, systems, per_structure_targets
+                    )
+
+                    # Apply per-property scales to the predictions before loss
+                    # computation. The targets from the dataloader have only been
+                    # scaled per-target, and not per-property. This transformation
+                    # only applies to targets with per-property scales (i.e. multiple
+                    # blocks or multiple properties), and leaves the others unchanged.
+                    predictions = (
+                        model.module if is_distributed else model
+                    ).scaler.apply_scales(
+                        systems,
+                        predictions,
+                        remove=False,
+                        use_per_target_scales=False,  # never before loss
+                        use_per_property_scales=True,
+                    )
+
+                    train_loss_batch = loss_fn(predictions, targets, extra_data)
+
+                    if is_distributed:
+                        # make sure all parameters contribute to the gradient
+                        # calculation to make torch DDP happy (e.g. when a target's
+                        # head is kept in the model but not part of the current run's
+                        # targets)
+                        train_loss_batch += 0.0 * sum(
+                            p.sum() for p in model.parameters() if p.requires_grad
+                        )
+
+                with timed("backward"):
+                    train_loss_batch.backward()
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), self.hypers["grad_clip_norm"]
+                    )
+                with timed("optimizer"):
+                    optimizer.step()
+                    lr_scheduler.step()
 
                 if is_distributed:
                     # sum the loss over all processes
