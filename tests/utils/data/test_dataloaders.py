@@ -11,11 +11,18 @@ enough: it removes the duplication without losing coverage.
 
 from pathlib import Path
 
+import pytest
+import torch
 from metatensor.learn.data import Dataset
 from omegaconf import OmegaConf
+from torch.utils.data import DistributedSampler
 
 from metatrain.utils.data import build_train_dataloaders, build_val_dataloaders
-from metatrain.utils.data.dataset import CollateFn, unpack_batch
+from metatrain.utils.data.dataset import (
+    CollateFn,
+    fork_is_available,
+    unpack_batch,
+)
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.samplers import MaxAtomDistributedBatchSampler
 
@@ -106,3 +113,72 @@ def test_max_atoms_per_batch_end_to_end():
     for batch in val_batch_sampler.all_batches:
         atom_count = sum(len(dataset[i].system) for i in batch)
         assert atom_count <= 20
+
+
+def test_iterating_a_loader_does_not_shift_the_global_rng():
+    """How often a loader is iterated must not change what is drawn next.
+
+    A ``DataLoader`` on the default generator draws a worker seed from the
+    global RNG every time an iterator is created, which leaked the number of
+    passes (and, through ``get_num_workers``, the host's core count) into the
+    random numbers the training loop drew afterwards.
+    """
+    dataset = _build_dataset()
+    dataloaders = build_val_dataloaders(
+        val_datasets=[dataset],
+        val_distributed_samplers=[None],
+        collate_fn_val=CollateFn(target_keys=["energy"]),
+        batch_size=5,
+        max_atoms_per_batch=None,
+        num_workers=0,
+    )
+
+    def draw_after(passes: int) -> float:
+        torch.manual_seed(0)
+        for _ in range(passes):
+            for _ in dataloaders[0]:
+                pass
+        return torch.rand(1).item()
+
+    assert draw_after(1) == draw_after(2)
+
+
+@pytest.mark.skipif(
+    not fork_is_available(), reason="parallel data loading requires fork"
+)
+def test_persistent_workers():
+    """Workers stay alive between epochs, and ``set_epoch`` still reshuffles:
+    every epoch sees every sample exactly once, in a different order."""
+    dataset = _build_dataset()
+    dataloaders, samplers = build_train_dataloaders(
+        train_datasets=[dataset],
+        train_distributed_samplers=[
+            DistributedSampler(dataset, num_replicas=1, rank=0, shuffle=True)
+        ],
+        collate_fn_train=CollateFn(target_keys=["energy"]),
+        batch_size=10,
+        max_atoms_per_batch=None,
+        min_atoms_per_batch=0,
+        num_workers=1,
+    )
+    dataloader = dataloaders[0]
+    assert dataloader.persistent_workers
+
+    # the energies identify the structures of this qm9 subset uniquely
+    orders = []
+    for epoch in range(2):
+        samplers[0].set_epoch(epoch)
+        orders.append(
+            [
+                value
+                for batch in dataloader
+                for value in unpack_batch(batch)[1]["energy"]
+                .block()
+                .values.flatten()
+                .tolist()
+            ]
+        )
+
+    assert len(orders[0]) == len(dataset)
+    assert sorted(orders[0]) == sorted(orders[1])
+    assert orders[0] != orders[1]

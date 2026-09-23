@@ -1,17 +1,20 @@
 from .combine_dataloaders import CombinedDataLoader  # noqa: F401
 from .dataloaders import build_train_dataloaders, build_val_dataloaders  # noqa: F401
 from .dataset import (  # noqa: F401
+    Batch,
     CollateFn,
     Dataset,
     DatasetInfo,
     DiskDataset,
     _is_disk_dataset,
     check_datasets,
+    collate_batch,
     get_all_targets,
     get_atomic_types,
     get_num_workers,
     get_stats,
     load_indices,
+    serialize_batch,
     unpack_batch,
     validate_num_workers,
 )

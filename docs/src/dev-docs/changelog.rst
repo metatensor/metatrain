@@ -34,9 +34,18 @@ Fixed
 Added
 #####
 
+- Setting the ``METATRAIN_TIMING`` environment variable now reports where a PET
+  training step spends its time (waiting for the dataloader versus running the
+  model), and ``benchmarks/benchmark_pipeline.py`` drives that report.
+
 Changed
 #######
 
+- Dataloader workers are now kept alive between epochs instead of being
+  recreated at the start of each one.
+- Dataloaders now draw their worker seeds from a generator of their own, so how
+  often a loader is iterated no longer changes the random numbers a training run
+  draws afterwards. This moves PET's regression reference values once.
 - Models now check that the model hypers passed for restarting are the same as
   those used for the original training. If no model hypers are specified in the
   yaml file for restarting, that is fine, only the ones explicitly specified
