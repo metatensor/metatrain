@@ -257,6 +257,10 @@ class ModelHypers(TypedDict):
     max_spin_multiplicity: int = 10
     """Maximum spin multiplicity (2S+1) for the conditioning embedding table.
     Supports values in the range ``[1, max_spin_multiplicity]``."""
+    forward_hooks: dict = {}
+    """Hooks that the model needs to apply at the end of forward to
+    produce the final outputs.
+    """
 
 
 class TrainerHypers(TypedDict):

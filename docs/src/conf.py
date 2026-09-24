@@ -29,6 +29,7 @@ ROOT = os.path.abspath(os.path.join("..", ".."))
 sys.path.append(os.path.join(ROOT, "docs"))
 from generate_examples.conf import sphinx_gallery_conf  # noqa
 from src.architectures.generate import setup_architectures_docs  # noqa
+from src.hooks.generate_hooks_docs import setup_hooks_docs  # noqa
 
 
 # -- Project information -----------------------------------------------------
@@ -89,6 +90,7 @@ def generate_examples():
 def setup(app):
     copy_readme()
     generate_examples()
+    setup_hooks_docs()
     setup_architectures_docs()
 
 
@@ -119,6 +121,7 @@ exclude_patterns = [
     "sg_execution_times.rst",
     "architectures/templates/*",
     "architectures/README.md",
+    "hooks/templates/*",
 ]
 
 
