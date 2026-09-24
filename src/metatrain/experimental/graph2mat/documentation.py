@@ -7,7 +7,7 @@ Interface of ``Graph2Mat`` to all architectures in ``metatrain``.
 
 from typing import Literal, Optional
 
-from typing_extensions import TypedDict
+from typing_extensions import TypedDict, NotRequired
 
 from metatrain.utils.loss import LossSpecification
 from metatrain.scaler.documentation import FixedScalerWeights
@@ -109,8 +109,10 @@ class TrainerHypers(TypedDict):
     """
 
     # General training parameters that are shared across architectures
-    distributed: bool = False
-    """Whether to use distributed training"""
+    distributed: NotRequired[bool]
+    """Whether to use distributed training. When not set, distributed training
+    is enabled automatically when running under more than one SLURM task.
+    Setting this option explicitly is deprecated."""
     distributed_port: int = 39591
     """Port for DDP communication"""
     batch_size: int = 16
