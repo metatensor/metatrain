@@ -25,6 +25,7 @@ jobs:
           - composition
           - dpa3
           - scaler
+          - lorem
 
     runs-on: ubuntu-24.04
 

@@ -94,6 +94,11 @@ dpa3 = [
     "deepmd-kit[torch]>=3.1.0",
     "torch>=2.7",
 ]
+lorem = [
+    "torch-pme>=0.3.2",
+    "sphericart-torch>=2.0.3",
+    "wigners",
+]
 
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]
