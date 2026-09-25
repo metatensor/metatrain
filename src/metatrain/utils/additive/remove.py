@@ -159,7 +159,7 @@ def get_remove_additive_transform(
         the systems, updated targets and extra data.
     """
 
-    def transform(
+    def subtract_additive(
         systems: List[System],
         targets: Dict[str, TensorMap],
         extra: Dict[str, TensorMap],
@@ -181,4 +181,4 @@ def get_remove_additive_transform(
             )
         return systems, targets, extra
 
-    return transform
+    return subtract_additive
