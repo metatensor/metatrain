@@ -141,20 +141,21 @@ class Scaler(ModelInterface[ModelHypers]):
         self.target_infos = {
             target_name: dense_new_targets[target_name]
             for target_name in merged_info.targets
-            if target_name not in self.dataset_info.targets
         }
-
-        self.dataset_info = merged_info
 
         # register new outputs
         self.new_outputs = []
         buffer_names = [n for n, _ in self.named_buffers()]
         for target_name, target_info in self.target_infos.items():
+            if target_name in self.dataset_info.targets:
+                continue
             if target_name + "_scaler_buffer" in buffer_names:
                 continue
             self.new_outputs.append(target_name)
             self.model.add_output(target_name, target_info.layout)
             self._add_output(target_name, target_info)
+
+        self.dataset_info = merged_info
 
         return self
 
@@ -581,8 +582,6 @@ class Scaler(ModelInterface[ModelHypers]):
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = self.dummy_buffer.dtype
-        if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for scaler")
 
         self.to(dtype)
         self.scales_to(torch.device("cpu"), torch.float64)

@@ -21,12 +21,13 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.data.dataset import Dataset, DatasetInfo
+#from metatrain.utils.wrapper import MetatrainModel
+
+ModelHypersType = TypeVar("ModelHypersType")
+TrainerHypersType = TypeVar("TrainerHypersType")
 
 
-HypersType = TypeVar("HypersType")
-
-
-class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
+class ModelInterface(torch.nn.Module, Generic[ModelHypersType], metaclass=ABCMeta):
     """
     Abstract base class for a machine learning model in metatrain.
 
@@ -70,7 +71,7 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
     """
 
     def __init__(
-        self, hypers: HypersType, dataset_info: DatasetInfo, metadata: ModelMetadata
+        self, hypers: ModelHypersType, dataset_info: DatasetInfo, metadata: ModelMetadata
     ) -> None:
         """"""
         super().__init__()
@@ -233,7 +234,7 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
         """
 
 
-class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
+class TrainerInterface(Generic[TrainerHypersType, ModelHypersType], metaclass=ABCMeta):
     """
     Abstract base class for a model trainer in metatrain.
 
@@ -250,7 +251,7 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
     This is used to upgrade checkpoints produced with earlier versions of the code.
     See :ref:`ckpt_version` for more information."""
 
-    def __init__(self, hypers: HypersType):
+    def __init__(self, hypers: TrainerHypersType):
         required_attributes = [
             "__checkpoint_version__",
         ]
@@ -272,6 +273,15 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
                 "you must call `super().__init__(hypers)` before setting new fields"
             )
         super().__setattr__(name, value)
+
+    #@abstractmethod Uncomment when all architectures support it.
+    def setup(self, model_hypers: ModelHypersType, dataset_info: DatasetInfo) -> Any: #MetatrainModel:
+        """
+        Setup the trainer with the model hyper-parameters and dataset information.
+
+        :param model_hypers: The hyper-parameters of the model to be trained.
+        :param dataset_info: Information about the dataset to be used for training.
+        """
 
     @abstractmethod
     def train(
@@ -325,7 +335,7 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: HypersType,
+        hypers: TrainerHypersType,
         context: Literal["restart", "finetune"],
     ) -> "TrainerInterface":
         """

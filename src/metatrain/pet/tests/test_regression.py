@@ -127,8 +127,8 @@ def test_regression_energies_forces_train(device):
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[6], targets=target_info_dict
     )
-    model = PET(MODEL_HYPERS, dataset_info)
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(MODEL_HYPERS, dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float32,
@@ -283,8 +283,8 @@ def test_regression_energy_non_conservative_stress(batch_size):
 
     model_hypers = copy.deepcopy(MODEL_HYPERS)
     model_hypers["zbl"] = False
-    model = PET(model_hypers, dataset_info)
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(model_hypers, dataset_info)
     # num_epochs=0 keeps this test focused on pre-training scaler fitting.
     trainer.train(
         model=model,
@@ -402,12 +402,10 @@ def test_regression_train_spherical(device):
         targets=target_info_dict,
         extra_data=extra_data_info,
     )
-    model = PET(MODEL_HYPERS, dataset_info)
-    requested_neighbor_lists = get_requested_neighbor_lists(model)
-
     hypers["training"]["num_epochs"] = 1
     hypers["training"]["num_workers"] = 0  # for reproducibility
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(MODEL_HYPERS, dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float32,
@@ -416,6 +414,8 @@ def test_regression_train_spherical(device):
         val_datasets=[dataset],
         checkpoint_dir=".",
     )
+
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
 
     # Predict on the first five systems
     systems = [sample["system"] for sample in dataset]
