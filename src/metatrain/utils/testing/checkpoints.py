@@ -11,6 +11,7 @@ from omegaconf import OmegaConf
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.hypers import init_with_defaults
+from metatrain.utils.io import model_from_checkpoint, trainer_from_checkpoint
 from metatrain.utils.loss import LossSpecification
 
 from .architectures import ArchitectureTests
@@ -133,7 +134,6 @@ class CheckpointTests(ArchitectureTests):
     def test_loading_old_checkpoints(
         self,
         default_hypers: dict,
-        model_trainer: tuple[ModelInterface, TrainerInterface],
         context: Literal["restart", "finetune", "export"],
     ) -> None:
         """Tests that checkpoints from previous versions can be loaded.
@@ -148,11 +148,8 @@ class CheckpointTests(ArchitectureTests):
         ``restart``.
 
         :param default_hypers: Default hyperparameters to initialize the trainer.
-        :param model_trainer: Model and trainer to be used for loading the checkpoints.
         :param context: The context in which to load the checkpoint.
         """
-        model, trainer = model_trainer
-
         for path in glob.glob("checkpoints/*.ckpt.gz"):
             if path in self.incompatible_trainer_checkpoints and context == "restart":
                 continue
@@ -160,15 +157,10 @@ class CheckpointTests(ArchitectureTests):
             with gzip.open(path, "rb") as fd:
                 checkpoint = torch.load(fd, weights_only=False)
 
-            if checkpoint["model_ckpt_version"] != model.__checkpoint_version__:
-                checkpoint = model.__class__.upgrade_checkpoint(checkpoint)
-            model.load_checkpoint(checkpoint, context)
+            model_from_checkpoint(checkpoint, context)
 
             if context == "restart":
-                if checkpoint["trainer_ckpt_version"] != trainer.__checkpoint_version__:
-                    checkpoint = trainer.__class__.upgrade_checkpoint(checkpoint)
-
-                trainer.load_checkpoint(checkpoint, default_hypers, context)
+                trainer_from_checkpoint(checkpoint, context, default_hypers)
 
     def test_checkpoint_did_not_change(
         self,
