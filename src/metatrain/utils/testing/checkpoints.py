@@ -3,6 +3,7 @@ import glob
 import gzip
 import logging
 import os
+import warnings
 from typing import Any, Dict, Literal
 
 import pytest
@@ -157,10 +158,16 @@ class CheckpointTests(ArchitectureTests):
             with gzip.open(path, "rb") as fd:
                 checkpoint = torch.load(fd, weights_only=False)
 
-            model_from_checkpoint(checkpoint, context)
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        message=".*checkpoint with unknown version.*",
+                        category=UserWarning,
+                    )
+                    model_from_checkpoint(checkpoint, context)
 
-            if context == "restart":
-                trainer_from_checkpoint(checkpoint, context, default_hypers)
+                    if context == "restart":
+                        trainer_from_checkpoint(checkpoint, context, default_hypers)
 
     def test_checkpoint_did_not_change(
         self,
