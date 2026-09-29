@@ -44,6 +44,8 @@ Fixed
   penalising them with ``log(1e-15)``.
 - SPACE now creates the property labels of the ``feature`` output on the device of the
   systems.
+- ``mtt train -o`` with a path containing directories now creates them, and no longer
+  fails when copying the exported model and checkpoint to the output directory.
 
 Added
 #####
