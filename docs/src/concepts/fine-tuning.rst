@@ -222,9 +222,9 @@ The keys of ``inherit_heads`` are the destination targets defined in the trainin
 The values are source targets in the checkpoint. Their head dimensions must be
 compatible.
 
-``inherit_heads`` copies head and final-layer weights. It does not copy composition
-baselines or scaler settings, so the new variant need not initially produce the same
-predictions as the source target.
+``inherit_heads`` copies head and final-layer weights, and the scaler scales of the
+source target. It does not copy composition baselines, so the new variant need not
+initially produce the same predictions as the source target.
 
 The selected strategy determines whether the copied weights are trainable. They are
 trainable with ``full`` and with ``heads`` when the destination modules are selected,
