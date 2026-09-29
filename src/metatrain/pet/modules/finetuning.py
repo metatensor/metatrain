@@ -58,7 +58,8 @@ class FullFinetuneHypers(TypedDict):
     """Mapping from new trainable targets (keys) to the existing targets
     in the model (values).
     This allows for copying weights from the corresponding
-    source heads to the destination heads instead of random initialization."""
+    source heads to the destination heads instead of random initialization.
+    Destination targets also inherit the scaler scales of their source targets."""
 
 
 class LoRaFinetuneHypers(TypedDict):
@@ -77,7 +78,8 @@ class LoRaFinetuneHypers(TypedDict):
     """Mapping from new trainable targets (keys) to the existing targets
     in the model (values).
     This allows for copying weights from the corresponding
-    source heads to the destination heads instead of random initialization."""
+    source heads to the destination heads instead of random initialization.
+    Destination targets also inherit the scaler scales of their source targets."""
 
 
 class HeadsFinetuneHypers(TypedDict):
@@ -97,7 +99,8 @@ class HeadsFinetuneHypers(TypedDict):
     """Mapping from new trainable targets (keys) to the existing targets
     in the model (values).
     This allows for copying weights from the corresponding
-    source heads to the destination heads instead of random initialization."""
+    source heads to the destination heads instead of random initialization.
+    Destination targets also inherit the scaler scales of their source targets."""
 
 
 FinetuneHypers = FullFinetuneHypers | LoRaFinetuneHypers | HeadsFinetuneHypers
@@ -294,6 +297,7 @@ def apply_finetuning_strategy(
     if apply_inherit_heads and inherit_heads_config:
         for dest_head_name, source_head_name in inherit_heads_config.items():
             copy_head_weights(model, source_head_name, dest_head_name)
+            model.scaler.inherit_scales(dest_head_name, source_head_name)
 
     # Targets not part of this run's dataset are dropped now that weight
     # inheritance (if any) has had a chance to copy from their heads: with

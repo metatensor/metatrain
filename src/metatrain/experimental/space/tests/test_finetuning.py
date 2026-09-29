@@ -1,18 +1,24 @@
 import copy
 import shutil
 
+import metatensor.torch as mts
 import pytest
 import torch
+from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
 from metatrain.experimental.space import SPACE, Trainer
 from metatrain.experimental.space.modules.finetuning import apply_finetuning_strategy
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
-from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.data.target_info import (
+    get_energy_target_info,
+    get_generic_target_info,
+)
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import model_from_checkpoint, trainer_from_checkpoint
 from metatrain.utils.loss import LossSpecification
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -338,6 +344,61 @@ def test_finetune_full_inherit_heads_then_prunes_source_target():
     assert len(inherited) == len(source_params)
     for name, param in source_params.items():
         assert torch.equal(inherited[name.replace("energy", "mtt::U0")], param)
+
+
+def test_finetune_inherit_heads_reproduces_source_predictions():
+    """A head inherited from a target with per-species scales predicts what the
+    source target predicted."""
+    source, dest = "non_conservative_forces", "mtt::forces_ft"
+    scale_per_type = {1: 0.5, 6: 2.0, 7: 3.0, 8: 4.0}
+
+    def dataset_info(target_name):
+        target_info = get_generic_target_info(
+            target_name,
+            {
+                "quantity": "force",
+                "unit": "eV/A",
+                "type": {"cartesian": {"rank": 1}},
+                "num_subtargets": 1,
+                "sample_kind": "atom",
+            },
+        )
+        return DatasetInfo(
+            length_unit="Angstrom",
+            atomic_types=sorted(scale_per_type),
+            targets={target_name: target_info},
+        )
+
+    model = SPACE(MODEL_HYPERS, dataset_info(source)).to(torch.float64)
+    for scales in (model.scaler.model.scales, model.scaler.model.per_target_scales):
+        for index, atomic_type in enumerate(model.scaler.atomic_types):
+            scales[source].block().values[index] = scale_per_type[atomic_type]
+
+    systems = [
+        get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        for system in read_systems(DATASET_PATH)[:2]
+    ]
+    output = ModelOutput(quantity="force", unit="eV/A", sample_kind="atom")
+    model.eval()
+    with torch.no_grad():
+        expected = model(systems, {source: output})[source].block().values
+
+    model.restart(dataset_info(dest))
+    apply_finetuning_strategy(
+        model, _finetune_strategy("full", inherit_heads={dest: source})
+    )
+
+    assert dest not in model.scaler.new_outputs
+    torch.testing.assert_close(
+        mts.load_buffer(getattr(model.scaler, dest + "_scaler_buffer")).block().values,
+        torch.tensor([[scale_per_type[t]] for t in model.scaler.atomic_types]).to(
+            torch.float64
+        ),
+    )
+    model.eval()
+    with torch.no_grad():
+        predictions = model(systems, {dest: output})[dest].block().values
+    torch.testing.assert_close(predictions, expected)
 
 
 def test_finetune_heads_keeps_stale_targets():

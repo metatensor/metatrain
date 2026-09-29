@@ -45,6 +45,10 @@ Added
 Changed
 #######
 
+- ``inherit_heads`` now also copies the scaler scales of the source target, so that
+  the inherited head reproduces the source predictions instead of having its scales
+  refitted on the new data.
+
 Removed
 #######
 
