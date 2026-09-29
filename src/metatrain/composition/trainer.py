@@ -72,13 +72,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # distributed runs must do it here, and get their device from it.
         owns_process_group = False
         if is_distributed and not torch.distributed.is_initialized():
-            device, world_size, _ = initialize_slurm_nccl_process_group(
+            device, _, _ = initialize_slurm_nccl_process_group(
                 self.hypers["distributed_port"]
             )
             owns_process_group = True
-            logging.info(f"Training on {world_size} devices with dtype {dtype}")
         else:
             device = devices[0]
+        if is_distributed:
+            world_size = torch.distributed.get_world_size()
+            logging.info(f"Training on {world_size} devices with dtype {dtype}")
+        else:
             logging.info(f"Training on device {device} with dtype {dtype}")
         model.to(device=device)
 
