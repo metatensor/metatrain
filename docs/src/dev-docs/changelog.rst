@@ -37,6 +37,7 @@ Fixed
   checkpoint.
 - SPACE's per-block validation metrics are now computed on the reverse-transformed
   predictions and targets.
+- SPACE's last-layer features of a target no longer depend on the other targets.
 
 Added
 #####
