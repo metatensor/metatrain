@@ -224,6 +224,18 @@ def test_train_from_options_restart_yaml(monkeypatch, tmp_path):
     train_model(options_restart, checkpoint_dir="outputs/")
 
 
+def test_train_output_in_subdirectory(monkeypatch, tmp_path, options):
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
+
+    os.mkdir("models/")
+    os.mkdir("outputs/")
+    train_model(options, output="models/model.pt", checkpoint_dir="outputs/")
+
+    assert Path("outputs/model.pt").is_file()
+    assert Path("outputs/model.ckpt").is_file()
+
+
 def test_train_unknown_arch_options(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
