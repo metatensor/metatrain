@@ -35,6 +35,8 @@ Fixed
 Added
 #####
 
+- Ensemble losses for targets with several blocks.
+
 Changed
 #######
 
