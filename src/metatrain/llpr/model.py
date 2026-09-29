@@ -1,3 +1,4 @@
+import copy
 import logging
 from typing import Any, Dict, Iterator, List, Literal, Optional, Tuple, Union
 
@@ -1273,7 +1274,14 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             self.model.export().metadata(),
         )
 
-        return AtomisticModel(self.eval(), metadata, self.capabilities)
+        # models that are not scriptable as-is (e.g. SPACE) prepare themselves for
+        # scripting in place, so this is done on a copy
+        llpr_model = self
+        if hasattr(self.model, "prepare_for_export"):
+            llpr_model = copy.deepcopy(self)
+            llpr_model.model.prepare_for_export()
+
+        return AtomisticModel(llpr_model.eval(), metadata, self.capabilities)
 
     def _get_covariance(self, name: str, feature_index: int) -> torch.Tensor:
         name = "covariance_" + name + "_" + str(feature_index)

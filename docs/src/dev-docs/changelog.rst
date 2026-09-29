@@ -38,6 +38,7 @@ Added
 - LLPR uncertainties and ensembles for targets with several blocks, such as spherical
   targets and targets in an atomic basis, and for architectures whose last-layer
   features are block-aligned with the targets.
+- LLPR uncertainties and ensembles for SPACE.
 - Ensemble losses for targets with several blocks.
 
 Changed

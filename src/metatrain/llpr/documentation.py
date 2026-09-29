@@ -5,8 +5,8 @@ LLPR
 The LLPR architecture is a "wrapper" architecture that enables cheap uncertainty
 quantification via the last-layer prediction rigidity (LLPR) approach proposed by Bigi
 et al:footcite:p:`bigi_mlst_2024`. It is compatible with the following ``metatrain``
-models constructed from NN-based architectures: :ref:`arch-pet` and
-:ref:`arch-soap_bpnn`.
+models constructed from NN-based architectures: :ref:`arch-pet`,
+:ref:`arch-soap_bpnn` and :ref:`arch-space`.
 
 This implementation further allows the user to perform gradient-based tuning of the
 ensemble weights sampled from the LLPR formalism, which can lead to improved uncertainty
@@ -22,7 +22,8 @@ each property of each block. For Cartesian targets, they are the standard deviat
 the single components, not of the magnitude of the vector.
 
 Ensembles require the target to be a linear function of the last-layer features. This
-holds for :ref:`arch-pet` and for the scalar targets of :ref:`arch-soap_bpnn`.
+holds for :ref:`arch-pet`, for the scalar targets of :ref:`arch-soap_bpnn`, and for the
+scalar, spherical and rank-1 Cartesian targets of :ref:`arch-space`.
 Requesting ensembles for other targets raises an error, while their uncertainties
 remain available.
 

@@ -1,3 +1,4 @@
+import copy
 import logging
 import warnings
 from typing import Any, Dict, List, Literal, Optional
@@ -38,6 +39,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
+from metatrain.utils.last_layer import block_aligned_last_layer_features
 from metatrain.utils.metadata import merge_metadata
 
 from . import checkpoints
@@ -68,6 +70,7 @@ class SPACE(ModelInterface[ModelHypers]):
     U_dict: Dict[int, torch.Tensor]
     cartesian_rank2_targets: List[str]  # torchscript needs this
     _sph_to_cart_rank2: torch.Tensor  # torchscript needs this
+    last_layer_feature_sizes: Dict[str, List[int]]  # torchscript needs this
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -127,6 +130,7 @@ class SPACE(ModelInterface[ModelHypers]):
 
         self.mlp_head_num_layers = self.hypers["mlp_head_num_layers"]
         self.target_names: List[str] = []
+        self.last_layer_feature_sizes: Dict[str, List[int]] = {}
         for target_name, target_info in train_dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
@@ -332,33 +336,52 @@ class SPACE(ModelInterface[ModelHypers]):
                 base_name = f"mtt::{base_name}"
 
             last_layer_features_as_dict_of_tensors = predictions[f"{base_name}__llf"]
-            return_dict[output_name] = TensorMap(
-                keys=Labels(
-                    names=["o3_lambda"],
-                    values=torch.arange(self.l_max + 1, device=device).unsqueeze(-1),
-                ),
-                blocks=[
-                    TensorBlock(
-                        values=t,
-                        samples=samples,
-                        components=[
-                            Labels(
-                                names=["o3_mu"],
-                                values=torch.arange(-l, l + 1, device=device).unsqueeze(
-                                    -1
-                                ),
-                            )
-                        ],
-                        properties=Labels(
-                            names=["feature"],
-                            values=torch.arange(t.shape[-1], device=device).unsqueeze(
-                                -1
-                            ),
+            if base_name in self.last_layer_feature_sizes:
+                llf_values: List[torch.Tensor] = []
+                for c in self.component_labels[base_name]:
+                    l = (len(c[0]) - 1) // 2 if len(c) > 0 else 0  # noqa: E741
+                    t = last_layer_features_as_dict_of_tensors[l]
+                    if len(c) > 0 and c[0].names == ["xyz"]:
+                        # rank-1 Cartesian targets are the l=1 readout, reordered
+                        # to (x, y, z)
+                        t = t[:, [2, 0, 1], :]
+                    llf_values.append(t)
+                return_dict[output_name] = block_aligned_last_layer_features(
+                    llf_values,
+                    samples,
+                    self.key_labels[base_name],
+                    self.component_labels[base_name],
+                )
+            else:
+                return_dict[output_name] = TensorMap(
+                    keys=Labels(
+                        names=["o3_lambda"],
+                        values=torch.arange(self.l_max + 1, device=device).unsqueeze(
+                            -1
                         ),
-                    )
-                    for l, t in last_layer_features_as_dict_of_tensors.items()  # noqa: E741
-                ],
-            )
+                    ),
+                    blocks=[
+                        TensorBlock(
+                            values=t,
+                            samples=samples,
+                            components=[
+                                Labels(
+                                    names=["o3_mu"],
+                                    values=torch.arange(
+                                        -l, l + 1, device=device
+                                    ).unsqueeze(-1),
+                                )
+                            ],
+                            properties=Labels(
+                                names=["feature"],
+                                values=torch.arange(
+                                    t.shape[-1], device=device
+                                ).unsqueeze(-1),
+                            ),
+                        )
+                        for l, t in last_layer_features_as_dict_of_tensors.items()  # noqa: E741
+                    ],
+                )
             if selected_atoms is not None:
                 return_dict[output_name] = metatensor.torch.slice(
                     return_dict[output_name], axis="samples", selection=selected_atoms
@@ -598,47 +621,56 @@ class SPACE(ModelInterface[ModelHypers]):
 
         return model
 
-    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
-        # Before exporting, we have to
-        # - set the module to the gradient-free one (torchscript doesn't like grad in
-        #   the functional way they're used in the GradientModel)
-        # - delete the other models: even if the forward function doesn't use them,
-        #   torchscript will try to compile them anyway
+    def prepare_for_export(self) -> None:
+        """Make the model scriptable, in place:
+
+        - set the module to the gradient-free one (torchscript doesn't like grad in
+          the functional way they're used in the GradientModel)
+        - delete the other models: even if the forward function doesn't use them,
+          torchscript will try to compile them anyway
+
+        The model can then no longer be trained or checkpointed.
+        """
         self.module = self.fake_gradient_model
         del self.gradient_model
         del self.fake_gradient_model
 
-        dtype = next(self.parameters()).dtype
-        if dtype not in self.__supported_dtypes__:
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
+        # `prepare_for_export` modifies the model in place, so it is done on a copy
+        model = copy.deepcopy(self)
+        model.prepare_for_export()
+
+        dtype = next(model.parameters()).dtype
+        if dtype not in model.__supported_dtypes__:
             raise ValueError(f"unsupported dtype {dtype} for PET")
 
         # Make sure the model is all in the same dtype
         # For example, after training, the additive models could still be in
         # float64
-        self.to(dtype)
+        model.to(dtype)
 
         # Additionally, the composition model contains some `TensorMap`s that cannot
         # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
+        model.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
-        interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
-        for additive_model in self.additive_models:
+        interaction_ranges = [model.hypers["num_gnn_layers"] * model.hypers["cutoff"]]
+        for additive_model in model.additive_models:
             if hasattr(additive_model, "cutoff_radius"):
                 interaction_ranges.append(additive_model.cutoff_radius)
         interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
-            atomic_types=self.atomic_types,
+            outputs=model.outputs,
+            atomic_types=model.atomic_types,
             interaction_range=interaction_range,
-            length_unit=self.dataset_info.length_unit,
-            supported_devices=self.__supported_devices__,
+            length_unit=model.dataset_info.length_unit,
+            supported_devices=model.__supported_devices__,
             dtype=dtype_to_str(dtype),
         )
 
-        metadata = merge_metadata(self.metadata, metadata)
+        metadata = merge_metadata(model.metadata, metadata)
 
-        return AtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(model.eval(), metadata, capabilities)
 
     def _train_dataset_info(self, dataset_info: DatasetInfo) -> DatasetInfo:
         """Converts the original dataset info to one corresponding to what the
@@ -698,6 +730,14 @@ class SPACE(ModelInterface[ModelHypers]):
                 block.properties for block in target_info.layout.blocks()
             ]
 
+        # the last-layer features of rank-2 Cartesian targets are the shared ones,
+        # those of the other targets are block-aligned
+        if target_name not in self.cartesian_rank2_targets:
+            self.last_layer_feature_sizes[target_name] = [
+                self.k_max_l[(len(c[0]) - 1) // 2 if len(c) > 0 else 0]
+                for c in self.component_labels[target_name]
+            ]
+
     def remove_output(self, target_name: str) -> None:
         """
         Remove a previously registered output target, mirroring ``_add_output``.
@@ -719,6 +759,7 @@ class SPACE(ModelInterface[ModelHypers]):
         self.property_labels.pop(target_name, None)
         if target_name in self.cartesian_rank2_targets:
             self.cartesian_rank2_targets.remove(target_name)
+        self.last_layer_feature_sizes.pop(target_name, None)
 
     def requested_neighbor_lists(
         self,
