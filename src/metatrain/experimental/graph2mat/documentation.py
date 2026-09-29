@@ -136,7 +136,7 @@ class TrainerHypers(TypedDict):
     """Log per-block error."""
     scale_targets: bool = True
     """Normalize targets to unit std during training."""
-    fixed_scaling_weights: FixedScalerWeights = {}
+    fixed_scaling_weights: FixedScalerWeights | str = {}
     """Weights for target scaling.
 
     This is passed to the ``fixed_weights`` argument of :meth:`Scaler.train_model
