@@ -587,10 +587,11 @@ def train_model(
             sum(len(d) for d in train_datasets + val_datasets + test_datasets)
             < 1_000_000
         )
-        logging.info(
-            "Datasets are too large (>1M total structures) to calculate statistics "
-            "quickly."
-        )
+        if not should_print_stats:
+            logging.info(
+                "Datasets are too large (>1M total structures) to calculate statistics "
+                "quickly."
+            )
 
     if should_print_stats:
         _print_stats("Training", train_datasets, dataset_info)
