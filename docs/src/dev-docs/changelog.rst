@@ -39,6 +39,7 @@ Added
   targets and targets in an atomic basis, and for architectures whose last-layer
   features are block-aligned with the targets.
 - LLPR uncertainties and ensembles for SPACE.
+- LLPR uncertainties and ensembles for MACE.
 - Ensemble losses for targets with several blocks.
 
 Changed

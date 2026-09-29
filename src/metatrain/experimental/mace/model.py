@@ -2,7 +2,7 @@ import copy
 import logging
 import warnings
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import mace.modules as mace_modules
 import metatensor.torch as mts
@@ -43,6 +43,7 @@ from .modules.heads import MACEHeadWrapper, NonLinearHead
 from .modules.scale_shift import FakeScaleShift
 from .utils.mace_head import get_mace_head_index
 from .utils.mts import (
+    e3nn_llf_to_aligned_tensormap,
     e3nn_to_tensormap,
     get_e3nn_mts_layout,
     get_samples_labels,
@@ -105,6 +106,10 @@ class MetaMACE(ModelInterface[ModelHypers]):
     # """List of additive models to compute additive contributions."""
     # scaler: Scaler
     # """Scaler to bring all targets to a scale that is optimal for training."""
+
+    # torchscript needs class-level annotations for possibly-empty dicts
+    llf_target_for: Dict[str, str]
+    llf_block_slices: Dict[str, List[List[Tuple[int, int]]]]
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -270,6 +275,11 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # Create heads for each target, store the layout for each of them.
         self.heads = torch.nn.ModuleDict()
         self.layouts: Dict[str, TensorMap] = {}
+        # block-aligned last-layer features: target of each feature output, and
+        # (offset, multiplicity) of the features of each target block
+        self.llf_target_for: Dict[str, str] = {}
+        self.llf_block_slices: Dict[str, List[List[Tuple[int, int]]]] = {}
+        self.last_layer_feature_sizes: Dict[str, List[int]] = {}
         for target_name, target_info in train_dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -456,11 +466,20 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         return_dict: Dict[str, TensorMap] = {}
         for output_name, model_output in model_outputs.items():
-            per_atom_output = e3nn_to_tensormap(
-                model_output,
-                samples=samples,
-                layout=self.layouts[output_name],
-            )
+            if output_name in self.llf_target_for:
+                aligned_target = self.llf_target_for[output_name]
+                per_atom_output = e3nn_llf_to_aligned_tensormap(
+                    model_output,
+                    samples=samples,
+                    target_layout=self.layouts[aligned_target],
+                    block_slices=self.llf_block_slices[aligned_target],
+                )
+            else:
+                per_atom_output = e3nn_to_tensormap(
+                    model_output,
+                    samples=samples,
+                    layout=self.layouts[output_name],
+                )
 
             if selected_atoms is not None:
                 per_atom_output = mts.slice(
@@ -713,6 +732,10 @@ class MetaMACE(ModelInterface[ModelHypers]):
             self.heads[target_name] = MACEHeadWrapper(
                 self.mace_model.readouts, self.per_layer_irreps, self.mace_head_index
             )
+            llf_size = self.heads[target_name].last_layer_features_irreps.dim
+            self.last_layer_feature_sizes[target_name] = [llf_size]
+            self.llf_block_slices[target_name] = [[(0, llf_size)]]
+            self.llf_target_for[self._llf_name(target_name)] = target_name
         else:
             output_info = copy.deepcopy(target_info)
             output_info.layout = target_info.layout
@@ -725,8 +748,12 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
             self.heads[target_name] = head.to(torch.float64)
 
+            self._register_block_aligned_features(target_name, target_info, head)
+
         llf_irreps = self.heads[target_name].last_layer_features_irreps
 
+        # raw layout of the last-layer features, for targets that are not
+        # block-aligned
         self.layouts[self._llf_name(target_name)] = get_e3nn_mts_layout(
             f"{target_name}_last_layer_features",
             {
@@ -735,6 +762,50 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 "properties_name": "feature",
             },
         )
+
+    def _register_block_aligned_features(
+        self, target_name: str, target_info: TargetInfo, head: NonLinearHead
+    ) -> None:
+        """Register where the last-layer features of each block of a target live.
+
+        ``linear_2`` is an e3nn ``o3.Linear``, which maps each input irrep entry to
+        the output entries of the same irrep. The features of a target block are
+        the input entries mapped to it, whose ``(offset, multiplicity)`` in the flat
+        last-layer feature tensor are stored in ``llf_block_slices``. Targets with a
+        block that no input entry maps to are not registered.
+
+        :param target_name: name of the target.
+        :param target_info: the target's info, whose layout orders the blocks.
+        :param head: the head that produces the target.
+        """
+        instructions = getattr(head.linear_2, "instructions", None)
+        if instructions is None:
+            # optimized (cuequivariance) linear: no instructions available
+            return
+
+        # offsets of each input entry in the flat feature tensor
+        entry_offsets: List[int] = []
+        entry_offset = 0
+        for entry in head.last_layer_features_irreps:
+            entry_offsets.append(entry_offset)
+            entry_offset += entry.mul * entry.ir.dim
+
+        block_slices: List[List[Tuple[int, int]]] = []
+        for i_out in range(len(target_info.layout.keys)):
+            block_feature_slices = [
+                (entry_offsets[instruction.i_in], instruction.path_shape[0])
+                for instruction in instructions
+                if instruction.i_out == i_out and instruction.path_shape[0] > 0
+            ]
+            if len(block_feature_slices) == 0:
+                return
+            block_slices.append(block_feature_slices)
+
+        self.last_layer_feature_sizes[target_name] = [
+            sum(multiplicity for _, multiplicity in slices) for slices in block_slices
+        ]
+        self.llf_block_slices[target_name] = block_slices
+        self.llf_target_for[self._llf_name(target_name)] = target_name
 
     def _llf_name(self, target_name: str) -> str:
         """Get the name of the last layer features corresponding to a target.
