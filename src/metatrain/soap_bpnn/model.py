@@ -374,7 +374,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
-        self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
+        self.last_layer_linear_targets: List[str] = []  # for LLPR
         self.cartesian_rank1_targets: List[str] = []
         self.cartesian_rank2_targets: List[str] = []
         for target_name, target in train_dataset_info.targets.items():
@@ -1227,11 +1227,10 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 bias=False,
                 out_properties=out_properties_list,
             )
-            self.last_layer_parameter_names[target_name] = [
-                f"last_layers.{target_name}.{dict_key}." + n
-                for n in self.last_layers[target_name][dict_key].state_dict().keys()
-                if n.endswith("weight")
-            ]
+
+        if target.is_scalar:
+            # the other targets are contracted with a geometry-dependent basis
+            self.last_layer_linear_targets.append(target_name)
 
         self.key_labels[target_name] = layout_for_layers.keys
         self.component_labels[target_name] = [

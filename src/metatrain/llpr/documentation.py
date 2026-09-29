@@ -15,6 +15,17 @@ estimates. Gradients (e.g. forces and stresses) are not yet used.
 Note that the uncertainties computed with this implementation are returned as standard
 deviations, and not variances.
 
+Targets with components or several blocks, such as non-conservative forces, spherical
+targets with more than one ``o3_lambda`` or targets in an atomic basis, are supported:
+the uncertainties have the same layout as the target, and are calibrated separately for
+each property of each block. For Cartesian targets, they are the standard deviations of
+the single components, not of the magnitude of the vector.
+
+Ensembles require the target to be a linear function of the last-layer features. This
+holds for :ref:`arch-pet` and for the scalar targets of :ref:`arch-soap_bpnn`.
+Requesting ensembles for other targets raises an error, while their uncertainties
+remain available.
+
 Additional outputs
 ------------------
 
@@ -70,7 +81,8 @@ class TrainerHypers(TypedDict):
     If set to ``null``, the internal routine will determine the smallest regularizer
     value that guarantees numerical stability in matrix inversion. Having exposed the
     formula here, we also note to the user that the training routine of the LLPR
-    wrapper model finds the ideal global calibration factor :math:`\alpha`."""
+    wrapper model finds the ideal calibration factor :math:`\alpha` of each property
+    of each block of each target."""
 
     model_checkpoint: Optional[str] = None
     """This should provide the checkpoint to the model for which the

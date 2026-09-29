@@ -383,8 +383,8 @@ def untrained_llpr_model(target_name, quantity, num_subtargets=1):
     model = model.to(DTYPE)
 
     uncertainty_name = _get_uncertainty_name(target_name)
-    model._get_cholesky(uncertainty_name)[:] = torch.eye(
-        model.ll_feat_size, dtype=DTYPE
+    model._get_cholesky(uncertainty_name, 0)[:] = torch.eye(
+        model.feature_sizes[target_name][0], dtype=DTYPE
     )
     model.generate_ensemble()
 
