@@ -27,12 +27,29 @@ Unreleased
 Fixed
 #####
 
+Added
+#####
+
+Changed
+#######
+
+Removed
+#######
+
+Version 2026.4.1 - 2026-09-25
+-----------------------------
+
+Fixed
+#####
+
 - ``ZBL`` now accepts every spelling of the angstrom that metatomic accepts
   (``angstrom``, ``Angstrom``, ``A``, ...), instead of only the exact string
   ``angstrom``.
 
 Added
 #####
+
+- The DPA3 architecture now can load pretrained multi-task DPA3 models.
 
 Changed
 #######

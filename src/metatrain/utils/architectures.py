@@ -26,8 +26,6 @@ def check_architecture_name(name: str) -> None:
     :raises ValueError: if the architecture is not found
     """
     try:
-        if name == "llpr":
-            return
         if find_spec(f"metatrain.{name}") is not None:
             return
         elif find_spec(f"metatrain.experimental.{name}") is not None:
