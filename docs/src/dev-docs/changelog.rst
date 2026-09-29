@@ -48,6 +48,7 @@ Fixed
   longer copies the inherited weights again.
 - SPACE's per-block validation errors (``log_separate_blocks``) are now correct for
   atomic-basis targets.
+- LLPR uncertainties of SPACE models trained on several targets are now correct.
 
 Added
 #####
