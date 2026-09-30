@@ -1,4 +1,4 @@
-"""Bernstein radial basis and the e3x spherical-harmonic convention."""
+"""Bernstein radial basis, Racah normalization and paper defaults."""
 
 import torch
 

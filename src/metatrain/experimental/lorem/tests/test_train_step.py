@@ -252,11 +252,10 @@ def test_one_training_step_is_finite(setup, batch_size, tmp_path, monkeypatch):
     training = copy.deepcopy(DEFAULT_HYPERS["training"])
     training["num_epochs"] = 1
     training["batch_size"] = batch_size
-    training["scheduler_patience"] = 1
     training["checkpoint_interval"] = 100
     training["atomic_baseline"] = {}
+    training["loss"] = {}
     if "forces" in setup or "stress" in setup or "bec" in setup:
-        training["loss"] = {}
         if setup == "energy" or setup.startswith("energy_"):
             training["loss"]["energy"] = _energy_loss(
                 with_forces="forces" in setup, with_stress="stress" in setup
@@ -327,7 +326,6 @@ def test_force_step_with_isolated_atom_is_finite(tmp_path, monkeypatch):
     training = copy.deepcopy(DEFAULT_HYPERS["training"])
     training["num_epochs"] = 1
     training["batch_size"] = 2
-    training["scheduler_patience"] = 1
     training["checkpoint_interval"] = 100
     training["atomic_baseline"] = {}
     training["loss"] = {

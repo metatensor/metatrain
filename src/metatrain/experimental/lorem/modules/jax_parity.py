@@ -199,9 +199,9 @@ class _MessagePassingStep(torch.nn.Module):
 
 
 class JaxParityBackbone(torch.nn.Module):
-    """Short-range descriptor, module-for-module identical to lorem-jax's
-    ``Lorem`` SR path (``initialize_node_features=True``,
-    ``num_message_passing=0``, ``equivariant_message_passing`` irrelevant)."""
+    """Short-range part of lorem-jax's ``Lorem``: the initial density, then
+    ``num_message_passing`` message-passing steps. Each stage adds its own
+    energy residual."""
 
     def __init__(
         self,
@@ -331,13 +331,10 @@ class JaxParityBackbone(torch.nn.Module):
         radial = radial * cutoff_weights.unsqueeze(-1)
 
         sh = self.spherical_harmonics(vectors)
+        # The cutoff enters only through the radial basis above, which also
+        # scales the spherical edge features through ``dense2``. As in
+        # lorem-jax, ``sh`` itself is not multiplied by the cutoff.
         sh = to_racah(sh, self.max_degree)
-        # lorem-jax's ``Initial`` only masks ``spherical_expansion`` by the
-        # (padding) ``pair_mask``, not by the smooth ``cutoffs`` envelope --
-        # the cutoff only enters through ``radial_expansion`` above, and
-        # reaches ``edges_spherical`` indirectly via ``Dense_2``'s
-        # ``edges_scalar``-derived coefficients. Multiplying ``sh`` by the
-        # envelope directly (as done here previously) double-applies it.
 
         species_embed = self.chemical_embedding(species)  # (n_atoms, c)
         pair_features = torch.cat(
@@ -392,10 +389,10 @@ class JaxParityBackbone(torch.nn.Module):
 
 
 class JaxParityLongRange(torch.nn.Module):
-    """Long-range Coulomb block, module-for-module identical to lorem-jax's
-    ``if self.lr:`` branch (Ewald only -- the shipped PBC checkpoints this
-    targets, e.g. AuMgO, always train with ``use_ewald``-equivalent Ewald
-    summation)."""
+    """Long-range part of lorem-jax's ``Lorem``: learned scalar and
+    spherical charges, their Coulomb potentials (Ewald for periodic systems,
+    direct 1/r over all pairs otherwise), and the update that mixes the
+    potentials back into the node features."""
 
     def __init__(
         self,

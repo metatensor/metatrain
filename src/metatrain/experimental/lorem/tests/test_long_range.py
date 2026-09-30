@@ -210,7 +210,7 @@ def test_long_range_training():
     dataset = Dataset.from_dict({"system": systems, "energy": targets["energy"]})
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 2
-    hypers["training"]["scheduler_patience"] = 1
+    hypers["training"]["loss"] = {}
     hypers["training"]["atomic_baseline"] = {}
 
     dataset_info = DatasetInfo(

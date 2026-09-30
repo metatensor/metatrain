@@ -119,25 +119,13 @@ class TrainerHypers(TypedDict):
     threshold are discarded during packing. Defaults to ``0`` (no minimum)."""
     num_epochs: int = 100
     """Number of epochs."""
+    warmup_fraction: float = 0.01
+    """Fraction of training steps used for learning rate warmup, before the
+    cosine decay."""
     learning_rate: float = 0.001
     """Learning rate."""
-
-    scheduler: Literal["plateau", "cosine"] = "plateau"
-    """Learning-rate schedule.
-
-    ``"plateau"`` uses ``ReduceLROnPlateau`` (``scheduler_patience``,
-    ``scheduler_factor``). ``"cosine"`` uses linear warmup then cosine decay
-    (``warmup_fraction``).
-    """
-    scheduler_patience: int = 100
-    """Number of epochs with no improvement before reducing the learning rate.
-    Only used when ``scheduler`` is ``"plateau"``."""
-    scheduler_factor: float = 0.8
-    """Factor by which the learning rate is reduced on plateau. Only used when
-    ``scheduler`` is ``"plateau"``."""
-    warmup_fraction: float = 0.01
-    """Fraction of total optimizer steps spent on linear warmup before the
-    cosine decay begins. Only used when ``scheduler`` is ``"cosine"``."""
+    weight_decay: Optional[float] = None
+    """Weight decay. If set, AdamW is used instead of Adam."""
 
     log_interval: int = 1
     """Interval to log metrics."""
@@ -202,13 +190,18 @@ class TrainerHypers(TypedDict):
     """
     per_structure_targets: list[str] = []
     """Targets to calculate per-structure losses."""
+    num_workers: Optional[int] = None
+    """Number of workers for data loading. If not provided, it is set
+    automatically."""
     log_mae: bool = False
     """Log MAE alongside RMSE."""
     log_separate_blocks: bool = False
     """Log per-block error."""
     best_model_metric: Literal["rmse_prod", "mae_prod", "loss"] = "rmse_prod"
     """Metric used to select best checkpoint (e.g., ``rmse_prod``)."""
+    grad_clip_norm: float = 1.0
+    """Maximum gradient norm value."""
 
-    loss: str | dict[str, LossSpecification] = "mse"
+    loss: str | dict[str, LossSpecification | str] = "mse"
     """This section describes the loss function to be used. See the
     :ref:`loss-functions` for more details."""

@@ -75,8 +75,8 @@ def cg_phase_correction(l1: int, l2: int, L: int) -> float:
 
     ``LOREM_cg(l1, l2, L) == cg_phase_correction(l1, l2, L) * e3x_cg_in_lorem_basis``.
 
-    Confirmed exactly (no residual) for all 42 valid ``(l1+l2+L)`` even
-    triples with every degree <= 4; see this module's docstring.
+    Checked against e3x for every valid triple with all degrees <= 4
+    (``tests/test_e3x_parity.py``).
     """
     if (l1 + l2 + L) % 2 != 0:
         raise ValueError(
@@ -89,9 +89,8 @@ def cg_phase_correction(l1: int, l2: int, L: int) -> float:
 
 def cg_couplings(max_in_degree: int, out_max_degree: int) -> List[Tuple[int, int, int]]:
     """All ``(l1, l2, L)`` triples ``TensorDense``/``TensorProduct`` couple,
-    in the same order ``_build_couplings`` in ``tensor_dense.py`` produces
-    them -- useful for building an explicit flax name_map for the
-    ``tensor_weight`` parameter (one entry per triple, in this order)."""
+    in the order of ``tensor_dense._build_couplings`` (one ``tensor_weight``
+    row per triple)."""
     couplings: List[Tuple[int, int, int]] = []
     for l1 in range(max_in_degree + 1):
         for l2 in range(max_in_degree + 1):

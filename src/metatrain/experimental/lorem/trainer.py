@@ -2,16 +2,15 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Mapping, Union
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
-import torch.distributed
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DistributedSampler
 
 from metatrain.composition import train_or_load_composition_model
 from metatrain.scaler import train_or_load_scaler
-from metatrain.utils.abc import TrainerInterface
+from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.data import (
     CollateFn,
@@ -19,7 +18,9 @@ from metatrain.utils.data import (
     Dataset,
     build_train_dataloaders,
     build_val_dataloaders,
+    get_num_workers,
     unpack_batch,
+    validate_num_workers,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
@@ -32,87 +33,66 @@ from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator, LossSpecification
-from metatrain.utils.metrics import (
-    MAEAccumulator,
-    RMSEAccumulator,
-    get_selected_metric,
-)
+from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists_transform,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
-from metatrain.utils.transfer import (
-    batch_to,
-)
+from metatrain.utils.transfer import batch_to
 
 from . import checkpoints
 from .documentation import TrainerHypers
 from .model import LOREM
 
 
-# Learning rate below which training is stopped early.
-_MIN_LEARNING_RATE = 1e-7
-
-
-def _get_cosine_scheduler(
+def get_scheduler(
     optimizer: torch.optim.Optimizer,
-    train_hypers: Mapping[str, Any],
+    train_hypers: TrainerHypers,
     steps_per_epoch: int,
 ) -> LambdaLR:
-    """Linear warmup, then cosine decay over the full run."""
+    """
+    Get a CosineAnnealing learning-rate scheduler with warmup
+
+    :param optimizer: The optimizer for which to create the scheduler.
+    :param train_hypers: The training hyperparameters.
+    :param steps_per_epoch: The number of steps per epoch.
+    :return: The learning rate scheduler.
+    """
     total_steps = train_hypers["num_epochs"] * steps_per_epoch
     warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
+    min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
 
     def lr_lambda(current_step: int) -> float:
         if current_step < warmup_steps:
+            # Linear warmup
             return float(current_step) / float(max(1, warmup_steps))
-        progress = (current_step - warmup_steps) / float(
-            max(1, total_steps - warmup_steps)
-        )
-        return 0.5 * (1.0 + math.cos(math.pi * progress))
+        else:
+            # Cosine decay
+            progress = (current_step - warmup_steps) / float(
+                max(1, total_steps - warmup_steps)
+            )
+            cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+            return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_decay
 
-    return LambdaLR(optimizer, lr_lambda=lr_lambda)
-
-
-def _get_raw_model(model: Union[LOREM, DistributedDataParallel], is_distributed: bool):
-    """Unwrap a possibly-DDP-wrapped model to get the underlying LOREM."""
-    return model.module if is_distributed else model
-
-
-def _expand_loss_config(
-    loss_hypers: str | Dict[str, LossSpecification],
-    train_targets: Dict[str, Any],
-) -> Dict[str, LossSpecification]:
-    """Turn a global loss name such as ``mse`` into a per-target config."""
-    if isinstance(loss_hypers, str):
-        expanded: Dict[str, LossSpecification] = {}
-        for target_name in train_targets:
-            spec: LossSpecification = {
-                "type": loss_hypers,
-                "weight": 1.0,
-                "reduction": "mean",
-                "gradients": {},
-            }
-            expanded[target_name] = spec
-        return expanded
-    return dict(loss_hypers)
+    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+    return scheduler
 
 
 class Trainer(TrainerInterface[TrainerHypers]):
     __checkpoint_version__ = 1
 
-    def __init__(self, hypers: TrainerHypers):
+    def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
 
-        self.optimizer_state_dict = None
-        self.scheduler_state_dict = None
-        self.epoch: int | None = None
-        self.best_epoch: int | None = None
-        self.best_metric: float | None = None
-        self.best_model_state_dict = None
-        self.best_optimizer_state_dict = None
+        self.optimizer_state_dict: Optional[Dict[str, Any]] = None
+        self.scheduler_state_dict: Optional[Dict[str, Any]] = None
+        self.epoch: Optional[int] = None
+        self.best_epoch: Optional[int] = None
+        self.best_metric: Optional[float] = None
+        self.best_model_state_dict: Optional[Dict[str, Any]] = None
+        self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
 
     def train(
         self,
@@ -122,18 +102,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
-    ):
+    ) -> None:
         assert dtype in LOREM.__supported_dtypes__
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
-
-        if is_distributed:
-            device, world_size, rank = initialize_slurm_nccl_process_group(
-                self.hypers["distributed_port"]
-            )
-        else:
-            rank = 0
-            world_size = 1
 
         if is_distributed:
             if len(devices) > 1:
@@ -142,22 +114,34 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     " If you want to run distributed training with LOREM, please "
                     "set `device` to cuda."
                 )
+            # the calculation of the device number works both when GPUs on different
+            # processes are not visible to each other and when they are
+            device, world_size, rank = initialize_slurm_nccl_process_group(
+                self.hypers["distributed_port"]
+            )
         else:
-            device = devices[
-                0
-            ]  # only one device, as we don't support multi-gpu for now
+            rank = 0
+            world_size = 1
+            device = devices[0]
+            # only one device, as we don't support non-distributed multi-gpu for now
 
         if is_distributed:
             logging.info(f"Training on {world_size} devices with dtype {dtype}")
         else:
             logging.info(f"Training on device {device} with dtype {dtype}")
 
+        # Move the model to the device and dtype:
         model.to(device=device, dtype=dtype)
-        # Additive models stay in float64. Composition weights can be large
-        # enough that float32 is not accurate.
+        # The additive models are always in float64 (to avoid numerical errors in
+        # the composition weights, which can be very large).
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
         model.scaler.to(dtype=torch.float64)
+
+        # Set up transformations
+        train_targets = model.dataset_info.targets
+        requested_neighbor_lists = get_requested_neighbor_lists(model)
+        max_atoms = self.hypers["max_atoms_per_batch"]
 
         train_or_load_composition_model(
             composition_model=model.additive_models[0],
@@ -215,8 +199,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
 
-        # Neighbor lists, the atomic baseline, and per-target scales are applied
-        # when a batch is collated. That works for in-memory and on-disk datasets.
+        # Extract additive models and scaler and move them to CPU/float64 so they
+        # can be used in the collate function
         model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
         additive_models = copy.deepcopy(
             model.additive_models.to(dtype=torch.float64, device="cpu")
@@ -228,19 +212,26 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.scaler.to(device)
         model.scaler.scales_to(device=device, dtype=torch.float64)
 
-        train_targets = model.dataset_info.targets
+        # Create the collate function. LOREM is equivariant by construction, so
+        # there is no rotational augmentation and training and validation share it
         collate_fn = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
-                get_system_with_neighbor_lists_transform(
-                    get_requested_neighbor_lists(model)
-                ),
+                get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
             ],
         )
 
-        max_atoms = self.hypers["max_atoms_per_batch"]
+        if self.hypers["num_workers"] is None:
+            num_workers = get_num_workers()
+            logging.info(
+                "Number of workers for data-loading not provided and chosen "
+                f"automatically. Using {num_workers} workers."
+            )
+        else:
+            num_workers = self.hypers["num_workers"]
+            validate_num_workers(num_workers)
 
         # Create dataloader for the training datasets:
         train_dataloaders, epoch_samplers = build_train_dataloaders(
@@ -250,7 +241,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             batch_size=self.hypers["batch_size"],
             max_atoms_per_batch=max_atoms,
             min_atoms_per_batch=self.hypers["min_atoms_per_batch"],
-            num_workers=0,
+            num_workers=num_workers,
         )
         train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
 
@@ -261,16 +252,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
             collate_fn_val=collate_fn,
             batch_size=self.hypers["batch_size"],
             max_atoms_per_batch=max_atoms,
-            num_workers=0,
+            num_workers=num_workers,
         )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
-        raw_model = _get_raw_model(model, is_distributed)
 
-        # Extract all the possible outputs and their gradients:
-        train_targets = raw_model.dataset_info.targets
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -278,11 +266,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
         # Create a loss function:
-        loss_hypers = _expand_loss_config(self.hypers["loss"], train_targets)
-        loss_fn = LossAggregator(
-            targets=train_targets,
-            config=loss_hypers,
-        )
+        loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
+        loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
         logging.info("Using the following loss functions:")
         for name, info in loss_fn.metadata.items():
             logging.info(f"{name}:")
@@ -294,45 +279,35 @@ class Trainer(TrainerInterface[TrainerHypers]):
             for grad, ginfo in info["gradients"].items():
                 logging.info(f"\t{name}::{grad}: {ginfo}")
 
-        # Create an optimizer:
-        optimizer = torch.optim.Adam(
-            model.parameters(), lr=self.hypers["learning_rate"]
-        )
+        if self.hypers["weight_decay"] is not None:
+            optimizer = torch.optim.AdamW(
+                model.parameters(),
+                lr=self.hypers["learning_rate"],
+                weight_decay=self.hypers["weight_decay"],
+            )
+        else:
+            optimizer = torch.optim.Adam(
+                model.parameters(), lr=self.hypers["learning_rate"]
+            )
+
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not raw_model.has_new_targets:
+            if not (model.module if is_distributed else model).has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
-                # YAML ``learning_rate`` wins on restart (loaded Adam state
-                # would otherwise keep the previous run's lr).
-                for param_group in optimizer.param_groups:
-                    param_group["lr"] = self.hypers["learning_rate"]
 
-        # Create a scheduler:
-        use_cosine_schedule = self.hypers["scheduler"] == "cosine"
-        if use_cosine_schedule:
-            lr_scheduler: torch.optim.lr_scheduler.LRScheduler = _get_cosine_scheduler(
-                optimizer, self.hypers, len(train_dataloader)
-            )
-        else:
-            lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer,
-                factor=self.hypers["scheduler_factor"],
-                patience=self.hypers["scheduler_patience"],
-                threshold=0.001,
-                min_lr=1e-5,
-            )
+        # Create a learning rate scheduler
+        lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
+
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
-            if not raw_model.has_new_targets:
+            if not (model.module if is_distributed else model).has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
-        # per-atom targets:
         per_structure_targets = self.hypers["per_structure_targets"]
 
         # Log the initial learning rate:
-        old_lr = optimizer.param_groups[0]["lr"]
-        logging.info(f"Initial learning rate: {old_lr}")
+        logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
@@ -341,10 +316,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
             self.best_metric = float("inf")
         logging.info("Starting training")
         epoch = start_epoch
-        for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
+
+        for epoch in range(start_epoch, self.hypers["num_epochs"]):
             for sampler in epoch_samplers:
                 sampler.set_epoch(epoch)
-
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             val_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
             if self.hypers["log_mae"]:
@@ -354,7 +329,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 val_mae_calculator = MAEAccumulator(self.hypers["log_separate_blocks"])
 
             train_loss = 0.0
-
             for batch in train_dataloader:
                 optimizer.zero_grad()
 
@@ -362,7 +336,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, dtype=dtype, device=device
                 )
-
                 predictions = evaluate_model(
                     model,
                     systems,
@@ -393,15 +366,20 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 train_loss_batch = loss_fn(predictions, targets, extra_data)
 
+                if is_distributed:
+                    # make sure all parameters contribute to the gradient calculation
+                    # to make torch DDP happy (e.g. when a target's head is kept in
+                    # the model but not part of the current run's targets)
+                    train_loss_batch += 0.0 * sum(
+                        p.sum() for p in model.parameters() if p.requires_grad
+                    )
+
                 train_loss_batch.backward()
-                # Isolated atoms (empty neighbor lists) can yield NaN second-order
-                # grads through the CG ``TensorDense`` path when training forces.
-                for param in model.parameters():
-                    if param.grad is not None:
-                        param.grad.nan_to_num_(nan=0.0, posinf=0.0, neginf=0.0)
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), self.hypers["grad_clip_norm"]
+                )
                 optimizer.step()
-                if use_cosine_schedule:
-                    lr_scheduler.step()
+                lr_scheduler.step()
 
                 if is_distributed:
                     # sum the loss over all processes
@@ -413,10 +391,23 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
                     scaled_predictions = (
                         model.module if is_distributed else model
-                    ).scaler.apply_scales(systems, predictions)
+                    ).scaler.apply_scales(
+                        systems,
+                        predictions,
+                        remove=False,
+                        use_per_target_scales=True,
+                        use_per_property_scales=False,
+                    )
                     scaled_targets = (
                         model.module if is_distributed else model
-                    ).scaler.apply_scales(systems, targets)
+                    ).scaler.apply_scales(
+                        systems,
+                        targets,
+                        remove=False,
+                        use_per_target_scales=True,
+                        use_per_property_scales=False,
+                    )
+
                     train_rmse_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )
@@ -442,65 +433,81 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         )
                     )
 
-            val_loss = 0.0
-            for batch in val_dataloader:
-                systems, targets, extra_data = unpack_batch(batch)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype, device=device
-                )
+            with torch.set_grad_enabled(
+                any(target_info.gradients for target_info in train_targets.values())
+            ):  # keep gradients on if any of the targets require them
+                val_loss = 0.0
+                for batch in val_dataloader:
+                    systems, targets, extra_data = unpack_batch(batch)
+                    systems, targets, extra_data = batch_to(
+                        systems, targets, extra_data, dtype=dtype, device=device
+                    )
+                    predictions = evaluate_model(
+                        model,
+                        systems,
+                        {key: train_targets[key] for key in targets.keys()},
+                        is_training=False,
+                    )
 
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    {key: train_targets[key] for key in targets.keys()},
-                    is_training=False,
-                )
+                    # average by the number of atoms
+                    predictions = average_by_num_atoms(
+                        predictions, systems, per_structure_targets
+                    )
+                    targets = average_by_num_atoms(
+                        targets, systems, per_structure_targets
+                    )
 
-                # average by the number of atoms
-                predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
-                )
-                targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                    # Apply per-property scales to the predictions before loss
+                    # computation. The targets from the dataloader have only been scaled
+                    # per-target, and not per-property. This transformation only applies
+                    # to targets with per-property scales (i.e. multiple blocks or
+                    # multiple properties), and leaves the others unchanged.
+                    predictions = (
+                        model.module if is_distributed else model
+                    ).scaler.apply_scales(
+                        systems,
+                        predictions,
+                        remove=False,
+                        use_per_target_scales=False,
+                        use_per_property_scales=True,
+                    )
 
-                # Apply per-property scales to the predictions before loss computation.
-                # The targets from the dataloader have only been scaled per-target, and
-                # not per-property. This transformation only applies to targets with
-                # per-property scales (i.e. multiple blocks or multiple properties), and
-                # leaves the others unchanged.
-                predictions = (
-                    model.module if is_distributed else model
-                ).scaler.apply_scales(
-                    systems,
-                    predictions,
-                    remove=False,
-                    use_per_target_scales=False,  # never before loss
-                    use_per_property_scales=True,
-                )
+                    val_loss_batch = loss_fn(predictions, targets, extra_data)
 
-                val_loss_batch = loss_fn(predictions, targets, extra_data)
+                    if is_distributed:
+                        # sum the loss over all processes
+                        torch.distributed.all_reduce(val_loss_batch)
+                    val_loss += val_loss_batch.item()
 
-                if is_distributed:
-                    # sum the loss over all processes
-                    torch.distributed.all_reduce(val_loss_batch)
-                val_loss += val_loss_batch.item()
+                    # Reapply scales and accumulate quantities for computing val
+                    # metrics. This is done for every epoch as validation metrics are
+                    # needed for model selection
+                    scaled_predictions = (
+                        model.module if is_distributed else model
+                    ).scaler.apply_scales(
+                        systems,
+                        predictions,
+                        remove=False,
+                        use_per_target_scales=True,
+                        use_per_property_scales=False,
+                    )
+                    scaled_targets = (
+                        model.module if is_distributed else model
+                    ).scaler.apply_scales(
+                        systems,
+                        targets,
+                        remove=False,
+                        use_per_target_scales=True,
+                        use_per_property_scales=False,
+                    )
 
-                # Reapply scales and accumulate quantities for computing val
-                # metrics. This is done for every epoch as validation metrics are
-                # needed for model selection
-                scaled_predictions = (
-                    model.module if is_distributed else model
-                ).scaler.apply_scales(systems, predictions)
-                scaled_targets = (
-                    model.module if is_distributed else model
-                ).scaler.apply_scales(systems, targets)
-
-                val_rmse_calculator.update(
-                    scaled_predictions, scaled_targets, extra_data
-                )
-                if self.hypers["log_mae"]:
-                    val_mae_calculator.update(
+                    val_rmse_calculator.update(
                         scaled_predictions, scaled_targets, extra_data
                     )
+                    if self.hypers["log_mae"]:
+                        val_mae_calculator.update(
+                            scaled_predictions, scaled_targets, extra_data
+                        )
 
             # Compute val metrics:
             finalized_val_info = val_rmse_calculator.finalize(
@@ -519,13 +526,21 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
             # Now we log the information:
             if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
-                finalized_train_info = {"loss": train_loss, **finalized_train_info}
-            finalized_val_info = {"loss": val_loss, **finalized_val_info}
+                finalized_train_info = {
+                    "loss": train_loss,
+                    **finalized_train_info,
+                }
+            finalized_val_info = {
+                "loss": val_loss,
+                **finalized_val_info,
+            }
 
             if epoch == start_epoch:
                 metric_logger = MetricLogger(
                     log_obj=ROOT_LOGGER,
-                    dataset_info=raw_model.dataset_info,
+                    dataset_info=(
+                        model.module if is_distributed else model
+                    ).dataset_info,
                     initial_metrics=[finalized_train_info, finalized_val_info],
                     names=["training", "validation"],
                 )
@@ -537,38 +552,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     learning_rate=optimizer.param_groups[0]["lr"],
                 )
 
-            if use_cosine_schedule:
-                # Already stepped once per batch. Cosine decay has no plateau.
-                old_lr = lr_scheduler.get_last_lr()[0]
-            else:
-                lr_scheduler.step(val_loss)
-                new_lr = lr_scheduler.get_last_lr()[0]
-                if new_lr != old_lr:
-                    if new_lr < _MIN_LEARNING_RATE:
-                        logging.info("Learning rate is too small, stopping training")
-                        break
-                    else:
-                        logging.info(
-                            f"Changing learning rate from {old_lr} to {new_lr}"
-                        )
-                        old_lr = new_lr
-                        # load best model/optimizer state, re-initialize scheduler
-                        raw_model.load_state_dict(self.best_model_state_dict)
-                        optimizer.load_state_dict(self.best_optimizer_state_dict)
-                        for param_group in optimizer.param_groups:
-                            param_group["lr"] = new_lr
-                        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                            optimizer,
-                            factor=self.hypers["scheduler_factor"],
-                            patience=self.hypers["scheduler_patience"],
-                        )
-
             val_metric = get_selected_metric(
                 finalized_val_info, self.hypers["best_model_metric"]
             )
             if val_metric < self.best_metric:
                 self.best_metric = val_metric
-                self.best_model_state_dict = copy.deepcopy(raw_model.state_dict())
+                self.best_model_state_dict = copy.deepcopy(
+                    (model.module if is_distributed else model).state_dict()
+                )
                 self.best_epoch = epoch
                 self.best_optimizer_state_dict = copy.deepcopy(optimizer.state_dict())
 
@@ -580,7 +571,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 self.epoch = epoch
                 if rank == 0:
                     self.save_checkpoint(
-                        raw_model,
+                        (model.module if is_distributed else model),
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
 
@@ -588,30 +579,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
         self.epoch = epoch
         self.optimizer_state_dict = optimizer.state_dict()
         self.scheduler_state_dict = lr_scheduler.state_dict()
-        checkpoint = raw_model.get_checkpoint()
-        checkpoint.update(
-            {
-                "train_hypers": self.hypers,
-                "trainer_ckpt_version": self.__checkpoint_version__,
-                "epoch": self.epoch,
-                "optimizer_state_dict": self.optimizer_state_dict,
-                "scheduler_state_dict": self.scheduler_state_dict,
-                "best_epoch": self.best_epoch,
-                "best_metric": self.best_metric,
-                "best_model_state_dict": self.best_model_state_dict,
-                "best_optimizer_state_dict": self.best_optimizer_state_dict,
-            }
-        )
 
         if is_distributed:
             torch.distributed.destroy_process_group()
 
-    def save_checkpoint(self, model, path: Union[str, Path]):
+    def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
         checkpoint.update(
             {
-                "train_hypers": self.hypers,
                 "trainer_ckpt_version": self.__checkpoint_version__,
+                "train_hypers": self.hypers,
                 "epoch": self.epoch,
                 "optimizer_state_dict": self.optimizer_state_dict,
                 "scheduler_state_dict": self.scheduler_state_dict,
@@ -640,7 +617,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             trainer.epoch = checkpoint["epoch"]
         else:
             assert context == "finetune"
-            trainer.epoch = None
+            trainer.epoch = None  # interpreted as zero in the training loop
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
         trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
@@ -658,8 +635,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using trainer "
-                f"version {checkpoint['trainer_ckpt_version']}, while the current "
-                f"trainer version is {cls.__checkpoint_version__}."
+                f"Unable to upgrade the checkpoint: the checkpoint is using "
+                f"trainer version {checkpoint['trainer_ckpt_version']}, while the "
+                f"current trainer version is {cls.__checkpoint_version__}."
             )
         return checkpoint

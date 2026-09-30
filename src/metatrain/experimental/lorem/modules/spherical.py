@@ -1,10 +1,8 @@
-"""Real spherical harmonics in the backbone ``m = -ℓ … +ℓ`` layout.
+"""Normalization of the real spherical harmonics used by the backbone.
 
-``orthonormal`` is the original 4π-normalized basis (sphericart / analytic).
-``e3x`` rescales each ℓ-block to Racah / Schmidt semi-normalization, the
-e3x ``spherical_harmonics(..., normalization='racah')`` default used by
-lorem-jax. m-ordering stays ``-ℓ … +ℓ`` so Clebsch–Gordan (SOAP convention)
-is unchanged; e3x cartesian order is a permutation within each block.
+sphericart and the analytic fallback return 4π-normalized harmonics. LOREM
+uses Racah (Schmidt semi-) normalization, as lorem-jax does. The component
+order stays ``m = -ℓ … +ℓ`` in each degree.
 """
 
 import math
