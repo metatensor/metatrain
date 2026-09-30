@@ -27,6 +27,11 @@ Unreleased
 Fixed
 #####
 
+- Ensemble losses (``gaussian_nll_ensemble``, ``gaussian_crps_ensemble`` and
+  ``empirical_crps_ensemble``) now work for targets with components, such as
+  ``non_conservative_force``, instead of failing when the mean and variance
+  blocks are built.
+
 Added
 #####
 
@@ -40,6 +45,27 @@ Added
   APT head (acoustic sum rule), a Cartesian rank-1 dipole head
   (PhysNet-style :math:`q r` sum), and paper-contract tests that pin the
   architecture to the paper's equations without requiring JAX.
+
+Changed
+#######
+
+Removed
+#######
+
+Version 2026.4.1 - 2026-09-25
+-----------------------------
+
+Fixed
+#####
+
+- ``ZBL`` now accepts every spelling of the angstrom that metatomic accepts
+  (``angstrom``, ``Angstrom``, ``A``, ...), instead of only the exact string
+  ``angstrom``.
+
+Added
+#####
+
+- The DPA3 architecture now can load pretrained multi-task DPA3 models.
 
 Changed
 #######

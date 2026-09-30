@@ -42,17 +42,11 @@ def model_update_v2_v3(checkpoint: dict) -> None:
     # added num_ensemble_members to hypers (only do energy for simplicity)
     num_members = t.shape[0]
     checkpoint["model_data"]["hypers"]["num_ensemble_members"] = {"energy": num_members}
-    # trainer is v1
-    checkpoint["trainer_ckpt_version"] = 1
     # we set the following to None and the user will probably get errors if they're
     # accessed from a restart exercise (which would be useless anyway as there was
     # no ensemble training by backpropagation before this version)
     checkpoint["epoch"] = None
-    checkpoint["optimizer_state_dict"] = None
-    checkpoint["scheduler_state_dict"] = None
     checkpoint["best_epoch"] = None
-    checkpoint["best_metric"] = None
-    checkpoint["best_optimizer_state_dict"] = None
 
 
 def model_update_v3_v4(checkpoint: dict) -> None:
@@ -104,6 +98,20 @@ def trainer_update_v1_v2(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to update.
     """
+    # A version bump was skipped, inside this if
+    # we do the update that was supposed to be done for
+    # that version bump.
+    if "optimizer_state_dict" not in checkpoint:
+        # we set the following to None and the user will probably get errors if they're
+        # accessed from a restart exercise (which would be useless anyway as there was
+        # no ensemble training by backpropagation before this version)
+        checkpoint["epoch"] = None
+        checkpoint["optimizer_state_dict"] = None
+        checkpoint["scheduler_state_dict"] = None
+        checkpoint["best_epoch"] = None
+        checkpoint["best_metric"] = None
+        checkpoint["best_optimizer_state_dict"] = None
+        checkpoint["best_model_state_dict"] = None
     # Added distributed training hyperparameters
     if "train_hypers" in checkpoint:
         checkpoint["train_hypers"]["distributed"] = False

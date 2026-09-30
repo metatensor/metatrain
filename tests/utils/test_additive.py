@@ -746,6 +746,27 @@ def test_zbl():
     assert torch.allclose(output["mtt::U0"].block().values[0], expected)
 
 
+def _energy_dataset_info(length_unit: str) -> DatasetInfo:
+    return DatasetInfo(
+        length_unit=length_unit,
+        atomic_types=[1, 6],
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
+    )
+
+
+@pytest.mark.parametrize("length_unit", ["angstrom", "Angstrom", "ANGSTROM", "A"])
+def test_zbl_accepts_every_spelling_of_angstrom(length_unit):
+    """However metatomic lets a dataset spell its angstroms, ZBL takes it."""
+    ZBL({}, _energy_dataset_info(length_unit))
+
+
+@pytest.mark.parametrize("length_unit", ["nanometer", "nm", "bohr", ""])
+def test_zbl_rejects_lengths_that_are_not_angstroms(length_unit):
+    """Anything else, including a dataset that never gave a unit, is refused."""
+    with pytest.raises(ValueError, match="ZBL only supports angstrom"):
+        ZBL({}, _energy_dataset_info(length_unit))
+
+
 @pytest.mark.parametrize("where_is_center_type", ["samples", "nowhere"])
 def test_composition_model_train_per_atom(where_is_center_type):
     """Test the calculation of composition weights for a per-atom scalar."""
