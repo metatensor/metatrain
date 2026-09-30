@@ -87,7 +87,7 @@ def _register_untracked_tensors(model: torch.nn.Module) -> None:
 
 
 class DPA3(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
