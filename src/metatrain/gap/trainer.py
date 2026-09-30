@@ -36,6 +36,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # checks
         assert dtype in GAP.__supported_dtypes__
         assert devices == [torch.device("cpu")]
+        model.to(device=devices[0], dtype=dtype)
         target_name = next(iter(model.dataset_info.targets.keys()))
         if len(train_datasets) != 1:
             raise ValueError("GAP only supports a single training dataset")
