@@ -42,6 +42,23 @@ def _small_lr_hypers(max_degree=1, max_degree_lr=1):
     return hypers
 
 
+def _bent_system():
+    """Four atoms off the z axis, so a rotation about z actually moves them."""
+    return System(
+        types=torch.tensor([6, 6, 8, 8]),
+        positions=torch.tensor(
+            [
+                [0.0, 0.0, 0.0],
+                [1.2, 0.3, 0.1],
+                [0.2, 1.1, 0.4],
+                [-0.4, 0.5, 1.0],
+            ]
+        ),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+
+
 def _chain_system(pbc=True):
     cell = torch.eye(3) * 10 if pbc else torch.zeros(3, 3)
     return System(
@@ -89,7 +106,7 @@ def test_long_range_energy_rotation_invariant():
     model = LOREM(hypers, _energy_dataset_info())
     model.eval()
 
-    system = _chain_system(pbc=False)
+    system = _bent_system()
     theta = math.pi / 3.0
     rotation = torch.tensor(
         [
@@ -121,7 +138,7 @@ def test_spherical_charges_rotate_as_vectors():
     model = LOREM(hypers, _energy_dataset_info())
     model.eval()
 
-    system = _chain_system(pbc=False)
+    system = _bent_system()
     theta = math.pi / 5.0
     # Real SH ℓ=1 order is Y, Z, X. A rotation about z mixes X and Y only.
     rotation = torch.tensor(

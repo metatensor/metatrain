@@ -61,11 +61,15 @@ class BornEffectiveChargeHead(torch.nn.Module):
         hidden = gated_silu(self.dense1(hidden))
         hidden = self.dense2(hidden)
         spherical = self.tensor_dense(hidden)[:, :, 0]
-        return torch.einsum(
+        # CG input axes follow real-SH ℓ=1 order (y, z, x). Metatensor
+        # components are (x, y, z).
+        yzx = torch.einsum(
             "n l, i j l -> n i j",
             spherical,
             self.cartesian_reconstruction.to(dtype=spherical.dtype),
         )
+        order = torch.tensor([2, 0, 1], device=yzx.device)
+        return yzx.index_select(1, order).index_select(2, order)
 
 
 class BecPredictor(torch.nn.Module):
