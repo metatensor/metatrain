@@ -667,11 +667,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         # if any atomic basis outputs are present and metrics are to be
                         # reported per-block, reverse the transform (i.e. sparsify)
                         # before calculating metrics
-                        systems, targets, extra_data = atomic_basis_reverse_transform(
-                            systems, targets, extra_data
+                        systems, scaled_targets, extra_data = (
+                            atomic_basis_reverse_transform(
+                                systems, scaled_targets, extra_data
+                            )
                         )
-                        systems, predictions, _ = atomic_basis_reverse_transform(
-                            systems, predictions, {}
+                        systems, scaled_predictions, _ = atomic_basis_reverse_transform(
+                            systems, scaled_predictions, {}
                         )
                     val_rmse_calculator.update(
                         scaled_predictions, scaled_targets, extra_data

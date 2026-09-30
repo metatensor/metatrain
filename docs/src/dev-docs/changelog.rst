@@ -31,6 +31,8 @@ Fixed
   ``empirical_crps_ensemble``) now work for targets with components, such as
   ``non_conservative_force``, instead of failing when the mean and variance
   blocks are built.
+- SPACE's per-block validation metrics are now computed on the reverse-transformed
+  predictions and targets.
 
 Added
 #####
