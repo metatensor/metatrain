@@ -99,12 +99,6 @@ class SPACE(ModelInterface[ModelHypers]):
         self.outputs = {
             "feature": ModelOutput(unit="", sample_kind="atom")
         }  # the model is always capable of outputting the internal features
-        for target_name in dataset_info.targets.keys():
-            # the model can always output the last-layer features for the targets
-            ll_features_name = (
-                f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
-            )
-            self.outputs[ll_features_name] = ModelOutput(sample_kind="atom")
 
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
@@ -662,12 +656,27 @@ class SPACE(ModelInterface[ModelHypers]):
             unit=target_info.unit,
             sample_kind="atom",
         )
+        # the model can always output the last-layer features for its targets
+        self.outputs[
+            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
+        ] = ModelOutput(sample_kind="atom")
 
         if target_info.is_spherical and len(target_info.layout.block(0).components) > 1:
             raise ValueError(
                 "SPACE does not support target spherical tensors with rank > 1."
                 f"'{target_name}' has rank "
                 f"{len(target_info.layout.block(0).components)}."
+            )
+
+        # targets added by ``restart`` need their own heads and last layers
+        if target_name not in self.module.module.last_layers:
+            reference = self.module.module.center_embedder.weight
+            self.module.module._add_output(target_name, target_info)
+            self.module.module.heads[target_name].to(
+                device=reference.device, dtype=reference.dtype
+            )
+            self.module.module.last_layers[target_name].to(
+                device=reference.device, dtype=reference.dtype
             )
 
         if target_info.is_cartesian and len(target_info.layout.block().components) == 2:
