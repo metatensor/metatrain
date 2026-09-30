@@ -102,6 +102,7 @@ class LOREM(ModelInterface[ModelHypers]):
             equivariant_message_passing=bool(
                 self.hypers["equivariant_message_passing"]
             ),
+            initialize_node_features=bool(self.hypers["initialize_node_features"]),
         )
         self.lr = LongRange(
             feature_dim=self.num_features,

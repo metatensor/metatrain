@@ -76,14 +76,12 @@ def cg_phase_correction(l1: int, l2: int, L: int) -> float:
     ``LOREM_cg(l1, l2, L) == cg_phase_correction(l1, l2, L) * e3x_cg_in_lorem_basis``.
 
     Checked against e3x for every valid triple with all degrees <= 4
-    (``tests/test_e3x_parity.py``).
+    (``tests/test_e3x_parity.py``). Triples with odd ``l1 + l2 + L`` couple
+    two proper tensors into a pseudotensor (the Born-charge head uses them);
+    the same formula holds for them, with ``//`` rounding down.
     """
-    if (l1 + l2 + L) % 2 != 0:
-        raise ValueError(
-            f"(l1={l1}, l2={l2}, L={L}) is not a valid coupling "
-            "(l1 + l2 + L must be even for a proper tensor, "
-            "include_pseudotensors=False)."
-        )
+    if not abs(l1 - l2) <= L <= l1 + l2:
+        raise ValueError(f"(l1={l1}, l2={l2}, L={L}) is not a valid coupling.")
     return -1.0 if ((l1 + l2 - L) // 2) % 2 == 1 else 1.0
 
 

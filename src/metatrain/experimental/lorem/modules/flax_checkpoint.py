@@ -1,228 +1,274 @@
-"""Copy a flat Flax parameter dict into :class:`ShortRange` and
-:class:`LongRange`.
+"""Load lorem-jax parameters into a :class:`~metatrain.experimental.lorem.LOREM`.
 
-The dict is ``{"path/to/leaf": array}``. No JAX import. Names follow the
-table in :mod:`.lorem`.
+lorem-jax exports (lab-cosmo/lorem-jax#39) are a folder with the flax
+parameters flattened to ``/``-joined paths (``.npz`` or ``.safetensors``),
+plus ``model.yaml`` and ``baseline.yaml``. :func:`read_export` reads one, and
+:func:`load_checkpoint` copies the parameters into a model built from the
+returned hypers. Neither needs JAX.
 
-Two leaves are not a plain transpose:
+Flax names submodules ``{Type}_{n}``, counting each type in call order, so the
+loader walks the model in lorem-jax's call order and asks for the next name of
+each type. Three leaves are not a plain copy:
 
-- Clebsch-Gordan weights are stored on a dense ``(l1, l2, L)`` grid in Flax,
-  including invalid triples. Here only the valid triples are kept, in
-  ``_build_couplings`` order, with :func:`~.e3x_compat.cg_phase_correction`.
-- Each degree has its own weight matrix, under names like ``.../0+/kernel``
-  and ``.../1-/kernel``.
+- ``Dense`` kernels are transposed.
+- e3x layers have one kernel per degree, named ``{l}+`` or ``{l}-``.
+- Clebsch-Gordan weights are a dense ``(l1, l2, parity, L)`` grid, including
+  invalid triples. Only the triples used here are kept, with
+  :func:`~.e3x_compat.cg_phase_correction`.
 """
 
-from typing import Any, Mapping
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, Mapping, Set, Tuple
 
 import numpy as np
 import torch
 
 from .e3x_compat import cg_phase_correction
-from .lorem import LongRange, ShortRange
-from .tensor_dense import _build_couplings
 
 
-def _t(flax: Mapping[str, Any], name: str) -> torch.Tensor:
-    return torch.as_tensor(np.asarray(flax[name]))
+if TYPE_CHECKING:
+    from ..model import LOREM
 
 
-def _load_dense_wise(
-    module: torch.nn.Module, flax: Mapping[str, Any], prefix: str, max_degree: int
-) -> None:
-    """``_DegreeWiseLinear``: per-degree ``Linear`` from flax
-    ``{prefix}/{l}{parity}/kernel`` (``+`` for even ``l``, ``-`` for odd)."""
-    for ell in range(max_degree + 1):
-        parity = "+" if ell % 2 == 0 else "-"
-        kernel = _t(flax, f"{prefix}/{ell}{parity}/kernel")  # (in, out)
-        module.layers[ell].weight.data.copy_(kernel.transpose(0, 1))
-        bias_name = f"{prefix}/{ell}{parity}/bias"
-        if bias_name in flax and module.layers[ell].bias is not None:
-            module.layers[ell].bias.data.copy_(_t(flax, bias_name))
+# lorem-jax model classes and the field defaults that differ between them
+_MODEL_CLASSES = {
+    "lorem.Lorem": {
+        "equivariant_message_passing": True,
+        "initialize_node_features": True,
+    },
+    "lorem.LoremBEC": {
+        "equivariant_message_passing": False,
+        "initialize_node_features": False,
+    },
+}
+_FIXED_FIELDS = {
+    "cutoff_fn": "cosine_cutoff",
+    "radial_basis": "basic_bernstein",
+    "lr": True,
+}
 
 
-def _load_tensor_weight(
-    module: torch.nn.Module,
-    flax: Mapping[str, Any],
-    prefix: str,
-    l1_max: int,
-    l2_max: int,
-    out_max: int,
-) -> None:
-    """``tensor_weight``: flax's dense ``(l1_max+1, l2_max+1, out_max+1,
-    channels)`` grid -> this port's flat ``(n_couplings, channels)``, one row
-    per valid ``(l1, l2, L)`` triple in ``_build_couplings`` order,
-    phase-corrected from e3x's CG convention to this codebase's own.
+class _Scope:
+    """A flax scope: hands out ``{Type}_{n}`` names and records used leaves."""
+
+    def __init__(self, params: Mapping[str, Any], prefix: str, used: Set[str]) -> None:
+        self.params, self.prefix, self.used = params, prefix, used
+        self.counts: Dict[str, int] = {}
+
+    def next(self, kind: str) -> "_Scope":
+        n = self.counts.get(kind, 0)
+        self.counts[kind] = n + 1
+        return self.child(f"{kind}_{n}")
+
+    def child(self, name: str) -> "_Scope":
+        return _Scope(self.params, f"{self.prefix}{name}/", self.used)
+
+    def has(self, leaf: str) -> bool:
+        return self.prefix + leaf in self.params
+
+    def __getitem__(self, leaf: str) -> torch.Tensor:
+        name = self.prefix + leaf
+        if name not in self.params:
+            raise KeyError(f"missing lorem-jax parameter '{name}'")
+        self.used.add(name)
+        return torch.as_tensor(np.asarray(self.params[name]))
+
+
+def _copy(target: torch.Tensor, value: torch.Tensor, name: str) -> None:
+    if target.shape != value.shape:
+        raise ValueError(
+            f"shape mismatch for '{name}': {tuple(value.shape)} in the checkpoint, "
+            f"{tuple(target.shape)} in the model. Do the hypers match model.yaml?"
+        )
+    target.copy_(value)
+
+
+def _linear(layer: torch.nn.Linear, scope: _Scope) -> None:
+    _copy(layer.weight, scope["kernel"].T, scope.prefix + "kernel")
+    if layer.bias is not None:
+        _copy(layer.bias, scope["bias"], scope.prefix + "bias")
+
+
+def _mlp(mlp: torch.nn.Sequential, scope: _Scope) -> None:
+    layers = [layer for layer in mlp if isinstance(layer, torch.nn.Linear)]
+    for index, layer in enumerate(layers):
+        _linear(layer, scope.child(f"Dense_{index}"))
+
+
+def _update(update: torch.nn.Module, scope: _Scope) -> None:
+    for index in (0, 1):
+        _mlp(getattr(update, f"mlp{index}"), scope.child(f"MLP_{index}"))
+        norm, norm_scope = (
+            getattr(update, f"norm{index}"),
+            scope.child(f"LayerNorm_{index}"),
+        )
+        _copy(norm.weight, norm_scope["scale"], norm_scope.prefix + "scale")
+        _copy(norm.bias, norm_scope["bias"], norm_scope.prefix + "bias")
+
+
+def _degree_wise(dense: torch.nn.Module, scope: _Scope) -> None:
+    for ell, layer in enumerate(dense.layers):
+        _linear(layer, scope.child(f"{ell}{'+' if ell % 2 == 0 else '-'}"))
+
+
+def _tensor(product: torch.nn.Module, scope: _Scope) -> None:
+    """``(1, l1, 1, l2, parity, L, features)`` grid to one row per coupling.
+
+    Both inputs are proper tensors, so parity slot 0 is the channel kept here:
+    parity ``(-1)**L`` without pseudotensors, ``+1`` with them.
     """
-    grid = _t(flax, f"{prefix}/kernel")
-    # flax stores a rank-6+channel tensor with singleton axes interspersed
-    # (e.g. (1, l1_max+1, 1, l2_max+1, 1, out_max+1, channels)); reshape
-    # squeezes them out while keeping axis order, since total element count
-    # and relative axis order match.
-    grid = grid.reshape(l1_max + 1, l2_max + 1, out_max + 1, -1)
-    _, l1_list, l2_list, L_list = _build_couplings(
-        l1_max, l2_max, out_max, include_pseudotensors=False
+    grid = scope["kernel"]
+    l1_max, l2_max, n_parity, out_max = (
+        grid.shape[1],
+        grid.shape[3],
+        grid.shape[4],
+        grid.shape[5],
     )
-    for index, (l1, l2, L) in enumerate(zip(l1_list, l2_list, L_list, strict=True)):
+    grid = grid.reshape(l1_max, l2_max, n_parity, out_max, -1)[:, :, 0]
+    for index, coupling in enumerate(product.couplings):
+        l1, l2, L = coupling.l1, coupling.l2, coupling.L
         value = grid[l1, l2, L] * cg_phase_correction(l1, l2, L)
-        module.tensor_weight.data[index].copy_(value)
+        _copy(product.tensor_weight[index], value, scope.prefix + "kernel")
 
 
-def _load_update(module: torch.nn.Module, flax: Mapping[str, Any], prefix: str) -> None:
-    """``Update``: two gated ``MLP([2f, f])`` + ``LayerNorm`` residuals."""
-    module.mlp0[0].weight.data.copy_(
-        _t(flax, f"{prefix}/MLP_0/Dense_0/kernel").transpose(0, 1)
-    )
-    module.mlp0[0].bias.data.copy_(_t(flax, f"{prefix}/MLP_0/Dense_0/bias"))
-    module.mlp0[2].weight.data.copy_(
-        _t(flax, f"{prefix}/MLP_0/Dense_1/kernel").transpose(0, 1)
-    )
-    module.mlp0[2].bias.data.copy_(_t(flax, f"{prefix}/MLP_0/Dense_1/bias"))
-    module.norm0.weight.data.copy_(_t(flax, f"{prefix}/LayerNorm_0/scale"))
-    module.norm0.bias.data.copy_(_t(flax, f"{prefix}/LayerNorm_0/bias"))
-    module.mlp1[0].weight.data.copy_(
-        _t(flax, f"{prefix}/MLP_1/Dense_0/kernel").transpose(0, 1)
-    )
-    module.mlp1[0].bias.data.copy_(_t(flax, f"{prefix}/MLP_1/Dense_0/bias"))
-    module.mlp1[2].weight.data.copy_(
-        _t(flax, f"{prefix}/MLP_1/Dense_1/kernel").transpose(0, 1)
-    )
-    module.mlp1[2].bias.data.copy_(_t(flax, f"{prefix}/MLP_1/Dense_1/bias"))
-    module.norm1.weight.data.copy_(_t(flax, f"{prefix}/LayerNorm_1/scale"))
-    module.norm1.bias.data.copy_(_t(flax, f"{prefix}/LayerNorm_1/bias"))
+def _tensor_dense(tensor_dense: torch.nn.Module, scope: _Scope) -> None:
+    _degree_wise(tensor_dense.dense, scope.child("dense"))
+    _tensor(tensor_dense, scope.child("tensor"))
 
 
-def _load_mlp(
-    module: torch.nn.Sequential, flax: Mapping[str, Any], prefix: str
-) -> None:
-    """3-layer ``MLP(features=[d, d, 1])`` (``MLP_0`` / ``MLP_2``)."""
-    module[0].weight.data.copy_(_t(flax, f"{prefix}/Dense_0/kernel").transpose(0, 1))
-    module[0].bias.data.copy_(_t(flax, f"{prefix}/Dense_0/bias"))
-    module[2].weight.data.copy_(_t(flax, f"{prefix}/Dense_1/kernel").transpose(0, 1))
-    module[2].bias.data.copy_(_t(flax, f"{prefix}/Dense_1/bias"))
-    module[4].weight.data.copy_(_t(flax, f"{prefix}/Dense_2/kernel").transpose(0, 1))
-    module[4].bias.data.copy_(_t(flax, f"{prefix}/Dense_2/bias"))
+def _bec_head(head: torch.nn.Module, scope: _Scope) -> None:
+    for index in range(3):
+        _degree_wise(getattr(head, f"dense{index}"), scope.child(f"Dense_{index}"))
+    _tensor_dense(head.tensor_dense, scope.child("TensorDense_0"))
 
 
-def _load_mlp2(
-    module: torch.nn.Sequential, flax: Mapping[str, Any], prefix: str
-) -> None:
-    """2-layer ``MLP(features=[2 * d, 1])`` (``MLP_1``, the scalar charge head)."""
-    module[0].weight.data.copy_(_t(flax, f"{prefix}/Dense_0/kernel").transpose(0, 1))
-    module[0].bias.data.copy_(_t(flax, f"{prefix}/Dense_0/bias"))
-    module[2].weight.data.copy_(_t(flax, f"{prefix}/Dense_1/kernel").transpose(0, 1))
-    module[2].bias.data.copy_(_t(flax, f"{prefix}/Dense_1/bias"))
+def load_checkpoint(model: "LOREM", params: Mapping[str, Any]) -> None:
+    """Copy flat lorem-jax parameters into ``model``, in place.
 
-
-def load_checkpoint(
-    backbone: ShortRange,
-    long_range: LongRange,
-    flax: Mapping[str, Any],
-) -> None:
-    """Copy every leaf of a flattened lorem-jax checkpoint into ``backbone``
-    and ``long_range``, in place.
-
-    :param backbone: A :class:`ShortRange` built with hypers matching
-        the checkpoint's ``model.yaml`` (``cutoff``, ``max_degree``,
-        ``num_features``, ``num_radial``, ``num_spherical_features``).
-    :param long_range: The matching :class:`LongRange`
-        (``max_degree_lr`` matching ``model.yaml``).
-    :param flax: A flat mapping from flax parameter path (``/``-separated,
-        no leading ``params/``) to array-like, e.g. produced by
-        ``flatten_flax_tree`` from a msgpack-restored parameter tree, or
-        loaded back from an ``.npz`` written that way.
+    :param model: A LOREM built with the hypers from the checkpoint's
+        ``model.yaml`` (see :func:`read_export`), with a Born-effective-charge
+        target when the checkpoint is a ``LoremBEC``.
+    :param params: ``{"Initial_0/ChemicalEmbedding_0/Embed_0/embedding": array,
+        ...}``, flax paths without the leading ``params/``.
+    :raises KeyError: if the model expects a parameter the checkpoint lacks.
+    :raises ValueError: if a shape differs, or the checkpoint has parameters
+        the model does not use.
     """
-    max_degree = backbone.max_degree
-    max_degree_lr = long_range.max_degree_lr
+    used: Set[str] = set()
+    root = _Scope(params, "", used)
+    sr, lr = model.sr, model.lr
+    bec_heads = [model.bec_heads[name] for name in model.bec_targets]
+    bec_stages = [iter([*head.stages, head.long_range]) for head in bec_heads]
+
+    def bec_stage() -> None:
+        for head_stages in bec_stages:
+            _bec_head(next(head_stages), root.next("PerParticleTensorPredictor"))
 
     with torch.no_grad():
-        # -- Initial_0 / ChemicalEmbedding --
-        backbone.chemical_embedding.weight.data.copy_(
-            _t(flax, "Initial_0/ChemicalEmbedding_0/Embed_0/embedding")
+        embedding = (
+            root.child("Initial_0").child("ChemicalEmbedding_0").child("Embed_0")
+        )
+        _copy(sr.chemical_embedding.weight, embedding["embedding"], "embedding")
+        _mlp(sr.radial_coefficients, root.next("RadialCoefficients").child("MLP_0"))
+        for layer in sr.dense0:
+            _linear(layer, root.next("Dense"))
+        _linear(sr.dense1, root.next("Dense"))
+        _update(sr.update0, root.next("Update"))
+        _linear(sr.dense2, root.next("Dense"))
+        _tensor_dense(sr.tensor_dense, root.next("TensorDense"))
+        _update(sr.update1, root.next("Update"))
+        _mlp(sr.energy_mlp, root.next("MLP"))
+        bec_stage()
+
+        for step in sr.message_passing:
+            _mlp(
+                step.radial_coefficients, root.next("RadialCoefficients").child("MLP_0")
+            )
+            _linear(step.edge_dense, root.next("Dense"))
+            _update(step.update_edges, root.next("Update"))
+            if step.equivariant:
+                _linear(step.coeff_dense, root.next("Dense"))
+                message_pass = root.next("MessagePass")
+                _degree_wise(step.message_pass.filter, message_pass.child("filter"))
+                _tensor(step.message_pass.message_tensor, message_pass.child("tensor"))
+                _degree_wise(step.message_pass.combine_dense_x, root.next("Dense"))
+                _degree_wise(step.message_pass.combine_dense_m, root.next("Dense"))
+                _tensor(step.message_pass.combine_tensor, root.next("Tensor"))
+                _update(step.update_norms, root.next("Update"))
+            _mlp(step.energy_mlp, root.next("MLP"))
+            bec_stage()
+
+        _mlp(lr.scalar_charge_mlp, root.next("MLP"))
+        _tensor_dense(lr.spherical_charge_dense, root.next("TensorDense"))
+        _degree_wise(lr.potential_to_features, root.next("Dense"))
+        _tensor(lr.potential_product, root.next("Tensor"))
+        _update(lr.update2, root.next("Update"))
+        _mlp(lr.energy_mlp, root.next("MLP"))
+        bec_stage()
+
+    unused = sorted(set(params) - used)
+    if unused:
+        raise ValueError(
+            f"{len(unused)} lorem-jax parameters were not used, starting with "
+            f"'{unused[0]}'. Do the hypers and targets match the checkpoint?"
         )
 
-        # -- Dense_0 (species -> nodes_scalar init, with bias) --
-        backbone.dense0.weight.data.copy_(_t(flax, "Dense_0/kernel").transpose(0, 1))
-        backbone.dense0.bias.data.copy_(_t(flax, "Dense_0/bias"))
 
-        # -- Dense_1 (edges_scalar -> node update, no bias) --
-        backbone.dense1.weight.data.copy_(_t(flax, "Dense_1/kernel").transpose(0, 1))
+def model_hypers_from_yaml(model_yaml: Mapping[str, Any]) -> Tuple[str, Dict[str, Any]]:
+    """LOREM model hypers for a lorem-jax ``model.yaml``.
 
-        # -- RadialCoefficients_0/MLP_0 (2 dense layers, SiLU between) --
-        backbone.radial_coefficients[0].weight.data.copy_(
-            _t(flax, "RadialCoefficients_0/MLP_0/Dense_0/kernel").transpose(0, 1)
+    :return: The lorem-jax class name (``lorem.Lorem`` or ``lorem.LoremBEC``)
+        and the complete model hypers, defaults included.
+    """
+    from metatrain.utils.architectures import get_default_hypers
+
+    ((name, fields),) = model_yaml["model"].items()
+    if name not in _MODEL_CLASSES:
+        raise ValueError(f"unsupported lorem-jax model '{name}'")
+    fields = dict(fields or {})
+    for field, supported in _FIXED_FIELDS.items():
+        if (value := fields.pop(field, supported)) != supported:
+            raise ValueError(f"only {field}={supported!r} is supported, got {value!r}")
+
+    hypers = dict(get_default_hypers("experimental.lorem")["model"])
+    hypers.update(_MODEL_CLASSES[name])
+    unknown = set(fields) - set(hypers)
+    if unknown:
+        raise ValueError(f"unknown lorem-jax model fields: {sorted(unknown)}")
+    hypers.update(fields)
+    return name, hypers
+
+
+def read_export(
+    folder: str | Path,
+) -> Tuple[str, Dict[str, Any], Dict[str, Any], Dict[int, float]]:
+    """Read a lorem-jax export folder.
+
+    :param folder: Holds exactly one ``*.npz`` or ``*.safetensors`` file of flat
+        parameters, ``model.yaml`` and ``baseline.yaml``.
+    :return: The lorem-jax class name, the LOREM model hypers, the flat
+        parameters for :func:`load_checkpoint`, and the per-element energy
+        baseline (usable as ``atomic_baseline: {"energy": ...}``).
+    """
+    import yaml
+
+    folder = Path(folder)
+    files = sorted([*folder.glob("*.npz"), *folder.glob("*.safetensors")])
+    if len(files) != 1:
+        raise ValueError(
+            f"expected one .npz or .safetensors file in {folder}, found {files}"
         )
-        backbone.radial_coefficients[0].bias.data.copy_(
-            _t(flax, "RadialCoefficients_0/MLP_0/Dense_0/bias")
-        )
-        backbone.radial_coefficients[2].weight.data.copy_(
-            _t(flax, "RadialCoefficients_0/MLP_0/Dense_1/kernel").transpose(0, 1)
-        )
-        backbone.radial_coefficients[2].bias.data.copy_(
-            _t(flax, "RadialCoefficients_0/MLP_0/Dense_1/bias")
-        )
+    if files[0].suffix == ".npz":
+        with np.load(files[0]) as data:
+            params = {key: data[key] for key in data.files}
+    else:
+        from safetensors.numpy import load_file
 
-        # -- Update_0 --
-        _load_update(backbone.update0, flax, "Update_0")
+        params = load_file(files[0])
 
-        # -- Dense_2 (edges_scalar -> per-degree spherical coefficients) --
-        backbone.dense2.weight.data.copy_(_t(flax, "Dense_2/kernel").transpose(0, 1))
-
-        # -- TensorDense_0 --
-        _load_dense_wise(
-            backbone.tensor_dense.dense, flax, "TensorDense_0/dense", max_degree
-        )
-        _load_tensor_weight(
-            backbone.tensor_dense,
-            flax,
-            "TensorDense_0/tensor",
-            max_degree,
-            max_degree,
-            max_degree,
-        )
-
-        # -- Update_1 --
-        _load_update(backbone.update1, flax, "Update_1")
-
-        # -- MLP_0 (SR-only energy head) --
-        _load_mlp(backbone.energy_mlp, flax, "MLP_0")
-
-        # -- MLP_1 (scalar charge head, 2 dense layers) --
-        _load_mlp2(long_range.scalar_charge_mlp, flax, "MLP_1")
-
-        # -- TensorDense_1 (spherical charge head) --
-        _load_dense_wise(
-            long_range.spherical_charge_dense.dense,
-            flax,
-            "TensorDense_1/dense",
-            max_degree,
-        )
-        _load_tensor_weight(
-            long_range.spherical_charge_dense,
-            flax,
-            "TensorDense_1/tensor",
-            max_degree,
-            max_degree,
-            max_degree_lr,
-        )
-
-        # -- Dense_3 (per-degree potential -> feature-width dense) --
-        _load_dense_wise(
-            long_range.potential_to_features, flax, "Dense_3", max_degree_lr
-        )
-
-        # -- Tensor_0 (potential x nodes_spherical CG mix) --
-        _load_tensor_weight(
-            long_range.potential_product,
-            flax,
-            "Tensor_0",
-            max_degree_lr,
-            max_degree,
-            max_degree,
-        )
-
-        # -- Update_2 --
-        _load_update(long_range.update2, flax, "Update_2")
-
-        # -- MLP_2 (LR energy head) --
-        _load_mlp(long_range.energy_mlp, flax, "MLP_2")
+    name, hypers = model_hypers_from_yaml(
+        yaml.safe_load((folder / "model.yaml").read_text())
+    )
+    baseline = yaml.safe_load((folder / "baseline.yaml").read_text())
+    elemental = {int(z): float(weight) for z, weight in baseline["elemental"].items()}
+    return name, hypers, params, elemental

@@ -7,6 +7,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 
 from metatrain.experimental.lorem import LOREM
+from metatrain.experimental.lorem.modules.bec import BornEffectiveChargeHead
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
@@ -148,3 +149,16 @@ def test_bec_rotates_as_a_cartesian_tensor():
     bec_rot = model([rotated], outputs)["bec"].block().values[..., 0]
     expected = torch.einsum("ij,njk,lk->nil", rotation, bec, rotation)
     torch.testing.assert_close(bec_rot, expected, atol=1e-6, rtol=1e-5)
+
+
+def test_bec_head_is_unchanged_by_inversion():
+    """Inversion flips odd degrees of the input and leaves the 3×3 tensor
+    unchanged, including its antisymmetric (pseudovector) part."""
+    torch.manual_seed(0)
+    head = BornEffectiveChargeHead(3, 5, 2).double()
+    features = torch.randn(4, 9, 3, dtype=torch.float64)
+    parity = torch.tensor([1.0, -1, -1, -1, 1, 1, 1, 1, 1], dtype=torch.float64)
+    bec = head(features)
+    antisymmetric = bec - bec.transpose(1, 2)
+    assert antisymmetric.abs().max() > 1e-4
+    torch.testing.assert_close(head(features * parity[:, None]), bec)

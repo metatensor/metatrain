@@ -152,4 +152,4 @@ class TestE3xCompatUtilities:
 
     def test_cg_phase_correction_rejects_invalid_triple(self):
         with pytest.raises(ValueError):
-            e3x_compat.cg_phase_correction(1, 0, 0)  # l1+l2+L odd
+            e3x_compat.cg_phase_correction(1, 0, 0)  # L < |l1 - l2|

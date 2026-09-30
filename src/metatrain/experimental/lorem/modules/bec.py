@@ -2,8 +2,14 @@
 
 A per-atom 3×3 tensor from spherical features. The linear layers are
 per degree, with a bias only on ``ℓ = 0``. SiLU gates every component by
-the scalar channel, which is what keeps the head equivariant. Each
-structure is then shifted so its tensors sum to zero.
+the scalar channel, which is what keeps the head equivariant. The final
+coupling keeps the even-parity channel, so the antisymmetric part is a
+pseudovector and the tensor is unchanged by inversion. Each structure is
+then shifted so its tensors sum to zero.
+
+The Dense layers are chained (``Dense → silu → Dense → silu → Dense``).
+lorem-jax 0.1.0 feeds the input to all three instead, a bug to be fixed there
+(lab-cosmo/lorem-jax#38), so its BEC checkpoints give different charges here.
 """
 
 from typing import List
@@ -11,6 +17,7 @@ from typing import List
 import torch
 
 from .clebsch_gordan import ClebschGordanReal
+from .e3x_compat import cg_phase_correction
 from .tensor_dense import TensorDense, _DegreeWiseLinear
 
 
@@ -44,13 +51,17 @@ class BornEffectiveChargeHead(torch.nn.Module):
             out_features=1,
             in_max_degree=degree,
             out_max_degree=2,
-            include_pseudotensors=False,
+            use_bias=True,
+            even_parity=True,
         )
         cg = ClebschGordanReal()
         reconstruction = torch.zeros(3, 3, 9, dtype=torch.float64)
         offset = 0
         for ell in (0, 1, 2):
-            reconstruction[:, :, offset : offset + 2 * ell + 1] = cg.get((1, 1, ell))
+            # e3x's Clebsch-Gordan signs, so lorem-jax weights give the same tensor
+            reconstruction[:, :, offset : offset + 2 * ell + 1] = cg.get(
+                (1, 1, ell)
+            ) * cg_phase_correction(1, 1, ell)
             offset += 2 * ell + 1
         self.register_buffer(
             "cartesian_reconstruction", reconstruction.to(torch.float32)

@@ -1,39 +1,18 @@
 """Short-range and long-range modules of the LOREM model.
 
-Parameter names match a Flax LOREM checkpoint one-to-one, so
-:func:`.flax_checkpoint.load_checkpoint` can copy them across.
-Message passing is included when ``num_message_passing > 0``. Born
-effective charges live in :mod:`.bec`, on top of these features.
+They follow lorem-jax's ``Lorem`` / ``LoremBEC`` module for module, and
+attributes are named after the flax submodules they mirror (``dense1`` for a
+``Dense``, ``update0`` for an ``Update``, ...), so
+:func:`.flax_checkpoint.load_checkpoint` can copy lorem-jax parameters across.
+Born effective charges live in :mod:`.bec`, on top of these features.
 
-Flax name to attribute:
-
-================================  ===============================================
-flax module                       here
-================================  ===============================================
-``Initial_0/ChemicalEmbedding_0``  ``ShortRange.chemical_embedding``
-``Dense_0``                       ``ShortRange.dense0``
-``Dense_1``                       ``ShortRange.dense1``
-``RadialCoefficients_0/MLP_0``     ``ShortRange.radial_coefficients``
-``Update_0``                      ``ShortRange.update0``
-``Dense_2``                       ``ShortRange.dense2``
-``TensorDense_0``                  ``ShortRange.tensor_dense``
-``Update_1``                      ``ShortRange.update1``
-``MLP_0``                         ``ShortRange.energy_mlp``
-``MLP_1``                         ``LongRange.scalar_charge_mlp``
-``TensorDense_1``                  ``LongRange.spherical_charge_dense``
-``Dense_3``                       ``LongRange.potential_to_features``
-``Tensor_0``                      ``LongRange.potential_product``
-``Update_2``                      ``LongRange.update2``
-``MLP_2``                         ``LongRange.energy_mlp``
-================================  ===============================================
-
-Ewald ``smearing`` and ``kspace_resolution`` are not stored in the checkpoint.
-They are derived from the cutoff (``smearing = cutoff / 4``,
-``kspace_resolution`` from ``lr_wavelength = cutoff / 8``).
+Ewald ``smearing`` and ``kspace_resolution`` are not part of the model. They
+are derived from the cutoff (``cutoff / 4`` and ``cutoff / 8``), as lorem-jax
+does when it prepares a structure.
 """
 
 import math
-from typing import List, Tuple
+from typing import Final, List, Tuple
 
 import torch
 from metatomic.torch import NeighborListOptions, System
@@ -118,9 +97,12 @@ def _energy_mlp(features: int) -> torch.nn.Sequential:
 class _MessagePassingStep(torch.nn.Module):
     """One iteration of lorem-jax's message-passing loop.
 
-    Scalar messages always run. Equivariant messages run when
-    ``equivariant`` is true. Each step also adds its own energy residual.
+    Scalar messages always run. Equivariant messages, and the update that
+    folds their norms back into the scalars, run when ``equivariant`` is
+    true. Each step also adds its own energy residual.
     """
+
+    equivariant: Final[bool]
 
     def __init__(
         self,
@@ -151,7 +133,7 @@ class _MessagePassingStep(torch.nn.Module):
             self.message_pass = EquivariantMessagePass(
                 s, self.max_degree, include_pseudotensors=False
             )
-        self.update_norms = _Update(d, y_dim=num_l * s)
+            self.update_norms = _Update(d, y_dim=num_l * s)
         self.energy_mlp = _energy_mlp(d)
 
     def forward(
@@ -181,7 +163,7 @@ class _MessagePassingStep(torch.nn.Module):
             node_update.index_add_(0, centers, edge_update)
         nodes_scalar = self.update_edges(nodes_scalar, node_update)
 
-        if self.equivariant and n_edges > 0:
+        if self.equivariant:
             num_l = self.max_degree + 1
             coeff = self.coeff_dense(edges_scalar).reshape(
                 n_edges, num_l, self.num_spherical_features
@@ -191,9 +173,9 @@ class _MessagePassingStep(torch.nn.Module):
             nodes_spherical = self.message_pass(
                 nodes_spherical, edges_spherical, centers, neighbors
             )
+            norms = _degree_norms(nodes_spherical, self.max_degree)
+            nodes_scalar = self.update_norms(nodes_scalar, norms)
 
-        norms = _degree_norms(nodes_spherical, self.max_degree)
-        nodes_scalar = self.update_norms(nodes_scalar, norms)
         energy = self.energy_mlp(nodes_scalar).squeeze(-1)
         return nodes_scalar, nodes_spherical, energy
 
@@ -215,6 +197,7 @@ class ShortRange(torch.nn.Module):
         neighbor_list_options: NeighborListOptions,
         num_message_passing: int = 0,
         equivariant_message_passing: bool = True,
+        initialize_node_features: bool = True,
     ) -> None:
         super().__init__()
         self.cutoff = float(cutoff)
@@ -262,7 +245,11 @@ class ShortRange(torch.nn.Module):
         )
 
         # -- Dense_0 / Dense_1 --
-        self.dense0 = torch.nn.Linear(c, d, bias=True)
+        # lorem-jax starts the scalars from zero unless
+        # ``initialize_node_features``; an empty list keeps this TorchScript-able
+        self.dense0 = torch.nn.ModuleList(
+            [torch.nn.Linear(c, d, bias=True)] if initialize_node_features else []
+        )
         self.dense1 = torch.nn.Linear(d, d, bias=False)
         self.update0 = _Update(d, y_dim=d)
 
@@ -346,7 +333,9 @@ class ShortRange(torch.nn.Module):
         )
         edges_scalar = torch.einsum("prf,pr->pf", coefficients, radial)
 
-        nodes_scalar = self.dense0(species_embed)
+        nodes_scalar = species_embed.new_zeros((n_atoms, self.num_features))
+        for layer in self.dense0:
+            nodes_scalar = layer(species_embed)
         edge_update = self.dense1(edges_scalar)
         node_update = nodes_scalar.new_zeros((n_atoms, self.num_features))
         if edge_update.shape[0] > 0:

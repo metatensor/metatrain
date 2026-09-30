@@ -118,7 +118,15 @@ def _build_couplings(
     l2_max: int,
     out_max_degree: int,
     include_pseudotensors: bool,
+    even_parity: bool = False,
 ):
+    """Allowed ``(l1, l2, L)`` couplings of two proper spherical tensors.
+
+    By default the output of degree ``L`` has parity ``(-1)**L``. With
+    ``even_parity``, every output degree has parity ``+1`` instead (``l1 + l2``
+    even): e3x's even-parity channel when pseudotensors are included, which
+    makes the ``L = 1`` output a pseudovector.
+    """
     cg = get_cg_coefficients(max(l1_max, l2_max, out_max_degree))
     l1_list: List[int] = []
     l2_list: List[int] = []
@@ -127,7 +135,9 @@ def _build_couplings(
     for l1 in range(l1_max + 1):
         for l2 in range(l2_max + 1):
             for L in range(abs(l1 - l2), min(l1 + l2, out_max_degree) + 1):
-                if not include_pseudotensors and (l1 + l2 + L) % 2 != 0:
+                if even_parity and (l1 + l2) % 2 != 0:
+                    continue
+                if not (include_pseudotensors or even_parity) and (l1 + l2 + L) % 2:
                     continue
                 couplings.append(cg.get((l1, l2, L)).to(torch.float32))
                 l1_list.append(l1)
@@ -153,6 +163,7 @@ class TensorDense(_CGProduct):
         out_max_degree: int,
         include_pseudotensors: bool = False,
         use_bias: bool = False,
+        even_parity: bool = False,
     ) -> None:
         super().__init__()
         if in_max_degree < 0 or out_max_degree < 0:
@@ -182,6 +193,7 @@ class TensorDense(_CGProduct):
             self.in_max_degree,
             out_max_degree,
             include_pseudotensors,
+            even_parity,
         )
         self._init_couplings(
             couplings,

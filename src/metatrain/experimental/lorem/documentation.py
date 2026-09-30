@@ -85,6 +85,9 @@ class ModelHypers(TypedDict):
     equivariant_message_passing: bool = True
     """When message passing is on, also update the spherical features.
     Ignored when ``num_message_passing`` is 0."""
+    initialize_node_features: bool = True
+    """Start the scalar node features from a projection of the species
+    embedding. When false they start from zero, as in lorem-jax's ``LoremBEC``."""
 
 
 ##############################
