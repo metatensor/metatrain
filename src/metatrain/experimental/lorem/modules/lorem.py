@@ -1,7 +1,7 @@
 """Short-range and long-range modules of the LOREM model.
 
 Parameter names match a Flax LOREM checkpoint one-to-one, so
-:func:`.jax_parity_checkpoint.load_checkpoint` can copy them across.
+:func:`.flax_checkpoint.load_checkpoint` can copy them across.
 Message passing is included when ``num_message_passing > 0``. Born
 effective charges live in :mod:`.bec`, on top of these features.
 
@@ -10,21 +10,21 @@ Flax name to attribute:
 ================================  ===============================================
 flax module                       here
 ================================  ===============================================
-``Initial_0/ChemicalEmbedding_0``  ``JaxParityBackbone.chemical_embedding``
-``Dense_0``                       ``JaxParityBackbone.dense0``
-``Dense_1``                       ``JaxParityBackbone.dense1``
-``RadialCoefficients_0/MLP_0``     ``JaxParityBackbone.radial_coefficients``
-``Update_0``                      ``JaxParityBackbone.update0``
-``Dense_2``                       ``JaxParityBackbone.dense2``
-``TensorDense_0``                  ``JaxParityBackbone.tensor_dense``
-``Update_1``                      ``JaxParityBackbone.update1``
-``MLP_0``                         ``JaxParityBackbone.energy_mlp``
-``MLP_1``                         ``JaxParityLongRange.scalar_charge_mlp``
-``TensorDense_1``                  ``JaxParityLongRange.spherical_charge_dense``
-``Dense_3``                       ``JaxParityLongRange.potential_to_features``
-``Tensor_0``                      ``JaxParityLongRange.potential_product``
-``Update_2``                      ``JaxParityLongRange.update2``
-``MLP_2``                         ``JaxParityLongRange.energy_mlp``
+``Initial_0/ChemicalEmbedding_0``  ``ShortRange.chemical_embedding``
+``Dense_0``                       ``ShortRange.dense0``
+``Dense_1``                       ``ShortRange.dense1``
+``RadialCoefficients_0/MLP_0``     ``ShortRange.radial_coefficients``
+``Update_0``                      ``ShortRange.update0``
+``Dense_2``                       ``ShortRange.dense2``
+``TensorDense_0``                  ``ShortRange.tensor_dense``
+``Update_1``                      ``ShortRange.update1``
+``MLP_0``                         ``ShortRange.energy_mlp``
+``MLP_1``                         ``LongRange.scalar_charge_mlp``
+``TensorDense_1``                  ``LongRange.spherical_charge_dense``
+``Dense_3``                       ``LongRange.potential_to_features``
+``Tensor_0``                      ``LongRange.potential_product``
+``Update_2``                      ``LongRange.update2``
+``MLP_2``                         ``LongRange.energy_mlp``
 ================================  ===============================================
 
 Ewald ``smearing`` and ``kspace_resolution`` are not stored in the checkpoint.
@@ -73,7 +73,7 @@ def _degree_wise_repeat(x: torch.Tensor, max_degree: int) -> torch.Tensor:
     return torch.cat(parts, dim=1)
 
 
-class _JaxUpdate(torch.nn.Module):
+class _Update(torch.nn.Module):
     """Port of lorem-jax's ``Update``: two gated MLP + LayerNorm residuals.
 
     ``x`` is always the running scalar node features (width ``features``);
@@ -145,13 +145,13 @@ class _MessagePassingStep(torch.nn.Module):
             torch.nn.Linear(d, self.num_radial * d),
         )
         self.edge_dense = torch.nn.Linear(d, d, bias=False)
-        self.update_edges = _JaxUpdate(d, y_dim=d)
+        self.update_edges = _Update(d, y_dim=d)
         if self.equivariant:
             self.coeff_dense = torch.nn.Linear(d, num_l * s, bias=False)
             self.message_pass = EquivariantMessagePass(
                 s, self.max_degree, include_pseudotensors=False
             )
-        self.update_norms = _JaxUpdate(d, y_dim=num_l * s)
+        self.update_norms = _Update(d, y_dim=num_l * s)
         self.energy_mlp = _energy_mlp(d)
 
     def forward(
@@ -198,7 +198,7 @@ class _MessagePassingStep(torch.nn.Module):
         return nodes_scalar, nodes_spherical, energy
 
 
-class JaxParityBackbone(torch.nn.Module):
+class ShortRange(torch.nn.Module):
     """Short-range part of lorem-jax's ``Lorem``: the initial density, then
     ``num_message_passing`` message-passing steps. Each stage adds its own
     energy residual."""
@@ -264,7 +264,7 @@ class JaxParityBackbone(torch.nn.Module):
         # -- Dense_0 / Dense_1 --
         self.dense0 = torch.nn.Linear(c, d, bias=True)
         self.dense1 = torch.nn.Linear(d, d, bias=False)
-        self.update0 = _JaxUpdate(d, y_dim=d)
+        self.update0 = _Update(d, y_dim=d)
 
         # -- Dense_2 / TensorDense_0 --
         self.dense2 = torch.nn.Linear(d, num_l * s, bias=False)
@@ -275,7 +275,7 @@ class JaxParityBackbone(torch.nn.Module):
             out_max_degree=self.max_degree,
             include_pseudotensors=False,
         )
-        self.update1 = _JaxUpdate(d, y_dim=num_l * s)
+        self.update1 = _Update(d, y_dim=num_l * s)
 
         # -- MLP_0: SR-only energy contribution --
         self.energy_mlp = _energy_mlp(d)
@@ -388,7 +388,7 @@ class JaxParityBackbone(torch.nn.Module):
         return nodes_scalar, distances, nodes_spherical, sr_energy, snapshots
 
 
-class JaxParityLongRange(torch.nn.Module):
+class LongRange(torch.nn.Module):
     """Long-range part of lorem-jax's ``Lorem``: learned scalar and
     spherical charges, their Coulomb potentials (Ewald for periodic systems,
     direct 1/r over all pairs otherwise), and the update that mixes the
@@ -459,7 +459,7 @@ class JaxParityLongRange(torch.nn.Module):
             n_features=s,
         )
         n_update = 1 + (self.max_degree + 1) * s
-        self.update2 = _JaxUpdate(d, y_dim=n_update)
+        self.update2 = _Update(d, y_dim=n_update)
         self.energy_mlp = _energy_mlp(d)
 
     def _potentials(

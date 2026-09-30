@@ -28,7 +28,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 from . import checkpoints
 from .documentation import ModelHypers
 from .modules.bec import BecPredictor, apply_acoustic_sum_rule
-from .modules.jax_parity import JaxParityBackbone, JaxParityLongRange
+from .modules.lorem import LongRange, ShortRange
 
 
 def _tensor_map(values: torch.Tensor, samples: Labels, layout: TensorMap) -> TensorMap:
@@ -89,7 +89,7 @@ class LOREM(ModelInterface[ModelHypers]):
         # Ewald width follows the cutoff, the same way lorem-jax derives it
         # when it prepares a dataset: smearing = cutoff / 4, wavelength = cutoff / 8.
         cutoff = float(self.hypers["cutoff"])
-        self.sr = JaxParityBackbone(
+        self.sr = ShortRange(
             cutoff=cutoff,
             max_degree=max_degree,
             num_features=self.num_features,
@@ -103,7 +103,7 @@ class LOREM(ModelInterface[ModelHypers]):
                 self.hypers["equivariant_message_passing"]
             ),
         )
-        self.lr = JaxParityLongRange(
+        self.lr = LongRange(
             feature_dim=self.num_features,
             num_spherical_features=num_spherical,
             max_degree=max_degree,

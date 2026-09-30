@@ -1,8 +1,8 @@
-"""Copy a flat Flax parameter dict into :class:`JaxParityBackbone` and
-:class:`JaxParityLongRange`.
+"""Copy a flat Flax parameter dict into :class:`ShortRange` and
+:class:`LongRange`.
 
 The dict is ``{"path/to/leaf": array}``. No JAX import. Names follow the
-table in :mod:`.jax_parity`.
+table in :mod:`.lorem`.
 
 Two leaves are not a plain transpose:
 
@@ -19,7 +19,7 @@ import numpy as np
 import torch
 
 from .e3x_compat import cg_phase_correction
-from .jax_parity import JaxParityBackbone, JaxParityLongRange
+from .lorem import LongRange, ShortRange
 from .tensor_dense import _build_couplings
 
 
@@ -115,17 +115,17 @@ def _load_mlp2(
 
 
 def load_checkpoint(
-    backbone: JaxParityBackbone,
-    long_range: JaxParityLongRange,
+    backbone: ShortRange,
+    long_range: LongRange,
     flax: Mapping[str, Any],
 ) -> None:
     """Copy every leaf of a flattened lorem-jax checkpoint into ``backbone``
     and ``long_range``, in place.
 
-    :param backbone: A :class:`JaxParityBackbone` built with hypers matching
+    :param backbone: A :class:`ShortRange` built with hypers matching
         the checkpoint's ``model.yaml`` (``cutoff``, ``max_degree``,
         ``num_features``, ``num_radial``, ``num_spherical_features``).
-    :param long_range: The matching :class:`JaxParityLongRange`
+    :param long_range: The matching :class:`LongRange`
         (``max_degree_lr`` matching ``model.yaml``).
     :param flax: A flat mapping from flax parameter path (``/``-separated,
         no leading ``params/``) to array-like, e.g. produced by

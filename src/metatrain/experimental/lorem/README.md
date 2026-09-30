@@ -7,7 +7,7 @@ LOREM (*Learning Long-Range Representations with Equivariant Messages*,
 spherical model plus long-range Coulomb features from learned charges
 (`torch-pme`).
 
-- [`modules/jax_parity.py`](modules/jax_parity.py): short-range density
+- [`modules/lorem.py`](modules/lorem.py): short-range density
   (`sr`) and long-range Coulomb block (`lr`), including message passing
   when `num_message_passing > 0`. Long-range is always on.
 - [`modules/bec.py`](modules/bec.py): per-atom 3×3 Born effective charges,

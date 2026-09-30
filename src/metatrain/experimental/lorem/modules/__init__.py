@@ -1,13 +1,13 @@
 from .bec import BecPredictor, BornEffectiveChargeHead
-from .jax_parity import JaxParityBackbone, JaxParityLongRange
+from .lorem import LongRange, ShortRange
 from .tensor_dense import TensorDense, TensorProduct
 
 
 __all__ = [
     "BecPredictor",
     "BornEffectiveChargeHead",
-    "JaxParityBackbone",
-    "JaxParityLongRange",
+    "ShortRange",
+    "LongRange",
     "TensorDense",
     "TensorProduct",
 ]

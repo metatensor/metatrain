@@ -1,24 +1,20 @@
-"""``JaxParityBackbone`` / ``JaxParityLongRange`` and their checkpoint loader.
+"""``ShortRange`` / ``LongRange`` and the flax checkpoint loader.
 
-These do not require a real lorem-jax checkpoint or any JAX/flax install --
-the loader test builds a synthetic flax-shaped parameter tree by dumping a
-freshly-initialized model's own weights (inverting the exact transforms
+No JAX install is needed: the loader test dumps a freshly initialized
+model's weights into a flax-shaped parameter tree (inverting the transforms
 ``load_checkpoint`` applies) and checks that loading it into a second model
-reproduces the first model's parameters exactly. For validation against a
-real archive checkpoint, see
-``etc/lorem-parity/jax_checkpoint_parity/`` in the
-`metawork <https://github.com/EricBoittier/metawork>`_ workspace.
+reproduces the first model's parameters exactly.
 """
 
 import torch
 from metatomic.torch import NeighborListOptions, System
 
 from metatrain.experimental.lorem.modules.e3x_compat import cg_phase_correction
-from metatrain.experimental.lorem.modules.jax_parity import (
-    JaxParityBackbone,
-    JaxParityLongRange,
+from metatrain.experimental.lorem.modules.flax_checkpoint import load_checkpoint
+from metatrain.experimental.lorem.modules.lorem import (
+    LongRange,
+    ShortRange,
 )
-from metatrain.experimental.lorem.modules.jax_parity_checkpoint import load_checkpoint
 from metatrain.experimental.lorem.modules.tensor_dense import _build_couplings
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
@@ -39,7 +35,7 @@ def _nlo(**kwargs):
 def _build_pair(seed):
     torch.manual_seed(seed)
     nlo = _nlo()
-    backbone = JaxParityBackbone(
+    backbone = ShortRange(
         cutoff=CUTOFF,
         max_degree=MAX_DEGREE,
         num_features=NUM_FEATURES,
@@ -49,7 +45,7 @@ def _build_pair(seed):
         atomic_types=[1, 6],
         neighbor_list_options=nlo,
     ).double()
-    long_range = JaxParityLongRange(
+    long_range = LongRange(
         feature_dim=NUM_FEATURES,
         num_spherical_features=NUM_SPHERICAL_FEATURES,
         max_degree=MAX_DEGREE,
@@ -197,7 +193,7 @@ def _dump_to_flax(backbone, long_range):
     return flax
 
 
-def test_jax_parity_backbone_forward_shapes():
+def test_short_range_forward_shapes():
     backbone, _ = _build_pair(seed=0)
     system = get_system_with_neighbor_lists(_chain_system(pbc=False), [_nlo()])
     nodes_scalar, distances, nodes_spherical, sr_energy, _snapshots = backbone([system])
@@ -209,14 +205,14 @@ def test_jax_parity_backbone_forward_shapes():
     assert torch.isfinite(sr_energy).all()
 
 
-def test_jax_parity_long_range_has_no_exclusion_radius():
+def test_long_range_has_no_exclusion_radius():
     """lorem-jax builds Ewald with ``exclusion_radius=None``."""
     _, long_range = _build_pair(seed=0)
     assert long_range.ewald_calculator.potential.exclusion_radius is None
     assert long_range.direct_calculator.potential.exclusion_radius is None
 
 
-def test_jax_parity_long_range_periodic_forward():
+def test_long_range_periodic_forward():
     backbone, long_range = _build_pair(seed=1)
     nlo = _nlo()
     system = get_system_with_neighbor_lists(_chain_system(pbc=True), [nlo])
@@ -226,7 +222,7 @@ def test_jax_parity_long_range_periodic_forward():
     assert torch.isfinite(lr_energy).all()
 
 
-def test_jax_parity_long_range_nonperiodic_forward():
+def test_long_range_nonperiodic_forward():
     backbone, long_range = _build_pair(seed=2)
     nlo = _nlo()
     system = get_system_with_neighbor_lists(_chain_system(pbc=False), [nlo])
@@ -236,7 +232,7 @@ def test_jax_parity_long_range_nonperiodic_forward():
     assert torch.isfinite(lr_energy).all()
 
 
-def test_jax_parity_energy_and_forces_are_finite():
+def test_energy_and_forces_are_finite():
     backbone, long_range = _build_pair(seed=3)
     nlo = _nlo()
     system = _chain_system(pbc=True)
@@ -250,7 +246,7 @@ def test_jax_parity_energy_and_forces_are_finite():
     assert torch.isfinite(forces).all()
 
 
-def test_jax_parity_checkpoint_loader_round_trips():
+def test_flax_checkpoint_loader_round_trips():
     source_backbone, source_long_range = _build_pair(seed=42)
     flax = _dump_to_flax(source_backbone, source_long_range)
 

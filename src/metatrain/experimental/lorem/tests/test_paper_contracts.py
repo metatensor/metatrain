@@ -25,7 +25,7 @@ from metatrain.experimental.lorem.modules.clebsch_gordan import (
     cg_combine_features,
 )
 from metatrain.experimental.lorem.modules.harmonics import _degree_norms
-from metatrain.experimental.lorem.modules.jax_parity import _e3x_cosine_cutoff
+from metatrain.experimental.lorem.modules.lorem import _e3x_cosine_cutoff
 from metatrain.utils.architectures import get_default_hypers
 
 from . import MODEL_HYPERS
