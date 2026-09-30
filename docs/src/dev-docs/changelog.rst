@@ -44,6 +44,8 @@ Fixed
   penalising them with ``log(1e-15)``.
 - SPACE now creates the property labels of the ``feature`` output on the device of the
   systems.
+- Continuing training from a SPACE checkpoint fine-tuned with ``inherit_heads`` no
+  longer copies the inherited weights again.
 - SPACE's per-block validation errors (``log_separate_blocks``) are now correct for
   atomic-basis targets.
 
