@@ -584,7 +584,12 @@ class SPACE(ModelInterface[ModelHypers]):
         # dict, since it can change the set of parameters (LoRA injects layers).
         finetune_config = model_state_dict.pop("finetune_config", {})
         if finetune_config:
-            model = apply_finetuning_strategy(model, finetune_config)
+            # ``inherit_heads`` is skipped here: it is a one-time weight-copy
+            # initialization step that already ran when finetuning first started,
+            # and by now its source target may have been pruned as stale.
+            model = apply_finetuning_strategy(
+                model, finetune_config, apply_inherit_heads=False
+            )
         state_dict_iterator = iter(model_state_dict.values())
         next(state_dict_iterator)  # skip an int tensor
         next(state_dict_iterator)  # skip another int tensor
