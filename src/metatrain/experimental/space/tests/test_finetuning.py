@@ -253,13 +253,8 @@ def _finetune_strategy(method, read_from=None, inherit_heads=None):
 
 
 def _two_target_setup():
-    """A model carrying both an ``"energy"`` and an ``"mtt::U0"`` head, plus the
-    dataset info of a run that only trains on ``"mtt::U0"``, leaving ``"energy"``
-    stale.
-
-    SPACE's ``restart`` cannot grow a head for a target the model was not built
-    with, so both heads have to exist from the start -- unlike PET, where the
-    equivalent setup adds the second target on restart."""
+    """A model pre-trained on ``"energy"``, plus the dataset info of a run that only
+    trains on a second, unrelated ``"mtt::U0"`` target, leaving ``"energy"`` stale."""
     targets = {
         name: get_energy_target_info(name, {"quantity": "energy", "unit": "eV"})
         for name in ("energy", "mtt::U0")
@@ -267,7 +262,11 @@ def _two_target_setup():
     trainer = Trainer(DEFAULT_HYPERS["training"])
     model = trainer.setup(
         MODEL_HYPERS,
-        DatasetInfo(length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets),
+        DatasetInfo(
+            length_unit="Angstrom",
+            atomic_types=[1, 6, 7, 8],
+            targets={"energy": targets["energy"]},
+        ),
     )
     new_dataset_info = DatasetInfo(
         length_unit="Angstrom",
@@ -335,11 +334,15 @@ def test_finetune_full_lora_prunes_stale_targets(method):
 
 
 def test_finetune_full_inherit_heads_then_prunes_source_target():
-    """``inherit_heads`` can copy weights from a stale target's head into the new
-    target's head; the stale target is only removed afterwards."""
+    """``inherit_heads`` can copy weights from a stale target's head into the head
+    that ``restart`` grew for the new target; the stale target is only removed
+    afterwards."""
     model, trainer, new_dataset_info = _two_target_setup()
 
     trainer.restart(model, new_dataset_info, {})
+    source_params = {
+        name: param.clone() for name, param in _target_params(model, "energy").items()
+    }
     apply_finetuning_strategy(
         model,
         _finetune_strategy("full", inherit_heads={"mtt::U0": "energy"}),
@@ -348,6 +351,10 @@ def test_finetune_full_inherit_heads_then_prunes_source_target():
 
     _assert_target_absent(model, "energy")
     _assert_target_present(model, "mtt::U0")
+    inherited = _target_params(model, "mtt::U0")
+    assert len(inherited) == len(source_params)
+    for name, param in source_params.items():
+        assert torch.equal(inherited[name.replace("energy", "mtt::U0")], param)
 
 
 def test_finetune_heads_keeps_stale_targets():
@@ -398,9 +405,8 @@ def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path
         OmegaConf.resolve(loss_conf)
         return loss_conf
 
-    # Both heads have to exist up front: SPACE's ``restart`` cannot grow a head
-    # for a target the model was not built with, so ``inherit_heads`` can only
-    # ever copy between targets that are already there.
+    # Both targets are pre-trained, so that the finetuning run below trains
+    # "mtt::U0" from a source head that actually holds trained weights.
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
