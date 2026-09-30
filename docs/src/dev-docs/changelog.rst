@@ -44,6 +44,8 @@ Fixed
   penalising them with ``log(1e-15)``.
 - SPACE now creates the property labels of the ``feature`` output on the device of the
   systems.
+- SPACE no longer re-applies ``inherit_heads`` when reloading a fine-tuned
+  checkpoint.
 - SPACE's per-block validation metrics are now computed on the reverse-transformed
   predictions and targets.
 
