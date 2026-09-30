@@ -1,30 +1,16 @@
-"""Load a shipped ``lorem-jax`` flax checkpoint into :class:`JaxParityBackbone`
-/ :class:`JaxParityLongRange`, leaf by leaf.
+"""Copy a flat Flax parameter dict into :class:`JaxParityBackbone` and
+:class:`JaxParityLongRange`.
 
-Unlike :func:`~metatrain.experimental.lorem.flax_io.apply_flax_params` (which
-shape-matches leaves heuristically, for best-effort warm-starting of the
-*default* ``experimental.lorem`` architecture), this module assumes the exact
-1:1 correspondence documented in :mod:`.jax_parity`'s module docstring and
-copies every leaf explicitly. No JAX or flax import is needed here: the
-checkpoint's parameter tree must already be a flat ``{"path/to/leaf": array}``
-mapping of array-likes (e.g. read via ``flax.serialization.msgpack_restore``
-in a separate JAX environment, then flattened and saved to a plain ``.npz`` --
-see ``etc/lorem-parity/jax_checkpoint_parity/`` in the
-`metawork <https://github.com/EricBoittier/metawork>`_ workspace for a
-worked example, including the JAX-side dump script).
+The dict is ``{"path/to/leaf": array}``. No JAX import. Names follow the
+table in :mod:`.jax_parity`.
 
-Two pieces of the transfer need more than a reshape/transpose:
+Two leaves are not a plain transpose:
 
-- The Clebsch-Gordan ``tensor_weight`` (:class:`.tensor_dense.TensorDense` /
-  :class:`.tensor_dense.TensorProduct`): flax stores a dense
-  ``(l1_max + 1, l2_max + 1, out_max + 1, channels)`` grid (including entries
-  for invalid ``(l1, l2, L)`` triples); this port only stores the valid
-  triples, in :func:`~.tensor_dense._build_couplings` order, each phase
-  -corrected from e3x's CG convention to this codebase's own
-  (:func:`~.e3x_compat.cg_phase_correction`).
-- ``e3x.nn.Dense`` (:class:`.tensor_dense._DegreeWiseLinear`): one weight
-  matrix *per degree*, stored under flax names like ``.../0+/kernel``,
-  ``.../1-/kernel``, alternating ``+``/``-`` parity suffixes by degree parity.
+- Clebsch-Gordan weights are stored on a dense ``(l1, l2, L)`` grid in Flax,
+  including invalid triples. Here only the valid triples are kept, in
+  ``_build_couplings`` order, with :func:`~.e3x_compat.cg_phase_correction`.
+- Each degree has its own weight matrix, under names like ``.../0+/kernel``
+  and ``.../1-/kernel``.
 """
 
 from typing import Any, Mapping

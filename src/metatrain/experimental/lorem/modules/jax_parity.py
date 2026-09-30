@@ -1,25 +1,11 @@
-"""A ``trunk``/long-range pair that mirrors ``lorem-jax``'s ``lorem.Lorem``
-forward pass module-for-module, so a shipped ``lorem-jax`` flax checkpoint
-has an exact 1:1 home for every learned weight.
+"""Short-range and long-range modules of the LOREM model.
 
-This is deliberately a *separate* pair of modules from
-:class:`~metatrain.experimental.lorem.modules.backbone.LoremBackbone` and
-:class:`~metatrain.experimental.lorem.modules.long_range.LoremLongRangeFeaturizer`.
-Those two already reorganize lorem-jax's computation (a fused
-``feature_mlp`` in place of lorem-jax's separate species-embedding /
-``RadialCoefficients`` / ``Dense_0`` / ``Dense_1`` path, a single shared
-``Linear`` in place of ``e3x.nn.Dense``'s per-degree weights, and a single
-final linear readout in place of two summed energy MLPs) -- real design
-choices, not bugs, and existing models/tests depend on that shape. Rather
-than risk either, this module gives checkpoint parity its own home.
+Parameter names match a Flax LOREM checkpoint one-to-one, so
+:func:`.jax_parity_checkpoint.load_checkpoint` can copy them across.
+Message passing is included when ``num_message_passing > 0``. Born
+effective charges live in :mod:`.bec`, on top of these features.
 
-Traced directly against ``lorem.models.mlip.Lorem.__call__`` and
-``lorem.models.backbone`` (``lorem-jax`` submodule, ``lr=True``,
-``num_message_passing=0`` -- the configuration every shipped
-``lorem-tmlr-archive`` LOREM checkpoint besides the message-passing variants
-uses) and verified module-by-module against a real checkpoint's flax
-parameter tree (``evals/AuMgO/lorem`` from
-https://github.com/sirmarcel/lorem-tmlr-archive), leaf name for leaf name:
+Flax name to attribute:
 
 ================================  ===============================================
 flax module                       here
@@ -32,47 +18,18 @@ flax module                       here
 ``Dense_2``                       ``JaxParityBackbone.dense2``
 ``TensorDense_0``                  ``JaxParityBackbone.tensor_dense``
 ``Update_1``                      ``JaxParityBackbone.update1``
-``MLP_0``                         ``JaxParityBackbone.energy_mlp`` (SR-only energy)
+``MLP_0``                         ``JaxParityBackbone.energy_mlp``
 ``MLP_1``                         ``JaxParityLongRange.scalar_charge_mlp``
 ``TensorDense_1``                  ``JaxParityLongRange.spherical_charge_dense``
 ``Dense_3``                       ``JaxParityLongRange.potential_to_features``
 ``Tensor_0``                      ``JaxParityLongRange.potential_product``
 ``Update_2``                      ``JaxParityLongRange.update2``
-``MLP_2``                         ``JaxParityLongRange.energy_mlp`` (LR energy)
+``MLP_2``                         ``JaxParityLongRange.energy_mlp``
 ================================  ===============================================
 
-Scope: ``trunk="spherical"``-equivalent short-range descriptor, ``lr=True``,
-``num_message_passing=0``, Ewald (periodic systems) and the plain-pairwise
-non-PBC path. lorem-jax's message passing loop and ``LoremBEC`` head are not
-covered here.
-
-See :mod:`.jax_parity_checkpoint` for the checkpoint loader, and
-``etc/lorem-parity/jax_checkpoint_parity/`` in the
-`metawork <https://github.com/EricBoittier/metawork>`_ workspace for a
-worked example (dumping a real ``lorem-tmlr-archive`` checkpoint from JAX,
-loading it here, and comparing energies/forces against the JAX reference).
-Checked against two real periodic checkpoints (AuMgO, bio_dimers): total
-energy and forces agree with the JAX reference to ~1e-4 relative or better
-(float32 noise floor), matching the paper's own reported test-set accuracy
-on both. An earlier version of this module set the Ewald calculator's
-``exclusion_radius`` to the model's short-range cutoff (copied from the
-*production* ``LoremLongRangeFeaturizer``, which deliberately restructures
-that split); lorem-jax's own ``Ewald()`` factory
-(``jaxpme.batched_mixed.calculators``) always builds its potential with
-``exclusion_radius=None`` -- plain, unmodified Ewald, no short-range
-exclusion zone. That one argument was the entire source of what looked
-like a torch-pme-vs-jax-pme numerics gap (~0.7 meV/atom on AuMgO, much
-larger on bio_dimers) but wasn't -- see the worked example's README for the
-full investigation and how it was found (a from-scratch analytic Madelung
--constant check proved both libraries individually correct before the real
-cause -- one wrong constructor argument -- turned up).
-
-Ewald ``smearing``/``kspace_resolution`` are *not* read from a checkpoint's
-``model.yaml`` (lorem-jax's own ``marathon.prepare()`` derives them from the
-model's ``cutoff`` at data-prep time: ``smearing = cutoff / 4``,
-``lr_wavelength = cutoff / 8``) -- pass those derived values, not a
-``torchpme.tuning.ewald.tune_ewald`` guess, when reproducing a real
-checkpoint's numbers; the worked example does this.
+Ewald ``smearing`` and ``kspace_resolution`` are not stored in the checkpoint.
+They are derived from the cutoff (``smearing = cutoff / 4``,
+``kspace_resolution`` from ``lr_wavelength = cutoff / 8``).
 """
 
 import math
@@ -81,18 +38,25 @@ from typing import List, Tuple
 import torch
 from metatomic.torch import NeighborListOptions, System
 
-from .backbone import _AnalyticSphericalHarmonics, _degree_norms, _SphericartWrapper
+from .harmonics import (
+    _AnalyticSphericalHarmonics,
+    _degree_norms,
+    _SphericartWrapper,
+)
 from .radial import bernstein_basis, binomial_row
 from .spherical import to_racah
 from .structures import concatenate_structures
-from .tensor_dense import TensorDense, TensorProduct, _DegreeWiseLinear
+from .tensor_dense import (
+    EquivariantMessagePass,
+    TensorDense,
+    TensorProduct,
+    _DegreeWiseLinear,
+)
 
 
 def _e3x_cosine_cutoff(r: torch.Tensor, cutoff: float) -> torch.Tensor:
-    """``e3x.nn.functions.cosine_cutoff``: ``0.5 * (cos(pi r / cutoff) + 1)``
-    for ``r < cutoff``, else ``0``. No onset/width -- unlike
-    :func:`.backbone._cosine_cutoff`, which adds a ``cutoff_width`` hyper
-    lorem-jax does not have.
+    """``e3x`` cosine cutoff: ``0.5 * (cos(pi r / cutoff) + 1)`` for
+    ``r < cutoff``, else ``0``.
     """
     inside = (r < cutoff).to(r.dtype)
     return 0.5 * (torch.cos(math.pi * r / cutoff) + 1.0) * inside
@@ -141,8 +105,7 @@ class _JaxUpdate(torch.nn.Module):
 
 
 def _energy_mlp(features: int) -> torch.nn.Sequential:
-    """lorem-jax's ``MLP(features=[d, d, 1])``: three Dense layers, SiLU
-    between (not after the last) -- used for both ``MLP_0`` and ``MLP_2``."""
+    """Three linear layers, SiLU between them, one output per atom."""
     return torch.nn.Sequential(
         torch.nn.Linear(features, features),
         torch.nn.SiLU(),
@@ -150,6 +113,89 @@ def _energy_mlp(features: int) -> torch.nn.Sequential:
         torch.nn.SiLU(),
         torch.nn.Linear(features, 1),
     )
+
+
+class _MessagePassingStep(torch.nn.Module):
+    """One iteration of lorem-jax's message-passing loop.
+
+    Scalar messages always run. Equivariant messages run when
+    ``equivariant`` is true. Each step also adds its own energy residual.
+    """
+
+    def __init__(
+        self,
+        num_features: int,
+        num_radial: int,
+        num_spherical_features: int,
+        max_degree: int,
+        equivariant: bool,
+    ) -> None:
+        super().__init__()
+        self.num_features = int(num_features)
+        self.num_radial = int(num_radial)
+        self.num_spherical_features = int(num_spherical_features)
+        self.max_degree = int(max_degree)
+        self.equivariant = bool(equivariant)
+        d = self.num_features
+        s = self.num_spherical_features
+        num_l = self.max_degree + 1
+        self.radial_coefficients = torch.nn.Sequential(
+            torch.nn.Linear(2 * d, d),
+            torch.nn.SiLU(),
+            torch.nn.Linear(d, self.num_radial * d),
+        )
+        self.edge_dense = torch.nn.Linear(d, d, bias=False)
+        self.update_edges = _JaxUpdate(d, y_dim=d)
+        if self.equivariant:
+            self.coeff_dense = torch.nn.Linear(d, num_l * s, bias=False)
+            self.message_pass = EquivariantMessagePass(
+                s, self.max_degree, include_pseudotensors=False
+            )
+        self.update_norms = _JaxUpdate(d, y_dim=num_l * s)
+        self.energy_mlp = _energy_mlp(d)
+
+    def forward(
+        self,
+        nodes_scalar: torch.Tensor,
+        nodes_spherical: torch.Tensor,
+        radial: torch.Tensor,
+        sh: torch.Tensor,
+        centers: torch.Tensor,
+        neighbors: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        n_atoms = nodes_scalar.shape[0]
+        n_edges = radial.shape[0]
+        d = self.num_features
+        if n_edges == 0:
+            edges_scalar = nodes_scalar.new_zeros((0, d))
+        else:
+            pair = torch.cat([nodes_scalar[centers], nodes_scalar[neighbors]], dim=-1)
+            coefficients = self.radial_coefficients(pair).reshape(
+                n_edges, self.num_radial, d
+            )
+            edges_scalar = torch.einsum("prf,pr->pf", coefficients, radial)
+
+        edge_update = self.edge_dense(edges_scalar)
+        node_update = nodes_scalar.new_zeros((n_atoms, d))
+        if edge_update.shape[0] > 0:
+            node_update.index_add_(0, centers, edge_update)
+        nodes_scalar = self.update_edges(nodes_scalar, node_update)
+
+        if self.equivariant and n_edges > 0:
+            num_l = self.max_degree + 1
+            coeff = self.coeff_dense(edges_scalar).reshape(
+                n_edges, num_l, self.num_spherical_features
+            )
+            coeff = _degree_wise_repeat(coeff, self.max_degree)
+            edges_spherical = coeff * sh.unsqueeze(-1)
+            nodes_spherical = self.message_pass(
+                nodes_spherical, edges_spherical, centers, neighbors
+            )
+
+        norms = _degree_norms(nodes_spherical, self.max_degree)
+        nodes_scalar = self.update_norms(nodes_scalar, norms)
+        energy = self.energy_mlp(nodes_scalar).squeeze(-1)
+        return nodes_scalar, nodes_spherical, energy
 
 
 class JaxParityBackbone(torch.nn.Module):
@@ -167,6 +213,8 @@ class JaxParityBackbone(torch.nn.Module):
         num_species: int,
         atomic_types: List[int],
         neighbor_list_options: NeighborListOptions,
+        num_message_passing: int = 0,
+        equivariant_message_passing: bool = True,
     ) -> None:
         super().__init__()
         self.cutoff = float(cutoff)
@@ -176,6 +224,8 @@ class JaxParityBackbone(torch.nn.Module):
         self.num_spherical_features = int(num_spherical_features)
         self.num_species = int(num_species)
         self.neighbor_list_options = neighbor_list_options
+        self.num_message_passing = int(num_message_passing)
+        self.equivariant_message_passing = bool(equivariant_message_passing)
         del atomic_types  # species are embedded directly by atomic number
 
         d = self.num_features
@@ -229,10 +279,22 @@ class JaxParityBackbone(torch.nn.Module):
 
         # -- MLP_0: SR-only energy contribution --
         self.energy_mlp = _energy_mlp(d)
+        self.message_passing = torch.nn.ModuleList(
+            [
+                _MessagePassingStep(
+                    d,
+                    self.num_radial,
+                    s,
+                    self.max_degree,
+                    self.equivariant_message_passing,
+                )
+                for _ in range(self.num_message_passing)
+            ]
+        )
 
     def forward(
         self, systems: List[System]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         (
             positions,
             centers,
@@ -313,8 +375,20 @@ class JaxParityBackbone(torch.nn.Module):
         nodes_scalar = self.update1(nodes_scalar, norms)
 
         sr_energy = self.energy_mlp(nodes_scalar).squeeze(-1)
+        snapshots = nodes_spherical.unsqueeze(0)
+        for step in self.message_passing:
+            nodes_scalar, nodes_spherical, step_energy = step(
+                nodes_scalar,
+                nodes_spherical,
+                radial,
+                sh,
+                centers,
+                neighbors,
+            )
+            sr_energy = sr_energy + step_energy
+            snapshots = torch.cat([snapshots, nodes_spherical.unsqueeze(0)], dim=0)
 
-        return nodes_scalar, distances, nodes_spherical, sr_energy
+        return nodes_scalar, distances, nodes_spherical, sr_energy, snapshots
 
 
 class JaxParityLongRange(torch.nn.Module):
@@ -340,17 +414,8 @@ class JaxParityLongRange(torch.nn.Module):
         self.max_degree_lr = int(max_degree_lr)
         self.neighbor_list_options = neighbor_list_options
 
-        # lorem-jax's own ``Ewald()`` factory (jaxpme.batched_mixed.calculators)
-        # builds its potential with ``exclusion_radius=None`` -- plain,
-        # unmodified Ewald, no short-range exclusion zone. An earlier version
-        # of this module set ``exclusion_radius=neighbor_list_options.cutoff``
-        # here, copied from the *production* ``LoremLongRangeFeaturizer``
-        # (which deliberately restructures the split, see that class's
-        # docstring) -- for this exact-parity port that was simply wrong, and
-        # was the entire source of a ~0.7 meV/atom energy discrepancy against
-        # a real checkpoint that looked like a torch-pme/jax-pme numerics gap
-        # but wasn't: with ``exclusion_radius=None``, the two potentials
-        # agree to ~1e-5 (float32 noise), not ~30% off.
+        # lorem-jax's ``Ewald()`` factory builds the potential with
+        # ``exclusion_radius=None``: plain Ewald, no short-range exclusion.
         self.ewald_calculator = EwaldCalculator(
             potential=CoulombPotential(
                 smearing=float(smearing),
@@ -457,17 +522,22 @@ class JaxParityLongRange(torch.nn.Module):
                 )
         return torch.cat(potentials, dim=0)
 
+    def charges(
+        self, nodes_scalar: torch.Tensor, nodes_spherical: torch.Tensor
+    ) -> torch.Tensor:
+        """Scalar charge plus one channel per ``(ℓ, m)`` up to ``max_degree_lr``."""
+        scalar_charges = self.scalar_charge_mlp(nodes_scalar)
+        spherical_charges = self.spherical_charge_dense(nodes_spherical)[:, :, 0]
+        return torch.cat([scalar_charges, spherical_charges], dim=-1)
+
     def forward(
         self,
         systems: List[System],
         nodes_scalar: torch.Tensor,
         neighbor_distances: torch.Tensor,
         nodes_spherical: torch.Tensor,
-    ) -> torch.Tensor:
-        scalar_charges = self.scalar_charge_mlp(nodes_scalar)
-        spherical_charges = self.spherical_charge_dense(nodes_spherical)[:, :, 0]
-        charges = torch.cat([scalar_charges, spherical_charges], dim=-1)
-
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        charges = self.charges(nodes_scalar, nodes_spherical)
         potentials = self._potentials(systems, charges, neighbor_distances)
         scalar_potential = potentials[:, 0:1]
         spherical_potential = self.potential_to_features(
@@ -479,4 +549,4 @@ class JaxParityLongRange(torch.nn.Module):
         updates = torch.cat([scalar_potential, norms], dim=-1)
         nodes_scalar = self.update2(nodes_scalar, updates)
 
-        return self.energy_mlp(nodes_scalar).squeeze(-1)
+        return self.energy_mlp(nodes_scalar).squeeze(-1), spherical_updates

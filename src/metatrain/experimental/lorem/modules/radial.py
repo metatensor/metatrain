@@ -1,10 +1,7 @@
-"""Radial bases used by the short-range density.
+"""Bernstein radial basis used by the short-range density.
 
-``basic_bernstein`` matches e3x / lorem-jax ``RadialEmbedding`` (no learnable
-weights). ``bessel`` is the original experimental.lorem sinc basis.
+This is e3x / lorem-jax ``basic_bernstein`` (no learnable weights).
 """
-
-import math
 
 import torch
 
@@ -17,13 +14,6 @@ def binomial_row(num: int) -> torch.Tensor:
     for k in range(1, num):
         coeffs[k] = coeffs[k - 1] * float(num - k) / float(k)
     return coeffs
-
-
-def bessel_basis(r: torch.Tensor, n_radial: int, cutoff: float) -> torch.Tensor:
-    """Sinc Bessel radial basis of shape ``(n_edges, n_radial)``."""
-    n = torch.arange(1, n_radial + 1, device=r.device, dtype=r.dtype)
-    r_safe = torch.clamp(r, min=1.0e-8).unsqueeze(-1)
-    return math.sqrt(2.0 / cutoff) * torch.sin(n * math.pi * r_safe / cutoff) / r_safe
 
 
 def bernstein_basis(

@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Literal, Mapping, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
 import torch
@@ -27,11 +27,24 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .documentation import ModelHypers
-from .flax_io import apply_flax_params
-from .modules.backbone import LoremBackbone
-from .modules.bec import BornEffectiveChargeHead, apply_acoustic_sum_rule
-from .modules.long_range import LoremLongRangeFeaturizer
-from .modules.pet_trunk import PetTrunk
+from .modules.bec import BecPredictor, apply_acoustic_sum_rule
+from .modules.jax_parity import JaxParityBackbone, JaxParityLongRange
+
+
+def _tensor_map(values: torch.Tensor, samples: Labels, layout: TensorMap) -> TensorMap:
+    """Build one output block from raw values and the target's layout."""
+    block = layout.block(0)
+    return TensorMap(
+        keys=layout.keys,
+        blocks=[
+            TensorBlock(
+                values=values,
+                samples=samples,
+                components=block.components,
+                properties=block.properties,
+            )
+        ],
+    )
 
 
 class LOREM(ModelInterface[ModelHypers]):
@@ -50,9 +63,8 @@ class LOREM(ModelInterface[ModelHypers]):
         }
     )
 
-    component_labels: Dict[str, List[List[Labels]]]
+    layouts: Dict[str, TensorMap]
     bec_targets: List[str]
-    dipole_targets: List[str]
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -65,48 +77,46 @@ class LOREM(ModelInterface[ModelHypers]):
             full_list=True,
             strict=True,
         )
-        # Top-level module scopes: short-range trunk is ``sr``, long-range is ``lr``.
-        trunk = str(self.hypers["trunk"]) if "trunk" in self.hypers else "spherical"
-        if trunk == "pet":
-            self.sr = PetTrunk(
-                dict(self.hypers),
-                self.atomic_types,
-                self.requested_nl,
-            )
-        else:
-            self.sr = LoremBackbone(
-                dict(self.hypers),
-                self.atomic_types,
-                self.requested_nl,
-            )
         self.num_features = int(self.hypers["num_features"])
         self.max_degree_lr = int(self.hypers["max_degree_lr"])
-        if self.max_degree_lr > int(self.hypers["max_degree"]):
+        max_degree = int(self.hypers["max_degree"])
+        if self.max_degree_lr > max_degree:
             raise ValueError(
                 f"max_degree_lr ({self.max_degree_lr}) cannot exceed "
-                f"max_degree ({self.hypers['max_degree']})."
+                f"max_degree ({max_degree})."
             )
-
-        self.lr = LoremLongRangeFeaturizer(
-            self.hypers["long_range"],
-            self.num_features,
-            int(self.hypers["num_spherical_features"]),
-            int(self.hypers["max_degree"]),
-            self.max_degree_lr,
-            self.requested_nl,
+        num_spherical = int(self.hypers["num_spherical_features"])
+        # Ewald width follows the cutoff, the same way lorem-jax derives it
+        # when it prepares a dataset: smearing = cutoff / 4, wavelength = cutoff / 8.
+        cutoff = float(self.hypers["cutoff"])
+        self.sr = JaxParityBackbone(
+            cutoff=cutoff,
+            max_degree=max_degree,
+            num_features=self.num_features,
+            num_radial=int(self.hypers["num_radial"]),
+            num_spherical_features=num_spherical,
+            num_species=int(self.hypers["num_species"]),
+            atomic_types=self.atomic_types,
+            neighbor_list_options=self.requested_nl,
+            num_message_passing=int(self.hypers["num_message_passing"]),
+            equivariant_message_passing=bool(
+                self.hypers["equivariant_message_passing"]
+            ),
+        )
+        self.lr = JaxParityLongRange(
+            feature_dim=self.num_features,
+            num_spherical_features=num_spherical,
+            max_degree=max_degree,
+            max_degree_lr=self.max_degree_lr,
+            neighbor_list_options=self.requested_nl,
+            smearing=cutoff / 4.0,
+            kspace_resolution=cutoff / 8.0,
         )
 
         self.outputs: Dict[str, ModelOutput] = {}
-        self.readouts = torch.nn.ModuleDict({})
         self.bec_heads = torch.nn.ModuleDict({})
         self.bec_targets = []
-        self.dipole_heads = torch.nn.ModuleDict({})
-        self.dipole_targets = []
-        self.single_label = Labels.single()
-        self.num_properties: Dict[str, Dict[str, int]] = {}
-        self.key_labels: Dict[str, Labels] = {}
-        self.component_labels = {}
-        self.property_labels: Dict[str, List[Labels]] = {}
+        self.layouts: Dict[str, TensorMap] = {}
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
 
@@ -119,35 +129,19 @@ class LOREM(ModelInterface[ModelHypers]):
         self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
     def _add_output(self, target_name: str, target: TargetInfo) -> None:
+        self.layouts[target_name] = target.layout
         n_properties = len(target.layout.block().properties)
-        self.num_properties[target_name] = {"default": n_properties}
-        self.key_labels[target_name] = target.layout.keys
-        self.component_labels[target_name] = [
-            block.components for block in target.layout.blocks()
-        ]
-        self.property_labels[target_name] = [
-            block.properties for block in target.layout.blocks()
-        ]
         self.outputs[target_name] = ModelOutput(
             unit=target.unit,
             sample_kind="atom",
             description=target.description,
         )
         if target.is_scalar:
-            self.readouts[target_name] = torch.nn.Linear(
-                self.num_features, n_properties
-            )
-            return
-        if target.is_cartesian and len(target.layout.block().components) == 1:
-            self.outputs[target_name] = ModelOutput(
-                unit=target.unit,
-                sample_kind=target.sample_kind,
-                description=target.description,
-            )
-            self.dipole_targets.append(target_name)
-            self.dipole_heads[target_name] = torch.nn.Linear(
-                self.num_features, n_properties
-            )
+            if n_properties != 1:
+                raise ValueError(
+                    "LOREM's energy head has one output. "
+                    f"Target '{target_name}' has {n_properties} properties."
+                )
             return
         if (
             target.is_cartesian
@@ -160,15 +154,16 @@ class LOREM(ModelInterface[ModelHypers]):
                     f"max_degree >= 2, got {self.hypers['max_degree']}."
                 )
             self.bec_targets.append(target_name)
-            self.bec_heads[target_name] = BornEffectiveChargeHead(
-                int(self.hypers["num_spherical_features"]),
-                int(self.hypers["max_degree"]),
+            self.bec_heads[target_name] = BecPredictor(
+                n_stages=1 + int(self.hypers["num_message_passing"]),
+                in_features=int(self.hypers["num_spherical_features"]),
+                hidden_features=self.num_features,
+                in_max_degree=int(self.hypers["max_degree"]),
             )
             return
         raise ValueError(
-            "The LOREM architecture predicts scalar targets, Cartesian "
-            "rank-1 dipoles (PhysNet-style ``q r``), and per-atom "
-            "Cartesian rank-2 tensors (Born effective charges / APT). "
+            "LOREM predicts scalar targets and per-atom Cartesian rank-2 "
+            "tensors (Born effective charges). "
             f"Unsupported target '{target_name}'."
         )
 
@@ -177,12 +172,6 @@ class LOREM(ModelInterface[ModelHypers]):
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
-
-    def get_fixed_composition_weights(self) -> dict[str, dict[int, float]]:
-        return {}
-
-    def get_fixed_scaling_weights(self) -> dict[str, Union[float, dict[int, float]]]:
-        return {}
 
     def forward(
         self,
@@ -194,27 +183,21 @@ class LOREM(ModelInterface[ModelHypers]):
             return {}
 
         device = systems[0].positions.device
-        if self.single_label.values.device != device:
-            self.single_label = self.single_label.to(device)
-            self.key_labels = {
-                name: label.to(device) for name, label in self.key_labels.items()
-            }
-            self.component_labels = {
-                name: [
-                    [labels.to(device) for labels in components_block]
-                    for components_block in components_tmap
-                ]
-                for name, components_tmap in self.component_labels.items()
-            }
-            self.property_labels = {
-                name: [labels.to(device) for labels in properties_tmap]
-                for name, properties_tmap in self.property_labels.items()
-            }
+        self.layouts = {
+            name: layout.to(device) for name, layout in self.layouts.items()
+        }
 
-        features, neighbor_distances, spherical_features = self.sr(systems)
-        if self.training:
-            self.lr.use_ewald = True
-        features = self.lr(systems, features, neighbor_distances, spherical_features)
+        (
+            _nodes_scalar,
+            neighbor_distances,
+            _nodes_spherical,
+            sr_energy,
+            snapshots,
+        ) = self.sr(systems)
+        lr_energy, spherical_updates = self.lr(
+            systems, _nodes_scalar, neighbor_distances, _nodes_spherical
+        )
+        atomic_energy = (sr_energy + lr_energy).unsqueeze(-1)
 
         system_sizes = [len(system) for system in systems]
         system_sizes_tensor = torch.tensor(system_sizes, device=device)
@@ -231,24 +214,15 @@ class LOREM(ModelInterface[ModelHypers]):
         for bec_name, bec_head in self.bec_heads.items():
             if bec_name in outputs:
                 apt = apply_acoustic_sum_rule(
-                    bec_head(spherical_features), system_sizes
+                    bec_head(snapshots, spherical_updates), system_sizes
                 )
-                n_properties = self.num_properties[bec_name]["default"]
+                layout = self.layouts[bec_name]
+                n_properties = layout.block(0).properties.values.shape[0]
                 if n_properties == 1:
                     atomic_values = apt.unsqueeze(-1)
                 else:
                     atomic_values = apt.unsqueeze(-1).expand(-1, -1, -1, n_properties)
-                atomic_property = TensorMap(
-                    self.key_labels[bec_name],
-                    [
-                        TensorBlock(
-                            values=atomic_values,
-                            samples=samples,
-                            components=self.component_labels[bec_name][0],
-                            properties=self.property_labels[bec_name][0],
-                        )
-                    ],
-                )
+                atomic_property = _tensor_map(atomic_values, samples, layout)
                 if selected_atoms is not None:
                     atomic_property = mts.slice(
                         atomic_property, axis="samples", selection=selected_atoms
@@ -258,56 +232,20 @@ class LOREM(ModelInterface[ModelHypers]):
                 else:
                     return_dict[bec_name] = sum_over_atoms(atomic_property)
 
-        positions = torch.cat([system.positions for system in systems], dim=0)
-        for dipole_name, charge_readout in self.dipole_heads.items():
-            if dipole_name in outputs:
-                charges = charge_readout(features)
-                atomic_values = positions.unsqueeze(-1) * charges.unsqueeze(1)
-                atomic_property = TensorMap(
-                    self.key_labels[dipole_name],
-                    [
-                        TensorBlock(
-                            values=atomic_values,
-                            samples=samples,
-                            components=self.component_labels[dipole_name][0],
-                            properties=self.property_labels[dipole_name][0],
-                        )
-                    ],
+        for target_name, output in outputs.items():
+            if target_name in self.bec_targets:
+                continue
+            atomic_property = _tensor_map(
+                atomic_energy, samples, self.layouts[target_name]
+            )
+            if selected_atoms is not None:
+                atomic_property = mts.slice(
+                    atomic_property, axis="samples", selection=selected_atoms
                 )
-                if selected_atoms is not None:
-                    atomic_property = mts.slice(
-                        atomic_property, axis="samples", selection=selected_atoms
-                    )
-                if outputs[dipole_name].sample_kind == "atom":
-                    return_dict[dipole_name] = atomic_property
-                else:
-                    return_dict[dipole_name] = sum_over_atoms(atomic_property)
-
-        # Enumerate ModuleDict so TorchScript can compile (no variable-key
-        # indexing, and no ``continue`` inside the unrolled loop).
-        for readout_name, readout in self.readouts.items():
-            if readout_name in outputs:
-                output = outputs[readout_name]
-                atomic_values = readout(features)
-                atomic_property = TensorMap(
-                    self.key_labels[readout_name],
-                    [
-                        TensorBlock(
-                            values=atomic_values,
-                            samples=samples,
-                            components=self.component_labels[readout_name][0],
-                            properties=self.property_labels[readout_name][0],
-                        )
-                    ],
-                )
-                if selected_atoms is not None:
-                    atomic_property = mts.slice(
-                        atomic_property, axis="samples", selection=selected_atoms
-                    )
-                if output.sample_kind == "atom":
-                    return_dict[readout_name] = atomic_property
-                else:
-                    return_dict[readout_name] = sum_over_atoms(atomic_property)
+            if output.sample_kind == "atom":
+                return_dict[target_name] = atomic_property
+            else:
+                return_dict[target_name] = sum_over_atoms(atomic_property)
 
         if not self.training:
             return_dict = self.scaler.apply_scales(
@@ -380,19 +318,6 @@ class LOREM(ModelInterface[ModelHypers]):
         )
         self.scaler.restart(dataset_info)
         return self
-
-    def load_flax_weights(
-        self,
-        flax_tree: Mapping[str, Any],
-        name_map: Optional[Dict[str, str]] = None,
-    ) -> List[str]:
-        """Copy compatible Flax / lorem-jax leaves into this model.
-
-        :param flax_tree: Nested Flax parameter dict (optional ``params`` wrap).
-        :param name_map: Optional ``torch.name → flax.flat.name`` overrides.
-        :return: Names of torch parameters that were overwritten.
-        """
-        return apply_flax_params(self, flax_tree, name_map=name_map)
 
     @classmethod
     def load_checkpoint(

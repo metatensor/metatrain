@@ -32,14 +32,13 @@ def _energy_dataset_info():
     )
 
 
-def _small_lr_hypers(max_degree=1, max_degree_lr=1, use_ewald=True):
+def _small_lr_hypers(max_degree=1, max_degree_lr=1):
     hypers = copy.deepcopy(MODEL_HYPERS)
     hypers["max_degree"] = max_degree
     hypers["max_degree_lr"] = max_degree_lr
     hypers["num_features"] = 8
     hypers["num_spherical_features"] = 2
     hypers["num_radial"] = 4
-    hypers["long_range"]["use_ewald"] = use_ewald
     return hypers
 
 
@@ -55,10 +54,9 @@ def _chain_system(pbc=True):
     )
 
 
-@pytest.mark.parametrize("use_ewald", [True, False])
-def test_long_range_features(use_ewald):
+def test_long_range_features():
     """Long-range Coulomb features can be evaluated for a tiny periodic system."""
-    model = LOREM(_small_lr_hypers(use_ewald=use_ewald), _energy_dataset_info())
+    model = LOREM(_small_lr_hypers(), _energy_dataset_info())
     system = get_system_with_neighbor_lists(
         _chain_system(), model.requested_neighbor_lists()
     )
@@ -67,28 +65,16 @@ def test_long_range_features(use_ewald):
 
 
 def test_sr_lr_module_scopes():
-    """Top-level param scopes: backbone is ``sr``, long-range is ``lr``."""
+    """Top-level param scopes: short-range is ``sr``, long-range is ``lr``."""
     model = LOREM(_small_lr_hypers(), _energy_dataset_info())
     names = {name for name, _ in model.named_children()}
     assert "sr" in names
     assert "lr" in names
     assert any(key.startswith("sr.") for key in model.state_dict())
-    assert any(key.startswith("lr.lr_scale") for key in model.state_dict())
-
-
-def test_lr_scale_zero_is_noop():
-    """``lr_scale == 0`` leaves short-range features unchanged (a zero
-    perturbation, for warm-starting the short-range trunk)."""
-    hypers = _small_lr_hypers()
-    hypers["long_range"]["lr_scale_init"] = 0.0
-    model = LOREM(hypers, _energy_dataset_info())
-    model.eval()
-    system = get_system_with_neighbor_lists(
-        _chain_system(), model.requested_neighbor_lists()
+    assert any(key.startswith("lr.scalar_charge_mlp") for key in model.state_dict())
+    assert any(
+        key.startswith("lr.spherical_charge_dense") for key in model.state_dict()
     )
-    features, distances, spherical = model.sr([system])
-    updated = model.lr([system], features, distances, spherical)
-    torch.testing.assert_close(updated, features, atol=1e-5, rtol=1e-5)
 
 
 def test_max_degree_lr_cannot_exceed_max_degree():
@@ -99,7 +85,7 @@ def test_max_degree_lr_cannot_exceed_max_degree():
 
 def test_long_range_energy_rotation_invariant():
     """System energy is unchanged when the molecule is rotated."""
-    hypers = _small_lr_hypers(max_degree=2, max_degree_lr=2, use_ewald=True)
+    hypers = _small_lr_hypers(max_degree=2, max_degree_lr=2)
     model = LOREM(hypers, _energy_dataset_info())
     model.eval()
 
@@ -131,7 +117,7 @@ def test_long_range_energy_rotation_invariant():
 
 def test_spherical_charges_rotate_as_vectors():
     """ℓ=1 long-range charges transform as Cartesian vectors under rotation."""
-    hypers = _small_lr_hypers(max_degree=1, max_degree_lr=1, use_ewald=True)
+    hypers = _small_lr_hypers(max_degree=1, max_degree_lr=1)
     model = LOREM(hypers, _energy_dataset_info())
     model.eval()
 
@@ -155,10 +141,10 @@ def test_spherical_charges_rotate_as_vectors():
     system = get_system_with_neighbor_lists(system, options)
     rotated = get_system_with_neighbor_lists(rotated, options)
 
-    features, _, spherical = model.sr([system])
-    features_rot, _, spherical_rot = model.sr([rotated])
-    charges = model.lr.map_charges(features, spherical)
-    charges_rot = model.lr.map_charges(features_rot, spherical_rot)
+    nodes_scalar, _, nodes_spherical, _, _ = model.sr([system])
+    nodes_scalar_rot, _, nodes_spherical_rot, _, _ = model.sr([rotated])
+    charges = model.lr.charges(nodes_scalar, nodes_spherical)
+    charges_rot = model.lr.charges(nodes_scalar_rot, nodes_spherical_rot)
 
     # channels: [scalar, Y00, Y1,-1 (y), Y1,0 (z), Y1,+1 (x)]
     dipole = charges[:, 2:5]
@@ -185,8 +171,7 @@ def test_long_range_torchscript():
     torch.testing.assert_close(eager, compiled, atol=1e-5, rtol=1e-5)
 
 
-@pytest.mark.parametrize("use_ewald", [True, False])
-def test_long_range_training(use_ewald):
+def test_long_range_training():
     """A short training run succeeds with long-range features enabled."""
     systems = read_systems(DATASET_WITH_FORCES_PATH)
     conf = {
@@ -209,12 +194,12 @@ def test_long_range_training(use_ewald):
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["scheduler_patience"] = 1
-    hypers["training"]["fixed_composition_weights"] = {}
+    hypers["training"]["atomic_baseline"] = {}
 
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[6], targets=target_info_dict
     )
-    model_hypers = _small_lr_hypers(use_ewald=use_ewald)
+    model_hypers = _small_lr_hypers()
     model = LOREM(model_hypers, dataset_info)
 
     trainer = Trainer(hypers["training"])

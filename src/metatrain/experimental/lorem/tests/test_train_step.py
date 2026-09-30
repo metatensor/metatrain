@@ -29,9 +29,6 @@ SETUPS = (
     "energy_forces",
     "energy_stress",
     "energy_forces_stress",
-    "dipole",
-    "energy_dipole",
-    "energy_forces_dipole",
     "bec",
     "energy_bec",
     "energy_forces_bec",
@@ -145,34 +142,6 @@ def _bec_maps(systems: list[System]) -> list[TensorMap]:
     return maps
 
 
-def _dipole_maps(systems: list[System]) -> list[TensorMap]:
-    maps = []
-    for index, _system in enumerate(systems):
-        block = TensorBlock(
-            values=0.1 * torch.randn(1, 3, 1, dtype=torch.float64),
-            samples=Labels(["system"], torch.tensor([[index]], dtype=torch.int32)),
-            components=[Labels(["xyz"], torch.arange(3).reshape(-1, 1))],
-            properties=Labels.range("dipole", 1),
-        )
-        maps.append(TensorMap(Labels.single(), [block]))
-    return maps
-
-
-def _dipole_target_info():
-    return get_generic_target_info(
-        "dipole",
-        OmegaConf.create(
-            {
-                "quantity": "dipole",
-                "unit": "e*A",
-                "type": {"cartesian": {"rank": 1}},
-                "sample_kind": "system",
-                "num_subtargets": 1,
-            }
-        ),
-    )
-
-
 def _bec_target_info():
     return get_generic_target_info(
         "bec",
@@ -215,7 +184,6 @@ def _setup_payload(setup: str):
     want_forces = "forces" in setup
     want_stress = "stress" in setup
     want_bec = "bec" in setup
-    want_dipole = "dipole" in setup
     systems = _toy_systems(periodic=want_stress)
     payload: dict = {"system": systems}
     targets = {}
@@ -229,9 +197,6 @@ def _setup_payload(setup: str):
             add_position_gradients=want_forces,
             add_strain_gradients=want_stress,
         )
-    if want_dipole:
-        payload["dipole"] = _dipole_maps(systems)
-        targets["dipole"] = _dipole_target_info()
     if want_bec:
         payload["bec"] = _bec_maps(systems)
         targets["bec"] = _bec_target_info()
@@ -241,7 +206,6 @@ def _setup_payload(setup: str):
 def _small_hypers(need_bec: bool) -> dict:
     hypers = copy.deepcopy(MODEL_HYPERS)
     hypers["cutoff"] = 3.0
-    hypers["cutoff_width"] = 0.5
     hypers["max_degree"] = 2 if need_bec else 1
     hypers["max_degree_lr"] = 1 if need_bec else 0
     hypers["num_features"] = 8
@@ -290,20 +254,13 @@ def test_one_training_step_is_finite(setup, batch_size, tmp_path, monkeypatch):
     training["batch_size"] = batch_size
     training["scheduler_patience"] = 1
     training["checkpoint_interval"] = 100
-    training["fixed_composition_weights"] = {}
-    if "forces" in setup or "stress" in setup or "dipole" in setup:
+    training["atomic_baseline"] = {}
+    if "forces" in setup or "stress" in setup or "bec" in setup:
         training["loss"] = {}
         if setup == "energy" or setup.startswith("energy_"):
             training["loss"]["energy"] = _energy_loss(
                 with_forces="forces" in setup, with_stress="stress" in setup
             )
-        if "dipole" in setup:
-            training["loss"]["dipole"] = {
-                "type": "mse",
-                "weight": 1.0,
-                "reduction": "mean",
-                "gradients": {},
-            }
         if "bec" in setup:
             training["loss"]["bec"] = {
                 "type": "mse",
@@ -372,7 +329,7 @@ def test_force_step_with_isolated_atom_is_finite(tmp_path, monkeypatch):
     training["batch_size"] = 2
     training["scheduler_patience"] = 1
     training["checkpoint_interval"] = 100
-    training["fixed_composition_weights"] = {}
+    training["atomic_baseline"] = {}
     training["loss"] = {
         "energy": _energy_loss(with_forces=True, with_stress=False),
     }

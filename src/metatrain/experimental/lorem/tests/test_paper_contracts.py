@@ -1,14 +1,13 @@
 """Paper / lorem-jax contracts that ``experimental.lorem`` pins in CI.
 
-This file is the checklist. These tests do **not** import JAX and do **not**
-claim bit-exact energies. They check the same equations and knobs as
-``lorem.Lorem`` / ``lorem.LoremBEC`` (and the ``sr`` / ``lr`` / ``lr_scale``
-module scopes, which are covered elsewhere).
+These tests do not import JAX and do not claim bit-exact energies. They
+check the same equations and knobs as ``lorem.Lorem``.
 
 Already tested (do not duplicate):
 
 - acoustic sum rule — ``test_bec.test_bec_acoustic_sum_rule``
-- ``lr_scale == 0`` is a no-op — ``test_long_range.test_lr_scale_zero_is_noop``
+- Born charges rotate as Cartesian tensors —
+  ``test_bec.test_bec_rotates_as_a_cartesian_tensor``
 - children named ``sr`` / ``lr`` — ``test_long_range.test_sr_lr_module_scopes``
 - energy rotation invariance —
   ``test_long_range.test_long_range_energy_rotation_invariant``
@@ -21,14 +20,12 @@ Already tested (do not duplicate):
 import pytest
 import torch
 
-from metatrain.experimental.lorem.modules.backbone import (
-    _cosine_cutoff,
-    _degree_norms,
-)
 from metatrain.experimental.lorem.modules.clebsch_gordan import (
     ClebschGordanReal,
     cg_combine_features,
 )
+from metatrain.experimental.lorem.modules.harmonics import _degree_norms
+from metatrain.experimental.lorem.modules.jax_parity import _e3x_cosine_cutoff
 from metatrain.utils.architectures import get_default_hypers
 
 from . import MODEL_HYPERS
@@ -45,7 +42,6 @@ LOREM_JAX_LOREM_DEFAULTS = {
     "num_species": 8,
     "num_spherical_features": 8,
     "cutoff_fn": "cosine_cutoff",
-    "radial_basis": "basic_bernstein",
     "lr": True,
     "num_message_passing": 0,
     "equivariant_message_passing": True,
@@ -59,16 +55,17 @@ SHARED_HYPER_KEYS = (
     "max_degree_lr",
     "num_features",
     "num_radial",
+    "num_species",
     "num_spherical_features",
-    "radial_basis",
     "num_message_passing",
+    "equivariant_message_passing",
 )
 
 # lorem-jax name → experimental.lorem path (same role, different spelling).
 RENAMED_HYPER_KEYS = {
-    "lr": "always on; long-range is a structural part of this architecture, "
-    "not a toggle-able hyper",
-    "cutoff_fn": "cutoff_width (cosine envelope; onset = cutoff - width)",
+    "lr": "always on; long-range is part of the architecture",
+    "cutoff_fn": "e3x cosine cutoff, fixed (no width hyper)",
+    "initialize_node_features": "hardcoded True, matching lorem.Lorem",
 }
 
 
@@ -103,10 +100,9 @@ def test_default_hypers_match_paper():
     assert hypers["num_features"] == 128
     assert hypers["num_radial"] == 32
     assert hypers["num_spherical_features"] == 8
+    assert hypers["num_species"] == 8
     assert hypers["num_message_passing"] == 0
-    assert hypers["radial_basis"] == "basic_bernstein"
-    assert hypers["sh_convention"] == "e3x"
-    assert hypers["trunk"] == "spherical"
+    assert hypers["equivariant_message_passing"] is True
 
 
 def test_hypers_keys_overlap_lorem_jax():
@@ -188,7 +184,7 @@ def test_torch_param_keys_follow_sr_lr_scopes():
     assert "lr" in prefixes
     assert any(name.startswith("lr.scalar_charge_mlp") for name in names)
     assert any(name.startswith("lr.spherical_charge_dense") for name in names)
-    assert "lr.lr_scale" in names
+    assert any(name.startswith("sr.energy_mlp") for name in names)
 
 
 def test_degree_norm_factor_is_two_ell_plus_one_to_the_quarter():
@@ -212,14 +208,14 @@ def test_degree_norm_factor_is_two_ell_plus_one_to_the_quarter():
     torch.testing.assert_close(norms[0], expected, atol=2e-6, rtol=1e-6)
 
 
-def test_cosine_cutoff_is_one_inside_and_zero_at_cutoff():
-    """``e3x.nn.functions.cosine_cutoff``: 1 below onset, 0 at the cutoff."""
+def test_cosine_cutoff_is_the_e3x_envelope():
+    """``e3x.nn.functions.cosine_cutoff``: 1 at the origin, 0 at the cutoff."""
     cutoff = 5.0
-    width = 0.5
-    distances = torch.tensor([0.0, 4.4, 4.5, 5.0, 5.2])
-    weights = _cosine_cutoff(distances, cutoff, width)
-    torch.testing.assert_close(weights[:3], torch.ones(3), atol=1e-6, rtol=1e-6)
-    torch.testing.assert_close(weights[3:], torch.zeros(2), atol=1e-6, rtol=1e-6)
+    distances = torch.tensor([0.0, 2.5, 5.0, 5.2])
+    weights = _e3x_cosine_cutoff(distances, cutoff)
+    torch.testing.assert_close(
+        weights, torch.tensor([1.0, 0.5, 0.0, 0.0]), atol=1e-6, rtol=1e-6
+    )
 
 
 def test_charge_layout_is_scalar_plus_spherical_lm():
@@ -236,7 +232,7 @@ def test_charge_layout_is_scalar_plus_spherical_lm():
     features = torch.randn(n_atoms, model.num_features)
     n_lm = (int(model.hypers["max_degree"]) + 1) ** 2
     spherical = torch.randn(n_atoms, n_lm, int(model.hypers["num_spherical_features"]))
-    charges = model.lr.map_charges(features, spherical)
+    charges = model.lr.charges(features, spherical)
     max_degree_lr = int(model.hypers["max_degree_lr"])
     assert charges.shape == (n_atoms, 1 + (max_degree_lr + 1) ** 2)
 

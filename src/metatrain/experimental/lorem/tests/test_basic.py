@@ -18,7 +18,6 @@ from metatrain.utils.testing import (
 def _minimal_hypers(arch: str) -> dict:
     hypers = copy.deepcopy(get_default_hypers(arch)["model"])
     hypers["cutoff"] = 3.0
-    hypers["cutoff_width"] = 0.5
     hypers["max_degree"] = 1
     hypers["max_degree_lr"] = 0
     hypers["num_features"] = 4
@@ -48,7 +47,7 @@ class TestOutput(OutputTests, LoremTests):
     supports_spherical_outputs = False
     supports_spherical_rank2_outputs = False
     supports_spherical_atomic_basis_outputs = False
-    supports_vector_outputs = True
+    supports_vector_outputs = False
     supports_features = False
     supports_last_layer_features = False
 
@@ -72,7 +71,7 @@ class TestAutograd(AutogradTests, LoremTests):
 
 
 class TestTorchscript(TorchscriptTests, LoremTests):
-    float_hypers = ["cutoff", "cutoff_width"]
+    float_hypers = ["cutoff"]
     supports_spherical_outputs = False
 
 

@@ -12,12 +12,11 @@ from torch.utils.data import DistributedSampler
 from metatrain.composition import train_or_load_composition_model
 from metatrain.scaler import train_or_load_scaler
 from metatrain.utils.abc import TrainerInterface
-from metatrain.utils.additive import remove_additive
+from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
-    _is_disk_dataset,
     build_train_dataloaders,
     build_val_dataloaders,
     unpack_batch,
@@ -40,10 +39,10 @@ from metatrain.utils.metrics import (
 )
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
-    get_system_with_neighbor_lists,
+    get_system_with_neighbor_lists_transform,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
-from metatrain.utils.scaler import remove_scale
+from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import (
     batch_to,
 )
@@ -62,16 +61,7 @@ def _get_cosine_scheduler(
     train_hypers: Mapping[str, Any],
     steps_per_epoch: int,
 ) -> LambdaLR:
-    """Linear warmup then cosine decay over the full run.
-
-    Same schedule (and same ``warmup_fraction`` hyperparameter) as PET and
-    SOAP-BPNN use, so ``scheduler: cosine`` gives LOREM an identical
-    learning-rate trajectory for apples-to-apples comparisons.
-
-    :param optimizer: The optimizer for which to create the scheduler.
-    :param train_hypers: The training hyperparameters.
-    :param steps_per_epoch: The number of optimizer steps per epoch.
-    """
+    """Linear warmup, then cosine decay over the full run."""
     total_steps = train_hypers["num_epochs"] * steps_per_epoch
     warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
 
@@ -162,55 +152,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
         else:
             logging.info(f"Training on device {device} with dtype {dtype}")
 
-        # Calculate the neighbor lists in advance (in particular, this
-        # needs to happen before the additive models are trained, as they
-        # might need them):
-        logging.info("Calculating neighbor lists for the datasets")
-        requested_neighbor_lists = get_requested_neighbor_lists(model)
-        for dataset in train_datasets + val_datasets:
-            # If the dataset is a disk dataset, the NLs are already attached, we will
-            # just check the first system
-            if _is_disk_dataset(dataset):
-                system = dataset[0]["system"]
-                for options in requested_neighbor_lists:
-                    if options not in system.known_neighbor_lists():
-                        raise ValueError(
-                            "The requested neighbor lists are not attached to the "
-                            f"system. Neighbor list {options} is missing from the "
-                            "first system in the disk dataset. Make sure you save "
-                            "the neighbor lists in the systems when saving the dataset."
-                        )
-            else:
-                for sample in dataset:
-                    system = sample["system"]
-                    # The following line attaches the neighbors lists to the system,
-                    # and doesn't require to reassign the system to the dataset:
-                    get_system_with_neighbor_lists(system, requested_neighbor_lists)
-
         model.to(device=device, dtype=dtype)
-        # The additive models are always kept in float64 to avoid numerical
-        # errors in the composition weights, which can be very large.
+        # Additive models stay in float64. Composition weights can be large
+        # enough that float32 is not accurate.
         for additive_model in model.additive_models:
             additive_model.to(dtype=torch.float64)
-
-        atomic_baseline = self.hypers["fixed_composition_weights"]
-        if isinstance(atomic_baseline, str):
-            if model.get_fixed_composition_weights():
-                raise ValueError(
-                    "The loaded LOREM model provides its own atomic baselines, "
-                    "which cannot be combined with a composition model "
-                    "checkpoint passed as `atomic_baseline`. Use the dict form "
-                    "of `atomic_baseline` instead."
-                )
-        else:
-            atomic_baseline = {
-                **model.get_fixed_composition_weights(),
-                **atomic_baseline,
-            }
+        model.scaler.to(dtype=torch.float64)
 
         train_or_load_composition_model(
             composition_model=model.additive_models[0],
-            atomic_baseline=atomic_baseline,
+            atomic_baseline=self.hypers["atomic_baseline"],
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
             batch_size=self.hypers["batch_size"],
@@ -219,9 +170,16 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
 
         if self.hypers["scale_targets"]:
+            if isinstance(self.hypers["fixed_scaling_weights"], str) and not isinstance(
+                self.hypers["atomic_baseline"], str
+            ):
+                raise ValueError(
+                    "Can't use a checkpoint for the scaler without providing "
+                    "a checkpoint also for the composition model."
+                )
             train_or_load_scaler(
                 scaler=model.scaler,
-                fixed_weights=model.get_fixed_scaling_weights(),
+                fixed_weights=self.hypers["fixed_scaling_weights"],
                 train_datasets=train_datasets,
                 additive_models=model.additive_models,
                 batch_size=self.hypers["batch_size"],
@@ -229,11 +187,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 checkpoint_dir=checkpoint_dir,
                 per_structure_targets=self.hypers["per_structure_targets"],
             )
-
-        if is_distributed:
-            model = DistributedDataParallel(model, device_ids=[device])
-
-        raw_model = _get_raw_model(model, is_distributed)
 
         logging.info("Setting up data loaders")
 
@@ -262,9 +215,30 @@ class Trainer(TrainerInterface[TrainerHypers]):
             train_samplers = [None] * len(train_datasets)
             val_samplers = [None] * len(val_datasets)
 
-        # Create a collate function:
-        targets_keys = list(raw_model.dataset_info.targets.keys())
-        collate_fn = CollateFn(target_keys=targets_keys)
+        # Neighbor lists, the atomic baseline, and per-target scales are applied
+        # when a batch is collated. That works for in-memory and on-disk datasets.
+        model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
+        additive_models = copy.deepcopy(
+            model.additive_models.to(dtype=torch.float64, device="cpu")
+        )
+        model.additive_models.to(device)
+        model.additive_models[0].weights_to(device=device, dtype=torch.float64)
+        model.scaler.scales_to(device="cpu", dtype=torch.float64)
+        scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
+        model.scaler.to(device)
+        model.scaler.scales_to(device=device, dtype=torch.float64)
+
+        train_targets = model.dataset_info.targets
+        collate_fn = CollateFn(
+            target_keys=list(train_targets.keys()),
+            callables=[
+                get_system_with_neighbor_lists_transform(
+                    get_requested_neighbor_lists(model)
+                ),
+                get_remove_additive_transform(additive_models, train_targets),
+                get_remove_scale_transform(scaler),
+            ],
+        )
 
         max_atoms = self.hypers["max_atoms_per_batch"]
 
@@ -290,6 +264,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
             num_workers=0,
         )
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
+
+        if is_distributed:
+            model = DistributedDataParallel(model, device_ids=[device])
+        raw_model = _get_raw_model(model, is_distributed)
 
         # Extract all the possible outputs and their gradients:
         train_targets = raw_model.dataset_info.targets
@@ -382,15 +360,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
-                )
-                for additive_model in raw_model.additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(systems, targets, raw_model.scaler)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
+                    systems, targets, extra_data, dtype=dtype, device=device
                 )
 
                 predictions = evaluate_model(
@@ -476,15 +446,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             for batch in val_dataloader:
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
-                )
-                for additive_model in raw_model.additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(systems, targets, raw_model.scaler)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
+                    systems, targets, extra_data, dtype=dtype, device=device
                 )
 
                 predictions = evaluate_model(
@@ -576,9 +538,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
 
             if use_cosine_schedule:
-                # Already stepped once per batch above; the cosine schedule
-                # has no plateau/reload-on-change concept, same as PET and
-                # SOAP-BPNN.
+                # Already stepped once per batch. Cosine decay has no plateau.
                 old_lr = lr_scheduler.get_last_lr()[0]
             else:
                 lr_scheduler.step(val_loss)

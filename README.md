@@ -41,7 +41,7 @@ model:
 | [GAP][arch-gap]                               | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
 | [FlashMD][arch-flashmd]                       | An architecture for the direct prediction of molecular dynamics                                                                      |
 | [DPA3][arch-dpa3]                             | An invariant graph neural network based on line graph series representations                                                         |
-| [LOREM][arch-lorem]                           | Long-range equivariant messages (experimental PyTorch port of lorem-jax)                                                             |
+| [LOREM][arch-lorem]                           | Long-range equivariant messages                                                                                                       |
 | [Symplectic FlashMD][arch-flashmd_symplectic] | A symplectic variant of FlashMD for the direct prediction of molecular dynamics.                                                     |
 
 It also contains architectures meant to simplify tasks or augment the capabilities of the models:

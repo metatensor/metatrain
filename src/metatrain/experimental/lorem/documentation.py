@@ -2,38 +2,14 @@
 LOREM (Experimental)
 ====================
 
-A PyTorch / TorchScript implementation of **LOREM** (*Learning Long-Range
-Representations with Equivariant Messages*) :footcite:p:`lorem_2025` for
-``metatrain``.
+**LOREM** (*Learning Long-Range Representations with Equivariant Messages*)
+:footcite:p:`lorem_2025` predicts energies (forces and stress by autograd) and
+per-atom Born effective charges. Short-range features are a spherical
+neighbor density with species-dependent radial filters. Long-range features
+are Coulomb potentials of learned charges, evaluated with
+`torch-pme <https://github.com/lab-cosmo/torch-pme>`_.
 
-LOREM combines a short-range spherical descriptor with long-range Coulomb
-features computed from learned atomic charges. The official reference code is
-the JAX package `lorem-jax <https://github.com/lab-cosmo/lorem-jax>`_; this
-architecture is a metatrain-native port so that models can be trained with
-``mtt`` and exported as ``metatomic`` TorchScript files.
-
-The short-range block builds a spherical-harmonic neighbor density (Bessel
-radial basis × real spherical harmonics), contracts it to rotationally
-invariant features, and optionally applies a few scalar message-passing
-updates. The long-range block maps scalar features to a charge channel and
-spherical features to charges up to ``max_degree_lr``, then evaluates their
-Coulomb potential in parallel with
-`torch-pme <https://github.com/lab-cosmo/torch-pme>`_ (Ewald / P3M / direct).
-That is the paper's equivariant long-range message: Ewald summation over each
-:math:`(\\ell, m)` independently.
-
-.. note::
-
-   Scalar targets (typically energy, forces and stress via autograd),
-   Cartesian rank-1 dipoles (PhysNet-style :math:`\\mu = \\sum_i q_i r_i`)
-   and per-atom Cartesian rank-2 targets (Born effective charges / APT, the
-   ``lorem.LoremBEC`` head) are supported. Spherical charges use the
-   Clebsch-Gordan self-product (``TensorDense``, the ``e3x.nn.TensorDense``
-   port). ``max_degree >= 2`` is required for BEC.
-
-   This is a metatrain-native port: same equations and knobs as the paper /
-   lorem-jax, not a bit-exact JAX clone. Developer comparison notes and the
-   in-repo contract tests live in the architecture ``README.md``.
+Born effective charges need ``max_degree >= 2``.
 
 {{SECTION_INSTALLATION}}
 
@@ -49,9 +25,6 @@ The most impactful hyperparameters (roughly in decreasing order of importance):
   .. autoattribute:: {{model_hypers_path}}.cutoff
       :no-index:
 
-  .. autoattribute:: {{model_hypers_path}}.long_range
-      :no-index:
-
   .. autoattribute:: {{model_hypers_path}}.num_features
       :no-index:
 
@@ -61,9 +34,8 @@ The most impactful hyperparameters (roughly in decreasing order of importance):
   .. autoattribute:: {{trainer_hypers_path}}.learning_rate
       :no-index:
 
-Default values follow the LOREM paper / ``lorem-jax`` (5 Å cutoff, long-range
-on, 128 features). Reduce ``max_degree``, ``num_radial`` and ``num_features``
-for faster iteration.
+Default values follow the LOREM paper (5 Å cutoff, 128 features). Reduce
+``max_degree``, ``num_radial`` and ``num_features`` for faster iteration.
 
 {{SECTION_MODEL_HYPERS}}
 
@@ -74,7 +46,7 @@ from typing import Literal, Optional
 from typing_extensions import NotRequired, TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
-from metatrain.utils.hypers import init_with_defaults
+from metatrain.scaler.documentation import FixedScalerWeights
 from metatrain.utils.loss import LossSpecification
 
 
@@ -83,71 +55,36 @@ from metatrain.utils.loss import LossSpecification
 ###########################
 
 
-class LoremLongRangeHypers(TypedDict):
-    """Long-range Coulomb hyperparameters. LOREM's long-range Ewald message
-    is a core part of the architecture (not an optional add-on like other
-    architectures' ``long_range``), so it cannot be disabled."""
-
-    use_ewald: bool = True
-    """Use Ewald summation for periodic systems during training. If False,
-    P3M is used instead."""
-    smearing: float = 1.4
-    """Smearing width in Fourier space."""
-    kspace_resolution: float = 1.33
-    """Resolution of the reciprocal space grid."""
-    interpolation_nodes: int = 5
-    """Number of grid points for interpolation (for PME only)."""
-    lr_scale_init: float = 1.0
-    """Initial value of the learnable ``lr_scale`` that multiplies the
-    long-range residual. ``1.0`` trains the long-range branch from scratch;
-    set ``0.0`` for a zero perturbation when warm-starting the short-range
-    trunk."""
-
-
 class ModelHypers(TypedDict):
     """Hyperparameters for the experimental LOREM model."""
 
     cutoff: float = 5.0
-    """Short-range cutoff radius, in the length unit of the dataset."""
-    cutoff_width: float = 0.5
-    """Width of the cosine cutoff envelope. The envelope is 1 inside
-    ``cutoff - cutoff_width`` and 0 at ``cutoff``."""
+    """Short-range cutoff radius, in the length unit of the dataset.
+
+    The cosine cutoff goes to zero at this radius. Ewald smearing is
+    ``cutoff / 4`` and the reciprocal-space wavelength is ``cutoff / 8``.
+    """
     max_degree: int = 6
-    """Maximum angular momentum :math:`\\ell` of the short-range spherical
-    density. Values above 2 require ``sphericart-torch``."""
+    """Maximum angular momentum of the short-range spherical features.
+    Values above 2 require ``sphericart-torch``. Born effective charges
+    need at least 2."""
     max_degree_lr: int = 2
-    """Maximum angular momentum of long-range charges. Ewald / P3M / direct
-    summation is run independently on each :math:`(\\ell, m)` channel, plus
-    one extra scalar charge from the invariant features. Must not exceed
-    ``max_degree``. The paper default is 2 (10 charge channels)."""
+    """Maximum angular momentum of the long-range charges. Must not exceed
+    ``max_degree``. The paper default is 2."""
     num_features: int = 128
-    """Dimension of invariant atom features and of the energy readout."""
+    """Width of the scalar node features."""
     num_spherical_features: int = 8
-    """Feature width of the Clebsch-Gordan ``TensorDense`` self-product on
-    the short-range spherical density, and of the long-range charge /
-    potential mix."""
+    """Width of the spherical node features."""
     num_radial: int = 32
-    """Number of radial basis functions (Bernstein or Bessel)."""
-    radial_basis: Literal["bessel", "basic_bernstein"] = "basic_bernstein"
-    """Radial expansion on neighbor distances. ``basic_bernstein`` is the
-    e3x / lorem-jax default; ``bessel`` is the original sinc basis."""
-    sh_convention: Literal["orthonormal", "e3x"] = "e3x"
-    """Spherical-harmonic normalization. ``e3x`` is Racah / Schmidt
-    (lorem-jax); ``orthonormal`` is 4π-normalized (sphericart). Both use
-    ``m = -ℓ … +ℓ`` so Clebsch–Gordan is unchanged."""
-    trunk: Literal["spherical", "pet"] = "spherical"
-    """Short-range trunk. ``spherical`` is the paper descriptor.
-    ``pet`` mounts metatrain's ``PETBackend`` as the short-range trunk and
-    keeps a spherical sidecar for equivariant charges / BEC."""
-    pet: dict = {}
-    """Optional overrides merged into default PET model hypers when
-    ``trunk`` is ``pet`` (``d_pet``, ``num_gnn_layers``, …). ``d_node``
-    is always set to ``num_features``."""
+    """Number of Bernstein radial basis functions."""
+    num_species: int = 8
+    """Width of the learned species embedding."""
     num_message_passing: int = 0
-    """Number of additional scalar message-passing layers after the spherical
-    density. The paper default is 0 (descriptor + long-range only)."""
-    long_range: LoremLongRangeHypers = init_with_defaults(LoremLongRangeHypers)
-    """Long-range Coulomb features from learned equivariant atomic charges."""
+    """Extra message-passing steps after the initial density. The paper
+    default is 0."""
+    equivariant_message_passing: bool = True
+    """When message passing is on, also update the spherical features.
+    Ignored when ``num_message_passing`` is 0."""
 
 
 ##############################
@@ -185,11 +122,13 @@ class TrainerHypers(TypedDict):
     learning_rate: float = 0.001
     """Learning rate."""
 
-    scheduler: str = "plateau"
-    """Learning-rate schedule: ``"plateau"`` (``ReduceLROnPlateau``, driven by
-    ``scheduler_patience``/``scheduler_factor``) or ``"cosine"`` (linear warmup
-    then cosine decay over the full run, driven by ``warmup_fraction`` -- the
-    same schedule PET and SOAP-BPNN use, for apples-to-apples comparisons)."""
+    scheduler: Literal["plateau", "cosine"] = "plateau"
+    """Learning-rate schedule.
+
+    ``"plateau"`` uses ``ReduceLROnPlateau`` (``scheduler_patience``,
+    ``scheduler_factor``). ``"cosine"`` uses linear warmup then cosine decay
+    (``warmup_fraction``).
+    """
     scheduler_patience: int = 100
     """Number of epochs with no improvement before reducing the learning rate.
     Only used when ``scheduler`` is ``"plateau"``."""
@@ -217,13 +156,49 @@ class TrainerHypers(TypedDict):
 
     See also :ref:`scale-targets`.
     """
-    fixed_composition_weights: FixedCompositionWeights = {}
-    """Weights for atomic contributions.
+    atomic_baseline: FixedCompositionWeights | str = {}
+    """The baselines for each target.
+
+    By default, ``metatrain`` fits a linear model (:class:`CompositionModel
+    <metatrain.composition.CompositionModel>`) to compute the least-squares
+    baseline for each atomic species for each target.
+
+    This hyperparameter instead lets you provide those baselines, either as a
+    dictionary or as a path to a pre-trained composition model checkpoint:
+
+    - a dictionary whose keys are target names, and whose values are either
+      one baseline for every atomic type, or a dictionary mapping atomic types
+      to baselines.
+    - a string path to a ``.ckpt`` file from a pre-trained composition model.
+
+    For example:
+
+    - ``atomic_baseline: {"energy": {1: -0.5, 6: -10.0}}`` fixes the energy
+      baseline for hydrogen (Z=1) to -0.5 and for carbon (Z=6) to -10.0, and
+      fits the rest.
+    - ``atomic_baseline: {"energy": -5.0}`` fixes the energy baseline for
+      every atomic type to -5.0.
+    - ``atomic_baseline: {"mtt:dos": 0.0}`` sets that target's baseline to
+      0.0, which disables the atomic baseline for it.
+    - ``atomic_baseline: "/path/to/model.ckpt"`` loads a pre-trained
+      composition model checkpoint instead of fitting one.
+
+    The baseline is subtracted from the targets during training and added
+    back at evaluation. It is a per-atom contribution, so for a per-structure
+    target such as the total energy it is multiplied by the number of atoms
+    of that type.
+    """
+    fixed_scaling_weights: FixedScalerWeights | str = {}
+    """Weights for target scaling.
 
     This is passed to the ``fixed_weights`` argument of
-    :meth:`CompositionModel.train_model
-    <metatrain.composition.CompositionModel.train_model>`,
+    :meth:`Scaler.train_model <metatrain.scaler.Scaler.train_model>`,
     see its documentation to understand exactly what to pass here.
+
+    A path to a model checkpoint is also accepted. If that checkpoint is a
+    Scaler model, the pre-trained scaler is loaded. When passing a checkpoint
+    for the scaler, ``atomic_baseline`` must also be a checkpoint for a
+    composition model.
     """
     per_structure_targets: list[str] = []
     """Targets to calculate per-structure losses."""

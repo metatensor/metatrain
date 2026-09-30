@@ -1,8 +1,9 @@
-"""Born effective charges (``lorem.LoremBEC`` / ``PerParticleTensorPredictor``).
+"""Born effective charges.
 
-Maps spherical node features to a per-atom 3×3 Cartesian tensor (APT / BEC)
-with the paper's CG reconstruction, then enforces the acoustic sum rule
-(zero net charge per structure) the same way ``LoremBEC.predict`` does.
+A per-atom 3×3 tensor from spherical features. The linear layers are
+per degree, with a bias only on ``ℓ = 0``. SiLU gates every component by
+the scalar channel, which is what keeps the head equivariant. Each
+structure is then shifted so its tensors sum to zero.
 """
 
 from typing import List
@@ -10,55 +11,55 @@ from typing import List
 import torch
 
 from .clebsch_gordan import ClebschGordanReal
-from .tensor_dense import TensorDense
+from .tensor_dense import TensorDense, _DegreeWiseLinear
+
+
+def gated_silu(x: torch.Tensor) -> torch.Tensor:
+    """e3x ``silu``: ``sigmoid`` of the ``ℓ = 0`` channel multiplies ``x``.
+
+    On a pure scalar this is ordinary SiLU. On higher degrees it is a gate,
+    not an elementwise SiLU.
+    """
+    return torch.sigmoid(x[:, :1, :]) * x
 
 
 class BornEffectiveChargeHead(torch.nn.Module):
-    """Per-atom 3×3 BEC / APT from spherical features.
+    """Spherical features to a per-atom ``(3, 3)`` tensor."""
 
-    ``lorem-jax`` ``PerParticleTensorPredictor``: feature-wise Dense + SiLU,
-    then ``TensorDense(features=1, max_degree=2)``, then the ``1 ⊗ 1 → L≤2``
-    Clebsch-Gordan reconstruction to a Cartesian 3×3.
-    """
-
-    def __init__(self, in_features: int, in_max_degree: int) -> None:
+    def __init__(
+        self, in_features: int, hidden_features: int, in_max_degree: int
+    ) -> None:
         super().__init__()
         if in_max_degree < 2:
             raise ValueError(
                 f"Born effective charges require max_degree >= 2 (got {in_max_degree})."
             )
-        self.in_max_degree = int(in_max_degree)
-        self.hidden = torch.nn.Sequential(
-            torch.nn.Linear(in_features, in_features),
-            torch.nn.SiLU(),
-            torch.nn.Linear(in_features, in_features),
-            torch.nn.SiLU(),
-            torch.nn.Linear(in_features, in_features),
-        )
+        degree = int(in_max_degree)
+        hidden = int(hidden_features)
+        self.dense0 = _DegreeWiseLinear(int(in_features), hidden, degree, bias=True)
+        self.dense1 = _DegreeWiseLinear(hidden, hidden, degree, bias=True)
+        self.dense2 = _DegreeWiseLinear(hidden, hidden, degree, bias=True)
         self.tensor_dense = TensorDense(
-            in_features=in_features,
+            in_features=hidden,
             out_features=1,
-            in_max_degree=in_max_degree,
+            in_max_degree=degree,
             out_max_degree=2,
             include_pseudotensors=False,
         )
-        # e3x.so3.clebsch_gordan(1, 1, 2)[1:, 1:, :] — drop ℓ=0 from each
-        # 1-tensor so the 9 spherical components rebuild a 3×3.
         cg = ClebschGordanReal()
         reconstruction = torch.zeros(3, 3, 9, dtype=torch.float64)
         offset = 0
-        for L in (0, 1, 2):
-            reconstruction[:, :, offset : offset + 2 * L + 1] = cg.get((1, 1, L))
-            offset += 2 * L + 1
+        for ell in (0, 1, 2):
+            reconstruction[:, :, offset : offset + 2 * ell + 1] = cg.get((1, 1, ell))
+            offset += 2 * ell + 1
         self.register_buffer(
             "cartesian_reconstruction", reconstruction.to(torch.float32)
         )
 
     def forward(self, spherical_features: torch.Tensor) -> torch.Tensor:
-        """:param spherical_features: ``(n_atoms, n_lm, n_features)``.
-        :return: ``(n_atoms, 3, 3)`` Cartesian tensors (no sum rule yet).
-        """
-        hidden = self.hidden(spherical_features)
+        hidden = gated_silu(self.dense0(spherical_features))
+        hidden = gated_silu(self.dense1(hidden))
+        hidden = self.dense2(hidden)
         spherical = self.tensor_dense(hidden)[:, :, 0]
         return torch.einsum(
             "n l, i j l -> n i j",
@@ -67,12 +68,43 @@ class BornEffectiveChargeHead(torch.nn.Module):
         )
 
 
-def apply_acoustic_sum_rule(apt: torch.Tensor, system_sizes: List[int]) -> torch.Tensor:
-    """Subtract the per-structure mean 3×3 so each system is charge-neutral.
+class BecPredictor(torch.nn.Module):
+    """Sum of one head per short-range stage, plus one on the long-range mix.
 
-    :param apt: ``(n_atoms, 3, 3)``
-    :param system_sizes: number of atoms in each system, in order.
+    ``snapshots`` is ``(n_stages, n_atoms, n_lm, features)``. The long-range
+    argument is the spherical update produced by mixing Coulomb potentials
+    back into the node features.
     """
+
+    def __init__(
+        self,
+        n_stages: int,
+        in_features: int,
+        hidden_features: int,
+        in_max_degree: int,
+    ) -> None:
+        super().__init__()
+        self.stages = torch.nn.ModuleList(
+            [
+                BornEffectiveChargeHead(in_features, hidden_features, in_max_degree)
+                for _ in range(n_stages)
+            ]
+        )
+        self.long_range = BornEffectiveChargeHead(
+            in_features, hidden_features, in_max_degree
+        )
+
+    def forward(
+        self, snapshots: torch.Tensor, spherical_updates: torch.Tensor
+    ) -> torch.Tensor:
+        apt = self.long_range(spherical_updates)
+        for index, head in enumerate(self.stages):
+            apt = apt + head(snapshots[index])
+        return apt
+
+
+def apply_acoustic_sum_rule(apt: torch.Tensor, system_sizes: List[int]) -> torch.Tensor:
+    """Subtract the per-structure mean 3×3 so each system sums to zero."""
     if apt.shape[0] == 0:
         return apt
     parts: List[torch.Tensor] = []
@@ -84,11 +116,3 @@ def apply_acoustic_sum_rule(apt: torch.Tensor, system_sizes: List[int]) -> torch
         parts.append(chunk)
         offset += size
     return torch.cat(parts, dim=0)
-
-
-class DummyBornEffectiveChargeHead(torch.nn.Module):
-    """Placeholder when no cartesian rank-2 target is registered (TorchScript)."""
-
-    def forward(self, spherical_features: torch.Tensor) -> torch.Tensor:
-        n_atoms = spherical_features.shape[0]
-        return spherical_features.new_zeros((n_atoms, 3, 3))

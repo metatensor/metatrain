@@ -1,23 +1,10 @@
-"""Clebsch-Gordan tensor product, the TorchScript port of ``e3x.nn.TensorDense``
-/ ``e3x.nn.Tensor`` / ``e3x.nn.MessagePass``.
+"""Clebsch-Gordan tensor product used by the short-range and long-range blocks.
 
-``lorem-jax`` applies ``e3x.nn.TensorDense`` as a self-product on spherical
-node features, ``e3x.nn.Tensor`` to mix long-range potentials back into those
-features, and ``e3x.nn.MessagePass`` for equivariant message passing. All
-three share the same two building blocks, both ported here to match e3x's
-actual parameterization (verified against a real ``lorem-jax`` parameter
-tree, not just against e3x's docs):
+Two details are easy to miss:
 
-- A per-degree ``Dense`` layer (``e3x.nn.Dense``): unlike a plain
-  ``torch.nn.Linear`` applied over the trailing feature axis (which shares
-  one weight matrix across every angular-momentum degree), e3x gives each
-  degree ``l`` its own weight matrix, with a bias only on the scalar
-  (``l=0``) channel. ``_DegreeWiseLinear`` below is that per-degree layer.
-- A **learnable, per-``(l1, l2, L)``-triple, per-feature weight** multiplying
-  each Clebsch-Gordan coupling term before summing (``e3x.nn.Tensor``'s
-  ``kernel``). An earlier version of this module summed every valid triple
-  unweighted, which is a strictly less expressive special case (still
-  equivariant, just missing a real learnable parameter e3x has).
+- Each angular-momentum degree has its own linear layer. Only the scalar
+  (degree 0) channel has a bias.
+- Each allowed ``(l1, l2, L)`` coupling has its own learnable weight.
 """
 
 import math

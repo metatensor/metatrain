@@ -200,7 +200,7 @@ def _dump_to_flax(backbone, long_range):
 def test_jax_parity_backbone_forward_shapes():
     backbone, _ = _build_pair(seed=0)
     system = get_system_with_neighbor_lists(_chain_system(pbc=False), [_nlo()])
-    nodes_scalar, distances, nodes_spherical, sr_energy = backbone([system])
+    nodes_scalar, distances, nodes_spherical, sr_energy, _snapshots = backbone([system])
     n_lm = (MAX_DEGREE + 1) ** 2
     assert nodes_scalar.shape == (4, NUM_FEATURES)
     assert nodes_spherical.shape == (4, n_lm, NUM_SPHERICAL_FEATURES)
@@ -210,18 +210,7 @@ def test_jax_parity_backbone_forward_shapes():
 
 
 def test_jax_parity_long_range_has_no_exclusion_radius():
-    """Regression test: lorem-jax's own ``Ewald()`` factory
-    (``jaxpme.batched_mixed.calculators``) always builds its potential with
-    ``exclusion_radius=None`` -- plain, unmodified Ewald. An earlier version
-    of this module set ``exclusion_radius=neighbor_list_options.cutoff``
-    here (copied from the *production* ``LoremLongRangeFeaturizer``, which
-    deliberately restructures that split), and that one wrong argument was
-    the entire source of a large, persistent energy/force discrepancy
-    against real checkpoints that looked like a torch-pme-vs-jax-pme
-    numerics gap but wasn't (see this module's docstring and
-    ``etc/lorem-parity/jax_checkpoint_parity/`` in metawork for the full
-    writeup). Both calculators must keep ``exclusion_radius=None``.
-    """
+    """lorem-jax builds Ewald with ``exclusion_radius=None``."""
     _, long_range = _build_pair(seed=0)
     assert long_range.ewald_calculator.potential.exclusion_radius is None
     assert long_range.direct_calculator.potential.exclusion_radius is None
@@ -231,8 +220,8 @@ def test_jax_parity_long_range_periodic_forward():
     backbone, long_range = _build_pair(seed=1)
     nlo = _nlo()
     system = get_system_with_neighbor_lists(_chain_system(pbc=True), [nlo])
-    nodes_scalar, distances, nodes_spherical, _ = backbone([system])
-    lr_energy = long_range([system], nodes_scalar, distances, nodes_spherical)
+    nodes_scalar, distances, nodes_spherical, _, _ = backbone([system])
+    lr_energy, _updates = long_range([system], nodes_scalar, distances, nodes_spherical)
     assert lr_energy.shape == (4,)
     assert torch.isfinite(lr_energy).all()
 
@@ -241,8 +230,8 @@ def test_jax_parity_long_range_nonperiodic_forward():
     backbone, long_range = _build_pair(seed=2)
     nlo = _nlo()
     system = get_system_with_neighbor_lists(_chain_system(pbc=False), [nlo])
-    nodes_scalar, distances, nodes_spherical, _ = backbone([system])
-    lr_energy = long_range([system], nodes_scalar, distances, nodes_spherical)
+    nodes_scalar, distances, nodes_spherical, _, _ = backbone([system])
+    lr_energy, _updates = long_range([system], nodes_scalar, distances, nodes_spherical)
     assert lr_energy.shape == (4,)
     assert torch.isfinite(lr_energy).all()
 
@@ -253,8 +242,8 @@ def test_jax_parity_energy_and_forces_are_finite():
     system = _chain_system(pbc=True)
     system.positions.requires_grad_(True)
     system = get_system_with_neighbor_lists(system, [nlo])
-    nodes_scalar, distances, nodes_spherical, sr_energy = backbone([system])
-    lr_energy = long_range([system], nodes_scalar, distances, nodes_spherical)
+    nodes_scalar, distances, nodes_spherical, sr_energy, _ = backbone([system])
+    lr_energy, _updates = long_range([system], nodes_scalar, distances, nodes_spherical)
     energy = (sr_energy + lr_energy).sum()
     (forces,) = torch.autograd.grad(energy, system.positions)
     assert torch.isfinite(energy).all()
@@ -290,17 +279,17 @@ def test_jax_parity_checkpoint_loader_round_trips():
     # numerically, not just parameter-for-parameter.
     nlo = _nlo()
     system = get_system_with_neighbor_lists(_chain_system(pbc=True), [nlo])
-    src_nodes_scalar, src_distances, src_nodes_spherical, src_sr_energy = (
+    src_nodes_scalar, src_distances, src_nodes_spherical, src_sr_energy, _ = (
         source_backbone([system])
     )
-    tgt_nodes_scalar, tgt_distances, tgt_nodes_spherical, tgt_sr_energy = (
+    tgt_nodes_scalar, tgt_distances, tgt_nodes_spherical, tgt_sr_energy, _ = (
         target_backbone([system])
     )
     torch.testing.assert_close(src_sr_energy, tgt_sr_energy)
-    src_lr_energy = source_long_range(
+    src_lr_energy, _ = source_long_range(
         [system], src_nodes_scalar, src_distances, src_nodes_spherical
     )
-    tgt_lr_energy = target_long_range(
+    tgt_lr_energy, _ = target_long_range(
         [system], tgt_nodes_scalar, tgt_distances, tgt_nodes_spherical
     )
     torch.testing.assert_close(src_lr_energy, tgt_lr_energy)

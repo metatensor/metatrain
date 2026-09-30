@@ -1,4 +1,5 @@
 import copy
+import math
 
 import pytest
 import torch
@@ -102,3 +103,48 @@ def test_bec_torchscript():
     eager = model([system], outputs)["bec"].block().values
     compiled = scripted([system], outputs)["bec"].block().values
     torch.testing.assert_close(eager, compiled, atol=1e-5, rtol=1e-5)
+
+
+def test_bec_rotates_as_a_cartesian_tensor():
+    """A rotation R sends each atom's 3×3 tensor to ``R B Rᵀ``."""
+    model = LOREM(_hypers(), _dataset_info()).double()
+    model.eval()
+
+    system = System(
+        types=torch.tensor([6, 6, 8, 8]),
+        positions=torch.tensor(
+            [
+                [0.0, 0.0, 0.0],
+                [1.2, 0.3, 0.1],
+                [0.2, 1.1, 0.4],
+                [-0.4, 0.5, 1.0],
+            ],
+            dtype=torch.float64,
+        ),
+        cell=torch.zeros(3, 3, dtype=torch.float64),
+        pbc=torch.tensor([False, False, False]),
+    )
+    theta = math.pi / 5.0
+    rotation = torch.tensor(
+        [
+            [math.cos(theta), -math.sin(theta), 0.0],
+            [math.sin(theta), math.cos(theta), 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=torch.float64,
+    )
+    rotated = System(
+        types=system.types,
+        positions=system.positions @ rotation.T,
+        cell=system.cell,
+        pbc=system.pbc,
+    )
+    original = system
+    options = model.requested_neighbor_lists()
+    original = get_system_with_neighbor_lists(original, options)
+    rotated = get_system_with_neighbor_lists(rotated, options)
+    outputs = {"bec": ModelOutput(sample_kind="atom")}
+    bec = model([original], outputs)["bec"].block().values[..., 0]
+    bec_rot = model([rotated], outputs)["bec"].block().values[..., 0]
+    expected = torch.einsum("ij,njk,lk->nil", rotation, bec, rotation)
+    torch.testing.assert_close(bec_rot, expected, atol=1e-6, rtol=1e-5)
