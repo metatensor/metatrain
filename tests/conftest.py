@@ -1,3 +1,4 @@
+import logging
 import math
 import os
 import shutil
@@ -17,6 +18,10 @@ def pytest_xdist_auto_num_workers():
 
 
 MODEL_HYPERS = get_default_hypers("soap_bpnn")["model"]
+
+# `setup_logging` redirects warnings to logging the first time it runs in a process:
+# doing it before the tests keeps them visible to `pytest.warns`
+logging.captureWarnings(True)
 
 # -------------------------------
 #      PATHS TO RESOURCES
