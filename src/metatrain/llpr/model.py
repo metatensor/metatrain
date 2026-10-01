@@ -43,7 +43,7 @@ from .documentation import ModelHypers
 
 
 class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 5
 
     ensemble_gradient_outputs: List[str]
 
@@ -104,13 +104,13 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         # ensemble weight sizes need to be extracted from the hypers
 
         self.model = model
-        self.ll_feat_size = self.model.last_layer_feature_size
+        self.ll_feat_size = self.model.model.last_layer_feature_size
 
         # we need the capabilities of the model to be able to infer the capabilities
         # of the LLPR model. Here, we do a trick: we call export on the model to to make
         # it handle the conversion from dataset_info to capabilities, as well as to
         # get its dtype
-        old_capabilities = self.model.export().capabilities()
+        old_capabilities = self.model.model.export().capabilities()
         dtype = getattr(torch, old_capabilities.dtype)
 
         # checks between dataset_info and model outputs
@@ -145,7 +145,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         # wrapped model under the names the model actually understands, and metatomic's
         # `AtomisticModel` re-adds the new-name aliases (and bridges engine requests to
         # them) when this wrapper is itself exported.
-        backbone_outputs = self.model.supported_outputs()
+        backbone_outputs = self.model.model.supported_outputs()
 
         # update capabilities: now we have additional outputs for the uncertainty
         additional_capabilities = {}
@@ -236,9 +236,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         self.llpr_ensemble_layers = torch.nn.ModuleDict()
         for name, value in self.ensemble_weight_sizes.items():
             # create the linear layer for ensemble members
-            tensor_names = self.model.last_layer_parameter_names[name]
+            tensor_names = self.model.model.last_layer_parameter_names[name]
             n_properties = torch.concatenate(
-                [self.model.state_dict()[tn] for tn in tensor_names],
+                [self.model.model.state_dict()[tn] for tn in tensor_names],
                 axis=-1,
             ).shape[0]  # type: ignore
             self.llpr_ensemble_layers[name] = torch.nn.Linear(
@@ -257,7 +257,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
-            at for at in merged_info.atomic_types if at not in self.model.atomic_types
+            at
+            for at in merged_info.atomic_types
+            if at not in self.model.model.atomic_types
         ]
         new_targets = {
             key: value
@@ -281,7 +283,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         self.dataset_info = merged_info
 
         # invoke restart routine for the wrapped model
-        self.model.restart(dataset_info)
+        self.model.model.restart(dataset_info)
 
         return self
 
@@ -1091,9 +1093,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         # weight tensor is of shape (num_subtarget, concat_llfeat)
         weight_tensors = {}  # type: ignore
         for name in self.ensemble_weight_sizes:
-            tensor_names = self.model.last_layer_parameter_names[name]
+            tensor_names = self.model.model.last_layer_parameter_names[name]
             weight_tensors[name] = torch.concatenate(
-                [self.model.state_dict()[tn] for tn in tensor_names],
+                [self.model.model.state_dict()[tn] for tn in tensor_names],
                 axis=-1,
             )  # type: ignore
 
@@ -1297,19 +1299,42 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         return original_name
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
+    def upgrade_checkpoint(
+        cls, checkpoint: Dict, version: Optional[int] = None
+    ) -> Dict:
+        if version is None:
+            version = cls.__checkpoint_version__
+        elif version > cls.__checkpoint_version__:
+            raise ValueError(
+                f"Was asked to upgrade checkpoint to version {version},"
+                "which is higher than the current model version:"
+                f" {cls.__checkpoint_version__}."
+            )
+        elif version < checkpoint["model_ckpt_version"]:
+            raise ValueError(
+                f"Was asked to upgrade checkpoint to version {version},"
+                "but the checkpoint is at a higher version:"
+                f" {checkpoint['model_ckpt_version']}."
+            )
+
+        for v in range(1, version):
             if checkpoint["model_ckpt_version"] == v:
                 update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
                 update(checkpoint)
                 checkpoint["model_ckpt_version"] = v + 1
 
-        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {checkpoint['model_ckpt_version']}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
-            )
+        if checkpoint["model_ckpt_version"] != version:
+            if version == cls.__checkpoint_version__:
+                raise RuntimeError(
+                    f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                    f"version {checkpoint['model_ckpt_version']}, while the current model "
+                    f"version is {version}."
+                )
+            else:
+                raise RuntimeError(
+                    f"Unable to upgrade the checkpoint from version"
+                    f" {checkpoint['model_ckpt_version']} to version {version}."
+                )
 
         return checkpoint
 
