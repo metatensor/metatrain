@@ -40,8 +40,9 @@ compared against PySCF itself, which pins down row ordering and every
 convention end to end.
 """
 
+import functools
 import math
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -239,40 +240,29 @@ def _fit_element(aux_basis: str, atomic_number: int) -> _ElementBasis:
 def _boys(order: int, argument: torch.Tensor) -> torch.Tensor:
     """Boys functions ``F_0 .. F_order`` for a batch of arguments.
 
-    Only the top order is evaluated from a special function — ``F_0`` from
-    ``erf``, higher orders from the regularised lower incomplete gamma,
-    ``F_n(T) = Gamma(n + 1/2) P(n + 1/2, T) / (2 T^(n + 1/2))`` — and the rest
-    follow from the downward recursion ``F_{n-1} = (2 T F_n + e^{-T}) /
-    (2n - 1)``, which is stable in that direction. Near ``T = 0`` the closed
-    forms are 0/0 and a two-term Taylor series (error ``~T^2``) replaces them.
+    Every order is evaluated directly, in one broadcast call, from the
+    regularised lower incomplete gamma,
+    ``F_n(T) = Gamma(n + 1/2) P(n + 1/2, T) / (2 T^(n + 1/2))``. Near ``T = 0``
+    the closed form is 0/0 and a two-term Taylor series (error ``~T^2``)
+    replaces it.
 
     :param order: Highest Boys order needed.
     :param argument: Arguments ``T``, shape ``(n,)``.
     :return: Tensor of shape ``(n, order + 1)``.
     """
     cutoff = 1e-13 if argument.dtype == torch.float64 else 3e-4
-    t_safe = argument.clamp(min=cutoff)
-    if order == 0:
-        closed = 0.5 * torch.sqrt(torch.pi / t_safe) * torch.erf(torch.sqrt(t_safe))
-    else:
-        a = torch.tensor(order + 0.5, dtype=argument.dtype, device=argument.device)
-        closed = (
-            0.5
-            * torch.exp(torch.lgamma(a))
-            * torch.special.gammainc(a, t_safe)
-            / t_safe**a
-        )
-    series = 1.0 / (2.0 * order + 1.0) - argument / (2.0 * order + 3.0)
-    top = torch.where(argument < cutoff, series, closed)
-
-    if order == 0:
-        return top[:, None]
-    columns = [top]
-    decay = torch.exp(-argument)
-    for n in range(order, 0, -1):
-        columns.append((2.0 * argument * columns[-1] + decay) / (2.0 * n - 1.0))
-    columns.reverse()
-    return torch.stack(columns, dim=-1)
+    t = argument[:, None]
+    t_safe = t.clamp(min=cutoff)
+    n = torch.arange(order + 1, dtype=argument.dtype, device=argument.device)
+    a = n + 0.5
+    closed = (
+        0.5
+        * torch.exp(torch.lgamma(a))
+        * torch.special.gammainc(a.expand(len(argument), -1), t_safe)
+    )
+    closed = closed / t_safe**a
+    series = 1.0 / (2.0 * n + 1.0) - t / (2.0 * n + 3.0)
+    return torch.where(t < cutoff, series, closed)
 
 
 def _e0_axis(
@@ -369,54 +359,135 @@ def _d_table(angular: int, alphas: torch.Tensor) -> torch.Tensor:
     return torch.stack([torch.stack(row, dim=-1) for row in rows], dim=-2)
 
 
+def _hermite_program(order: int) -> List[Tuple[torch.Tensor, ...]]:
+    """Level-by-level index tables of the Hermite Coulomb recursion.
+
+    Level ``total`` builds every ``(t, u, v)`` with ``t + u + v = total`` from
+    level ``total - 1`` in one vectorised step: each target is raised along its
+    first non-zero axis, ``R_{..k..} = X_axis R_{..k-1..} + (k - 1) R_{..k-2..}``
+    (both terms at Boys order ``n + 1``). Columns follow
+    :py:func:`_hermite_indices`.
+
+    :param order: Maximum ``t + u + v``.
+    :return: Per level ``1 .. order``: ``(targets, axes, sources, factors)``,
+        ``sources`` the step columns followed by the lower ones, ``factors``
+        as float64.
+    """
+    triples = _hermite_indices(order).tolist()
+    column = {tuple(triple): i for i, triple in enumerate(triples)}
+    program = []
+    for total in range(1, order + 1):
+        targets, axes, steps, lowers, factors = [], [], [], [], []
+        for triple in triples:
+            if sum(triple) != total:
+                continue
+            axis = next(a for a in range(3) if triple[a] > 0)
+            step = list(triple)
+            step[axis] -= 1
+            lower = list(step)
+            lower[axis] -= 1
+            targets.append(column[tuple(triple)])
+            axes.append(axis)
+            steps.append(column[tuple(step)])
+            factor = triple[axis] - 1.0
+            lowers.append(column[tuple(lower)] if factor > 0.0 else 0)
+            factors.append(factor)
+        program.append(
+            (
+                torch.tensor(targets),
+                torch.tensor(axes),
+                torch.tensor(steps + lowers),
+                torch.tensor(factors, dtype=torch.float64),
+            )
+        )
+    return program
+
+
 def _hermite_coulomb(
     order: int,
     separation: torch.Tensor,
     theta: torch.Tensor,
     boys: torch.Tensor,
+    program: List[Tuple[torch.Tensor, ...]],
 ) -> torch.Tensor:
     """Hermite Coulomb integrals ``R^0_{tuv}`` up to total ``order``.
 
     Seeded by ``R^n_{000} = (-2 theta)^n F_n`` and raised with the standard
-    downward-in-``n`` recursion. Passing pre-scaled Boys values makes the same
-    recursion serve the long-range kernel.
+    downward-in-``n`` recursion, one vectorised step per total order. Passing
+    pre-scaled Boys values makes the same recursion serve the long-range kernel.
 
     :param order: Maximum ``t + u + v``.
     :param separation: ``A - B``, shape ``(n, 3)``.
     :param theta: Reduced exponents, shape ``(n,)``.
     :param boys: Boys values (possibly long-range-scaled), ``(n, order + 1)``.
+    :param program: :py:func:`_hermite_program` of ``order``, on the device.
     :return: Tensor of shape ``(n, n_indices)``, columns ordered as
         :py:func:`_hermite_indices`.
     """
-    minus_2t = -2.0 * theta
-    levels: Dict[int, Dict[Tuple[int, int, int], torch.Tensor]] = {
-        n: {(0, 0, 0): minus_2t**n * boys[:, n]} for n in range(order + 1)
-    }
-    for total in range(1, order + 1):
-        for n in range(order - total + 1):
-            upper = levels[n + 1]
-            for t in range(total + 1):
-                for u in range(total + 1 - t):
-                    v = total - t - u
-                    if t > 0:
-                        axis, step = 0, (t - 1, u, v)
-                        lower = (t - 2, u, v)
-                        factor = t - 1.0
-                    elif u > 0:
-                        axis, step = 1, (t, u - 1, v)
-                        lower = (t, u - 2, v)
-                        factor = u - 1.0
-                    else:
-                        axis, step = 2, (t, u, v - 1)
-                        lower = (t, u, v - 2)
-                        factor = v - 1.0
-                    value = separation[:, axis] * upper[step]
-                    if factor > 0.0:
-                        value = value + factor * upper[lower]
-                    levels[n][(t, u, v)] = value
+    n_pairs = separation.shape[0]
+    n_indices = (order + 1) * (order + 2) * (order + 3) // 6
+    levels = torch.zeros(
+        (n_pairs, order + 1, n_indices), dtype=boys.dtype, device=boys.device
+    )
+    exponents = torch.arange(order + 1, device=boys.device, dtype=boys.dtype)
+    levels[:, :, 0] = (-2.0 * theta)[:, None] ** exponents * boys
+    for total, (targets, axes, sources, factors) in enumerate(program, 1):
+        step, lower = levels[:, 1 : order - total + 2, sources].chunk(2, dim=-1)
+        levels[:, : order - total + 1, targets] = torch.addcmul(
+            separation[:, None, axes] * step, lower, factors
+        )
+    return levels[:, 0]
 
-    columns = _hermite_indices(order).tolist()
-    return torch.stack([levels[0][(t, u, v)] for t, u, v in columns], dim=-1)
+
+def _coulomb_block(
+    order: int,
+    program: List[Tuple[torch.Tensor, ...]],
+    combined: torch.Tensor,
+    centers_1: torch.Tensor,
+    centers_2: torch.Tensor,
+    alphas_1: torch.Tensor,
+    alphas_2: torch.Tensor,
+    side_1: torch.Tensor,
+    side_2: torch.Tensor,
+    first: torch.Tensor,
+    second: torch.Tensor,
+) -> torch.Tensor:
+    """Coulomb pair blocks of one chunk of primitive pairs.
+
+    :param order: ``l1 + l2`` of the pair group.
+    :param program: :py:func:`_hermite_program` of ``order``, on the device.
+    :param combined: Column of each ``(hermite_1, hermite_2)`` index pair in
+        the order-``l1 + l2`` Hermite integrals.
+    :param centers_1: Unit centres of the first side (Bohr), ``(n_1, 3)``.
+    :param centers_2: The same for the second side.
+    :param alphas_1: Unit exponents of the first side, ``(n_1,)``.
+    :param alphas_2: The same for the second side.
+    :param side_1: Per-unit spherical-to-Hermite transforms of the first side.
+    :param side_2: The same for the second side, parity sign folded in.
+    :param first: Unit index of each pair on the first side.
+    :param second: The same for the second side.
+    :return: Tensor of shape ``(n, 2 l1 + 1, 2 l2 + 1)``.
+    """
+    centers_1 = centers_1[first]
+    alphas_1 = alphas_1[first]
+    alphas_2 = alphas_2[second]
+    separation = centers_1 - centers_2[second]
+    theta = alphas_1 * alphas_2 / (alphas_1 + alphas_2)
+    boys = _boys(order, theta * (separation**2).sum(-1))
+    prefactor = (
+        2.0 * torch.pi**2.5 / (alphas_1 * alphas_2 * torch.sqrt(alphas_1 + alphas_2))
+    )
+    if order == 0:
+        return (side_1[first, 0, 0] * side_2[second, 0, 0] * prefactor * boys[:, 0])[
+            :, None, None
+        ]
+    hermite = _hermite_coulomb(order, separation, theta, boys, program)
+    return (
+        torch.einsum(
+            "pmh,phk,pnk->pmn", side_1[first], hermite[:, combined], side_2[second]
+        )
+        * prefactor[:, None, None]
+    )
 
 
 def _exclusive_cumsum(values: List[int]) -> List[int]:
@@ -430,6 +501,18 @@ def _exclusive_cumsum(values: List[int]) -> List[int]:
         sums.append(running)
         running += value
     return sums
+
+
+def _host_table(columns: List[List[int]], device: torch.device) -> torch.Tensor:
+    """Per-system integer columns, sent to ``device`` in one non-blocking copy.
+
+    A blocking host-to-device copy synchronises the stream; this one does not.
+
+    :param columns: Equal-length lists of Python integers.
+    :param device: Target device.
+    :return: Tensor of shape ``(len(columns), n_systems)``.
+    """
+    return torch.tensor(columns, dtype=torch.int64).to(device, non_blocking=True)
 
 
 def _pair_lists(
@@ -447,22 +530,69 @@ def _pair_lists(
     """
     pairs_per_system = [c1 * c2 for c1, c2 in zip(counts_1, counts_2, strict=True)]
     total = sum(pairs_per_system)
+    pairs, pair_starts, starts_1, starts_2, widths = _host_table(
+        [
+            pairs_per_system,
+            _exclusive_cumsum(pairs_per_system),
+            _exclusive_cumsum(counts_1),
+            _exclusive_cumsum(counts_2),
+            counts_2,
+        ],
+        device,
+    )
     system = torch.repeat_interleave(
-        torch.arange(len(counts_1), device=device),
-        torch.tensor(pairs_per_system, device=device),
+        torch.arange(len(counts_1), device=device), pairs, output_size=total
     )
-    rank = torch.arange(total, device=device)
-    rank = (
-        rank - torch.tensor(_exclusive_cumsum(pairs_per_system), device=device)[system]
-    )
-    starts_1 = torch.tensor(_exclusive_cumsum(counts_1), device=device)
-    starts_2 = torch.tensor(_exclusive_cumsum(counts_2), device=device)
-    width = torch.tensor(counts_2, device=device)[system]
+    rank = torch.arange(total, device=device) - pair_starts[system]
+    width = widths[system]
     return (
         system,
         starts_1[system] + rank.div(width, rounding_mode="floor"),
         starts_2[system] + rank.remainder(width),
     )
+
+
+def _triangle_pair_lists(
+    counts: List[int], device: torch.device
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Within-system pairs ``first <= second`` of one set of units.
+
+    The row of each pair is inverted from its rank in closed form (float64
+    square root, then a one-step correction), so no index tensor is read back.
+
+    :param counts: Units per system.
+    :param device: Device to build the index tensors on.
+    :return: ``(system, first, second)`` index tensors, one entry per pair.
+    """
+    pairs_per_system = [c * (c + 1) // 2 for c in counts]
+    total = sum(pairs_per_system)
+    pairs, pair_starts, starts, widths = _host_table(
+        [
+            pairs_per_system,
+            _exclusive_cumsum(pairs_per_system),
+            _exclusive_cumsum(counts),
+            counts,
+        ],
+        device,
+    )
+    system = torch.repeat_interleave(
+        torch.arange(len(counts), device=device), pairs, output_size=total
+    )
+    rank = torch.arange(total, device=device) - pair_starts[system]
+    width = widths[system]
+
+    def row_start(row: torch.Tensor) -> torch.Tensor:
+        return row * width - row * (row - 1) // 2
+
+    span = (2 * width + 1).to(torch.float64)
+    row = torch.floor(
+        (span - torch.sqrt(span**2 - 8.0 * rank.to(torch.float64))) / 2.0
+    ).to(torch.int64)
+    row = row - (row_start(row) > rank).to(torch.int64)
+    row = row + (row_start(row + 1) <= rank).to(torch.int64)
+    column = row + rank - row_start(row)
+    start = starts[system]
+    return system, start + row, start + column
 
 
 class TorchMetricBuilder:
@@ -484,6 +614,7 @@ class TorchMetricBuilder:
         self.aux_basis = aux_basis
         self.metric = metric
         self._elements: Dict[int, _ElementBasis] = {}
+        self._kernels: Dict[Tuple[int, int, torch.dtype, torch.device], Any] = {}
         self._device_cache: Dict[
             Tuple[int, torch.device, torch.dtype], _ElementBasis
         ] = {}
@@ -616,13 +747,15 @@ class TorchMetricBuilder:
         """
         from pyscf.lib.parameters import BOHR
 
-        elements = sorted(
-            {
-                int(atomic_number)
-                for types, _ in geometries
-                for atomic_number in types.tolist()
-            }
+        # One device-to-host read for the whole batch, not one per system.
+        all_types = np.asarray(
+            torch.cat([types for types, _ in geometries]).detach().cpu(),
+            dtype=np.int64,
         )
+        type_arrays = np.split(
+            all_types, np.cumsum([len(types) for types, _ in geometries])[:-1]
+        )
+        elements = sorted({int(z) for z in np.unique(all_types)})
         for atomic_number in elements:
             self._host_element(atomic_number)
         tables, slices = self._primitive_tables(device, dtype)
@@ -641,14 +774,16 @@ class TorchMetricBuilder:
         unit_atom: Dict[int, List[np.ndarray]] = {a: [] for a in angulars}
         unit_prim: Dict[int, List[np.ndarray]] = {a: [] for a in angulars}
         unit_row: Dict[int, List[np.ndarray]] = {a: [] for a in angulars}
+        unit_system: Dict[int, List[np.ndarray]] = {a: [] for a in angulars}
         counts: Dict[int, List[int]] = {a: [] for a in angulars}
         sizes: List[int] = []
         positions_parts: List[torch.Tensor] = []
         atom_base = 0
 
-        for types, positions in geometries:
+        for i_system, ((_, positions), type_array) in enumerate(
+            zip(geometries, type_arrays, strict=True)
+        ):
             positions_parts.append(positions.to(device=device, dtype=dtype))
-            type_array = np.asarray(types.detach().cpu(), dtype=np.int64)
             naux_per_atom = np.array([self._elements[int(z)].naux for z in type_array])
             atom_rows = np.concatenate([[0], np.cumsum(naux_per_atom)[:-1]])
             sizes.append(int(naux_per_atom.sum()))
@@ -672,27 +807,46 @@ class TorchMetricBuilder:
                         np.repeat(atom_rows[atoms], n_prims)
                         + np.tile(local_rows, n_atoms)
                     )
+                    unit_system[angular].append(np.full(n_atoms * n_prims, i_system))
                     total += n_atoms * n_prims
                 counts[angular].append(total)
             atom_base += len(type_array)
 
         positions_bohr = torch.cat(positions_parts) / BOHR
+        size_array = np.array(sizes, dtype=np.int64)
+        base_array = np.array(_exclusive_cumsum([n * n for n in sizes]), np.int64)
         units: Dict[int, Dict[str, torch.Tensor]] = {}
         for angular in angulars:
+            system = np.concatenate(unit_system[angular])
+            rows = (
+                np.concatenate(unit_row[angular])[:, None]
+                + np.arange(2 * angular + 1)[None, :]
+            )
+            # Flat buffer position of matrix entry (i, j) is outer[i] + inner[j].
+            outer = base_array[system][:, None] + rows * size_array[system][:, None]
             indices = torch.from_numpy(
-                np.stack(
+                np.concatenate(
                     [
-                        np.concatenate(unit_atom[angular]),
-                        np.concatenate(unit_prim[angular]),
-                        np.concatenate(unit_row[angular]),
-                    ]
+                        np.stack(
+                            [
+                                np.concatenate(unit_atom[angular]),
+                                np.concatenate(unit_prim[angular]),
+                            ],
+                            axis=1,
+                        ),
+                        outer,
+                        rows,
+                    ],
+                    axis=1,
                 )
-            ).to(device)
+            ).to(device, non_blocking=True)
+            width = 2 * angular + 1
             units[angular] = {
-                "centers": positions_bohr[indices[0]],
-                "alphas": tables[angular]["alphas"][indices[1]],
-                "weights": tables[angular]["weights"][indices[1]],
-                "rows": indices[2],
+                "centers": positions_bohr[indices[:, 0]],
+                "alphas": tables[angular]["alphas"][indices[:, 1]],
+                "weights": tables[angular]["weights"][indices[:, 1]],
+                "outer": indices[:, 2 : 2 + width],
+                "inner": indices[:, 2 + width :],
             }
         return units, counts, sizes
 
@@ -766,21 +920,38 @@ class TorchMetricBuilder:
         """
         units, counts, sizes = self._units(geometries, device, dtype)
         bases = _exclusive_cumsum([size * size for size in sizes])
-        sizes_tensor = torch.tensor(sizes, device=device)
-        bases_tensor = torch.tensor(bases, device=device)
         buffer = torch.zeros(
             sum(size * size for size in sizes), dtype=dtype, device=device
         )
 
-        budget = 1 << 24 if dtype == torch.float32 else 1 << 23
+        if base == "coulomb":
+            for angular, group in units.items():
+                tables = self._group_tables(base, angular, angular, dtype, device)
+                side = self._hermite_side(
+                    angular,
+                    group["alphas"],
+                    group["weights"],
+                    tables["powers_1"],
+                    tables["hermite_1"],
+                )
+                group["side"] = side
+                group["side_parity"] = side * tables["parity"]
+
+        budget = 1 << 26 if dtype == torch.float32 else 1 << 25
         for l1, group_1 in units.items():
             for l2, group_2 in units.items():
                 if l2 < l1:
                     continue
-                system, first, second = _pair_lists(counts[l1], counts[l2], device)
+                if l1 == l2:
+                    system, first, second = _triangle_pair_lists(counts[l1], device)
+                else:
+                    system, first, second = _pair_lists(counts[l1], counts[l2], device)
                 tables = self._group_tables(base, l1, l2, dtype, device)
                 n_hermite = (
-                    len(_hermite_indices(l1)) * len(_hermite_indices(l2))
+                    max(
+                        len(_hermite_indices(l1)) * len(_hermite_indices(l2)),
+                        (l1 + l2 + 1) * len(_hermite_indices(l1 + l2)),
+                    )
                     if base == "coulomb"
                     else (l1 + 1) * (l2 + 1)
                 )
@@ -796,8 +967,6 @@ class TorchMetricBuilder:
                         system[start : start + chunk],
                         first[start : start + chunk],
                         second[start : start + chunk],
-                        sizes_tensor,
-                        bases_tensor,
                         buffer,
                         tables,
                     )
@@ -853,6 +1022,15 @@ class TorchMetricBuilder:
                 (hermite_1[:, None, :] + hermite_2[None, :, :]).unbind(-1)
             ]
             tables["parity"] = (-1.0) ** hermite_2.sum(-1).to(dtype)
+            tables["program"] = [
+                tuple(
+                    entry.to(device=device, dtype=dtype)
+                    if entry.is_floating_point()
+                    else entry.to(device)
+                    for entry in level
+                )
+                for level in _hermite_program(order)
+            ]
         self._tables_cache[key] = tables
         return tables
 
@@ -867,8 +1045,6 @@ class TorchMetricBuilder:
         system: torch.Tensor,
         first: torch.Tensor,
         second: torch.Tensor,
-        sizes: torch.Tensor,
-        bases: torch.Tensor,
         buffer: torch.Tensor,
         tables: Dict[str, torch.Tensor],
     ) -> None:
@@ -883,12 +1059,30 @@ class TorchMetricBuilder:
         :param system: System index of each pair.
         :param first: Unit index of each pair on the first side.
         :param second: The same for the second side.
-        :param sizes: Per-system matrix dimension.
-        :param bases: Per-system offset into ``buffer``.
         :param buffer: Flat accumulation buffer of all matrices.
         :param tables: The group's constant index tensors
             (:py:meth:`_group_tables`).
         """
+        if base == "coulomb":
+            key = (l1, l2, buffer.dtype, buffer.device)
+            kernel = self._kernels.get(key)
+            if kernel is None:
+                kernel = functools.partial(_coulomb_block, l1 + l2, tables["program"])
+                self._kernels[key] = kernel
+            block = kernel(
+                tables["combined"],
+                group_1["centers"],
+                group_2["centers"],
+                group_1["alphas"],
+                group_2["alphas"],
+                group_1["side"],
+                group_2["side_parity"],
+                first,
+                second,
+            )
+            self._scatter(group_1, group_2, first, second, l1 == l2, buffer, block)
+            return
+
         centers_1 = group_1["centers"][first]
         centers_2 = group_2["centers"][second]
         alphas_1 = group_1["alphas"][first]
@@ -910,10 +1104,9 @@ class TorchMetricBuilder:
         if len(system) == 0:
             return
 
-        weights_1 = group_1["weights"][first]
-        weights_2 = group_2["weights"][second]
-
         if base == "overlap":
+            weights_1 = group_1["weights"][first]
+            weights_2 = group_2["weights"][second]
             total = alphas_1 + alphas_2
             reduced = alphas_1 * alphas_2 / total
             centre = (
@@ -942,126 +1135,42 @@ class TorchMetricBuilder:
                 torch.einsum("pmc,pcd,pnd->pmn", weights_1, cartesian, weights_2)
                 * prefactor[:, None, None]
             )
-        else:
-            theta = alphas_1 * alphas_2 / (alphas_1 + alphas_2)
-            order = l1 + l2
-            argument = theta * distance_sq
-            if omega > 0.0:
-                sigma_sq = omega**2 / (omega**2 + theta)
-                exponents = torch.arange(
-                    order + 1, dtype=theta.dtype, device=system.device
-                )
-                boys = _boys(order, sigma_sq * argument) * sigma_sq[:, None] ** (
-                    exponents + 0.5
-                )
-            else:
-                boys = _boys(order, argument)
-            prefactor = (
-                2.0
-                * torch.pi**2.5
-                / (alphas_1 * alphas_2 * torch.sqrt(alphas_1 + alphas_2))
-            )
-            if order == 0:
-                # s-s pairs: the Hermite machinery collapses to F_0, and this
-                # group is by far the largest, so the einsum path would spend
-                # its time on 1x1 matrix products.
-                block = (
-                    weights_1[:, 0, 0] * weights_2[:, 0, 0] * prefactor * boys[:, 0]
-                )[:, None, None]
-                self._scatter(
-                    l1,
-                    l2,
-                    group_1,
-                    group_2,
-                    system,
-                    first,
-                    second,
-                    sizes,
-                    bases,
-                    buffer,
-                    block,
-                )
-                return
-            hermite = _hermite_coulomb(order, separation, theta, boys)
-            gathered = hermite[:, tables["combined"]]
-
-            side_1 = self._hermite_side(
-                l1, alphas_1, weights_1, tables["powers_1"], tables["hermite_1"]
-            )
-            side_2 = self._hermite_side(
-                l2, alphas_2, weights_2, tables["powers_2"], tables["hermite_2"]
-            )
-            block = (
-                torch.einsum(
-                    "pmh,phk,pnk->pmn", side_1, gathered, side_2 * tables["parity"]
-                )
-                * prefactor[:, None, None]
-            )
-
-        self._scatter(
-            l1,
-            l2,
-            group_1,
-            group_2,
-            system,
-            first,
-            second,
-            sizes,
-            bases,
-            buffer,
-            block,
-        )
+        self._scatter(group_1, group_2, first, second, l1 == l2, buffer, block)
 
     @staticmethod
     def _scatter(
-        l1: int,
-        l2: int,
         group_1: Dict[str, torch.Tensor],
         group_2: Dict[str, torch.Tensor],
-        system: torch.Tensor,
         first: torch.Tensor,
         second: torch.Tensor,
-        sizes: torch.Tensor,
-        bases: torch.Tensor,
+        same_group: bool,
         buffer: torch.Tensor,
         block: torch.Tensor,
     ) -> None:
         """Accumulate pair blocks into the flat buffer of matrices.
 
-        :param l1: Angular momentum of the first side.
-        :param l2: The same for the second side.
         :param group_1: First side's unit tensors.
         :param group_2: The same for the second side.
-        :param system: System index of each pair.
         :param first: Unit index of each pair on the first side.
         :param second: The same for the second side.
-        :param sizes: Per-system matrix dimension.
-        :param bases: Per-system offset into ``buffer``.
+        :param same_group: Whether both sides are the same unit group.
         :param buffer: Flat accumulation buffer of all matrices.
         :param block: Pair blocks, shape ``(n, 2 l1 + 1, 2 l2 + 1)``.
         """
-        rows_1 = group_1["rows"][first]
-        rows_2 = group_2["rows"][second]
-        components_1 = torch.arange(2 * l1 + 1, device=system.device)
-        components_2 = torch.arange(2 * l2 + 1, device=system.device)
-        stride = sizes[system]
         flat = (
-            (bases[system] + rows_1 * stride + rows_2)[:, None, None]
-            + components_1[None, :, None] * stride[:, None, None]
-            + components_2[None, None, :]
+            group_1["outer"][first][:, :, None] + group_2["inner"][second][:, None, :]
         )
         buffer.scatter_add_(0, flat.reshape(-1), block.reshape(-1))
-        if l1 != l2:
-            # The metric is symmetric and only l1 <= l2 groups are enumerated;
-            # place the transposed block on the other side of the diagonal.
-            flat_t = (
-                (bases[system] + rows_2 * stride + rows_1)[:, None, None]
-                + components_2[None, :, None] * stride[:, None, None]
-                + components_1[None, None, :]
-            )
-            buffer.scatter_add_(
-                0, flat_t.reshape(-1), block.transpose(1, 2).reshape(-1)
-            )
+        # The metric is symmetric and only l1 <= l2 groups (first <= second
+        # within l1 == l2) are enumerated; place the transposed block on the
+        # other side of the diagonal, except for a unit paired with itself.
+        transposed = block.transpose(1, 2)
+        if same_group:
+            transposed = transposed * (first != second).to(block.dtype)[:, None, None]
+        flat_t = (
+            group_2["outer"][second][:, :, None] + group_1["inner"][first][:, None, :]
+        )
+        buffer.scatter_add_(0, flat_t.reshape(-1), transposed.reshape(-1))
 
     @staticmethod
     def _hermite_side(
