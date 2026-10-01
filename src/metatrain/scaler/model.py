@@ -25,6 +25,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
 from ._base_scaler import BaseScaler
@@ -59,6 +60,7 @@ class Scaler(ModelInterface[ModelHypers]):
 
         if self.densify_atomic_basis:
             dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+            self.dataset_info = dataset_info
 
         self.target_infos = {
             target_name: target_info
@@ -102,7 +104,9 @@ class Scaler(ModelInterface[ModelHypers]):
             datasets = [datasets]
 
         train_or_load_scaler(
-            scaler=self,
+            scaler=MetatrainModel(
+                self, additive_models=[], scaler=None, dataset_info=self.dataset_info
+            ),
             fixed_weights=fixed_weights if fixed_weights is not None else {},
             train_datasets=datasets,
             additive_models=additive_models,
@@ -134,27 +138,28 @@ class Scaler(ModelInterface[ModelHypers]):
             DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=merged_info.atomic_types,
-                targets=dataset_info.targets,
+                targets=merged_info.targets,
             )
         ).targets
 
         self.target_infos = {
             target_name: dense_new_targets[target_name]
             for target_name in merged_info.targets
-            if target_name not in self.dataset_info.targets
         }
-
-        self.dataset_info = merged_info
 
         # register new outputs
         self.new_outputs = []
         buffer_names = [n for n, _ in self.named_buffers()]
         for target_name, target_info in self.target_infos.items():
+            if target_name in self.dataset_info.targets:
+                continue
             if target_name + "_scaler_buffer" in buffer_names:
                 continue
             self.new_outputs.append(target_name)
             self.model.add_output(target_name, target_info.layout)
             self._add_output(target_name, target_info)
+
+        self.dataset_info = merged_info
 
         return self
 
@@ -562,27 +567,47 @@ class Scaler(ModelInterface[ModelHypers]):
         return model
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint.get("model_ckpt_version") == v:
+    def upgrade_checkpoint(
+        cls, checkpoint: Dict, version: Optional[int] = None
+    ) -> Dict:
+        if version is None:
+            version = cls.__checkpoint_version__
+        elif version > cls.__checkpoint_version__:
+            raise ValueError(
+                f"Was asked to upgrade checkpoint to version {version},"
+                "which is higher than the current model version:"
+                f" {cls.__checkpoint_version__}."
+            )
+        elif version < checkpoint["model_ckpt_version"]:
+            raise ValueError(
+                f"Was asked to upgrade checkpoint to version {version},"
+                "but the checkpoint is at a higher version:"
+                f" {checkpoint['model_ckpt_version']}."
+            )
+
+        for v in range(1, version):
+            if checkpoint["model_ckpt_version"] == v:
                 update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
                 update(checkpoint)
                 checkpoint["model_ckpt_version"] = v + 1
 
-        version = checkpoint.get("model_ckpt_version")
-        if version != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {version}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
-            )
+        if checkpoint["model_ckpt_version"] != version:
+            if version == cls.__checkpoint_version__:
+                raise RuntimeError(
+                    f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                    f"version {checkpoint['model_ckpt_version']}, while the current model "
+                    f"version is {version}."
+                )
+            else:
+                raise RuntimeError(
+                    f"Unable to upgrade the checkpoint from version"
+                    f" {checkpoint['model_ckpt_version']} to version {version}."
+                )
 
         return checkpoint
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = self.dummy_buffer.dtype
-        if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for scaler")
 
         self.to(dtype)
         self.scales_to(torch.device("cpu"), torch.float64)

@@ -26,7 +26,7 @@ ALLOWED_NEW_KEYS_CONDITIONS = [
 # Wrapper architectures can embed a full checkpoint from another architecture.
 # That inner checkpoint has its own versioning and upgrade path, so we don't
 # recurse into it when checking the outer checkpoint structure.
-NONRECURSIVE_CHECKPOINT_KEYS = {"wrapped_model_checkpoint"}
+NONRECURSIVE_CHECKPOINT_KEYS = {"wrapped_model_checkpoint", "additive_models", "scaler"}
 
 
 def check_same_checkpoint_structure(
@@ -102,9 +102,6 @@ class CheckpointTests(ArchitectureTests):
             dataset_targets, dataset_path
         )
 
-        # Initialize model
-        model = self.model_cls(minimal_model_hypers, dataset_info)
-
         # Set the training hyperparameters:
         #  - Just 1 epoch to keep the test fast
         #  - Default loss for each target
@@ -118,11 +115,13 @@ class CheckpointTests(ArchitectureTests):
 
         # Initialize trainer
         trainer = self.trainer_cls(hypers["training"])
+        # Initialize model
+        model = trainer.setup(minimal_model_hypers, dataset_info)
 
         # Train the model.
         trainer.train(
             model,
-            dtype=model.__supported_dtypes__[0],
+            dtype=model.model.__supported_dtypes__[0],
             devices=[torch.device("cpu")],
             train_datasets=[dataset],
             val_datasets=[dataset],
@@ -197,7 +196,7 @@ class CheckpointTests(ArchitectureTests):
         checkpoint = torch.load("checkpoint.ckpt", weights_only=False)
         monkeypatch.chdir(cwd)
 
-        model_version = model.__checkpoint_version__
+        model_version = model.model.__checkpoint_version__
         trainer_version = trainer.__checkpoint_version__
 
         ckpt_name = f"model-v{model_version}_trainer-v{trainer_version}.ckpt.gz"
@@ -257,7 +256,7 @@ class CheckpointTests(ArchitectureTests):
         checkpoint = model.get_checkpoint()
 
         caplog.set_level(logging.INFO)
-        self.model_cls.load_checkpoint(checkpoint, context)
+        model_from_checkpoint(checkpoint, context)
 
         if context == "restart":
             assert "Using latest model from epoch None" in caplog.text
