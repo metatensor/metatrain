@@ -27,13 +27,15 @@ from metatrain.utils.distributed.slurm import (
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists_transform
 from metatrain.utils.transfer import batch_to
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .documentation import TrainerHypers
+from .documentation import ModelHypers, TrainerHypers
+from .model import CompositionModel
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
-    __checkpoint_version__ = 2
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
+    __checkpoint_version__ = 3
 
     def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)
@@ -44,18 +46,28 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # train_or_load_composition_model); empty for standalone training.
         self._additive_models: List[torch.nn.Module] = []
 
+    def setup(
+        self, model_hypers: ModelHypers, dataset_info: Dict[str, Any]
+    ) -> MetatrainModel:
+        return MetatrainModel(
+            model=CompositionModel(model_hypers, dataset_info),
+            additive_models=[],
+            scaler=None,
+            dataset_info=dataset_info,
+        )
+
     def train(
         self,
-        model: ModelInterface,
+        model: MetatrainModel,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ) -> None:
-        from .model import CompositionModel
-
-        assert isinstance(model, CompositionModel)
+        assert isinstance(model, MetatrainModel)
+        composition_model = model.model
+        assert isinstance(composition_model, CompositionModel)
 
         additive_models = self._additive_models
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
@@ -64,7 +76,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if batch_size is None:
             batch_size = min(len(dataset) for dataset in train_datasets)
 
-        if len(model.target_infos) == 0:
+        if len(composition_model.target_infos) == 0:
             return
 
         # When trained from within another architecture, the parent trainer has
@@ -88,7 +100,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Targets with fixed weights don't need data accumulation, only fit().
         targets_to_accumulate = [
             target_name
-            for target_name in model._new_outputs
+            for target_name in composition_model._new_outputs
             if target_name not in fixed_weights
         ]
 
@@ -100,13 +112,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         additive_model.requested_neighbor_lists()
                     )
 
-            # The model fits and stores dense weights (see
-            # CompositionModel.__init__), so incoming batches of (possibly sparse,
-            # atom_type-keyed) atomic-basis targets need to be densified the same
-            # way every other architecture densifies its own targets before
-            # training.
+            # Get the transform that prepares the atomic basis targets for
+            # the composition model by converting them to its required format.
             atomic_basis_transform, _ = get_prepare_atomic_basis_targets_transform(
-                model.dataset_info.targets, model.dataset_info.extra_data
+                model.dataset_info, composition_model.dataset_info
             )
 
             # The additive contributions are removed inside the collate
@@ -123,7 +132,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
             callables = [
                 atomic_basis_transform,
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
-                get_remove_additive_transform(cpu_additive_models, model.target_infos),
+                get_remove_additive_transform(
+                    cpu_additive_models, composition_model.target_infos
+                ),
             ]
 
             collate_fn = CollateFn(
@@ -186,19 +197,19 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 if len(targets) == 0:
                     continue
 
-                model.model.accumulate(systems, targets)
+                composition_model.model.accumulate(systems, targets)
 
         if is_distributed:
             torch.distributed.barrier()
             # A rank whose shard of some dataset was empty never accumulated
             # the corresponding targets, so its XTX/XTY are still on the CPU,
             # while NCCL needs them on the GPU for the all_reduce.
-            model.model._sync_device_dtype(device, torch.float64)
+            composition_model.model._sync_device_dtype(device, torch.float64)
             handles = []
             for target_name in targets_to_accumulate:
                 for XTX_block, XTY_block in zip(
-                    model.model.XTX[target_name],
-                    model.model.XTY[target_name],
+                    composition_model.model.XTX[target_name],
+                    composition_model.model.XTY[target_name],
                     strict=True,
                 ):
                     handles.append(
@@ -210,14 +221,18 @@ class Trainer(TrainerInterface[TrainerHypers]):
             for handle in handles:
                 handle.wait()
 
-        model.model.fit(fixed_weights, targets_to_fit=model._new_outputs)
+        composition_model.model.fit(
+            fixed_weights, targets_to_fit=composition_model._new_outputs
+        )
 
-        for target_name in model.model.weights.keys():
-            model.register_buffer(
+        for target_name in composition_model.model.weights.keys():
+            composition_model.register_buffer(
                 target_name + "_composition_buffer",
                 mts.save_buffer(
                     mts.make_contiguous(
-                        model.model.weights[target_name].to("cpu", torch.float64)
+                        composition_model.model.weights[target_name].to(
+                            "cpu", torch.float64
+                        )
                     )
                 ).to(device),
             )

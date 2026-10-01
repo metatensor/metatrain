@@ -82,7 +82,6 @@ def _densify_atomic_basis_target(
 
     :return: the densified per-atom/atom-pair atomic basis target TensorMap.
     """
-
     # First ensure that the tensor has all keys present in the layout tensor (i.e. the
     # global basis set definition). If any blocks aren't present, they are added as
     # zero-sample blocks with the correct components and properties.
@@ -650,8 +649,8 @@ def sparsify_atomic_basis_target(
 
 
 def get_prepare_atomic_basis_targets_transform(
-    target_info_dict: dict[str, TargetInfo],
-    extra_data_info_dict: dict[str, TargetInfo],
+    pre_dataset_info: DatasetInfo,
+    post_dataset_info: DatasetInfo,
     nl_options: Optional[NeighborListOptions] = None,
 ) -> Tuple[Callable, Callable]:
     """
@@ -668,6 +667,39 @@ def get_prepare_atomic_basis_targets_transform(
     :return: A function that takes in systems, targets and extra data, and returns the
         systems, targets and extra data with prepared atomic basis targets.
     """
+    to_densify = []
+    for name, post_info in post_dataset_info.targets.items():
+        if (
+            pre_dataset_info.targets[name].is_atomic_basis
+            and not post_info.is_atomic_basis
+        ):
+            to_densify.append(name)
+        elif (
+            not pre_dataset_info.targets[name].is_atomic_basis
+            and post_info.is_atomic_basis
+        ):
+            raise ValueError(
+                f"Target '{name}' is not an atomic basis target in the before the"
+                " transform, but it is asked to be an atomic basis target after "
+                " the transform. This is not supported yet."
+            )
+
+    extra_to_densify = []
+    for name, post_info in post_dataset_info.extra_data.items():
+        if (
+            pre_dataset_info.extra_data[name].is_atomic_basis
+            and not post_info.is_atomic_basis
+        ):
+            extra_to_densify.append(name)
+        elif (
+            not pre_dataset_info.extra_data[name].is_atomic_basis
+            and post_info.is_atomic_basis
+        ):
+            raise ValueError(
+                f"Extra data '{name}' is not an atomic basis target in the before the"
+                " transform, but it is asked to be an atomic basis target after "
+                " the transform. This is not supported yet."
+            )
 
     def transform(
         systems: List[System],
@@ -685,7 +717,7 @@ def get_prepare_atomic_basis_targets_transform(
         :return: The systems, targets and extra data with prepared atomic basis targets.
         """
         for name, tensor in targets.items():
-            if name in target_info_dict and target_info_dict[name].is_atomic_basis:
+            if name in to_densify:
                 if "mtt::aux::system_index" not in extra:
                     raise ValueError(
                         "Atomic-basis targets require the "
@@ -703,16 +735,13 @@ def get_prepare_atomic_basis_targets_transform(
                     systems,
                     system_ids,
                     tensor,
-                    target_info_dict[name].layout,
+                    pre_dataset_info.targets[name].layout,
                     nl_options,
                     fill_value=torch.nan,
                 )
 
         for name, tensor in extra.items():
-            if (
-                name in extra_data_info_dict
-                and extra_data_info_dict[name].is_atomic_basis
-            ):
+            if name in extra_to_densify:
                 if "mtt::aux::system_index" not in extra:
                     raise ValueError(
                         "Atomic-basis targets require the "
@@ -730,13 +759,15 @@ def get_prepare_atomic_basis_targets_transform(
                     systems,
                     system_ids,
                     tensor,
-                    extra_data_info_dict[name].layout,
+                    pre_dataset_info.extra_data[name].layout,
                     nl_options,
                     fill_value=torch.nan,
                 )
 
         return systems, targets, extra
 
+    target_info_dict = pre_dataset_info.targets
+    extra_data_info_dict = pre_dataset_info.extra_data
     # Precompute property masks for all atomic basis targets and extra data.
     # This avoids calling layout_properties.select(block.properties) every
     # time we want to sparsify a batch.
@@ -764,7 +795,7 @@ def get_prepare_atomic_basis_targets_transform(
             targets.
         """
         for name, tensor in targets.items():
-            if name in target_info_dict and target_info_dict[name].is_atomic_basis:
+            if name in to_densify:
                 if name in sparse_properties:
                     sparse_properties[name] = sparse_properties[name].to(tensor.device)
                 targets[name] = sparsify_atomic_basis_target(
@@ -775,10 +806,7 @@ def get_prepare_atomic_basis_targets_transform(
                 )
 
         for name, tensor in extra.items():
-            if (
-                name in extra_data_info_dict
-                and extra_data_info_dict[name].is_atomic_basis
-            ):
+            if name in extra_to_densify:
                 if name in sparse_properties:
                     sparse_properties[name] = sparse_properties[name].to(tensor.device)
                 extra[name] = sparsify_atomic_basis_target(

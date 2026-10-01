@@ -12,6 +12,7 @@ from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    DatasetInfo,
     build_val_dataloaders,
     get_num_workers,
     unpack_batch,
@@ -30,28 +31,39 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.transfer import batch_to
+from metatrain.utils.wrapper import MetatrainModel
 
-from .documentation import TrainerHypers
+from .documentation import ModelHypers, TrainerHypers
+from .model import Scaler
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 1
 
     def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)
 
+    def setup(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> MetatrainModel:
+        return MetatrainModel(
+            model=Scaler(hypers, dataset_info),
+            additive_models=[],
+            scaler=None,
+            dataset_info=dataset_info,
+        )
+
     def train(
         self,
-        model: ModelInterface,
+        model: MetatrainModel,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ) -> None:
-        from .model import Scaler
 
-        assert isinstance(model, Scaler)
+        assert isinstance(model, MetatrainModel)
+        scaler = model.model
+        assert isinstance(scaler, Scaler)
 
         model = model.to(dtype=dtype, device=devices[0])
 
@@ -74,7 +86,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # Store in the model the identifiers of the additive models used
         # to train the scaler, so that the scaler can check that the
         # same additive models are used at inference time.
-        model.training_additive_models = [
+        scaler.training_additive_models = [
             additive_model.__class__.__name__ for additive_model in additive_models
         ]
 
@@ -91,7 +103,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if per_structure_targets is None:
             per_structure_targets = []
 
-        if len(model.target_infos) == 0:  # no (new) targets to fit
+        if len(scaler.target_infos) == 0:  # no (new) targets to fit
             return
 
         # When trained from within another architecture, the parent trainer has
@@ -113,7 +125,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         model.to(device=device)
 
         skip_accumulation = fixed_weights is not None and all(
-            t in fixed_weights for t in model.new_outputs
+            t in fixed_weights for t in scaler.new_outputs
         )
 
         # if per-property scales are required for any of the new outputs, we need to
@@ -121,13 +133,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # needed to apply the fixed_weights correctly
         require_per_property_scales = any(
             [
-                target_name in model.model.multi_property_target_names
-                for target_name in model.new_outputs
+                target_name in scaler.model.multi_property_target_names
+                for target_name in scaler.new_outputs
             ]
         )
         skip_accumulation = skip_accumulation and not require_per_property_scales
 
-        device = model.dummy_buffer.device
+        device = scaler.dummy_buffer.device
 
         if not skip_accumulation:
             initial_transforms = []
@@ -144,17 +156,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists)
             )
 
-            if model.densify_atomic_basis:
-                # The model fits and stores dense weights (see
-                # Scaler.__init__), so incoming batches of (possibly sparse,
-                # atom_type-keyed) atomic-basis targets need to be densified the same
-                # way every other architecture densifies its own targets before
-                # training.
-                atomic_basis_transform, _ = get_prepare_atomic_basis_targets_transform(
-                    model.dataset_info.targets, model.dataset_info.extra_data
-                )
-
-                initial_transforms.append(atomic_basis_transform)
+            # Make sure the data is transformed to what the scaler needs.
+            atomic_basis_transform, _ = get_prepare_atomic_basis_targets_transform(
+                model.dataset_info,
+                scaler.dataset_info,
+            )
+            initial_transforms.append(atomic_basis_transform)
 
             # Create dataloader for the training datasets
             dataloader = self._get_dataloader(
@@ -181,20 +188,20 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         targets,
                         additive_model,
                         {
-                            target_name: model.target_infos[target_name]
+                            target_name: scaler.target_infos[target_name]
                             for target_name in targets
                         },
                     )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                model.model.accumulate(systems, targets, extra_data)
+                scaler.model.accumulate(systems, targets, extra_data)
 
             if is_distributed:
                 torch.distributed.barrier()
                 # All-reduce the accumulated TensorMaps across all processes
                 for target_name in model.new_outputs:
                     for N_block, Y2_block in zip(
-                        model.model.N[target_name],
-                        model.model.Y2[target_name],
+                        scaler.model.N[target_name],
+                        scaler.model.Y2[target_name],
                         strict=True,
                     ):
                         torch.distributed.all_reduce(N_block.values)
@@ -206,26 +213,26 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
 
         # Compute the scales on all ranks
-        model.model.fit(fixed_weights=fixed_weights, targets_to_fit=model.new_outputs)
+        scaler.model.fit(fixed_weights=fixed_weights, targets_to_fit=scaler.new_outputs)
 
         # update the buffer scales now they are fitted
-        for target_name in model.model.scales.keys():
-            model.register_buffer(
+        for target_name in scaler.model.scales.keys():
+            scaler.register_buffer(
                 target_name + "_scaler_buffer",
                 mts.save_buffer(
                     mts.make_contiguous(
-                        model.model.scales[target_name].to("cpu", torch.float64)
+                        scaler.model.scales[target_name].to("cpu", torch.float64)
                     )
                 ).to(device),
             )
 
         # update the buffer scales now they are fitted
-        for target_name in model.model.scales.keys():
-            model.register_buffer(
+        for target_name in scaler.model.scales.keys():
+            scaler.register_buffer(
                 target_name + "_per_target_scaler_buffer",
                 mts.save_buffer(
                     mts.make_contiguous(
-                        model.model.per_target_scales[target_name].to(
+                        scaler.model.per_target_scales[target_name].to(
                             "cpu", torch.float64
                         )
                     )
@@ -234,8 +241,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         if any(
             [
-                target_name in model.model.multi_property_target_names
-                for target_name in model.new_outputs
+                target_name in scaler.model.multi_property_target_names
+                for target_name in scaler.new_outputs
             ]
         ):
             # Now accumulate quantities for computing per-property scales
@@ -254,49 +261,49 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         targets,
                         additive_model,
                         {
-                            target_name: model.target_infos[target_name]
+                            target_name: scaler.target_infos[target_name]
                             for target_name in targets
                         },
                     )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
-                model.model.accumulate_per_property(systems, targets, extra_data)
+                scaler.model.accumulate_per_property(systems, targets, extra_data)
 
             if is_distributed:
                 torch.distributed.barrier()
                 # All-reduce the accumulated TensorMaps across all processes
-                for target_name in model.new_outputs:
-                    if target_name not in model.model.multi_property_target_names:
+                for target_name in scaler.new_outputs:
+                    if target_name not in scaler.model.multi_property_target_names:
                         continue
                     for N_block, Y2_block in zip(
-                        model.model.per_property_N[target_name],
-                        model.model.per_property_Y2[target_name],
+                        scaler.model.per_property_N[target_name],
+                        scaler.model.per_property_Y2[target_name],
                         strict=True,
                     ):
                         torch.distributed.all_reduce(N_block.values)
                         torch.distributed.all_reduce(Y2_block.values)
 
             # Compute the scales on all ranks
-            model.model.fit_per_property(targets_to_fit=model.new_outputs)
+            scaler.model.fit_per_property(targets_to_fit=scaler.new_outputs)
 
             # update the buffer scales now they have been updated with per-property
             # scales
-            for target_name in model.model.scales.keys():
-                model.register_buffer(
+            for target_name in scaler.model.scales.keys():
+                scaler.register_buffer(
                     target_name + "_scaler_buffer",
                     mts.save_buffer(
                         mts.make_contiguous(
-                            model.model.scales[target_name].to("cpu", torch.float64)
+                            scaler.model.scales[target_name].to("cpu", torch.float64)
                         )
                     ).to(device),
                 )
 
             # update the buffer scales now they are fitted
-            for target_name in model.model.per_property_scales.keys():
-                model.register_buffer(
+            for target_name in scaler.model.per_property_scales.keys():
+                scaler.register_buffer(
                     target_name + "_per_property_scaler_buffer",
                     mts.save_buffer(
                         mts.make_contiguous(
-                            model.model.per_property_scales[target_name].to(
+                            scaler.model.per_property_scales[target_name].to(
                                 "cpu", torch.float64
                             )
                         )
@@ -312,7 +319,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
     def _get_dataloader(
         self,
-        model: ModelInterface,
+        model: MetatrainModel,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
         batch_size: int,
         is_distributed: bool,

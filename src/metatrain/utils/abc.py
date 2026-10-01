@@ -23,10 +23,11 @@ from metatomic.torch import (
 from metatrain.utils.data.dataset import Dataset, DatasetInfo
 
 
-HypersType = TypeVar("HypersType")
+ModelHypersType = TypeVar("ModelHypersType")
+TrainerHypersType = TypeVar("TrainerHypersType")
 
 
-class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
+class ModelInterface(torch.nn.Module, Generic[ModelHypersType], metaclass=ABCMeta):
     """
     Abstract base class for a machine learning model in metatrain.
 
@@ -70,7 +71,10 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
     """
 
     def __init__(
-        self, hypers: HypersType, dataset_info: DatasetInfo, metadata: ModelMetadata
+        self,
+        hypers: ModelHypersType,
+        dataset_info: DatasetInfo,
+        metadata: ModelMetadata,
     ) -> None:
         """"""
         super().__init__()
@@ -211,14 +215,17 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
 
     @classmethod
     @abstractmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict["str", Any]) -> Dict["str", Any]:
+    def upgrade_checkpoint(
+        cls, checkpoint: Dict["str", Any], version: Optional[int] = None
+    ) -> Dict["str", Any]:
         """
         Upgrade the checkpoint to the current version of the model.
 
         :param checkpoint: Checkpoint's state dictionary.
-
-        :raises RuntimeError: if the checkpoint cannot be upgraded to the current
-            version of the model.
+        :param version: Version to which the checkpoint should be upgraded. If ``None``,
+            the checkpoint will be upgraded to the current version of the model.
+        :raises RuntimeError: if the checkpoint cannot be upgraded to the desired
+            version.
 
         :return: The upgraded checkpoint.
         """
@@ -233,7 +240,7 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
         """
 
 
-class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
+class TrainerInterface(Generic[TrainerHypersType, ModelHypersType], metaclass=ABCMeta):
     """
     Abstract base class for a model trainer in metatrain.
 
@@ -250,7 +257,7 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
     This is used to upgrade checkpoints produced with earlier versions of the code.
     See :ref:`ckpt_version` for more information."""
 
-    def __init__(self, hypers: HypersType):
+    def __init__(self, hypers: TrainerHypersType):
         required_attributes = [
             "__checkpoint_version__",
         ]
@@ -272,6 +279,39 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
                 "you must call `super().__init__(hypers)` before setting new fields"
             )
         super().__setattr__(name, value)
+
+    # @abstractmethod Uncomment when all architectures support it.
+    def setup(
+        self, model_hypers: ModelHypersType, dataset_info: DatasetInfo
+    ) -> Any:  # "MetatrainModel":
+        """
+        Setup the trainer with the model hyper-parameters and dataset information.
+
+        :param model_hypers: The hyper-parameters of the model to be trained.
+        :param dataset_info: Information about the dataset to be used for training.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support the `setup` method. "
+        )
+
+    # @abstractmethod Uncomment when all architectures support it.
+    def restart(
+        self,
+        model: Any,  # MetatrainModel,
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypersType,
+    ) -> Any:  # MetatrainModel:
+        """Restart a model for training with a new dataset info.
+
+        :param model: The model to be restarted.
+        :param dataset_info: Information about the new dataset to be used for training.
+        :param model_hypers: The new hyperparameters to set for the model.
+
+        :return: The restarted model, ready for training with the new dataset info.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support the `restart` method. "
+        )
 
     @abstractmethod
     def train(
@@ -325,7 +365,7 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: HypersType,
+        hypers: TrainerHypersType,
         context: Literal["restart", "finetune"],
     ) -> "TrainerInterface":
         """

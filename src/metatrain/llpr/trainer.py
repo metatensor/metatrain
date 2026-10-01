@@ -39,9 +39,10 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.transfer import batch_to
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .documentation import TrainerHypers
+from .documentation import ModelHypers, TrainerHypers
 from .model import LLPRUncertaintyModel
 
 
@@ -79,7 +80,7 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 7
 
     def __init__(self, hypers: TrainerHypers) -> None:
@@ -93,9 +94,33 @@ class Trainer(TrainerInterface[TrainerHypers]):
         self.best_model_state_dict: Optional[Dict[str, Any]] = None
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
 
+    def setup(self, model_hypers, dataset_info):
+
+        if self.hypers["model_checkpoint"] is None:
+            raise ValueError(
+                "A model checkpoint must be provided to train the LLPR "
+                "(model_checkpoint, under training, in the hypers)"
+            )
+
+        llpr_model = LLPRUncertaintyModel(model_hypers, dataset_info)
+
+        wrapped_model_checkpoint_path = self.hypers["model_checkpoint"]
+        checkpoint = torch.load(
+            wrapped_model_checkpoint_path, weights_only=False, map_location="cpu"
+        )
+        wrapped_model = model_from_checkpoint(checkpoint, "export")
+        llpr_model.set_wrapped_model(wrapped_model)
+
+        return MetatrainModel(
+            model=llpr_model,
+            additive_models=[],
+            scaler=None,
+            dataset_info=dataset_info,
+        )
+
     def train(
         self,
-        model: LLPRUncertaintyModel,
+        model: MetatrainModel,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -105,19 +130,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # we begin by loading start_epoch to determine if restarting or not
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
-        # If LLPR training from scratch, load the wrapped model from checkpoint
-        if self.hypers["model_checkpoint"] is None:
-            raise ValueError(
-                "A model checkpoint must be provided to train the LLPR "
-                "(model_checkpoint, under training, in the hypers)"
-            )
-        wrapped_model_checkpoint_path = self.hypers["model_checkpoint"]
-        checkpoint = torch.load(
-            wrapped_model_checkpoint_path, weights_only=False, map_location="cpu"
-        )
-        wrapped_model = model_from_checkpoint(checkpoint, "export")
-        if start_epoch == 0:
-            model.set_wrapped_model(wrapped_model)
+        # Get LLPR model from the MetatrainModel class
+        model = model.model
+        # And get the wrapped model from the LLPR model
+        wrapped_model = model.model
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
 

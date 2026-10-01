@@ -25,6 +25,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
 from ._base_composition import (
@@ -101,6 +102,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
         # checkpoints portable across every architecture: standalone training
         # and training embedded in e.g. PET both produce the same layout.
         dense_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+        self.dataset_info = dense_dataset_info
         self.target_infos = {
             target_name: target_info
             for target_name, target_info in dense_dataset_info.targets.items()
@@ -198,7 +200,9 @@ class CompositionModel(ModelInterface[ModelHypers]):
         trainer = CompositionTrainer(hypers=hypers)
         trainer._additive_models = additive_models
         trainer.train(
-            model=self,
+            model=MetatrainModel(
+                self, additive_models=[], scaler=None, dataset_info=self.dataset_info
+            ),
             dtype=torch.float64,
             devices=[self.dummy_buffer.device],
             train_datasets=datasets,
@@ -561,26 +565,51 @@ class CompositionModel(ModelInterface[ModelHypers]):
         return model
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+    def upgrade_checkpoint(
+        cls, checkpoint: Dict, version: Optional[int] = None
+    ) -> Dict:
         """
         Upgrade the checkpoint to the current version of the model.
 
         :param checkpoint: Checkpoint's state dictionary.
+        :param version: Version to which the checkpoint should be upgraded. If ``None``,
+            the checkpoint will be upgraded to the current version of the model.
+
         :return: The upgraded checkpoint.
         """
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint.get("model_ckpt_version") == v:
+        if version is None:
+            version = cls.__checkpoint_version__
+        elif version > cls.__checkpoint_version__:
+            raise ValueError(
+                f"Was asked to upgrade checkpoint to version {version},"
+                "which is higher than the current model version:"
+                f" {cls.__checkpoint_version__}."
+            )
+        elif version < checkpoint["model_ckpt_version"]:
+            raise ValueError(
+                f"Was asked to upgrade checkpoint to version {version},"
+                "but the checkpoint is at a higher version:"
+                f" {checkpoint['model_ckpt_version']}."
+            )
+
+        for v in range(1, version):
+            if checkpoint["model_ckpt_version"] == v:
                 update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
                 update(checkpoint)
                 checkpoint["model_ckpt_version"] = v + 1
 
-        version = checkpoint.get("model_ckpt_version")
-        if version != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {version}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
-            )
+        if checkpoint["model_ckpt_version"] != version:
+            if version == cls.__checkpoint_version__:
+                raise RuntimeError(
+                    f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                    f"version {checkpoint['model_ckpt_version']}, while the current model "
+                    f"version is {version}."
+                )
+            else:
+                raise RuntimeError(
+                    f"Unable to upgrade the checkpoint from version"
+                    f" {checkpoint['model_ckpt_version']} to version {version}."
+                )
 
         return checkpoint
 
@@ -594,8 +623,6 @@ class CompositionModel(ModelInterface[ModelHypers]):
         :return: An instance of :py:class:`metatomic.torch.AtomisticModel`.
         """
         dtype = self.dummy_buffer.dtype
-        if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for composition model")
 
         self.to(dtype)
         self.weights_to(torch.device("cpu"), torch.float64)
