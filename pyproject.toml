@@ -193,8 +193,11 @@ filterwarnings = [
     "ignore:`torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
     "ignore:`torch.jit.trace` is deprecated. Please switch to `torch.compile` or `torch.export`:DeprecationWarning",
     "ignore:`torch.jit.interface` is deprecated. Please use `torch.compile` instead.:DeprecationWarning",
-    "ignore:`torch.jit.interface` is deprecated. Please use `torch.compile` instead.:FutureWarning",
     "ignore:`torch.jit.set_fusion_strategy` is deprecated. Please use `torch.compile` instead.:DeprecationWarning",
+    "ignore:`torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`:FutureWarning",
+    "ignore:`torch.jit.trace` is deprecated. Please switch to `torch.compile` or `torch.export`:FutureWarning",
+    "ignore:`torch.jit.interface` is deprecated. Please use `torch.compile` instead.:FutureWarning",
+    "ignore:`torch.jit.set_fusion_strategy` is deprecated. Please use `torch.compile` instead.:FutureWarning",
     # PyTorch does not want these, but mypy requires them
     "ignore:The TorchScript type system doesn't support instance-level annotations on empty non-base types",
     # Sphericart double backward warning
