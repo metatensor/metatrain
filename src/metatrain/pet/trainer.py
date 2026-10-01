@@ -592,6 +592,20 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
+        # The scheduler counts steps; a restart with a different number of
+        # steps per epoch (e.g. a new max_atoms_per_batch) would land elsewhere
+        # in the schedule, so place it at the epoch it resumes from instead.
+        resume_step = start_epoch * len(train_dataloader)
+        if self.scheduler_state_dict is not None and (
+            lr_scheduler.last_epoch != resume_step
+        ):
+            logging.info(
+                f"Rescaling the learning-rate schedule from step "
+                f"{lr_scheduler.last_epoch} to {resume_step} (epoch {start_epoch})"
+            )
+            lr_scheduler.last_epoch = resume_step - 1
+            lr_scheduler.step()
+
         # Train the model:
         if self.best_metric is None:
             self.best_metric = float("inf")
