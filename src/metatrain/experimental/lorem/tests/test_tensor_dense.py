@@ -29,7 +29,6 @@ def test_tensor_dense_scalar_is_rotation_invariant():
         out_features=1,
         in_max_degree=1,
         out_max_degree=0,
-        include_pseudotensors=False,
     )
     layer.eval()
     spherical = torch.randn(4, 4, 2)

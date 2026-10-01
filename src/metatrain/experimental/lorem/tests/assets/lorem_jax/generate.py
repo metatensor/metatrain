@@ -1,14 +1,20 @@
 """Write the lorem-jax reference outputs used by ``test_flax_checkpoint.py``.
 
-Run with lorem-jax installed (``pip install lorem-jax``), from this folder::
+Run with lorem-jax installed, from this folder::
 
     python generate.py
 
+The current files come from lorem-jax 4535c9f (``main`` after 0.1.0, which
+adds the long-range contribution to the Born charges, lab-cosmo/lorem-jax#30).
+
 Each ``<case>.npz`` holds the flat flax parameters (``params/<flax path>``),
-the ``model.yaml`` text, and the lorem-jax predictions for two small systems.
-Parameters are the random initialization plus noise, so every bias and
-LayerNorm leaf is exercised. ``PerParticleTensorPredictor`` is replaced by a
-version that chains its Dense layers, the fix for lab-cosmo/lorem-jax#38.
+the ``model.yaml`` text, and the lorem-jax predictions for two small systems,
+in float64. Parameters are the random initialization plus noise of scale
+``NOISE``, so every bias and LayerNorm leaf is exercised and the parameters
+are far enough from initialization that swapped tensor-product factors
+change the energy well above the test tolerance. ``PerParticleTensorPredictor``
+is replaced by a version that chains its Dense layers, the fix for
+lab-cosmo/lorem-jax#38 (drop it once lab-cosmo/lorem-jax#40 is released).
 """
 
 import ase
@@ -20,8 +26,13 @@ import lorem.models.bec
 import numpy as np
 import yaml
 from flax.traverse_util import flatten_dict
+from jaxpme.batched_mixed.batching import prepare
 from lorem import Lorem, LoremBEC
-from lorem.batching import to_batch, to_sample
+from lorem.batching import Sample, to_batch
+from marathon.data.sample import to_labels
+
+
+jax.config.update("jax_enable_x64", True)
 
 
 class PerParticleTensorPredictor(nn.Module):
@@ -39,6 +50,7 @@ class PerParticleTensorPredictor(nn.Module):
 
 lorem.models.bec.PerParticleTensorPredictor = PerParticleTensorPredictor
 
+NOISE = 0.3
 SIZES = dict(
     cutoff=3.0,
     max_degree=2,
@@ -57,6 +69,9 @@ CASES = {
         {"equivariant_message_passing": False},
     ),
     "lorem_bec": ("lorem.LoremBEC", LoremBEC, {}),
+    # the paper default is max_degree=6; degree 4 covers the l >= 3
+    # Clebsch-Gordan signs and a degree-2 long-range charge
+    "lorem_l4": ("lorem.Lorem", Lorem, {"max_degree": 4, "max_degree_lr": 2}),
 }
 SYSTEMS = {
     "molecule": ase.Atoms(
@@ -80,7 +95,7 @@ def main():
         leaves, tree = jax.tree.flatten(params)
         keys = jax.random.split(jax.random.key(1), len(leaves))
         leaves = [
-            x + 0.1 * jax.random.normal(k, x.shape)
+            x + NOISE * jax.random.normal(k, x.shape, x.dtype)
             for x, k in zip(leaves, keys, strict=True)
         ]
         params = jax.tree.unflatten(tree, leaves)
@@ -91,7 +106,9 @@ def main():
         }
         data["model_yaml"] = np.array(yaml.safe_dump({"model": {name: config}}))
         for label, atoms in SYSTEMS.items():
-            sample = to_sample(atoms, config["cutoff"], energy=False, forces=False)
+            # lorem.batching.to_sample, but in float64 (it hard-codes float32)
+            structure = prepare(atoms, config["cutoff"], dtype=np.float64)
+            sample = Sample(structure, to_labels(atoms, energy=False, forces=False))
             batch = jax.tree.map(jnp.asarray, to_batch([sample], []))
             results = model.predict(params, batch)
             n = len(atoms)

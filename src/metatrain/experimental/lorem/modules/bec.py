@@ -16,8 +16,7 @@ from typing import List
 
 import torch
 
-from .clebsch_gordan import ClebschGordanReal
-from .e3x_compat import cg_phase_correction
+from .clebsch_gordan import ClebschGordanReal, cg_phase_correction
 from .tensor_dense import TensorDense, _DegreeWiseLinear
 
 
@@ -64,7 +63,7 @@ class BornEffectiveChargeHead(torch.nn.Module):
             ) * cg_phase_correction(1, 1, ell)
             offset += 2 * ell + 1
         self.register_buffer(
-            "cartesian_reconstruction", reconstruction.to(torch.float32)
+            "cartesian_reconstruction", reconstruction.to(torch.float64)
         )
 
     def forward(self, spherical_features: torch.Tensor) -> torch.Tensor:

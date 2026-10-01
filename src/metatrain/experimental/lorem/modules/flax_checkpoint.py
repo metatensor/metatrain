@@ -8,13 +8,16 @@ returned hypers. Neither needs JAX.
 
 Flax names submodules ``{Type}_{n}``, counting each type in call order, so the
 loader walks the model in lorem-jax's call order and asks for the next name of
-each type. Three leaves are not a plain copy:
+each type. Every leaf is a copy, up to layout:
 
-- ``Dense`` kernels are transposed.
-- e3x layers have one kernel per degree, named ``{l}+`` or ``{l}-``.
-- Clebsch-Gordan weights are a dense ``(l1, l2, parity, L)`` grid, including
-  invalid triples. Only the triples used here are kept, with
-  :func:`~.e3x_compat.cg_phase_correction`.
+- flax ``Dense`` kernels are transposed into ``torch.nn.Linear`` weights.
+- e3x ``Dense`` has one kernel per degree, named ``{l}+`` or ``{l}-``, stacked
+  here into one ``(max_degree + 1, in, out)`` weight.
+- e3x ``Tensor`` kernels are a ``(l1, l2, parity, L)`` grid; the parity slot
+  used here is copied whole. The Clebsch-Gordan buffers carry e3x's signs,
+  so no per-triple correction is needed.
+
+Parameter paths may keep flax's leading ``params/`` or drop it.
 """
 
 from pathlib import Path
@@ -22,8 +25,6 @@ from typing import TYPE_CHECKING, Any, Dict, Mapping, Set, Tuple
 
 import numpy as np
 import torch
-
-from .e3x_compat import cg_phase_correction
 
 
 if TYPE_CHECKING:
@@ -107,28 +108,22 @@ def _update(update: torch.nn.Module, scope: _Scope) -> None:
 
 
 def _degree_wise(dense: torch.nn.Module, scope: _Scope) -> None:
-    for ell, layer in enumerate(dense.layers):
-        _linear(layer, scope.child(f"{ell}{'+' if ell % 2 == 0 else '-'}"))
+    for ell in range(dense.weight.shape[0]):
+        degree = scope.child(f"{ell}{'+' if ell % 2 == 0 else '-'}")
+        _copy(dense.weight[ell], degree["kernel"], degree.prefix + "kernel")
+    if dense.bias is not None:
+        scalar = scope.child("0+")
+        _copy(dense.bias, scalar["bias"], scalar.prefix + "bias")
 
 
 def _tensor(product: torch.nn.Module, scope: _Scope) -> None:
-    """``(1, l1, 1, l2, parity, L, features)`` grid to one row per coupling.
+    """``(1, l1, 1, l2, parity, L, features)`` kernel to ``(l1, l2, L, features)``.
 
     Both inputs are proper tensors, so parity slot 0 is the channel kept here:
     parity ``(-1)**L`` without pseudotensors, ``+1`` with them.
     """
-    grid = scope["kernel"]
-    l1_max, l2_max, n_parity, out_max = (
-        grid.shape[1],
-        grid.shape[3],
-        grid.shape[4],
-        grid.shape[5],
-    )
-    grid = grid.reshape(l1_max, l2_max, n_parity, out_max, -1)[:, :, 0]
-    for index, coupling in enumerate(product.couplings):
-        l1, l2, L = coupling.l1, coupling.l2, coupling.L
-        value = grid[l1, l2, L] * cg_phase_correction(l1, l2, L)
-        _copy(product.tensor_weight[index], value, scope.prefix + "kernel")
+    kernel = scope["kernel"]
+    _copy(product.tensor_weight, kernel[0, :, 0, :, 0], scope.prefix + "kernel")
 
 
 def _tensor_dense(tensor_dense: torch.nn.Module, scope: _Scope) -> None:
@@ -149,11 +144,12 @@ def load_checkpoint(model: "LOREM", params: Mapping[str, Any]) -> None:
         ``model.yaml`` (see :func:`read_export`), with a Born-effective-charge
         target when the checkpoint is a ``LoremBEC``.
     :param params: ``{"Initial_0/ChemicalEmbedding_0/Embed_0/embedding": array,
-        ...}``, flax paths without the leading ``params/``.
+        ...}``, flax paths with or without the leading ``params/``.
     :raises KeyError: if the model expects a parameter the checkpoint lacks.
     :raises ValueError: if a shape differs, or the checkpoint has parameters
         the model does not use.
     """
+    params = {name.removeprefix("params/"): value for name, value in params.items()}
     used: Set[str] = set()
     root = _Scope(params, "", used)
     sr, lr = model.sr, model.lr

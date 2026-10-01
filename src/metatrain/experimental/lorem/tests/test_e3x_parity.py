@@ -2,23 +2,22 @@
 
 Loads a real ``e3x.nn.TensorDense`` / ``e3x.nn.Tensor`` parameter tree and
 its output for a fixed random input (dumped once from a genuine ``e3x``
-install into ``assets/e3x_tensor_dense/`` -- see the generation script in
-that fixture's own header comment; this test does **not** need JAX/e3x
-installed to run), transfers the weights into this codebase's
+install into ``assets/e3x_tensor_dense/``; this test does **not** need
+JAX/e3x installed to run), transfers the weights into this codebase's
 ``TensorDense``/``TensorProduct``, and asserts the two agree to float32
 precision.
 
-This exercises the two real convention differences between lorem-jax (e3x)
-and this codebase, both handled by ``e3x_compat.py``:
+This exercises the two convention differences between e3x and this codebase:
 
-1. e3x's ``Config.cartesian_order`` component ordering within each degree
-   block differs from LOREM's own ``m = -l ... +l`` ordering by a fixed,
-   per-degree signed permutation (``to_e3x_convention`` / ``from_e3x_convention``).
-2. LOREM's own (``wigners``-based) Clebsch-Gordan coefficients differ from
-   e3x's own by an extra sign ``(-1)**((l1+l2-L)//2)`` once both are expressed
-   in the same basis (``cg_phase_correction``) -- a residual real/complex
-   phase-convention difference between the two independently-built CG
-   generators, unrelated to the permutation.
+1. These fixtures were dumped with e3x's ``Config.cartesian_order``, whose
+   component order within each degree differs from LOREM's ``m = -l ... +l``
+   by a fixed per-degree permutation (``_to_e3x`` / ``_from_e3x`` below).
+   lorem-jax also runs in that order, but its kernels are per degree and its
+   spherical harmonics and Clebsch-Gordan coefficients share the permutation,
+   so whole-model outputs (``test_flax_checkpoint.py``) need no reordering.
+2. The ``wigners``-based Clebsch-Gordan coefficients differ from e3x's by a
+   sign ``(-1)**((l1+l2-L)//2)`` (``cg_phase_correction``), which
+   ``dense_clebsch_gordan`` folds into the buffers, so e3x kernels copy as is.
 
 Checkpoint-parity in spirit: load a checkpoint dumped from the reference
 implementation, run both on identical inputs, assert the outputs agree --
@@ -33,7 +32,7 @@ import numpy as np
 import pytest
 import torch
 
-from metatrain.experimental.lorem.modules import e3x_compat
+from metatrain.experimental.lorem.modules.clebsch_gordan import cg_phase_correction
 from metatrain.experimental.lorem.modules.tensor_dense import TensorDense, TensorProduct
 
 
@@ -42,6 +41,27 @@ ASSETS = Path(__file__).parent / "assets" / "e3x_tensor_dense"
 
 def _load(name):
     return np.load(ASSETS / name)
+
+
+def _e3x_order(max_degree):
+    """Position in e3x's cartesian order of each LOREM ``(ℓ, m)`` row: degree
+    1 is ``(y, z, x)`` -> ``(x, y, z)``, and higher degrees follow the same
+    interleaving."""
+    order = []
+    for ell in range(max_degree + 1):
+        within = [*range(1, 2 * ell, 2), 2 * ell, *range(2 * ell - 2, -1, -2)]
+        order.extend(ell * ell + i for i in within)
+    return torch.tensor(order)
+
+
+def _from_e3x(x, max_degree):
+    return x[:, _e3x_order(max_degree), :]
+
+
+def _to_e3x(x, max_degree):
+    out = torch.empty_like(x)
+    out[:, _e3x_order(max_degree), :] = x
+    return out
 
 
 @pytest.mark.skipif(not ASSETS.is_dir(), reason=f"missing fixtures in {ASSETS}")
@@ -63,30 +83,39 @@ class TestTensorDenseParity:
             out_features=3,
             in_max_degree=max_degree,
             out_max_degree=max_degree,
-            include_pseudotensors=False,
             use_bias=False,
         )
         with torch.no_grad():
             for ell, key in enumerate(("dense_0", "dense_1", "dense_2")):
-                # e3x Dense kernel is (in, out); torch Linear.weight is (out, in).
-                td.dense.layers[ell].weight.copy_(torch.from_numpy(data[key].T).float())
-            for index, coupling in enumerate(td.couplings):
-                l1, l2, L = coupling.l1, coupling.l2, coupling.L
-                weight = data["tensor_kernel"][0, l1, 0, l2, 0, L, :]
-                td.tensor_weight[index].copy_(torch.from_numpy(weight).float())
-                sign = e3x_compat.cg_phase_correction(l1, l2, L)
-                if sign < 0:
-                    coupling.cg.mul_(-1.0)
+                td.dense.weight[ell].copy_(torch.from_numpy(data[key]).float())
+            kernel = data["tensor_kernel"][0, :, 0, :, 0]
+            td.tensor_weight.copy_(torch.from_numpy(kernel).float())
 
-        x_lorem = e3x_compat.from_e3x_convention(
-            torch.from_numpy(data["input"]).float(), max_degree
-        )
-        return e3x_compat.to_e3x_convention(td(x_lorem), max_degree).detach().numpy()
+        x_lorem = _from_e3x(torch.from_numpy(data["input"]).float(), max_degree)
+        return _to_e3x(td(x_lorem), max_degree).detach().numpy()
 
-    def test_couplings_cover_every_valid_triple(self, max_degree):
-        td = TensorDense(4, 3, max_degree, max_degree, include_pseudotensors=False)
-        found = {(c.l1, c.l2, c.L) for c in td.couplings}
-        assert found == set(e3x_compat.cg_couplings(max_degree, max_degree))
+    def test_couplings_are_the_proper_triples(self, max_degree):
+        """Nonzero Clebsch-Gordan blocks are exactly the couplings of two proper
+        tensors into a proper one: ``|l1 - l2| <= L <= l1 + l2``, ``l1+l2+L`` even."""
+        td = TensorDense(4, 3, max_degree, max_degree)
+        n = max_degree + 1
+        blocks = {
+            (l1, l2, L)
+            for l1 in range(n)
+            for l2 in range(n)
+            for L in range(n)
+            if td.cg[
+                l1**2 : (l1 + 1) ** 2, l2**2 : (l2 + 1) ** 2, L**2 : (L + 1) ** 2
+            ].any()
+        }
+        expected = {
+            (l1, l2, L)
+            for l1 in range(n)
+            for l2 in range(n)
+            for L in range(abs(l1 - l2), min(l1 + l2, max_degree) + 1)
+            if (l1 + l2 + L) % 2 == 0
+        }
+        assert blocks == expected
 
     def test_output_matches_e3x(self, data, torch_output):
         np.testing.assert_allclose(torch_output, data["output"], atol=2e-5, rtol=1e-4)
@@ -100,56 +129,35 @@ def test_tensor_product_matches_e3x_with_nontrivial_phase():
     getting it wrong on just the ``(1,1,0)`` term still leaves the ``(0,0,0)``
     term matching and would pass a less targeted test."""
     data = _load("tensor_product_1_1_0_reference.npz")
-    assert e3x_compat.cg_phase_correction(1, 1, 0) == -1.0
+    assert cg_phase_correction(1, 1, 0) == -1.0
     max_degree = 1
 
     tp = TensorProduct(
         left_max_degree=max_degree,
         right_max_degree=max_degree,
         out_max_degree=0,
-        include_pseudotensors=False,
         n_features=2,
     )
     with torch.no_grad():
-        for index, coupling in enumerate(tp.couplings):
-            l1, l2, L = coupling.l1, coupling.l2, coupling.L
-            weight = data["kernel"][0, l1, 0, l2, 0, L, :]
-            tp.tensor_weight[index].copy_(torch.from_numpy(weight).float())
-            if e3x_compat.cg_phase_correction(l1, l2, L) < 0:
-                coupling.cg.mul_(-1.0)
+        tp.tensor_weight.copy_(torch.from_numpy(data["kernel"][0, :, 0, :, 0]).float())
 
-    left = e3x_compat.from_e3x_convention(
-        torch.from_numpy(data["left"]).float(), max_degree
-    )
-    right = e3x_compat.from_e3x_convention(
-        torch.from_numpy(data["right"]).float(), max_degree
-    )
-    out = e3x_compat.to_e3x_convention(tp(left, right), 0).detach().numpy()
+    left = _from_e3x(torch.from_numpy(data["left"]).float(), max_degree)
+    right = _from_e3x(torch.from_numpy(data["right"]).float(), max_degree)
+    out = _to_e3x(tp(left, right), 0).detach().numpy()
     np.testing.assert_allclose(out, data["output"], atol=2e-5, rtol=1e-4)
 
 
-class TestE3xCompatUtilities:
-    """Pure-Python checks on the hardcoded permutation / phase tables."""
-
-    @pytest.mark.parametrize("max_degree", range(e3x_compat.max_supported_degree() + 1))
-    def test_permutation_is_involution(self, max_degree):
-        """``to_e3x_convention`` and ``from_e3x_convention`` must invert each other."""
-        x = torch.randn(2, (max_degree + 1) ** 2, 3)
-        roundtrip = e3x_compat.from_e3x_convention(
-            e3x_compat.to_e3x_convention(x, max_degree), max_degree
-        )
-        torch.testing.assert_close(roundtrip, x)
-
-    def test_cg_phase_correction_known_values(self):
+class TestPhaseCorrection:
+    def test_known_values(self):
         # From the exhaustive check (42/42 triples up to degree 4) that
         # produced this formula -- a fixed set of regression anchors.
-        assert e3x_compat.cg_phase_correction(0, 0, 0) == 1.0
-        assert e3x_compat.cg_phase_correction(1, 1, 0) == -1.0
-        assert e3x_compat.cg_phase_correction(1, 1, 2) == 1.0
-        assert e3x_compat.cg_phase_correction(1, 2, 1) == -1.0
-        assert e3x_compat.cg_phase_correction(2, 2, 0) == 1.0
-        assert e3x_compat.cg_phase_correction(2, 2, 2) == -1.0
+        assert cg_phase_correction(0, 0, 0) == 1.0
+        assert cg_phase_correction(1, 1, 0) == -1.0
+        assert cg_phase_correction(1, 1, 2) == 1.0
+        assert cg_phase_correction(1, 2, 1) == -1.0
+        assert cg_phase_correction(2, 2, 0) == 1.0
+        assert cg_phase_correction(2, 2, 2) == -1.0
 
-    def test_cg_phase_correction_rejects_invalid_triple(self):
+    def test_rejects_invalid_triple(self):
         with pytest.raises(ValueError):
-            e3x_compat.cg_phase_correction(1, 0, 0)  # L < |l1 - l2|
+            cg_phase_correction(1, 0, 0)  # L < |l1 - l2|

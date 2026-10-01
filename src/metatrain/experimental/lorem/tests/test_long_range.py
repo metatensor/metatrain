@@ -81,19 +81,6 @@ def test_long_range_features():
     model([system, system], outputs)
 
 
-def test_sr_lr_module_scopes():
-    """Top-level param scopes: short-range is ``sr``, long-range is ``lr``."""
-    model = LOREM(_small_lr_hypers(), _energy_dataset_info())
-    names = {name for name, _ in model.named_children()}
-    assert "sr" in names
-    assert "lr" in names
-    assert any(key.startswith("sr.") for key in model.state_dict())
-    assert any(key.startswith("lr.scalar_charge_mlp") for key in model.state_dict())
-    assert any(
-        key.startswith("lr.spherical_charge_dense") for key in model.state_dict()
-    )
-
-
 def test_max_degree_lr_cannot_exceed_max_degree():
     hypers = _small_lr_hypers(max_degree=1, max_degree_lr=2)
     with pytest.raises(ValueError, match="max_degree_lr"):

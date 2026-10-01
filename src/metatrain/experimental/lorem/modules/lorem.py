@@ -16,14 +16,10 @@ from typing import Final, List, Tuple
 
 import torch
 from metatomic.torch import NeighborListOptions, System
+from sphericart.torch import SphericalHarmonics
 
-from .harmonics import (
-    _AnalyticSphericalHarmonics,
-    _degree_norms,
-    _SphericartWrapper,
-)
 from .radial import bernstein_basis, binomial_row
-from .spherical import to_racah
+from .spherical import _degree_norms, to_racah
 from .structures import concatenate_structures
 from .tensor_dense import (
     EquivariantMessagePass,
@@ -67,13 +63,14 @@ class _Update(torch.nn.Module):
             torch.nn.SiLU(),
             torch.nn.Linear(2 * features, features),
         )
-        self.norm0 = torch.nn.LayerNorm(features)
+        # flax's LayerNorm epsilon, not torch's 1e-5
+        self.norm0 = torch.nn.LayerNorm(features, eps=1e-6)
         self.mlp1 = torch.nn.Sequential(
             torch.nn.Linear(features, 2 * features),
             torch.nn.SiLU(),
             torch.nn.Linear(2 * features, features),
         )
-        self.norm1 = torch.nn.LayerNorm(features)
+        self.norm1 = torch.nn.LayerNorm(features, eps=1e-6)
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         x = x + self.mlp0(y)
@@ -130,9 +127,7 @@ class _MessagePassingStep(torch.nn.Module):
         self.update_edges = _Update(d, y_dim=d)
         if self.equivariant:
             self.coeff_dense = torch.nn.Linear(d, num_l * s, bias=False)
-            self.message_pass = EquivariantMessagePass(
-                s, self.max_degree, include_pseudotensors=False
-            )
+            self.message_pass = EquivariantMessagePass(s, self.max_degree)
             self.update_norms = _Update(d, y_dim=num_l * s)
         self.energy_mlp = _energy_mlp(d)
 
@@ -209,7 +204,9 @@ class ShortRange(torch.nn.Module):
         self.neighbor_list_options = neighbor_list_options
         self.num_message_passing = int(num_message_passing)
         self.equivariant_message_passing = bool(equivariant_message_passing)
-        del atomic_types  # species are embedded directly by atomic number
+        # species are embedded directly by atomic number; 100 rows as in
+        # lorem-jax, more only when the dataset has Z >= 100 (MAD has Fm-No)
+        num_embeddings = max(100, max(atomic_types, default=0) + 1)
 
         d = self.num_features
         s = self.num_spherical_features
@@ -217,25 +214,12 @@ class ShortRange(torch.nn.Module):
         num_l = self.max_degree + 1
 
         self.register_buffer(
-            "bernstein_coeff", binomial_row(self.num_radial).to(torch.float32)
+            "bernstein_coeff", binomial_row(self.num_radial).to(torch.float64)
         )
 
         # -- Initial_0 --
-        self.chemical_embedding = torch.nn.Embedding(100, c)
-        if self.max_degree > 2:
-            from sphericart.torch import SphericalHarmonics
-
-            try:
-                calculator = SphericalHarmonics(l_max=self.max_degree, normalized=True)
-            except TypeError:
-                calculator = SphericalHarmonics(l_max=self.max_degree)
-            self.spherical_harmonics = (
-                calculator
-                if isinstance(calculator, torch.nn.Module)
-                else _SphericartWrapper(calculator)
-            )
-        else:
-            self.spherical_harmonics = _AnalyticSphericalHarmonics(self.max_degree)
+        self.chemical_embedding = torch.nn.Embedding(num_embeddings, c)
+        self.spherical_harmonics = SphericalHarmonics(l_max=self.max_degree)
 
         # -- RadialCoefficients_0 --
         self.radial_coefficients = torch.nn.Sequential(
@@ -260,7 +244,6 @@ class ShortRange(torch.nn.Module):
             out_features=s,
             in_max_degree=self.max_degree,
             out_max_degree=self.max_degree,
-            include_pseudotensors=False,
         )
         self.update1 = _Update(d, y_dim=num_l * s)
 
@@ -433,7 +416,6 @@ class LongRange(torch.nn.Module):
             out_features=1,
             in_max_degree=self.max_degree,
             out_max_degree=self.max_degree_lr,
-            include_pseudotensors=False,
         )
         # e3x.nn.Dense: one weight matrix *per degree* -- unlike a shared
         # torch.nn.Linear, see _DegreeWiseLinear's docstring.
@@ -444,7 +426,6 @@ class LongRange(torch.nn.Module):
             left_max_degree=self.max_degree_lr,
             right_max_degree=self.max_degree,
             out_max_degree=self.max_degree,
-            include_pseudotensors=False,
             n_features=s,
         )
         n_update = 1 + (self.max_degree + 1) * s

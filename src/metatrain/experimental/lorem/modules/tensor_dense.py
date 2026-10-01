@@ -1,149 +1,140 @@
 """Clebsch-Gordan tensor product used by the short-range and long-range blocks.
 
-Two details are easy to miss:
+Both layers evaluate as e3x does: weights live on a dense degree grid,
+are expanded to ``(ℓ, m)`` resolution with precomputed index buffers, and
+are contracted with a dense Clebsch-Gordan tensor in one einsum.
 
-- Each angular-momentum degree has its own linear layer. Only the scalar
+- Each angular-momentum degree has its own linear weight. Only the scalar
   (degree 0) channel has a bias.
-- Each allowed ``(l1, l2, L)`` coupling has its own learnable weight.
+- Each allowed ``(l1, l2, L)`` coupling has its own learnable weight. The
+  weight grid also holds the disallowed triples, as e3x's does; their
+  Clebsch-Gordan block is zero, so they stay at zero and get no gradient.
 """
 
 import math
-from typing import List
 
 import torch
 
-from .clebsch_gordan import cg_combine_features, get_cg_coefficients
+from .clebsch_gordan import degree_index, dense_clebsch_gordan
 
 
-class _CGBuffer(torch.nn.Module):
-    """One ``(2l1+1, 2l2+1, 2L+1)`` Clebsch-Gordan tensor as a buffer."""
-
-    l1: int
-    l2: int
-    L: int
-
-    def __init__(self, tensor: torch.Tensor, l1: int, l2: int, L: int) -> None:
-        super().__init__()
-        self.register_buffer("cg", tensor)
-        self.l1 = int(l1)
-        self.l2 = int(l2)
-        self.L = int(L)
+# standard deviation of a unit normal truncated at +-2, which e3x (and flax's
+# lecun_normal) divides out so initial weights keep the intended variance
+_TRUNCATED_NORMAL_STD = 0.87962566103423978
 
 
 class _DegreeWiseLinear(torch.nn.Module):
-    """Port of ``e3x.nn.Dense``: one ``Linear`` per angular-momentum degree.
+    """Port of ``e3x.nn.Dense``: one weight matrix per angular-momentum degree.
 
     Applied to a ``(n_atoms, (max_degree+1)**2, in_features)`` spherical
-    tensor, degree ``l``'s ``(2l+1)`` rows all go through the *same* weight
-    matrix (required for equivariance), but each degree has its *own* weight
-    matrix (unlike ``torch.nn.Linear``, which would share one matrix across
-    every degree). Only the scalar (``l=0``) channel gets a bias, matching
-    e3x (a bias on ``l>0`` would break equivariance).
+    tensor, degree ``l``'s ``(2l+1)`` rows all go through the *same* matrix
+    (required for equivariance), but each degree has its *own* matrix. Only
+    the scalar (``l=0``) channel gets a bias, as in e3x (a bias on ``l>0``
+    would break equivariance). ``weight[l]`` is ``(in, out)``, the layout of
+    an e3x kernel. Initialized like e3x: ``lecun_normal`` kernels (a normal
+    truncated at +-2 standard deviations, rescaled to variance
+    ``1 / in_features``) and a zero bias.
     """
 
     def __init__(
         self, in_features: int, out_features: int, max_degree: int, bias: bool = True
     ) -> None:
         super().__init__()
-        self.max_degree = int(max_degree)
-        self.layers = torch.nn.ModuleList(
-            [
-                torch.nn.Linear(in_features, out_features, bias=(bias and ell == 0))
-                for ell in range(self.max_degree + 1)
-            ]
+        weight = torch.empty(max_degree + 1, in_features, out_features)
+        torch.nn.init.trunc_normal_(weight, a=-2.0, b=2.0)
+        self.weight = torch.nn.Parameter(
+            weight / (_TRUNCATED_NORMAL_STD * math.sqrt(in_features))
         )
+        if bias:
+            self.bias = torch.nn.Parameter(torch.zeros(out_features))
+        else:
+            self.register_parameter("bias", None)
+        self.register_buffer("degree", degree_index(max_degree), persistent=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """:param x: ``(n_atoms, (max_degree+1)**2, in_features)``."""
-        outputs: List[torch.Tensor] = []
-        for ell, layer in enumerate(self.layers):
-            outputs.append(layer(x[:, ell * ell : (ell + 1) * (ell + 1), :]))
-        return torch.cat(outputs, dim=1)
+        out = torch.einsum("nmi,mio->nmo", x, self.weight[self.degree])
+        bias = self.bias
+        if bias is not None:
+            out[:, 0] += bias
+        return out
 
 
 class _CGProduct(torch.nn.Module):
-    """Shared TorchScript CG loop. Couplings live on ``self``, not as args."""
+    """Weighted Clebsch-Gordan product of two spherical tensors.
 
-    def _init_couplings(
+    ``tensor_weight`` is e3x's ``(L1+1, L2+1, L3+1, F)`` kernel grid,
+    disallowed triples included (their Clebsch-Gordan block is zero), so a
+    lorem-jax kernel copies over as is.
+    """
+
+    def _init_product(
         self,
-        couplings: List[torch.Tensor],
-        l1: List[int],
-        l2: List[int],
-        L: List[int],
-        out_n_lm: int,
+        l1_max: int,
+        l2_max: int,
+        out_max_degree: int,
         n_features: int,
+        even_parity: bool = False,
     ) -> None:
-        self.out_n_lm = int(out_n_lm)
-        self.couplings = torch.nn.ModuleList(
+        # e3x's parity mask without pseudotensors: the output parity is
+        # (-1)^(l1 + l2) and must be (-1)^L, unless ``even_parity`` keeps every
+        # even l1 + l2 path (e3x's parity +1 slot with pseudotensors on)
+        def allowed(l1: int, l2: int, L: int) -> bool:
+            if even_parity:
+                return (l1 + l2) % 2 == 0
+            return (l1 + l2 + L) % 2 == 0
+
+        cg = dense_clebsch_gordan(l1_max, l2_max, out_max_degree, allowed)
+        # stored in float64 and cast where used (like the BEC head's buffer), so
+        # a float64 model gets exact coefficients
+        self.register_buffer("cg", cg.to(torch.float64), persistent=False)
+        # row of the flattened weight grid for each (lm1, lm2, lm3) entry
+        degree1 = degree_index(l1_max)[:, None, None]
+        degree2 = degree_index(l2_max)[None, :, None]
+        degree3 = degree_index(out_max_degree)[None, None, :]
+        n2, n3 = l2_max + 1, out_max_degree + 1
+        self.register_buffer(
+            "weight_index",
+            (degree1 * n2 + degree2) * n3 + degree3,
+            persistent=False,
+        )
+
+        # e3x's ``tensor_lecun_normal``: output degree L is fed by n_L coupling
+        # paths, each scaled 1/sqrt(n_L).
+        paths = torch.tensor(
             [
-                _CGBuffer(tensor, l1[index], l2[index], L[index])
-                for index, tensor in enumerate(couplings)
+                [
+                    [
+                        abs(l1 - l2) <= L <= l1 + l2 and allowed(l1, l2, L)
+                        for L in range(out_max_degree + 1)
+                    ]
+                    for l2 in range(l2_max + 1)
+                ]
+                for l1 in range(l1_max + 1)
             ]
         )
-        # Learnable per-(l1, l2, L)-triple, per-feature weight (e3x.nn.Tensor's
-        # "kernel"). Initialized fan-in-per-output-degree normalized (roughly
-        # matching e3x's `tensor_lecun_normal`): each output degree L is fed by
-        # `n_L` coupling paths, so those paths are scaled by `1/sqrt(n_L)`.
-        n_per_L: dict = {}
-        for target in L:
-            n_per_L[target] = n_per_L.get(target, 0) + 1
-        weight = torch.empty(len(couplings), n_features)
-        for index, target in enumerate(L):
-            std = 1.0 / math.sqrt(max(n_per_L[target], 1))
-            torch.nn.init.trunc_normal_(weight[index], std=std, a=-2 * std, b=2 * std)
-        self.tensor_weight = torch.nn.Parameter(weight)
+        std = 1.0 / paths.sum(dim=(0, 1)).clamp(min=1).sqrt() / _TRUNCATED_NORMAL_STD
+        weight = torch.empty(*paths.shape, n_features)
+        torch.nn.init.trunc_normal_(weight, a=-2.0, b=2.0)
+        self.tensor_weight = torch.nn.Parameter(
+            weight * std[:, None] * paths[..., None]
+        )
+
+    def contract(self, outer: torch.Tensor) -> torch.Tensor:
+        """``(n, n_lm1, n_lm2, F)`` outer products ``->`` ``(n, n_lm3, F)``.
+
+        The product is linear in the outer product, so a sum of outer products
+        (messages scattered onto atoms) can be contracted once.
+        """
+        n_features = self.tensor_weight.shape[-1]
+        weight = self.tensor_weight.reshape(-1, n_features)[self.weight_index]
+        kernel = weight * self.cg.to(dtype=weight.dtype).unsqueeze(-1)
+        # a matmul batched over features
+        return torch.einsum("nijf,ijkf->nkf", outer, kernel)
 
     def _couple(self, left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
-        n_atoms = left.shape[0]
-        n_features = left.shape[2]
-        output = left.new_zeros((n_atoms, self.out_n_lm, n_features))
-        for index, coupling in enumerate(self.couplings):
-            l1 = coupling.l1
-            l2 = coupling.l2
-            L = coupling.L
-            coupled = cg_combine_features(
-                left[:, l1 * l1 : (l1 + 1) * (l1 + 1), :],
-                right[:, l2 * l2 : (l2 + 1) * (l2 + 1), :],
-                coupling.cg.to(dtype=left.dtype),
-            )
-            coupled = coupled * self.tensor_weight[index].to(dtype=left.dtype)
-            output[:, L * L : (L + 1) * (L + 1), :] = (
-                output[:, L * L : (L + 1) * (L + 1), :] + coupled
-            )
-        return output
-
-
-def _build_couplings(
-    l1_max: int,
-    l2_max: int,
-    out_max_degree: int,
-    include_pseudotensors: bool,
-    even_parity: bool = False,
-):
-    """Allowed ``(l1, l2, L)`` couplings of two proper spherical tensors.
-
-    By default the output of degree ``L`` has parity ``(-1)**L``. With
-    ``even_parity``, every output degree has parity ``+1`` instead (``l1 + l2``
-    even): e3x's even-parity channel when pseudotensors are included, which
-    makes the ``L = 1`` output a pseudovector.
-    """
-    cg = get_cg_coefficients(max(l1_max, l2_max, out_max_degree))
-    l1_list: List[int] = []
-    l2_list: List[int] = []
-    L_list: List[int] = []
-    couplings: List[torch.Tensor] = []
-    for l1 in range(l1_max + 1):
-        for l2 in range(l2_max + 1):
-            for L in range(abs(l1 - l2), min(l1 + l2, out_max_degree) + 1):
-                if even_parity and (l1 + l2) % 2 != 0:
-                    continue
-                if not (include_pseudotensors or even_parity) and (l1 + l2 + L) % 2:
-                    continue
-                couplings.append(cg.get((l1, l2, L)).to(torch.float32))
-                l1_list.append(l1)
-                l2_list.append(l2)
-                L_list.append(L)
-    return couplings, l1_list, l2_list, L_list
+        """``(n, n_lm1, F) x (n, n_lm2, F) -> (n, n_lm3, F)``."""
+        return self.contract(left.unsqueeze(2) * right.unsqueeze(1))
 
 
 class TensorDense(_CGProduct):
@@ -161,7 +152,6 @@ class TensorDense(_CGProduct):
         out_features: int,
         in_max_degree: int,
         out_max_degree: int,
-        include_pseudotensors: bool = False,
         use_bias: bool = False,
         even_parity: bool = False,
     ) -> None:
@@ -176,36 +166,24 @@ class TensorDense(_CGProduct):
 
         self.in_max_degree = int(in_max_degree)
         self.out_max_degree = int(out_max_degree)
-        self.in_n_lm = (self.in_max_degree + 1) * (self.in_max_degree + 1)
         self.out_features = int(out_features)
 
         # e3x.nn.TensorDense projects with *one* degree-wise Dense to
         # `2 * out_features`, then splits the result into the two self-product
-        # factors -- not two independently-parameterized projections. Kept as
-        # one module (not two) so a lorem-jax checkpoint's single `dense`
-        # kernel maps onto it directly.
+        # factors, so a lorem-jax checkpoint's single `dense` kernel maps onto it.
         self.dense = _DegreeWiseLinear(
             in_features, 2 * out_features, self.in_max_degree, bias=use_bias
         )
-
-        couplings, l1_list, l2_list, L_list = _build_couplings(
+        self._init_product(
             self.in_max_degree,
             self.in_max_degree,
-            out_max_degree,
-            include_pseudotensors,
-            even_parity,
-        )
-        self._init_couplings(
-            couplings,
-            l1_list,
-            l2_list,
-            L_list,
-            (self.out_max_degree + 1) * (self.out_max_degree + 1),
+            self.out_max_degree,
             self.out_features,
+            even_parity,
         )
 
     def forward(self, spherical: torch.Tensor) -> torch.Tensor:
-        """:param spherical: ``(n_atoms, in_n_lm, in_features)``."""
+        """:param spherical: ``(n_atoms, (in_max_degree + 1) ** 2, in_features)``."""
         projected = self.dense(spherical)
         a, b = projected[..., : self.out_features], projected[..., self.out_features :]
         return self._couple(a, b)
@@ -214,7 +192,7 @@ class TensorDense(_CGProduct):
 class TensorProduct(_CGProduct):
     """CG product of two spherical tensors with a shared feature width.
 
-    Port of ``e3x.nn.Tensor(..., include_pseudotensors=False)`` -- no
+    Port of ``e3x.nn.Tensor(include_pseudotensors=False)``: no
     internal projection, just the weighted CG coupling of two given inputs.
     """
 
@@ -223,26 +201,16 @@ class TensorProduct(_CGProduct):
         left_max_degree: int,
         right_max_degree: int,
         out_max_degree: int,
-        include_pseudotensors: bool = False,
         n_features: int = 1,
     ) -> None:
         super().__init__()
         self.left_max_degree = int(left_max_degree)
         self.right_max_degree = int(right_max_degree)
         self.out_max_degree = int(out_max_degree)
-
-        couplings, l1_list, l2_list, L_list = _build_couplings(
+        self._init_product(
             self.left_max_degree,
             self.right_max_degree,
-            out_max_degree,
-            include_pseudotensors,
-        )
-        self._init_couplings(
-            couplings,
-            l1_list,
-            l2_list,
-            L_list,
-            (self.out_max_degree + 1) * (self.out_max_degree + 1),
+            self.out_max_degree,
             n_features,
         )
 
@@ -258,21 +226,19 @@ class EquivariantMessagePass(torch.nn.Module):
     spherical node features each iteration. The spherical half is::
 
         messages[i] = sum_(j in N(i)) tensor(
-            nodes_spherical[j], filter(edges_basis[ij])
+            filter(edges_basis[ij]), nodes_spherical[j]
         )
         nodes_spherical = tensor_combine(dense_x(nodes_spherical), dense_m(messages))
 
     (``e3x.nn.MessagePass`` for the first line, ``e3x.nn.Dense`` +
-    ``e3x.nn.Tensor`` for the second). ``filter`` and both ``dense_*`` are
-    :class:`_DegreeWiseLinear`; the two couplings are separate
-    :class:`TensorProduct` instances (each with its own learnable
-    ``tensor_weight`` -- e3x gives ``MessagePass`` and the combine step
-    independent kernels).
+    ``e3x.nn.Tensor`` for the second). The filter is the *first* factor, as
+    in e3x's ``_Conv.__call__``; the kernel's first degree axis belongs to it.
+    ``filter`` and both ``dense_*`` are :class:`_DegreeWiseLinear`; the two
+    couplings are separate :class:`TensorProduct` instances (e3x gives
+    ``MessagePass`` and the combine step independent kernels).
     """
 
-    def __init__(
-        self, num_features: int, max_degree: int, include_pseudotensors: bool = False
-    ) -> None:
+    def __init__(self, num_features: int, max_degree: int) -> None:
         super().__init__()
         self.max_degree = int(max_degree)
         self.filter = _DegreeWiseLinear(
@@ -282,7 +248,6 @@ class EquivariantMessagePass(torch.nn.Module):
             self.max_degree,
             self.max_degree,
             self.max_degree,
-            include_pseudotensors=include_pseudotensors,
             n_features=num_features,
         )
         self.combine_dense_x = _DegreeWiseLinear(
@@ -295,7 +260,6 @@ class EquivariantMessagePass(torch.nn.Module):
             self.max_degree,
             self.max_degree,
             self.max_degree,
-            include_pseudotensors=include_pseudotensors,
             n_features=num_features,
         )
 
@@ -317,12 +281,13 @@ class EquivariantMessagePass(torch.nn.Module):
         n_atoms = nodes_spherical.shape[0]
         filtered = self.filter(edges_basis)
         gathered = nodes_spherical[neighbors]
-        products = self.message_tensor(gathered, filtered)
-        messages = nodes_spherical.new_zeros(
-            (n_atoms, products.shape[1], products.shape[2])
-        )
-        if products.shape[0] > 0:
-            messages.index_add_(0, centers, products)
+        # sum the per-edge outer products onto atoms before contracting with
+        # the kernel: same result, n_neighbors times fewer contraction FLOPs
+        outer = filtered.unsqueeze(2) * gathered.unsqueeze(1)
+        summed = outer.new_zeros((n_atoms,) + outer.shape[1:])
+        if outer.shape[0] > 0:
+            summed.index_add_(0, centers, outer)
+        messages = self.message_tensor.contract(summed)
         return self.combine_tensor(
             self.combine_dense_x(nodes_spherical),
             self.combine_dense_m(messages),

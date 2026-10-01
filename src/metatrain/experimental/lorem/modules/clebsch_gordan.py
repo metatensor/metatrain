@@ -2,27 +2,15 @@
 
 Used by ``TensorDense`` / ``TensorProduct`` (the ``e3x.nn.TensorDense`` port)
 and by the Born-effective-charge head. Coefficients are built at init time
-with ``wigners``; the forward path is TorchScript-friendly einsum.
+with ``wigners``; :func:`dense_clebsch_gordan` lays them out with e3x's signs
+so one einsum evaluates every coupling.
 """
 
-from typing import Dict, Tuple
+from typing import Callable, Dict, Tuple
 
 import numpy as np
 import torch
 import wigners
-
-
-def cg_combine_features(
-    left: torch.Tensor, right: torch.Tensor, coefficients: torch.Tensor
-) -> torch.Tensor:
-    """Couple two feature-wise spherical tensors.
-
-    :param left: ``(n_atoms, 2*l1+1, n_features)``
-    :param right: ``(n_atoms, 2*l2+1, n_features)``
-    :param coefficients: ``(2*l1+1, 2*l2+1, 2*L+1)``
-    :return: ``(n_atoms, 2*L+1, n_features)``
-    """
-    return torch.einsum("n i f, n j f, i j k -> n k f", left, right, coefficients)
 
 
 class ClebschGordanReal:
@@ -56,14 +44,54 @@ class ClebschGordanReal:
         self._cgs[(l1, l2, L)] = torch.tensor(rcg, dtype=torch.float64)
 
 
-def get_cg_coefficients(l_max: int) -> ClebschGordanReal:
-    """All ``(l1, l2, L)`` couplings with each index at most ``l_max``."""
-    cg_object = ClebschGordanReal()
-    for l1 in range(l_max + 1):
-        for l2 in range(l_max + 1):
-            for L in range(abs(l1 - l2), min(l1 + l2, l_max) + 1):
-                cg_object.get((l1, l2, L))
-    return cg_object
+def cg_phase_correction(l1: int, l2: int, L: int) -> float:
+    """Sign relating these Clebsch-Gordan coefficients to e3x's.
+
+    ``e3x_cg(l1, l2, L) == cg_phase_correction(l1, l2, L) * cg(l1, l2, L)``,
+    both in the ``m = -ℓ … +ℓ`` order. Tested against e3x for every triple
+    with all degrees <= 4 (``tests/test_e3x_parity.py``), and checked once
+    up to degree 6, the paper default. For odd
+    ``l1 + l2 + L`` (two proper tensors coupled into a pseudotensor, as in the
+    Born-charge head) the same formula holds, with ``//`` rounding down.
+    """
+    if not abs(l1 - l2) <= L <= l1 + l2:
+        raise ValueError(f"(l1={l1}, l2={l2}, L={L}) is not a valid coupling.")
+    return -1.0 if ((l1 + l2 - L) // 2) % 2 == 1 else 1.0
+
+
+def dense_clebsch_gordan(
+    l1_max: int,
+    l2_max: int,
+    l3_max: int,
+    allowed: Callable[[int, int, int], bool],
+) -> torch.Tensor:
+    """Every allowed coupling in one ``(n_lm1, n_lm2, n_lm3)`` tensor.
+
+    Block ``(l1, l2, L)`` holds e3x's coefficients (so lorem-jax kernels copy
+    over unchanged) when ``allowed(l1, l2, L)``, and zeros otherwise: the zeros
+    are the parity mask, applied once here instead of on every forward.
+    """
+    cg = ClebschGordanReal()
+    out = torch.zeros(
+        ((l1_max + 1) ** 2, (l2_max + 1) ** 2, (l3_max + 1) ** 2), dtype=torch.float64
+    )
+    for l1 in range(l1_max + 1):
+        for l2 in range(l2_max + 1):
+            for L in range(abs(l1 - l2), min(l1 + l2, l3_max) + 1):
+                if allowed(l1, l2, L):
+                    out[
+                        l1**2 : (l1 + 1) ** 2,
+                        l2**2 : (l2 + 1) ** 2,
+                        L**2 : (L + 1) ** 2,
+                    ] = cg.get((l1, l2, L)) * cg_phase_correction(l1, l2, L)
+    return out
+
+
+def degree_index(max_degree: int) -> torch.Tensor:
+    """The degree of each ``(ℓ, m)`` row: ``[0, 1, 1, 1, 2, …]``."""
+    return torch.tensor(
+        [ell for ell in range(max_degree + 1) for _ in range(2 * ell + 1)]
+    )
 
 
 def _real2complex(L: int) -> np.ndarray:

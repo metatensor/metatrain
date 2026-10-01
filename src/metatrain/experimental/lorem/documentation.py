@@ -66,8 +66,7 @@ class ModelHypers(TypedDict):
     """
     max_degree: int = 6
     """Maximum angular momentum of the short-range spherical features.
-    Values above 2 require ``sphericart-torch``. Born effective charges
-    need at least 2."""
+    Born effective charges need at least 2."""
     max_degree_lr: int = 2
     """Maximum angular momentum of the long-range charges. Must not exceed
     ``max_degree``. The paper default is 2."""

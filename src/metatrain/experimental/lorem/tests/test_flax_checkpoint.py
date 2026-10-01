@@ -29,7 +29,7 @@ from .test_bec import _bec_target_info
 pytest.importorskip("torchpme")
 
 ASSETS = Path(__file__).parent / "assets" / "lorem_jax"
-CASES = ["lorem", "lorem_scalar_messages", "lorem_bec"]
+CASES = ["lorem", "lorem_scalar_messages", "lorem_bec", "lorem_l4"]
 BASELINE = {1: -0.5, 6: -3.0, 8: -4.5}
 
 
@@ -79,12 +79,15 @@ def test_matches_lorem_jax(case, label, tmp_path):
     energy = predictions["energy"].block().values.sum()
     (forces,) = torch.autograd.grad(-energy, positions)
     expected = torch.tensor(float(reference[f"{label}/energy"]), dtype=torch.float64)
-    torch.testing.assert_close(energy, expected, rtol=1e-4, atol=1e-4)
+    # both sides run in float64 and agree to <= 1e-6 in energy; swapping the
+    # message-pass tensor-product factors, or torch's default LayerNorm
+    # epsilon, moves the energy by >= 2e-4 on these fixtures
+    torch.testing.assert_close(energy, expected, rtol=0.0, atol=1e-5)
     torch.testing.assert_close(
         forces,
         torch.tensor(reference[f"{label}/forces"], dtype=torch.float64),
-        rtol=1e-3,
-        atol=5e-4,
+        rtol=0.0,
+        atol=1e-4,
     )
     if "mtt::bec" in predictions:
         torch.testing.assert_close(
@@ -93,6 +96,18 @@ def test_matches_lorem_jax(case, label, tmp_path):
             rtol=1e-4,
             atol=1e-7,
         )
+
+
+def test_params_prefix_is_optional(tmp_path):
+    """A plain ``flatten_dict(params["params"])`` dump loads like an export."""
+    name, hypers, params, _ = read_export(_export("lorem", tmp_path))
+    plain, prefixed = _model(name, hypers), _model(name, hypers)
+    load_checkpoint(plain, params)
+    load_checkpoint(prefixed, {f"params/{k}": v for k, v in params.items()})
+    for module in ["sr", "lr"]:
+        expected = getattr(plain, module).state_dict()
+        for key, value in getattr(prefixed, module).state_dict().items():
+            torch.testing.assert_close(value, expected[key], rtol=0, atol=0)
 
 
 @pytest.mark.parametrize("case", CASES)
