@@ -115,6 +115,7 @@ def test_regression_energies_forces_train(tmp_path, monkeypatch):
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["batch_size"] = 4
+    hypers["training"]["num_workers"] = 0  # for reproducibility
     hypers["training"]["atomic_baseline"] = {}
     loss_conf = {"energy": init_with_defaults(LossSpecification)}
     loss_conf["energy"]["gradients"] = {
@@ -148,15 +149,15 @@ def test_regression_energies_forces_train(tmp_path, monkeypatch):
 
     expected_output = torch.tensor(
         [
-            [-0.076499611139],
-            [-0.072225101292],
-            [-0.073302201927],
-            [-0.077426083386],
-            [-0.070451326668],
+            [0.052277058363],
+            [0.055527821183],
+            [0.054717093706],
+            [0.051577180624],
+            [0.056859783828],
         ]
     )
     expected_gradients_output = torch.tensor(
-        [-0.000985323219, 0.000859677501, -0.000347887486]
+        [-0.000795956701, 0.000784557837, -0.000328862749]
     )
 
     # if you need to change the hardcoded values:
