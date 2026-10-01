@@ -1,8 +1,9 @@
 """Load lorem-jax parameters into a :class:`~metatrain.experimental.lorem.LOREM`.
 
-lorem-jax exports (lab-cosmo/lorem-jax#39) are a folder with the flax
-parameters flattened to ``/``-joined paths (``.npz`` or ``.safetensors``),
-plus ``model.yaml`` and ``baseline.yaml``. :func:`read_export` reads one, and
+lorem-jax exports (``scripts/export.py``, lab-cosmo/lorem-jax#42) are a folder
+with the flax parameters flattened to ``/``-joined paths in ``params.npz``,
+the checkpoint's ``model.yaml`` and ``baseline.yaml``, and ``export.yaml``
+with the format version. :func:`read_export` reads one, and
 :func:`load_checkpoint` copies the parameters into a model built from the
 returned hypers. Neither needs JAX.
 
@@ -31,17 +32,8 @@ if TYPE_CHECKING:
     from ..model import LOREM
 
 
-# lorem-jax model classes and the field defaults that differ between them
-_MODEL_CLASSES = {
-    "lorem.Lorem": {
-        "equivariant_message_passing": True,
-        "initialize_node_features": True,
-    },
-    "lorem.LoremBEC": {
-        "equivariant_message_passing": False,
-        "initialize_node_features": False,
-    },
-}
+_MODEL_CLASSES = ("lorem.models.mlip.Lorem", "lorem.models.bec.LoremBEC")
+_EXPORT_FORMAT = 1
 _FIXED_FIELDS = {
     "cutoff_fn": "cosine_cutoff",
     "radial_basis": "basic_bernstein",
@@ -211,28 +203,31 @@ def load_checkpoint(model: "LOREM", params: Mapping[str, Any]) -> None:
 
 
 def model_hypers_from_yaml(model_yaml: Mapping[str, Any]) -> Tuple[str, Dict[str, Any]]:
-    """LOREM model hypers for a lorem-jax ``model.yaml``.
+    """LOREM model hypers for a lorem-jax checkpoint's ``model.yaml``.
 
-    :return: The lorem-jax class name (``lorem.Lorem`` or ``lorem.LoremBEC``)
-        and the complete model hypers, defaults included.
+    :param model_yaml: ``{"lorem.models.mlip.Lorem": {field: value, ...}}``, the
+        model's spec dict with every field written out (``LoremBEC`` likewise).
+    :return: The lorem-jax class name and the LOREM model hypers.
     """
     from metatrain.utils.architectures import get_default_hypers
 
-    ((name, fields),) = model_yaml["model"].items()
+    ((name, fields),) = model_yaml.items()
     if name not in _MODEL_CLASSES:
         raise ValueError(f"unsupported lorem-jax model '{name}'")
-    fields = dict(fields or {})
+    fields = dict(fields)
+    if inputs := fields.pop("inputs", []):
+        raise ValueError(f"conditioning on inputs is not supported, got {inputs}")
     for field, supported in _FIXED_FIELDS.items():
         if (value := fields.pop(field, supported)) != supported:
             raise ValueError(f"only {field}={supported!r} is supported, got {value!r}")
 
-    hypers = dict(get_default_hypers("experimental.lorem")["model"])
-    hypers.update(_MODEL_CLASSES[name])
-    unknown = set(fields) - set(hypers)
-    if unknown:
-        raise ValueError(f"unknown lorem-jax model fields: {sorted(unknown)}")
-    hypers.update(fields)
-    return name, hypers
+    expected = set(get_default_hypers("experimental.lorem")["model"])
+    if set(fields) != expected:
+        raise ValueError(
+            f"lorem-jax model fields {sorted(set(fields) - expected)} are unknown "
+            f"and {sorted(expected - set(fields))} are missing"
+        )
+    return name, fields
 
 
 def read_export(
@@ -240,8 +235,8 @@ def read_export(
 ) -> Tuple[str, Dict[str, Any], Dict[str, Any], Dict[int, float]]:
     """Read a lorem-jax export folder.
 
-    :param folder: Holds exactly one ``*.npz`` or ``*.safetensors`` file of flat
-        parameters, ``model.yaml`` and ``baseline.yaml``.
+    :param folder: Holds ``params.npz``, ``model.yaml``, ``baseline.yaml`` and
+        ``export.yaml``, as written by lorem-jax's ``scripts/export.py``.
     :return: The lorem-jax class name, the LOREM model hypers, the flat
         parameters for :func:`load_checkpoint`, and the per-element energy
         baseline (usable as ``atomic_baseline: {"energy": ...}``).
@@ -249,18 +244,11 @@ def read_export(
     import yaml
 
     folder = Path(folder)
-    files = sorted([*folder.glob("*.npz"), *folder.glob("*.safetensors")])
-    if len(files) != 1:
-        raise ValueError(
-            f"expected one .npz or .safetensors file in {folder}, found {files}"
-        )
-    if files[0].suffix == ".npz":
-        with np.load(files[0]) as data:
-            params = {key: data[key] for key in data.files}
-    else:
-        from safetensors.numpy import load_file
-
-        params = load_file(files[0])
+    export_format = yaml.safe_load((folder / "export.yaml").read_text())["format"]
+    if export_format != _EXPORT_FORMAT:
+        raise ValueError(f"unsupported lorem-jax export format {export_format}")
+    with np.load(folder / "params.npz") as data:
+        params = {key: data[key] for key in data.files}
 
     name, hypers = model_hypers_from_yaml(
         yaml.safe_load((folder / "model.yaml").read_text())

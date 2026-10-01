@@ -34,7 +34,7 @@ BASELINE = {1: -0.5, 6: -3.0, 8: -4.5}
 
 
 def _export(case: str, folder: Path) -> Path:
-    """Write a reference as a lorem-jax export folder (lab-cosmo/lorem-jax#39)."""
+    """Write a reference as a lorem-jax export folder (lab-cosmo/lorem-jax#42)."""
     data = np.load(ASSETS / f"{case}.npz")
     params = {
         k[len("params/") :]: data[k] for k in data.files if k.startswith("params/")
@@ -42,6 +42,7 @@ def _export(case: str, folder: Path) -> Path:
     np.savez(folder / "params.npz", **params)
     (folder / "model.yaml").write_text(str(data["model_yaml"]))
     (folder / "baseline.yaml").write_text(yaml.safe_dump({"elemental": BASELINE}))
+    (folder / "export.yaml").write_text("format: 1\n")
     return folder
 
 
@@ -49,7 +50,7 @@ def _model(name: str, hypers: Any) -> LOREM:
     targets = {
         "energy": get_energy_target_info("energy", {"quantity": "energy", "unit": "eV"})
     }
-    if name == "lorem.LoremBEC":
+    if name == "lorem.models.bec.LoremBEC":
         targets["mtt::bec"] = _bec_target_info()
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6, 8], targets=targets)
     return LOREM(hypers, info).double()
@@ -138,26 +139,48 @@ def test_mismatched_models_are_rejected(tmp_path):
     name, hypers, params, _ = read_export(_export("lorem_bec", tmp_path))
     # no Born-charge target: the PerParticleTensorPredictor leaves are left over
     with pytest.raises(ValueError, match="not used"):
-        load_checkpoint(_model("lorem.Lorem", hypers), params)
+        load_checkpoint(_model("lorem.models.mlip.Lorem", hypers), params)
     with pytest.raises(ValueError, match="shape mismatch"):
         load_checkpoint(_model(name, {**hypers, "num_features": 8}), params)
     with pytest.raises(ValueError, match="shape mismatch"):
         load_checkpoint(_model(name, {**hypers, "num_message_passing": 0}), params)
 
 
-def test_model_yaml_defaults_follow_the_lorem_jax_class():
-    _, lorem = model_hypers_from_yaml({"model": {"lorem.Lorem": {}}})
-    _, bec = model_hypers_from_yaml({"model": {"lorem.LoremBEC": {"max_degree": 4}}})
-    assert lorem["initialize_node_features"] and lorem["equivariant_message_passing"]
-    assert not bec["initialize_node_features"]
-    assert not bec["equivariant_message_passing"]
-    assert bec["max_degree"] == 4
+def _model_yaml(case: str) -> dict:
+    return yaml.safe_load(str(np.load(ASSETS / f"{case}.npz")["model_yaml"]))
+
+
+def test_model_yaml_is_the_checkpoint_spec():
+    name, hypers = model_hypers_from_yaml(_model_yaml("lorem_bec"))
+    assert name == "lorem.models.bec.LoremBEC"
+    assert not hypers["initialize_node_features"]
+    assert not hypers["equivariant_message_passing"]
+    # lorem-jax checkpoints after lab-cosmo/lorem-jax#37 also write the inputs
+    ((name, fields),) = _model_yaml("lorem").items()
+    _, hypers = model_hypers_from_yaml({name: {**fields, "inputs": []}})
+    assert hypers["max_degree"] == 2
 
 
 @pytest.mark.parametrize(
     "fields",
-    [{"radial_basis": "gaussian"}, {"lr": False}, {"not_a_field": 1}],
+    [
+        {"radial_basis": "gaussian"},
+        {"lr": False},
+        {"inputs": ["charge"]},
+        {"not_a_field": 1},
+        {"num_species": None},
+    ],
 )
 def test_unsupported_model_yaml(fields):
+    ((name, spec),) = _model_yaml("lorem").items()
+    spec = {k: v for k, v in {**spec, **fields}.items() if v is not None}
     with pytest.raises(ValueError):
-        model_hypers_from_yaml({"model": {"lorem.Lorem": fields}})
+        model_hypers_from_yaml({name: spec})
+    with pytest.raises(ValueError, match="unsupported"):
+        model_hypers_from_yaml({"lorem.Lorem": spec})
+
+
+def test_export_format_is_checked(tmp_path):
+    (_export("lorem", tmp_path) / "export.yaml").write_text("format: 2\n")
+    with pytest.raises(ValueError, match="export format 2"):
+        read_export(tmp_path)

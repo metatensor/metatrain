@@ -5,10 +5,12 @@ Run with lorem-jax installed, from this folder::
     python generate.py
 
 The current files come from lorem-jax 4535c9f (``main`` after 0.1.0, which
-adds the long-range contribution to the Born charges, lab-cosmo/lorem-jax#30).
+adds the long-range contribution to the Born charges, lab-cosmo/lorem-jax#30)
+with marathon-train 0.3.1.
 
 Each ``<case>.npz`` holds the flat flax parameters (``params/<flax path>``),
-the ``model.yaml`` text, and the lorem-jax predictions for two small systems,
+the ``model.yaml`` text (``marathon.io.to_dict`` of the model, as lorem-jax
+writes it into checkpoints), and the lorem-jax predictions for two small systems,
 in float64. Parameters are the random initialization plus noise of scale
 ``NOISE``, so every bias and LayerNorm leaf is exercised and the parameters
 are far enough from initialization that swapped tensor-product factors
@@ -30,6 +32,7 @@ from jaxpme.batched_mixed.batching import prepare
 from lorem import Lorem, LoremBEC
 from lorem.batching import Sample, to_batch
 from marathon.data.sample import to_labels
+from marathon.io import to_dict
 
 
 jax.config.update("jax_enable_x64", True)
@@ -62,16 +65,12 @@ SIZES = dict(
     num_message_passing=1,
 )
 CASES = {
-    "lorem": ("lorem.Lorem", Lorem, {}),
-    "lorem_scalar_messages": (
-        "lorem.Lorem",
-        Lorem,
-        {"equivariant_message_passing": False},
-    ),
-    "lorem_bec": ("lorem.LoremBEC", LoremBEC, {}),
+    "lorem": (Lorem, {}),
+    "lorem_scalar_messages": (Lorem, {"equivariant_message_passing": False}),
+    "lorem_bec": (LoremBEC, {}),
     # the paper default is max_degree=6; degree 4 covers the l >= 3
     # Clebsch-Gordan signs and a degree-2 long-range charge
-    "lorem_l4": ("lorem.Lorem", Lorem, {"max_degree": 4, "max_degree_lr": 2}),
+    "lorem_l4": (Lorem, {"max_degree": 4, "max_degree_lr": 2}),
 }
 SYSTEMS = {
     "molecule": ase.Atoms(
@@ -88,7 +87,7 @@ SYSTEMS = {
 
 
 def main():
-    for case, (name, cls, extra) in CASES.items():
+    for case, (cls, extra) in CASES.items():
         config = {**SIZES, **extra}
         model = cls(**config)
         params = model.init(jax.random.key(0), *model.dummy_inputs())
@@ -104,7 +103,7 @@ def main():
             f"params/{path}": np.asarray(value)
             for path, value in flatten_dict(params["params"], sep="/").items()
         }
-        data["model_yaml"] = np.array(yaml.safe_dump({"model": {name: config}}))
+        data["model_yaml"] = np.array(yaml.safe_dump(to_dict(model)))
         for label, atoms in SYSTEMS.items():
             # lorem.batching.to_sample, but in float64 (it hard-codes float32)
             structure = prepare(atoms, config["cutoff"], dtype=np.float64)
