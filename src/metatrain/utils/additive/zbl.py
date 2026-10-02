@@ -1,22 +1,30 @@
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
 import torch
 from ase.data import covalent_radii
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import (
+    AtomisticModel,
+    ModelCapabilities,
+    ModelMetadata,
     ModelOutput,
     NeighborListOptions,
     System,
     unit_conversion_factor,
 )
 
+from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.metadata import merge_metadata
+
+from ..abc import ModelInterface
 from ..data import DatasetInfo, TargetInfo
 from ..sum_over_atoms import sum_over_atoms
 
 
-class ZBL(torch.nn.Module):
+class ZBL(ModelInterface):
     """
     A simple model for short-range repulsive interactions.
 
@@ -32,8 +40,14 @@ class ZBL(torch.nn.Module):
         target quantities and atomic types.
     """
 
+    __checkpoint_version__ = 1
+    __supported_devices__ = ["cuda", "cpu"]
+    __supported_dtypes__ = [torch.float32, torch.float64]
+    __default_metadata__ = ModelMetadata()
+
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo):
-        super().__init__()
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
+        check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
 
         # `hypers` should be an empty dictionary
         if not (isinstance(hypers, dict) and len(hypers) == 0):
@@ -323,6 +337,92 @@ class ZBL(torch.nn.Module):
             )
             return False
         return True
+
+    def get_checkpoint(self) -> dict[str, Any]:
+        """
+        Get the checkpoint of the model. This should contain all the information
+        needed by `load_checkpoint` to recreate the same model instance.
+
+        :return: The model's checkpoint.
+        """
+        model_state_dict = self.state_dict()
+        checkpoint = {
+            "architecture_name": "zbl",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "model_data": {
+                "hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "model_state_dict": model_state_dict,
+        }
+        return checkpoint
+
+    @classmethod
+    def load_checkpoint(
+        cls,
+        checkpoint: dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "ZBL":
+        """
+        Create a model from a checkpoint (i.e. state dictionary).
+
+        :param checkpoint: Checkpoint's state dictionary.
+        :param context: Context in which to load the model. Not used.
+
+        :return: An instance of the model.
+        """
+        model = cls(
+            hypers=checkpoint["model_data"]["hypers"],
+            dataset_info=checkpoint["model_data"]["dataset_info"],
+        )
+
+        model.load_state_dict(checkpoint["model_state_dict"])
+        return model
+
+    @classmethod
+    def upgrade_checkpoint(
+        cls, checkpoint: dict, version: Optional[int] = None
+    ) -> dict:
+        """
+        Upgrade the checkpoint to the current version of the model.
+
+        :param checkpoint: Checkpoint's state dictionary.
+        :param version: Version to which the checkpoint should be upgraded. If ``None``,
+            the checkpoint will be upgraded to the current version of the model.
+
+        :return: The upgraded checkpoint.
+        """
+        if version is None:
+            version = cls.__checkpoint_version__
+        if checkpoint["model_ckpt_version"] != version:
+            raise NotImplementedError(
+                "ZBL model does not support checkpoint upgrading. "
+                "There is only one checkpoint version."
+            )
+        return checkpoint
+
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
+        """
+        Turn this model into an :py:class:`metatomic.torch.AtomisticModel`,
+        containing the model itself, its capabilities and its metadata.
+
+        :param metadata: Additional metadata to add to the model, as specified
+            by the user.
+        :return: An instance of :py:class:`metatomic.torch.AtomisticModel`.
+        """
+
+        capabilities = ModelCapabilities(
+            outputs=self.outputs,
+            atomic_types=self.atomic_types,
+            interaction_range=self.cutoff_radius,
+            length_unit=self.dataset_info.length_unit,
+            supported_devices=self.__supported_devices__,
+            dtype=dtype_to_str(torch.float32),
+        )
+
+        metadata = merge_metadata(self.metadata, metadata)
+
+        return AtomisticModel(self.eval(), metadata, capabilities)
 
 
 def _phi(r: torch.Tensor, c: torch.Tensor, da: torch.Tensor) -> torch.Tensor:
