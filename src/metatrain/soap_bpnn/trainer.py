@@ -201,9 +201,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     ) -> None:
         assert dtype in SoapBpnn.__supported_dtypes__
         assert isinstance(model, MetatrainModel)
-
-        soap_bpnn = model.model
-        assert isinstance(soap_bpnn, SoapBpnn)
+        assert isinstance(model.model, SoapBpnn)
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
 
@@ -244,7 +242,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         atomic_basis_transform, atomic_basis_reverse_transform = (
             get_prepare_atomic_basis_targets_transform(
-                model.dataset_info, soap_bpnn.dataset_info
+                model.dataset_info, model.model.dataset_info
             )
         )
 
