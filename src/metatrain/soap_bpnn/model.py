@@ -191,7 +191,7 @@ def concatenate_structures(
 
 
 class SoapBpnn(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 9
+    __checkpoint_version__ = 10
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -206,9 +206,17 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         }
     )
 
-    component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
+    neighbors_species_labels: Labels
+    center_type_labels: Labels
+    single_label: Labels
+    _feature_labels: Labels
+    key_labels: Dict[str, Labels]
+    component_labels: Dict[str, List[List[Labels]]]
+    property_labels: Dict[str, List[Labels]]
     cartesian_rank1_targets: List[str]  # torchscript needs this
     cartesian_rank2_targets: List[str]  # torchscript needs this
+    _mts_buffer_names: List[str]
+    _mts_non_persistent_buffers: List[str]
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -316,16 +324,24 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             self.bpnn_for_tensors = torch.nn.Identity()
             self.bpnn = MLPMap(self.atomic_types, hypers_bpnn)
 
-        self.neighbors_species_labels = Labels(
-            names=["neighbor_1_type", "neighbor_2_type"],
-            values=torch.combinations(
-                torch.tensor(self.atomic_types, dtype=torch.int),
-                with_replacement=True,
+        self.register_buffer(
+            "neighbors_species_labels",
+            Labels(
+                names=["neighbor_1_type", "neighbor_2_type"],
+                values=torch.combinations(
+                    torch.tensor(self.atomic_types, dtype=torch.int),
+                    with_replacement=True,
+                ),
             ),
+            persistent=False,
         )
-        self.center_type_labels = Labels(
-            names=["center_type"],
-            values=torch.tensor(self.atomic_types).reshape(-1, 1),
+        self.register_buffer(
+            "center_type_labels",
+            Labels(
+                names=["center_type"],
+                values=torch.tensor(self.atomic_types).reshape(-1, 1),
+            ),
+            persistent=False,
         )
 
         if hypers_bpnn["num_hidden_layers"] == 0:
@@ -356,24 +372,28 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             "feature": ModelOutput(sample_kind="atom", description="internal features")
         }
 
-        self.single_label = Labels.single()
-        self._feature_labels = Labels(
-            names=["feature"],
-            values=torch.arange(self.n_inputs_last_layer).unsqueeze(1),
+        self.register_buffer("single_label", Labels.single(), persistent=False)
+        self.register_buffer(
+            "_feature_labels",
+            Labels(
+                names=["feature"],
+                values=torch.arange(self.n_inputs_last_layer).unsqueeze(1),
+            ),
+            persistent=False,
         )
 
         # Modified dataset_info with the targets as they will be seen by
         # the model during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
+        self.register_buffer("key_labels", {}, persistent=False)
+        self.register_buffer("component_labels", {}, persistent=False)
+        self.register_buffer("property_labels", {}, persistent=False)
         self.num_properties: Dict[str, Dict[str, int]] = {}  # by target and block
         self.basis_calculators = torch.nn.ModuleDict({})
         self.heads = torch.nn.ModuleDict({})
         self.head_types = self.hypers["heads"]
         self.last_layers = torch.nn.ModuleDict({})
-        self.key_labels: Dict[str, Labels] = {}
-        self.component_labels: Dict[str, List[List[Labels]]] = {}
-        self.property_labels: Dict[str, List[Labels]] = {}
         self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         self.cartesian_rank1_targets: List[str] = []
         self.cartesian_rank2_targets: List[str] = []
@@ -487,29 +507,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         device = systems[0].positions.device
-        if self.neighbors_species_labels.device != device:
-            self.neighbors_species_labels = self.neighbors_species_labels.to(device)
-        if self.center_type_labels.device != device:
-            self.center_type_labels = self.center_type_labels.to(device)
-        if self._feature_labels.values.device != device:
-            self._feature_labels = self._feature_labels.to(device)
-        if self.single_label.values.device != device:
-            self.single_label = self.single_label.to(device)
-            self.key_labels = {
-                output_name: label.to(device)
-                for output_name, label in self.key_labels.items()
-            }
-            self.component_labels = {
-                output_name: [
-                    [labels.to(device) for labels in components_block]
-                    for components_block in components_tmap
-                ]
-                for output_name, components_tmap in self.component_labels.items()
-            }
-            self.property_labels = {
-                output_name: [labels.to(device) for labels in properties_tmap]
-                for output_name, properties_tmap in self.property_labels.items()
-            }
 
         # initialize the return dictionary
         return_dict: Dict[str, TensorMap] = {}
@@ -975,12 +972,13 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
         )
-        iterator = iter(model_state_dict.values())
-        next(iterator)  # skip types buffer (int dtype)
-        dtype = next(iterator).dtype
+        iterator = iter(model_state_dict.keys())
+        while True:
+            key = next(iterator)
+            if key.endswith("weight"):
+                break
+        dtype = model_state_dict[key].dtype
         model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -996,10 +994,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         # For example, after training, the additive models could still be in
         # float64
         self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This funciton moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         interaction_ranges = [self.hypers["soap"]["cutoff"]["radius"]]
         for additive_model in self.additive_models:

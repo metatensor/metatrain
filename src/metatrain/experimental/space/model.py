@@ -59,12 +59,17 @@ class SPACE(ModelInterface[ModelHypers]):
     """SPACE model: metatomic-based wrapper around ``BaseModel``
     and/or ``GradientModel``."""
 
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(references={})
+    _mts_buffer_names: List[str]
+    _mts_non_persistent_buffers: List[str]
 
+    single_label: Labels
+    key_labels: Dict[str, Labels]
     component_labels: Dict[str, List[List[Labels]]]
+    property_labels: Dict[str, List[Labels]]
     U_dict: Dict[int, torch.Tensor]
     cartesian_rank2_targets: List[str]  # torchscript needs this
     _sph_to_cart_rank2: torch.Tensor  # torchscript needs this
@@ -106,9 +111,9 @@ class SPACE(ModelInterface[ModelHypers]):
             )
             self.outputs[ll_features_name] = ModelOutput(sample_kind="atom")
 
-        self.key_labels: Dict[str, Labels] = {}
-        self.component_labels: Dict[str, List[List[Labels]]] = {}
-        self.property_labels: Dict[str, List[Labels]] = {}
+        self.register_buffer("key_labels", {}, persistent=False)
+        self.register_buffer("component_labels", {}, persistent=False)
+        self.register_buffer("property_labels", {}, persistent=False)
         self.cartesian_rank2_targets: List[str] = []
 
         # Pre-compute spherical→Cartesian conversion matrix for rank-2 tensors.
@@ -161,7 +166,7 @@ class SPACE(ModelInterface[ModelHypers]):
         scaler_hypers = get_default_hypers("scaler")["model"]
         self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
-        self.single_label = Labels.single()
+        self.register_buffer("single_label", Labels.single(), persistent=False)
 
         self.finetune_config: Dict[str, Any] = {}
 
@@ -244,25 +249,7 @@ class SPACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        # transfer labels, if needed
         device = systems[0].device
-        if self.single_label.values.device != device:
-            self.single_label = self.single_label.to(device)
-            self.key_labels = {
-                output_name: label.to(device)
-                for output_name, label in self.key_labels.items()
-            }
-            self.component_labels = {
-                output_name: [
-                    [label.to(device) for label in component]
-                    for component in components
-                ]
-                for output_name, components in self.component_labels.items()
-            }
-            self.property_labels = {
-                output_name: [label.to(device) for label in labels]
-                for output_name, labels in self.property_labels.items()
-            }
 
         # Convert systems to batch format
         neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
@@ -590,8 +577,6 @@ class SPACE(ModelInterface[ModelHypers]):
         next(state_dict_iterator)  # skip another int tensor
         dtype = next(state_dict_iterator).dtype
         model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -616,10 +601,6 @@ class SPACE(ModelInterface[ModelHypers]):
         # For example, after training, the additive models could still be in
         # float64
         self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
         for additive_model in self.additive_models:
