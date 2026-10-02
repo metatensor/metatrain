@@ -1,18 +1,24 @@
 import copy
 import shutil
 
+import metatensor.torch as mts
 import pytest
 import torch
+from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
 from metatrain.experimental.space import SPACE, Trainer
 from metatrain.experimental.space.modules.finetuning import apply_finetuning_strategy
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
-from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.data.target_info import (
+    get_energy_target_info,
+    get_generic_target_info,
+)
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import model_from_checkpoint, trainer_from_checkpoint
 from metatrain.utils.loss import LossSpecification
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -252,20 +258,19 @@ def _finetune_strategy(method, read_from=None, inherit_heads=None):
 
 
 def _two_target_setup():
-    """A model carrying both an ``"energy"`` and an ``"mtt::U0"`` head, plus the
-    dataset info of a run that only trains on ``"mtt::U0"``, leaving ``"energy"``
-    stale.
-
-    SPACE's ``restart`` cannot grow a head for a target the model was not built
-    with, so both heads have to exist from the start -- unlike PET, where the
-    equivalent setup adds the second target on restart."""
+    """A model pre-trained on ``"energy"``, plus the dataset info of a run that only
+    trains on a second, unrelated ``"mtt::U0"`` target, leaving ``"energy"`` stale."""
     targets = {
         name: get_energy_target_info(name, {"quantity": "energy", "unit": "eV"})
         for name in ("energy", "mtt::U0")
     }
     model = SPACE(
         MODEL_HYPERS,
-        DatasetInfo(length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets),
+        DatasetInfo(
+            length_unit="Angstrom",
+            atomic_types=[1, 6, 7, 8],
+            targets={"energy": targets["energy"]},
+        ),
     )
     new_dataset_info = DatasetInfo(
         length_unit="Angstrom",
@@ -320,17 +325,80 @@ def test_finetune_full_lora_prunes_stale_targets(method):
 
 
 def test_finetune_full_inherit_heads_then_prunes_source_target():
-    """``inherit_heads`` can copy weights from a stale target's head into the new
-    target's head; the stale target is only removed afterwards."""
+    """``inherit_heads`` can copy weights from a stale target's head into the head
+    that ``restart`` grew for the new target; the stale target is only removed
+    afterwards."""
     model, new_dataset_info = _two_target_setup()
 
     model.restart(new_dataset_info)
+    source_params = {
+        name: param.clone() for name, param in _target_params(model, "energy").items()
+    }
     apply_finetuning_strategy(
         model, _finetune_strategy("full", inherit_heads={"mtt::U0": "energy"})
     )
 
     _assert_target_absent(model, "energy")
     _assert_target_present(model, "mtt::U0")
+    inherited = _target_params(model, "mtt::U0")
+    assert len(inherited) == len(source_params)
+    for name, param in source_params.items():
+        assert torch.equal(inherited[name.replace("energy", "mtt::U0")], param)
+
+
+def test_finetune_inherit_heads_reproduces_source_predictions():
+    """A head inherited from a target with per-species scales predicts what the
+    source target predicted."""
+    source, dest = "non_conservative_forces", "mtt::forces_ft"
+    scale_per_type = {1: 0.5, 6: 2.0, 7: 3.0, 8: 4.0}
+
+    def dataset_info(target_name):
+        target_info = get_generic_target_info(
+            target_name,
+            {
+                "quantity": "force",
+                "unit": "eV/A",
+                "type": {"cartesian": {"rank": 1}},
+                "num_subtargets": 1,
+                "sample_kind": "atom",
+            },
+        )
+        return DatasetInfo(
+            length_unit="Angstrom",
+            atomic_types=sorted(scale_per_type),
+            targets={target_name: target_info},
+        )
+
+    model = SPACE(MODEL_HYPERS, dataset_info(source)).to(torch.float64)
+    for scales in (model.scaler.model.scales, model.scaler.model.per_target_scales):
+        for index, atomic_type in enumerate(model.scaler.atomic_types):
+            scales[source].block().values[index] = scale_per_type[atomic_type]
+
+    systems = [
+        get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+        for system in read_systems(DATASET_PATH)[:2]
+    ]
+    output = ModelOutput(quantity="force", unit="eV/A", sample_kind="atom")
+    model.eval()
+    with torch.no_grad():
+        expected = model(systems, {source: output})[source].block().values
+
+    model.restart(dataset_info(dest))
+    apply_finetuning_strategy(
+        model, _finetune_strategy("full", inherit_heads={dest: source})
+    )
+
+    assert dest not in model.scaler.new_outputs
+    torch.testing.assert_close(
+        mts.load_buffer(getattr(model.scaler, dest + "_scaler_buffer")).block().values,
+        torch.tensor([[scale_per_type[t]] for t in model.scaler.atomic_types]).to(
+            torch.float64
+        ),
+    )
+    model.eval()
+    with torch.no_grad():
+        predictions = model(systems, {dest: output})[dest].block().values
+    torch.testing.assert_close(predictions, expected)
 
 
 def test_finetune_heads_keeps_stale_targets():
@@ -377,9 +445,8 @@ def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path
         OmegaConf.resolve(loss_conf)
         return loss_conf
 
-    # Both heads have to exist up front: SPACE's ``restart`` cannot grow a head
-    # for a target the model was not built with, so ``inherit_heads`` can only
-    # ever copy between targets that are already there.
+    # Both targets are pre-trained, so that the finetuning run below trains
+    # "mtt::U0" from a source head that actually holds trained weights.
     dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
