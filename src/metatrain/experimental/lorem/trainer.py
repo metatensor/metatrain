@@ -384,7 +384,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 if is_distributed:
                     # sum the loss over all processes
                     torch.distributed.all_reduce(train_loss_batch)
-                train_loss += train_loss_batch.item()
+                # summed on the device: .item() here would wait for the GPU every step
+                train_loss += train_loss_batch.detach()
 
                 # Reapply scales and accumulate quantities for computing train metrics,
                 # but only if this is an epoch to log
@@ -477,7 +478,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     if is_distributed:
                         # sum the loss over all processes
                         torch.distributed.all_reduce(val_loss_batch)
-                    val_loss += val_loss_batch.item()
+                    val_loss += val_loss_batch.detach()
 
                     # Reapply scales and accumulate quantities for computing val
                     # metrics. This is done for every epoch as validation metrics are
@@ -527,11 +528,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
             # Now we log the information:
             if epoch == start_epoch or epoch % self.hypers["log_interval"] == 0:
                 finalized_train_info = {
-                    "loss": train_loss,
+                    "loss": float(train_loss),
                     **finalized_train_info,
                 }
             finalized_val_info = {
-                "loss": val_loss,
+                "loss": float(val_loss),
                 **finalized_val_info,
             }
 

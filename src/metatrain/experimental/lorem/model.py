@@ -202,11 +202,15 @@ class LOREM(ModelInterface[ModelHypers]):
 
         system_sizes = [len(system) for system in systems]
         system_sizes_tensor = torch.tensor(system_sizes, device=device)
+        n_atoms = int(sum(system_sizes))
         system_indices = torch.repeat_interleave(
-            torch.arange(len(systems), device=device), system_sizes_tensor
+            torch.arange(len(systems), device=device),
+            system_sizes_tensor,
+            output_size=n_atoms,
         )
-        atom_indices = torch.cat(
-            [torch.arange(size, device=device) for size in system_sizes]
+        first_atoms = torch.cumsum(system_sizes_tensor, 0) - system_sizes_tensor
+        atom_indices = (
+            torch.arange(n_atoms, device=device) - first_atoms[system_indices]
         )
         sample_values = torch.stack([system_indices, atom_indices], dim=1)
         samples = Labels(names=["system", "atom"], values=sample_values.to(torch.int32))

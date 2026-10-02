@@ -291,7 +291,9 @@ class ShortRange(torch.nn.Module):
                 [len(system) for system in systems], device=device
             )
             system_indices = torch.repeat_interleave(
-                torch.arange(len(systems), device=device), system_sizes
+                torch.arange(len(systems), device=device),
+                system_sizes,
+                output_size=n_atoms,
             )
             cell_contributions = torch.einsum(
                 "ab, abc -> ac",
