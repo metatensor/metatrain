@@ -129,7 +129,12 @@ def train_or_load_scaler(
     :param checkpoint_dir: Directory to save the scaler checkpoint
     """
     if isinstance(scaler, Scaler):
-        scaler = MetatrainModel(model=scaler, additive_models=[], scaler=None)
+        scaler = MetatrainModel(
+            model=scaler,
+            additive_models=[],
+            scaler=None,
+            dataset_info=scaler.dataset_info,
+        )
 
     if isinstance(fixed_weights, str):
         logging.info(f"Loading scaler from {fixed_weights}")

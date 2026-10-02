@@ -280,9 +280,9 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         hypers: TrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
-        hypers = copy.copy(checkpoint.get("train_hypers", {}))
-        hypers.update(checkpoint.get("train_hypers", {}))
-        return cls(hypers)
+        trainer_hypers = copy.copy(checkpoint.get("train_hypers", {}))
+        trainer_hypers.update(hypers)
+        return cls(trainer_hypers)
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
