@@ -3,13 +3,16 @@ import shutil
 
 import pytest
 import torch
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
 from metatrain.pet import PET, Trainer
 from metatrain.pet.modules.finetuning import apply_finetuning_strategy
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
-from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.data.target_info import (
+    get_energy_target_info,
+    get_generic_target_info,
+)
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import model_from_checkpoint, trainer_from_checkpoint
 from metatrain.utils.loss import LossSpecification
@@ -666,3 +669,57 @@ def test_restart_with_fewer_targets_does_not_crash(monkeypatch, tmp_path):
     _assert_target_present(model_restart, "mtt::target_c")
     for name, param in _target_params(model_restart, "mtt::target_c").items():
         torch.testing.assert_close(param, target_c_snapshot[name])
+
+
+@pytest.mark.parametrize(
+    "length_unit, stress_unit, compatible",
+    [
+        pytest.param("A", "eV/angstrom^3", True, id="stress-unit-alias"),
+        pytest.param("angstrom", "eV/A^3", True, id="length-unit-alias"),
+        pytest.param("angstrom", "eV/angstrom^3", True, id="both-unit-aliases"),
+        pytest.param("A", "meV/A^3", False, id="different-energy-scales"),
+        pytest.param("nm", "eV/A^3", False, id="different-length-scales"),
+    ],
+)
+def test_finetuning_restart_unit_aliases(
+    length_unit: str, stress_unit: str, compatible: bool
+) -> None:
+    stress_config = DictConfig(
+        {
+            "quantity": "pressure",
+            "unit": "eV/A^3",
+            "type": {"Cartesian": {"rank": 2}},
+            "sample_kind": "system",
+            "num_subtargets": 1,
+        }
+    )
+    stress = get_generic_target_info("non_conservative_stress", stress_config)
+    energy = get_energy_target_info(
+        "energy", DictConfig({"quantity": "energy", "unit": "eV"})
+    )
+    info = DatasetInfo(
+        "A", [1, 6], {"energy": energy, "non_conservative_stress": stress}
+    )
+    model = PET(MODEL_HYPERS, info)
+    parameters = {
+        name: value.detach().clone() for name, value in model.named_parameters()
+    }
+
+    stress_config["unit"] = stress_unit
+    other_stress = get_generic_target_info("non_conservative_stress", stress_config)
+    other = DatasetInfo(
+        length_unit, [1, 6], {"energy": energy, "non_conservative_stress": other_stress}
+    )
+    if not compatible:
+        with pytest.raises(ValueError, match="Can't update DatasetInfo"):
+            model.restart(other)
+        return
+
+    assert model.restart(other) is model
+    assert not model.has_new_targets
+    assert model.dataset_info.length_unit == "A"
+    assert model.dataset_info.targets["non_conservative_stress"] is other_stress
+    for name, value in model.named_parameters():
+        torch.testing.assert_close(value, parameters[name], rtol=0, atol=0)
+
+    torch.jit.script(model.export())

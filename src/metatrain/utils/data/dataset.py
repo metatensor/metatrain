@@ -44,7 +44,7 @@ from metatrain.utils.data.target_info import (
     get_generic_target_info,
 )
 from metatrain.utils.external_naming import to_external_name
-from metatrain.utils.units import get_gradient_units
+from metatrain.utils.units import get_gradient_units, units_are_equivalent
 
 
 def _set(values: List[int]) -> List[int]:
@@ -164,7 +164,7 @@ class DatasetInfo:
         if not isinstance(other, DatasetInfo):
             return False
         return (
-            self.length_unit == other.length_unit
+            units_are_equivalent(unit=self.length_unit, other_unit=other.length_unit)
             and self._atomic_types == other._atomic_types
             and self.targets == other.targets
             and self.extra_data == other.extra_data
@@ -186,9 +186,9 @@ class DatasetInfo:
         """Update this instance with the union of itself and ``other``.
 
         :param other: Another :py:class:`DatasetInfo` instance to update this one with.
-        :raises ValueError: If the ``length_units`` are different.
+        :raises ValueError: If the ``length_units`` are not equivalent.
         """
-        if self.length_unit != other.length_unit:
+        if not units_are_equivalent(self.length_unit, other.length_unit):
             raise ValueError(
                 "Can't update DatasetInfo with a different `length_unit`: "
                 f"('{self.length_unit}' != '{other.length_unit}')"
