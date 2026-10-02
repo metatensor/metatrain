@@ -160,7 +160,9 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         model_hypers: ModelHypers,
     ) -> MetatrainModel:
 
-        # merge old and new dataset info
+        # -------------------------------------------------
+        #        Find out what are the new targets
+        # --------------------------------------------------
         merged_info = model.dataset_info.union(dataset_info)
         new_targets = {
             key: value
@@ -183,9 +185,29 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         # backbone-altering methods (``full``/``lora``) actually drop them.
         self._stale_finetune_targets = stale_targets
 
-        model_merged_info = densify_atomic_basis_dataset_info(merged_info)
+        # ------------------------------------------------------
+        #  Ask the models to restart with the new dataset info
+        # -------------------------------------------------------
+        model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
 
-        model.restart(model_merged_info, model_hypers=model_hypers)
+        comp_model_info = DatasetInfo(
+            length_unit=model_dataset_info.length_unit,
+            atomic_types=model_dataset_info.atomic_types,
+            targets={
+                target_name: target_info
+                for target_name, target_info in model_dataset_info.targets.items()
+                if model.additive_models[0].is_valid_target(target_name, target_info)
+            },
+        )
+
+        model.restart(
+            dataset_info,
+            model_dataset_info,
+            additive_models_dataset_info=[comp_model_info]
+            + [model_dataset_info] * (len(model.additive_models) - 1),
+            scaler_dataset_info=model_dataset_info,
+            model_hypers=model_hypers,
+        )
 
         return model
 
