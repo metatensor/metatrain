@@ -20,7 +20,6 @@ from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
-    sparsify_atomic_basis_target,
 )
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
@@ -34,7 +33,7 @@ from .utils.samples import get_samples_labels
 
 
 class Scaler(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -56,11 +55,6 @@ class Scaler(ModelInterface[ModelHypers]):
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.atomic_types = sorted(dataset_info.atomic_types)
-        self.densify_atomic_basis = self.hypers.get("densify_atomic_basis", True)
-
-        if self.densify_atomic_basis:
-            dataset_info = densify_atomic_basis_dataset_info(dataset_info)
-            self.dataset_info = dataset_info
 
         self.target_infos = {
             target_name: target_info
@@ -184,20 +178,6 @@ class Scaler(ModelInterface[ModelHypers]):
             outputs,
             selected_atoms=selected_atoms,
         )
-
-        if not self.training and self.densify_atomic_basis:
-            # For atomic basis targets, sparsify to create blocks with "atom_type"
-            # in the key dimensions, and ensure properties are unpadded. In training
-            # mode, predictions stay dense: remove_additive subtracts them from
-            # transform-densified targets.
-            targets = self.dataset_info.targets
-            for k, v in scales.items():
-                if k in targets and targets[k].is_atomic_basis:
-                    scales[k] = sparsify_atomic_basis_target(
-                        systems,
-                        v,
-                        targets[k].layout,
-                    )
 
         return scales
 

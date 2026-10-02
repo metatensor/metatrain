@@ -10,7 +10,7 @@ from torch.utils.data import DistributedSampler
 
 from metatrain.composition import CompositionModel, train_or_load_composition_model
 from metatrain.scaler import Scaler, train_or_load_scaler
-from metatrain.utils.abc import ModelInterface, TrainerInterface
+from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import ZBL, get_remove_additive_transform
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.augmentation import O3Augmenter
@@ -119,7 +119,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
         # Set up additive models
         composition_model = CompositionModel.from_valid_targets(
-            dataset_info, dataset_info.atomic_types
+            model_dataset_info, model_dataset_info.atomic_types
         )
         additive_models = [composition_model]
 

@@ -411,6 +411,7 @@ def upgrade_checkpoint(checkpoint: dict) -> dict:
 
                 checkpoint = model_cls.upgrade_checkpoint(checkpoint)
             except Exception as e:
+                raise
                 raise RuntimeError(
                     f"Unable to load the model checkpoint for "
                     f"the '{architecture_name}' architecture: the checkpoint is using "

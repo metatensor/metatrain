@@ -1,3 +1,4 @@
+import copy
 import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Sequence, Union, cast
@@ -19,6 +20,7 @@ from metatrain.utils.data import (
     validate_num_workers,
 )
 from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_dataset_info,
     get_prepare_atomic_basis_targets_transform,
 )
 from metatrain.utils.distributed.slurm import (
@@ -33,23 +35,41 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.transfer import batch_to
 from metatrain.utils.wrapper import MetatrainModel
 
+from . import checkpoints
 from .documentation import ModelHypers, TrainerHypers
 from .model import Scaler
 
 
 class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
 
     def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)
 
-    def setup(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> MetatrainModel:
+    def setup(
+        self, model_hypers: ModelHypers, dataset_info: Dict[str, Any]
+    ) -> MetatrainModel:
+        if self.hypers["densify_atomic_basis"]:
+            model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
         return MetatrainModel(
-            model=Scaler(hypers, dataset_info),
+            model=Scaler(model_hypers, model_dataset_info),
             additive_models=[],
             scaler=None,
             dataset_info=dataset_info,
         )
+
+    def restart(
+        self,
+        model: MetatrainModel,
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypers,
+    ) -> MetatrainModel:
+        if self.hypers["densify_atomic_basis"]:
+            model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+
+        model.restart(dataset_info, model_dataset_info, model_hypers=model_hypers)
+
+        return model
 
     def train(
         self,
@@ -415,15 +435,22 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         hypers: TrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
-        raise ValueError(" Scaler does not allow restarting training")
+        trainer_hypers = copy.copy(checkpoint.get("train_hypers", {}))
+        trainer_hypers.update(hypers)
+        return cls(trainer_hypers)
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
-        version = checkpoint.get("trainer_ckpt_version", 0)
-        if version != Trainer.__checkpoint_version__:
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+        for v in range(1, cls.__checkpoint_version__):
+            if checkpoint["trainer_ckpt_version"] == v:
+                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
+                update(checkpoint)
+                checkpoint["trainer_ckpt_version"] = v + 1
+
+        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using trainer "
-                f"version {version}, while the current "
-                f"trainer version is {Trainer.__checkpoint_version__}."
+                f"version {checkpoint['trainer_ckpt_version']}, while the current "
+                f"trainer version is {cls.__checkpoint_version__}."
             )
         return checkpoint

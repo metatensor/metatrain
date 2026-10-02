@@ -54,3 +54,47 @@ def update_per_property_scales(checkpoint: dict, scaler_key: str = "scaler") -> 
                 state_dict[f"{scaler_key}.{target_name}_per_property_scaler_buffer"] = (
                     mts.save_buffer(mts.make_contiguous(per_property_tm))
                 )
+
+
+# ------------------------------------------
+#               Model updates
+# ------------------------------------------
+
+
+def model_update_v1_v2(checkpoint: dict) -> None:
+    """
+    Update a v1 model checkpoint to v2.
+
+    The `densify_atomic_basis` hyperparameter has been moved to
+    the trainer hypers, so it is removed from the model hypers.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    if "densify_atomic_basis" in checkpoint["model_data"]["model_hypers"]:
+        densify_atomic_basis = checkpoint["model_data"]["model_hypers"].pop(
+            "densify_atomic_basis"
+        )
+        if "train_hypers" in checkpoint:
+            checkpoint["train_hypers"]["densify_atomic_basis"] = densify_atomic_basis
+
+
+# ------------------------------------------
+#              Trainer updates
+# ------------------------------------------
+
+
+def trainer_update_v1_v2(checkpoint: dict) -> None:
+    """
+    Update a v1 Trainer checkpoint to v2.
+
+    The `densify_atomic_basis` hyperparameter has been moved to
+    the trainer hypers, so it is removed from the model hypers.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    if "densify_atomic_basis" in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["train_hypers"]["densify_atomic_basis"] = checkpoint["model_data"][
+            "model_hypers"
+        ].pop("densify_atomic_basis")
+    elif "densify_atomic_basis" not in checkpoint["train_hypers"]:
+        checkpoint["train_hypers"]["densify_atomic_basis"] = True
