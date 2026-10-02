@@ -31,6 +31,8 @@ Fixed
   ``empirical_crps_ensemble``) now work for targets with components, such as
   ``non_conservative_force``, instead of failing when the mean and variance
   blocks are built.
+- ``mtt train -o`` with a path containing directories no longer fails when copying
+  the exported model and checkpoint to the output directory.
 
 Added
 #####
