@@ -373,6 +373,16 @@ def model_update_v15_v16(checkpoint: dict) -> None:
                     updated[name] = value
             checkpoint[key] = updated
 
+def model_update_v16_v17(checkpoint: dict) -> None:
+    """
+    Update a v16 checkpoint to v17.
+
+    Forward hooks were introduced in this version.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    if "forward_hooks" not in checkpoint["model_data"]["model_hypers"]:
+        checkpoint["model_data"]["model_hypers"]["forward_hooks"] = {}
 
 ###########################
 # TRAINER #################

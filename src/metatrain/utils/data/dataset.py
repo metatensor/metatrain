@@ -220,6 +220,16 @@ class DatasetInfo:
                 )
         self.extra_data.update(other.extra_data)
 
+        # intersecting_hooks_keys = self.hooks.keys() & other.hooks.keys()
+        # for key in intersecting_hooks_keys:
+        #     if self.hooks[key] != other.hooks[key]:
+        #         raise ValueError(
+        #             "Can't update DatasetInfo with different hook information"
+        #             f"for key '{key}'."
+        #         )
+
+        # self.hooks.update(other.hooks)
+
     def union(self, other: "DatasetInfo") -> "DatasetInfo":
         """
         Return the union of this instance with ``other``.
