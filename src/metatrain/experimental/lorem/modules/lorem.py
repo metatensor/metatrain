@@ -393,6 +393,7 @@ class LongRange(torch.nn.Module):
             full_neighbor_list=neighbor_list_options.full_list,
             lr_wavelength=float(kspace_resolution),
         )
+        self.lr_wavelength = float(kspace_resolution)
         # lorem-jax's non-PBC path: plain pairwise 1/r over *all* pairs (not
         # restricted to the short-range cutoff neighbor list), no smearing,
         # no exclusion (same reasoning as ewald_calculator above).
@@ -438,6 +439,164 @@ class LongRange(torch.nn.Module):
         charges: torch.Tensor,
         neighbor_distances: torch.Tensor,
     ) -> torch.Tensor:
+        """Ewald (3D periodic) or direct 1/r (non-periodic) potentials for the
+        whole batch at once: the same terms as one torch-pme call per system
+        (:meth:`_potentials_per_system`), as ragged index operations, with a
+        single device-to-host copy of the cells per batch. Batches with
+        partially periodic systems fall back to the per-system calls."""
+        device = charges.device
+        dtype = charges.dtype
+        sizes = [len(system) for system in systems]
+        n_systems = len(systems)
+        n_atoms = charges.shape[0]
+
+        cells = torch.stack([system.cell for system in systems])
+        pbc = torch.stack([system.pbc for system in systems])
+        host = torch.cat(
+            [torch.linalg.norm(cells, dim=-1), pbc.to(cells.dtype)], dim=1
+        ).detach().cpu()
+        n_pbc = host[:, 3:].sum(dim=1)
+        if bool(((n_pbc > 0) & (n_pbc < 3)).any()):
+            return self._potentials_per_system(systems, charges, neighbor_distances)
+        periodic = n_pbc == 3
+
+        sizes_host = torch.tensor(sizes, dtype=torch.long)
+        offsets_host = torch.cumsum(sizes_host, 0) - sizes_host
+        atom_periodic = torch.repeat_interleave(periodic, sizes_host).to(device)
+        potentials = torch.zeros_like(charges)
+
+        # real-space Ewald over the neighbor list of periodic systems
+        nl_values = [
+            system.get_neighbor_list(self.neighbor_list_options).samples.values
+            for system in systems
+        ]
+        n_edges = torch.tensor([len(v) for v in nl_values], dtype=torch.long)
+        edge_offsets = torch.repeat_interleave(offsets_host, n_edges).to(device)
+        pairs = torch.cat(nl_values)
+        centers = pairs[:, 0] + edge_offsets
+        neighbors = pairs[:, 1] + edge_offsets
+        ewald = self.ewald_calculator.potential
+        sr = ewald.sr_from_dist(neighbor_distances) * atom_periodic[centers].to(dtype)
+        potentials.index_add_(0, centers, charges[neighbors] * sr.unsqueeze(-1))
+        if not self.neighbor_list_options.full_list:
+            potentials.index_add_(0, neighbors, charges[centers] * sr.unsqueeze(-1))
+
+        positions = torch.cat([system.positions for system in systems])
+
+        # direct 1/r over all ordered pairs of each non-periodic system
+        np_sizes = sizes_host[~periodic]
+        if len(np_sizes) > 0:
+            np_offsets = offsets_host[~periodic]
+            n_pairs = np_sizes * np_sizes
+            total = int(n_pairs.sum())
+            pair_system = torch.repeat_interleave(
+                torch.arange(len(np_sizes)), n_pairs
+            ).to(device)
+            n_pairs, np_sizes, np_offsets = (
+                n_pairs.to(device),
+                np_sizes.to(device),
+                np_offsets.to(device),
+            )
+            local = torch.arange(total, device=device) - (
+                torch.cumsum(n_pairs, 0) - n_pairs
+            )[pair_system]
+            size = np_sizes[pair_system]
+            first = local // size + np_offsets[pair_system]
+            second = local % size + np_offsets[pair_system]
+            off_diagonal = first != second
+            # no zero-length vectors on the diagonal: their norm has NaN gradients
+            vectors = torch.where(
+                off_diagonal.unsqueeze(-1),
+                positions[second] - positions[first],
+                torch.ones_like(positions[first]),
+            )
+            direct = self.direct_calculator.potential.from_dist(
+                torch.linalg.vector_norm(vectors, dim=-1)
+            ) * off_diagonal.to(dtype)
+            potentials.index_add_(0, first, charges[second] * direct.unsqueeze(-1))
+
+        # reciprocal-space Ewald of periodic systems, k-vectors as in torch-pme
+        p_index = torch.arange(n_systems)[periodic]
+        if len(p_index) > 0:
+            k_cutoff = 2 * math.pi / self.lr_wavelength
+            ns = torch.ceil(k_cutoff * host[p_index, :3] / 2 / math.pi).long()
+            n_k = ns.prod(dim=1)
+            p_sizes = sizes_host[p_index]
+            n_ak = p_sizes * n_k
+            total_k = int(n_k.sum())
+            total_ak = int(n_ak.sum())
+            n_p = len(p_index)
+            k_system = torch.repeat_interleave(torch.arange(n_p), n_k).to(device)
+            ak_system = torch.repeat_interleave(torch.arange(n_p), n_ak).to(device)
+            ns, n_k, n_ak, p_sizes = (
+                ns.to(device),
+                n_k.to(device),
+                n_ak.to(device),
+                p_sizes.to(device),
+            )
+            p_offsets = offsets_host[p_index].to(device)
+            p_index = p_index.to(device)
+
+            # integer k grid in fftfreq order: 0, 1, ..., -2, -1
+            local_k = torch.arange(total_k, device=device) - (
+                torch.cumsum(n_k, 0) - n_k
+            )[k_system]
+            nk = ns[k_system]
+            iz = local_k % nk[:, 2]
+            iy = (local_k // nk[:, 2]) % nk[:, 1]
+            ix = local_k // (nk[:, 2] * nk[:, 1])
+            grid = torch.stack([ix, iy, iz], dim=-1)
+            grid = torch.where(grid < (nk + 1) // 2, grid, grid - nk).to(dtype)
+            p_cells = cells[p_index]
+            reciprocal = 2 * math.pi * torch.linalg.inv_ex(p_cells)[0].transpose(1, 2)
+            kvectors = torch.einsum("kd,kde->ke", grid, reciprocal[k_system])
+            volumes = torch.abs(torch.linalg.det(p_cells))
+            weights = ewald.lr_from_k_sq((kvectors**2).sum(dim=-1)) / volumes[k_system]
+
+            # (atom, k) pairs within each periodic system
+            local_ak = torch.arange(total_ak, device=device) - (
+                torch.cumsum(n_ak, 0) - n_ak
+            )[ak_system]
+            size = p_sizes[ak_system]
+            ak_atom = local_ak % size + p_offsets[ak_system]
+            ak_k = local_ak // size + (torch.cumsum(n_k, 0) - n_k)[ak_system]
+            phase = (kvectors[ak_k] * positions[ak_atom]).sum(dim=-1)
+            cos, sin = torch.cos(phase).unsqueeze(-1), torch.sin(phase).unsqueeze(-1)
+            q = charges[ak_atom]
+            n_channels = charges.shape[1]
+            s_cos = charges.new_zeros((total_k, n_channels)).index_add_(0, ak_k, q * cos)
+            s_sin = charges.new_zeros((total_k, n_channels)).index_add_(0, ak_k, q * sin)
+            kspace = charges.new_zeros((n_atoms, n_channels)).index_add_(
+                0,
+                ak_atom,
+                weights[ak_k].unsqueeze(-1) * (cos * s_cos[ak_k] + sin * s_sin[ak_k]),
+            )
+
+            atom_system = torch.repeat_interleave(
+                torch.arange(n_systems, device=device),
+                sizes_host.to(device),
+                output_size=n_atoms,
+            )
+            charge_tot = charges.new_zeros((n_systems, n_channels)).index_add_(
+                0, atom_system, charges
+            )
+            all_volumes = torch.ones(n_systems, dtype=dtype, device=device)
+            all_volumes = all_volumes.index_put([p_index], volumes)
+            kspace = kspace - charges * ewald.self_contribution()
+            kspace = kspace - 2 * ewald.background_correction() * (
+                charge_tot / all_volumes.unsqueeze(-1)
+            )[atom_system]
+            potentials = potentials + kspace * atom_periodic.unsqueeze(-1).to(dtype)
+
+        return potentials / 2
+
+    def _potentials_per_system(
+        self,
+        systems: List[System],
+        charges: torch.Tensor,
+        neighbor_distances: torch.Tensor,
+    ) -> torch.Tensor:
+        """One torch-pme call per system; the reference for :meth:`_potentials`."""
         last_nodes = 0
         last_edges = 0
         potentials = []

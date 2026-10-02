@@ -113,3 +113,54 @@ def test_energy_and_forces_are_finite():
     (forces,) = torch.autograd.grad(energy, system.positions)
     assert torch.isfinite(energy).all()
     assert torch.isfinite(forces).all()
+
+
+def _mixed_batch(full_list):
+    """Triclinic periodic cells (one tiny, so k-grids differ), molecules and a
+    lone atom, like the MAD batches."""
+    g = torch.Generator().manual_seed(0)
+    nlo = NeighborListOptions(cutoff=CUTOFF, full_list=full_list, strict=True)
+    systems = []
+    for n_atoms, periodic in ((5, True), (3, False), (1, False), (2, True), (7, True)):
+        cell = torch.eye(3, dtype=torch.float64) * (2.0 + n_atoms) + 0.3 * torch.rand(
+            3, 3, generator=g, dtype=torch.float64
+        )
+        positions = torch.rand(n_atoms, 3, generator=g, dtype=torch.float64) @ cell
+        system = System(
+            types=torch.tensor([1, 6, 6, 1, 6, 1, 6][:n_atoms]),
+            positions=positions.requires_grad_(True),
+            cell=cell if periodic else torch.zeros(3, 3, dtype=torch.float64),
+            pbc=torch.tensor([periodic] * 3),
+        )
+        systems.append(get_system_with_neighbor_lists(system, [nlo]))
+    return systems, nlo
+
+
+def test_batched_potentials_match_per_system_calls():
+    for full_list in (True, False):
+        systems, nlo = _mixed_batch(full_list)
+        long_range = LongRange(
+            feature_dim=NUM_FEATURES,
+            num_spherical_features=NUM_SPHERICAL_FEATURES,
+            max_degree=MAX_DEGREE,
+            max_degree_lr=MAX_DEGREE_LR,
+            neighbor_list_options=nlo,
+            smearing=0.75,
+            kspace_resolution=0.375,
+        ).double()
+        n_atoms = sum(len(s) for s in systems)
+        charges = torch.randn(n_atoms, 4, dtype=torch.float64, requires_grad=True)
+        distances = torch.cat(
+            [s.get_neighbor_list(nlo).values.squeeze(-1).norm(dim=-1) for s in systems]
+        )
+        results = []
+        for potentials in (long_range._potentials, long_range._potentials_per_system):
+            pot = potentials(systems, charges, distances)
+            energy = (pot * charges).sum()
+            grads = torch.autograd.grad(
+                energy, [charges] + [s.positions for s in systems], create_graph=True
+            )
+            (second,) = torch.autograd.grad(sum((g**2).sum() for g in grads[1:]), charges)
+            results.append((pot, *grads, second))
+        for batched, reference in zip(*results):
+            torch.testing.assert_close(batched, reference)
