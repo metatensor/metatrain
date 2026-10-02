@@ -858,10 +858,15 @@ class PET(ModelInterface[ModelHypers]):
         # float64
         self.to(dtype)
 
+        if self.long_range:
+            interaction_range = torch.inf
+        else:
+            interaction_range = self.num_gnn_layers * self.cutoff
+
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=self.atomic_types,
-            interaction_range=self.num_gnn_layers * self.cutoff,
+            interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
             dtype=dtype_to_str(dtype),

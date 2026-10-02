@@ -249,6 +249,27 @@ def model_update_v8_v9(checkpoint: dict) -> None:
     update_per_property_scales(checkpoint)
 
 
+def model_update_v9_v10(checkpoint: dict) -> None:
+    """
+    Update a v9 checkpoint to v10.
+
+    It removes the additive models and scaler from the model checkpoint,
+    as this is now handled by the MetatrainModel wrapper.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    removed_prefixes = (
+        "additive_models.",
+        "scaler.",
+    )
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            for k in list(state_dict):
+                for prefix in removed_prefixes:
+                    if k.startswith(prefix):
+                        state_dict.pop(k)
+
+
 ###########################
 # TRAINER #################
 ###########################
