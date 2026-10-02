@@ -19,9 +19,6 @@ from metatrain.utils.abc import ModelInterface
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
-from metatrain.utils.data.atomic_basis_helpers import (
-    densify_atomic_basis_dataset_info,
-)
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
@@ -357,10 +354,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             values=torch.arange(self.n_inputs_last_layer).unsqueeze(1),
         )
 
-        # Modified dataset_info with the targets as they will be seen by
-        # the model during training.
-        train_dataset_info = self._train_dataset_info(dataset_info)
-
         self.num_properties: Dict[str, Dict[str, int]] = {}  # by target and block
         self.basis_calculators = torch.nn.ModuleDict({})
         self.heads = torch.nn.ModuleDict({})
@@ -372,7 +365,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         self.cartesian_rank1_targets: List[str] = []
         self.cartesian_rank2_targets: List[str] = []
-        for target_name, target in train_dataset_info.targets.items():
+        for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
 
         # Pre-compute spherical→Cartesian conversion matrix for rank-2 tensors.
@@ -420,13 +413,9 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 "The SOAP-BPNN model does not support adding new atomic types."
             )
 
-        # Modified dataset_info with the targets as they will be seen by
-        # the model during training.
-        train_dataset_info = self._train_dataset_info(dataset_info)
-
         # register new outputs as new last layers
         for target_name in new_targets:
-            self._add_output(target_name, train_dataset_info.targets[target_name])
+            self._add_output(target_name, dataset_info.targets[target_name])
 
         self.dataset_info = merged_info
 
@@ -901,18 +890,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         metadata = merge_metadata(self.metadata, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
-
-    def _train_dataset_info(self, dataset_info: DatasetInfo) -> DatasetInfo:
-        """Converts the original dataset info to one corresponding to what the
-        model will see during training, which depends on transforms applied to
-        the targets during data loading.
-
-        :param dataset_info: Original dataset info describing the targets as
-            they are in the raw data.
-        :return: Modified dataset info describing the targets as they will be
-            seen by the model during training.
-        """
-        return densify_atomic_basis_dataset_info(dataset_info)
 
     def _add_output(self, target_name: str, target: TargetInfo) -> None:
         # register bases of spherical tensors (TensorBasis)
