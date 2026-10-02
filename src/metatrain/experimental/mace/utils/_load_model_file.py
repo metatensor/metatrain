@@ -91,18 +91,18 @@ def load_mace_model_file(
     model_hypers["mace_model"] = mace_model_path
     model_hypers["mace_head_target"] = mace_head_target
     model_hypers["mace_head_name"] = mace_head_name
-    model = MetaMACE(model_hypers, dataset_info)
 
     # Train for 0 epochs to set the composition and scaling weights
     trainer_hypers = default_hypers["training"]
     loss_conf = OmegaConf.create(
-        {model.hypers["mace_head_target"]: init_with_defaults(LossSpecification)}
+        {model_hypers["mace_head_target"]: init_with_defaults(LossSpecification)}
     )
     OmegaConf.resolve(loss_conf)
     trainer_hypers["loss"] = loss_conf
     trainer_hypers["num_epochs"] = 0
     trainer_hypers["batch_size"] = 1
     trainer = Trainer(trainer_hypers)
+    model = trainer.setup(model_hypers, dataset_info)
     trainer.train(
         model,
         dtype=torch.float64,

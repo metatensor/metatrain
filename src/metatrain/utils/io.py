@@ -270,6 +270,7 @@ _mtt_model_versions = {
     "pet": 17,
     "llpr": 5,
     "soap_bpnn": 10,
+    "experimental.mace": 5,
 }
 
 

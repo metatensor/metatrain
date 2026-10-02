@@ -12,14 +12,16 @@ from mace.tools.scripts_utils import (
 )
 from torch.utils.data import DistributedSampler
 
-from metatrain.composition import train_or_load_composition_model
-from metatrain.scaler import train_or_load_scaler
+from metatrain.composition import CompositionModel, train_or_load_composition_model
+from metatrain.scaler import Scaler, train_or_load_scaler
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    DatasetInfo,
     build_train_dataloaders,
     build_val_dataloaders,
     get_num_workers,
@@ -27,6 +29,7 @@ from metatrain.utils.data import (
     validate_num_workers,
 )
 from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_dataset_info,
     get_prepare_atomic_basis_targets_transform,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
@@ -48,9 +51,10 @@ from metatrain.utils.neighbor_lists import (
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .documentation import TrainerHypers
+from .documentation import ModelHypers, TrainerHypers
 from .model import MetaMACE
 from .modules.finetuning import apply_finetuning_strategy
 
@@ -58,6 +62,7 @@ from .modules.finetuning import apply_finetuning_strategy
 def get_optimizer_and_scheduler(
     trainer_hypers: TrainerHypers,
     model: MetaMACE,
+    has_new_targets: bool,
     optimizer_state_dict: Optional[dict[str, Any]] = None,
     scheduler_state_dict: Optional[dict[str, Any]] = None,
     is_distributed: bool = False,
@@ -68,6 +73,8 @@ def get_optimizer_and_scheduler(
 
     :param trainer_hypers: The trainer hyperparameters as provided in metatrain.yaml
     :param model: The MetaMACE model to optimize.
+    :param has_new_targets: Whether the model has new targets compared to the previous
+        training session.
     :param optimizer_state_dict: The state dict of the optimizer to resume from, if any.
     :param scheduler_state_dict: The state dict of the scheduler to resume from, if any.
     :param is_distributed: Whether the training is distributed over GPUs or not.
@@ -91,10 +98,8 @@ def get_optimizer_and_scheduler(
 
     opt_options = get_params_options(opt_args, model.mace_model)
 
-    # Add heads, additive models and scaler parameters to the optimizer. Although the
-    # additive models and scaler weights are not optimized, this maintains consistency
-    # with PET, where all model parameters (including the additive models stored as
-    # attributes) are passed to the optimizer.
+    # Add the heads' parameters to the optimizer.
+    # Get them for all heads except the wrapper for the internal MACE head
     head_parameters = []
     for k, v in model.heads.items():
         if k != model.hypers["mace_head_target"]:
@@ -102,18 +107,9 @@ def get_optimizer_and_scheduler(
 
     opt_options["params"].extend(
         [
-            # Parameters of all heads except the wrapper for the internal MACE head
             {
                 "name": "heads",
                 "params": head_parameters,
-            },
-            {
-                "name": "additive_models",
-                "params": model.additive_models.parameters(),
-            },
-            {
-                "name": "scaler",
-                "params": model.scaler.parameters(),
             },
         ]
     )
@@ -125,22 +121,21 @@ def get_optimizer_and_scheduler(
     if optimizer_state_dict is not None and not is_finetune:
         # try to load the optimizer state dict, but this is only possible
         # if there are no new targets in the model (new parameters)
-        if not model.has_new_targets:
+        if not has_new_targets:
             optimizer.load_state_dict(optimizer_state_dict)
 
     scheduler = LRScheduler(optimizer, opt_args)
 
     if scheduler_state_dict is not None and not is_finetune:
         # same as the optimizer, try to load the scheduler state dict
-        if not model.has_new_targets:
+        if not has_new_targets:
             scheduler.load_state_dict(scheduler_state_dict)
 
     return optimizer, scheduler
 
 
-class Trainer(TrainerInterface):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 4
-    __hypers_cls__ = TrainerHypers
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -152,6 +147,88 @@ class Trainer(TrainerInterface):
         self.best_metric: Optional[float] = None
         self.best_model_state_dict: Optional[Dict[str, Any]] = None
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
+        self.has_new_targets: bool = False
+
+    def setup(
+        self, model_hypers: ModelHypers, dataset_info: DatasetInfo
+    ) -> MetatrainModel:
+
+        model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+
+        model = MetaMACE(hypers=model_hypers, dataset_info=model_dataset_info)
+
+        # If a MACE model has been loaded from a checkpoint, the atomic types
+        # that it supports have been loaded from the checkpoint. So get back
+        # the dataset info from the model.
+        model_dataset_info = model.dataset_info
+        # Also update the atomic types for the wrapper
+        dataset_info = DatasetInfo(
+            length_unit=dataset_info.length_unit,
+            atomic_types=model_dataset_info.atomic_types,
+            targets=dataset_info.targets,
+            extra_data=dataset_info.extra_data,
+        )
+
+        # Set up additive models
+        composition_model = CompositionModel.from_valid_targets(
+            model_dataset_info, model_dataset_info.atomic_types
+        )
+        additive_models = [composition_model]
+
+        # Initialize scaler
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        scaler = Scaler(hypers=scaler_hypers, dataset_info=model_dataset_info)
+
+        return MetatrainModel(
+            model=model,
+            additive_models=additive_models,
+            scaler=scaler,
+            dataset_info=dataset_info,
+        )
+
+    def restart(
+        self,
+        model: MetatrainModel,
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypers,
+    ) -> MetatrainModel:
+
+        # -------------------------------------------------
+        #        Find out what are the new targets
+        # --------------------------------------------------
+        merged_info = model.dataset_info.union(dataset_info)
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in model.dataset_info.targets
+        }
+        self.has_new_targets = len(new_targets) > 0
+
+        # ------------------------------------------------------
+        #  Ask the models to restart with the new dataset info
+        # -------------------------------------------------------
+        model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+
+        comp_model_info = DatasetInfo(
+            length_unit=model_dataset_info.length_unit,
+            atomic_types=model_dataset_info.atomic_types,
+            targets={
+                target_name: target_info
+                for target_name, target_info in model_dataset_info.targets.items()
+                if model.additive_models[0].is_valid_target(target_name, target_info)
+            },
+        )
+
+        model.restart(
+            dataset_info,
+            model_dataset_info,
+            additive_models_dataset_info=[comp_model_info]
+            + [model_dataset_info] * (len(model.additive_models) - 1),
+            scaler_dataset_info=model_dataset_info,
+            model_hypers=model_hypers,
+        )
+
+        return model
 
     def train(
         self,
@@ -163,6 +240,9 @@ class Trainer(TrainerInterface):
         checkpoint_dir: str,
     ) -> None:
         assert dtype in MetaMACE.__supported_dtypes__
+        assert isinstance(model, MetatrainModel)
+        mace_model = model.model
+        assert isinstance(mace_model, MetaMACE)
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
         is_finetune = "finetune" in self.hypers
@@ -219,13 +299,13 @@ class Trainer(TrainerInterface):
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         atomic_basis_transform, atomic_basis_reverse_transform = (
             get_prepare_atomic_basis_targets_transform(
-                train_targets, dataset_info.extra_data
+                model.dataset_info, mace_model.dataset_info
             )
         )
 
         atomic_baseline = self.hypers["atomic_baseline"]
         if isinstance(atomic_baseline, str):
-            if model.get_fixed_composition_weights():
+            if mace_model.get_fixed_composition_weights():
                 raise ValueError(
                     "The loaded MACE model provides its own atomic baselines, "
                     "which cannot be combined with a composition model "
@@ -234,11 +314,16 @@ class Trainer(TrainerInterface):
                 )
         else:
             atomic_baseline = {
-                **model.get_fixed_composition_weights(),
+                **mace_model.get_fixed_composition_weights(),
                 **atomic_baseline,
             }
         train_or_load_composition_model(
-            composition_model=model.additive_models[0],
+            composition_model=MetatrainModel(
+                model=model.additive_models[0],
+                additive_models=[],
+                scaler=None,
+                dataset_info=model.dataset_info,
+            ),
             atomic_baseline=atomic_baseline,
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
@@ -248,7 +333,7 @@ class Trainer(TrainerInterface):
         )
         scaling_weights = self.hypers["fixed_scaling_weights"]
         if isinstance(scaling_weights, str):
-            if model.get_fixed_scaling_weights():
+            if mace_model.get_fixed_scaling_weights():
                 raise ValueError(
                     "The loaded MACE model provides its own scaling weights, "
                     "which cannot be combined with a scaler checkpoint passed as "
@@ -257,7 +342,7 @@ class Trainer(TrainerInterface):
                 )
         else:
             scaling_weights = {
-                **model.get_fixed_scaling_weights(),
+                **mace_model.get_fixed_scaling_weights(),
                 **scaling_weights,
             }
 
@@ -270,7 +355,12 @@ class Trainer(TrainerInterface):
                     "a checkpoint also for the composition model."
                 )
             train_or_load_scaler(
-                scaler=model.scaler,
+                scaler=MetatrainModel(
+                    model=model.scaler,
+                    additive_models=[],
+                    scaler=None,
+                    dataset_info=model.dataset_info,
+                ),
                 fixed_weights=scaling_weights,
                 train_datasets=train_datasets,
                 additive_models=model.additive_models,
@@ -394,7 +484,8 @@ class Trainer(TrainerInterface):
 
         optimizer, lr_scheduler = get_optimizer_and_scheduler(
             self.hypers,
-            model,
+            mace_model,
+            self.has_new_targets,
             self.optimizer_state_dict,
             self.scheduler_state_dict,
             is_distributed,
@@ -707,7 +798,7 @@ class Trainer(TrainerInterface):
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
         if self.best_model_state_dict is not None:
-            self.best_model_state_dict["finetune_config"] = model.finetune_config
+            self.best_model_state_dict["finetune_config"] = model.model.finetune_config
         checkpoint.update(
             {
                 "trainer_ckpt_version": self.__checkpoint_version__,
