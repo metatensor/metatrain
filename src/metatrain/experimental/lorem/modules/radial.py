@@ -29,11 +29,19 @@ def bernstein_basis(
     num = binomial.shape[0]
     k = torch.arange(num, device=r.device, dtype=r.dtype)
     x = (r / cutoff).unsqueeze(-1)
-    inside = (r >= 0.0) & (r <= cutoff)
-    x_clamped = x.clamp(min=0.0, max=1.0)
+    # ``pow`` at base 0 (r == 0 or r == cutoff, also after clamping) has NaN
+    # second derivatives (0 * 0**-1), which breaks force training for pairs
+    # landing exactly on the cutoff. Evaluate on a safe x in the open interval
+    # and select the exact endpoint values with ``where``, which routes
+    # gradients instead of multiplying them (0 * NaN would still be NaN).
+    strict = ((r > 0.0) & (r < cutoff)).unsqueeze(-1)
+    x_safe = torch.where(strict, x, torch.full_like(x, 0.5))
     values = (
         binomial.to(device=r.device, dtype=r.dtype)
-        * x_clamped.pow(k)
-        * (1.0 - x_clamped).pow(float(num - 1) - k)
+        * x_safe.pow(k)
+        * (1.0 - x_safe).pow(float(num - 1) - k)
     )
-    return values * inside.to(r.dtype).unsqueeze(-1)
+    edges = torch.zeros_like(values)
+    edges[:, 0] = (r == 0.0).to(r.dtype)
+    edges[:, -1] = edges[:, -1] + (r == cutoff).to(r.dtype)
+    return torch.where(strict, values, edges)

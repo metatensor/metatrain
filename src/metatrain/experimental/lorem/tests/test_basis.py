@@ -17,6 +17,20 @@ def test_bernstein_is_zero_outside_cutoff_and_partition_of_unity():
     torch.testing.assert_close(inside, torch.ones(3), atol=1e-5, rtol=1e-5)
 
 
+def test_bernstein_second_derivative_finite_at_endpoints():
+    # pairs exactly at the cutoff (high-symmetry crystals, GPU rounding) used to
+    # give NaN parameter gradients when forces are in the loss
+    cutoff = 5.0
+    r = torch.tensor([0.0, 2.5, 5.0, 5.0 + 1e-6], requires_grad=True)
+    values = bernstein_basis(r, cutoff, binomial_row(8).to(torch.float32))
+    weights = torch.arange(1.0, 9.0)
+    (grad,) = torch.autograd.grad((values * weights).sum(), r, create_graph=True)
+    (grad2,) = torch.autograd.grad(grad.sum(), r)
+    assert torch.isfinite(grad).all() and torch.isfinite(grad2).all()
+    torch.testing.assert_close(values[0].detach(), torch.eye(8)[0])
+    torch.testing.assert_close(values[2].detach(), torch.eye(8)[-1])
+
+
 def test_e3x_racah_scales_l0_to_one():
     y00 = torch.full((2, 1), 0.28209479177387814)
     racah = to_racah(y00, max_degree=0)
