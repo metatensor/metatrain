@@ -333,6 +333,29 @@ def test_dataset_info_eq_other_objects(layout_scalar):
     assert not info == [1, 2, 3]
 
 
+@pytest.mark.parametrize(
+    "length_unit, other_length_unit, equivalent",
+    [
+        pytest.param("angstrom", "A", True, id="unit-alias"),
+        pytest.param("angstrom", "nm", False, id="different-scales"),
+    ],
+)
+def test_dataset_info_eq_length_units(
+    layout_scalar: TensorMap,
+    length_unit: str,
+    other_length_unit: str,
+    equivalent: bool,
+) -> None:
+    targets: dict[str, TargetInfo] = {
+        "energy": TargetInfo(layout_scalar, quantity="energy", unit="eV")
+    }
+    info = DatasetInfo(length_unit, [1, 6], targets)
+    other = DatasetInfo(other_length_unit, [1, 6], targets)
+
+    assert (info == other) is equivalent
+    assert (other == info) is equivalent
+
+
 def test_dataset_info_update_different_target_info(layout_scalar):
     targets = {"energy": TargetInfo(layout=layout_scalar, quantity="energy", unit="eV")}
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)

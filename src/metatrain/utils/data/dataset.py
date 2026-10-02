@@ -164,7 +164,7 @@ class DatasetInfo:
         if not isinstance(other, DatasetInfo):
             return False
         return (
-            self.length_unit == other.length_unit
+            units_are_equivalent(unit=self.length_unit, other_unit=other.length_unit)
             and self._atomic_types == other._atomic_types
             and self.targets == other.targets
             and self.extra_data == other.extra_data
