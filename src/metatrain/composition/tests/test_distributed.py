@@ -58,7 +58,6 @@ def _make_datasets_and_info():
 
 def _fit(is_distributed):
     datasets, dataset_info = _make_datasets_and_info()
-    model = CompositionModel(hypers={}, dataset_info=dataset_info)
     trainer = Trainer(
         hypers={
             **DEFAULT_HYPERS["training"],
@@ -66,6 +65,7 @@ def _fit(is_distributed):
             "batch_size": 1,
         }
     )
+    model = trainer.setup(model_hypers={}, dataset_info=dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float64,
@@ -74,8 +74,10 @@ def _fit(is_distributed):
         val_datasets=datasets,
         checkpoint_dir="",
     )
+    comp_model = model.model
+    assert isinstance(comp_model, CompositionModel)
     return {
-        target_name: model.model.weights[target_name].block().values
+        target_name: comp_model.model.weights[target_name].block().values
         for target_name in ["energy_a", "energy_b"]
     }
 
