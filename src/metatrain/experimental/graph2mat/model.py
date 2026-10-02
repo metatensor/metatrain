@@ -27,6 +27,7 @@ from metatrain.composition.model import CompositionModel
 from metatrain.utils.architectures import get_default_hypers, import_architecture
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
 from metatrain.scaler.model import Scaler
 from metatrain.utils.io import model_from_checkpoint
@@ -245,7 +246,17 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
 
         self.finetune_config: Dict[str, Any] = {}
 
-    def restart(self, dataset_info: DatasetInfo) -> "MetaGraph2Mat":
+    def restart(
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[dict[str, Any]] = None
+    ) -> "MetaGraph2Mat":
+        if model_hypers is not None:
+            default_hypers = get_default_hypers("experimental.graph2mat")["model"]
+            raise_if_hypers_mismatch(
+                self.hypers, model_hypers, default_hypers=default_hypers
+            )
+
         # Check that the new dataset info does not contain new atomic types
         if new_atomic_types := set(dataset_info.atomic_types) - set(
             self.dataset_info.atomic_types
