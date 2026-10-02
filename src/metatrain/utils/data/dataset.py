@@ -5,6 +5,7 @@ import os
 import sys
 import warnings
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
@@ -44,6 +45,7 @@ from metatrain.utils.data.target_info import (
     get_generic_target_info,
 )
 from metatrain.utils.external_naming import to_external_name
+from metatrain.utils.timing import timed
 from metatrain.utils.units import get_gradient_units
 
 
@@ -404,45 +406,64 @@ class CollateFn:
             - a list with the sizes of each extra data buffer
         """
         # group & join
-        collated = group_and_join(batch, join_kwargs=self.join_kwargs)
-        data = collated._asdict()
+        with timed("group_and_join"):
+            collated = group_and_join(batch, join_kwargs=self.join_kwargs)
+            data = collated._asdict()
 
-        # pull off systems
-        systems = data.pop("system")
+            # pull off systems
+            systems = data.pop("system")
 
-        # split into targets vs extra data
-        targets: Dict[str, TensorMap] = {}
-        extra: Dict[str, TensorMap] = {}
+            # split into targets vs extra data
+            targets: Dict[str, TensorMap] = {}
+            extra: Dict[str, TensorMap] = {}
 
-        for key, value in data.items():
-            if key in self.target_keys:
-                targets[key] = value
-            else:
-                extra[key] = value
+            for key, value in data.items():
+                if key in self.target_keys:
+                    targets[key] = value
+                else:
+                    extra[key] = value
 
-        for callable in self.callables:
-            systems, targets, extra = callable(systems, targets, extra)
+        with timed("transforms"):
+            for callable in self.callables:
+                systems, targets, extra = callable(systems, targets, extra)
 
-        target_names = list(targets.keys())
-        extra_names = list(extra.keys())
+        with timed("serialize"):
+            target_names = list(targets.keys())
+            extra_names = list(extra.keys())
 
-        system_buffers = [
-            save_system_buffer(_make_system_contiguous(s)) for s in systems
-        ]
-        target_buffers = [
-            save_buffer(make_contiguous(targets[name])) for name in target_names
-        ]
-        extra_buffers = [
-            save_buffer(make_contiguous(extra[name])) for name in extra_names
-        ]
+            system_buffers = [
+                save_system_buffer(_make_system_contiguous(s)) for s in systems
+            ]
+            target_buffers = [
+                save_buffer(make_contiguous(targets[name])) for name in target_names
+            ]
+            extra_buffers = [
+                save_buffer(make_contiguous(extra[name])) for name in extra_names
+            ]
 
-        system_sizes = [len(b) for b in system_buffers]
-        target_sizes = [len(b) for b in target_buffers]
-        extra_sizes = [len(b) for b in extra_buffers]
+            system_sizes = [len(b) for b in system_buffers]
+            target_sizes = [len(b) for b in target_buffers]
+            extra_sizes = [len(b) for b in extra_buffers]
 
-        blob = torch.concatenate(system_buffers + target_buffers + extra_buffers)
+            blob = torch.concatenate(system_buffers + target_buffers + extra_buffers)
 
         return blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes
+
+
+@dataclass
+class Batch:
+    """A collated batch, as the model consumes it.
+
+    :py:class:`CollateFn` serializes batches into a byte blob to get them
+    across the ``DataLoader`` worker boundary, and :py:func:`unpack_batch`
+    reconstructs them. A ``Batch`` is the same content without that round
+    trip, for the paths that do not need it (``num_workers=0``, or a future
+    transport that moves tensors rather than buffers).
+    """
+
+    systems: List[System]
+    targets: Dict[str, TensorMap]
+    extra_data: Dict[str, TensorMap]
 
 
 def unpack_batch(
@@ -451,9 +472,15 @@ def unpack_batch(
     """
     Unpacks a batch into its constituent parts.
 
+    Accepts both a :py:class:`Batch` and the serialized tuple that
+    :py:class:`CollateFn` returns.
+
     :param batch: The batch to unpack.
     :return: A tuple with the unpacked batch
     """
+    if isinstance(batch, Batch):
+        return batch.systems, batch.targets, batch.extra_data
+
     blob, system_sizes, target_names, target_sizes, extra_names, extra_sizes = batch
 
     all_buffers = torch.split(blob, system_sizes + target_sizes + extra_sizes)
