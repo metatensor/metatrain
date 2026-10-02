@@ -18,10 +18,6 @@ from metatrain.utils.abc import ModelInterface
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
-from metatrain.utils.data.atomic_basis_helpers import (
-    densify_atomic_basis_dataset_info,
-    sparsify_atomic_basis_target,
-)
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
@@ -95,17 +91,9 @@ class CompositionModel(ModelInterface[ModelHypers]):
                     "Please report this issue and help us improve!"
                 )
 
-        # The composition model always fits and stores dense weights (a single
-        # block per o3_lambda/o3_sigma, with properties padded to the union
-        # across atomic types), regardless of whether the target's native
-        # layout is sparse (atom_type as a key dimension). This keeps
-        # checkpoints portable across every architecture: standalone training
-        # and training embedded in e.g. PET both produce the same layout.
-        dense_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
-        self.dataset_info = dense_dataset_info
         self.target_infos = {
             target_name: target_info
-            for target_name, target_info in dense_dataset_info.targets.items()
+            for target_name, target_info in dataset_info.targets.items()
         }
 
         self.model: BaseCompositionModel = BaseCompositionModel(
@@ -232,18 +220,18 @@ class CompositionModel(ModelInterface[ModelHypers]):
                 self.hypers, model_hypers, default_hypers=default_hypers
             )
 
-        raw_targets = {}
+        valid_targets = {}
         for target_name in dataset_info.targets:
             target_info = dataset_info.targets[target_name]
             if self.is_valid_target(target_name, target_info):
-                raw_targets[target_name] = target_info
+                valid_targets[target_name] = target_info
             else:
                 logging.debug(
                     f"Composition model does not support target "
                     f"'{target_name}', skipping."
                 )
 
-        if len(raw_targets) == 0:
+        if len(valid_targets) == 0:
             # No new targets to fit: reset so a subsequent Trainer.train() does not
             # refit (and zero out) the already-fitted targets from __init__.
             self.target_infos = {}
@@ -254,7 +242,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
             DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=dataset_info.atomic_types,
-                targets=raw_targets,
+                targets=valid_targets,
             )
         )
         new_atomic_types = [
@@ -266,16 +254,9 @@ class CompositionModel(ModelInterface[ModelHypers]):
                 "The composition model does not support adding new atomic types."
             )
 
-        dense_new_targets = densify_atomic_basis_dataset_info(
-            DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=merged_info.atomic_types,
-                targets=raw_targets,
-            )
-        ).targets
         self.target_infos = {
-            target_name: dense_new_targets[target_name]
-            for target_name in raw_targets
+            target_name: target
+            for target_name, target in valid_targets.items()
             if target_name not in self.dataset_info.targets
         }
 
@@ -332,20 +313,6 @@ class CompositionModel(ModelInterface[ModelHypers]):
             outputs=outputs,
             selected_atoms=selected_atoms,
         )
-
-        if not self.training:
-            # For atomic basis targets, sparsify to create blocks with "atom_type"
-            # in the key dimensions, and ensure properties are unpadded. In training
-            # mode, predictions stay dense: remove_additive subtracts them from
-            # transform-densified targets.
-            targets = self.dataset_info.targets
-            for k, v in pred.items():
-                if k in targets and targets[k].is_atomic_basis:
-                    pred[k] = sparsify_atomic_basis_target(
-                        systems,
-                        v,
-                        targets[k].layout,
-                    )
 
         return pred
 
