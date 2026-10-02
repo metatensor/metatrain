@@ -35,8 +35,21 @@ Fixed
 Added
 #####
 
+- LLPR uncertainties and ensembles for targets with several blocks, such as spherical
+  targets and targets in an atomic basis, and for architectures whose last-layer
+  features are block-aligned with the targets.
+- LLPR uncertainties and ensembles for SPACE.
+- LLPR uncertainties and ensembles for MACE.
+- Ensemble losses for targets with several blocks.
+
 Changed
 #######
+
+- LLPR calibrates one factor for each property of each block of the targets.
+- LLPR ensembles only need the targets to be a linear function of the last-layer
+  features, declared by the architectures with ``last_layer_linear_targets`` instead of
+  ``last_layer_parameter_names``. Checkpoints with ensembles of targets that are not
+  linear in their last-layer features, such as spherical SOAP-BPNN targets, are refused.
 
 Removed
 #######

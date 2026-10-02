@@ -4,12 +4,12 @@
 import math
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, Literal, Optional, Type
+from typing import Any, Dict, List, Literal, Optional, Type
 
 import metatensor.torch as mts
 import torch
 import torch.nn.functional as F
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import TensorBlock, TensorMap
 from pydantic import ConfigDict, with_config
 from torch.nn.modules.loss import _Loss
 from typing_extensions import NotRequired, TypedDict
@@ -727,50 +727,39 @@ class TensorMapEnsembleLoss(BaseTensorMapLoss):
         tmap_pred_ens = predictions[ens_name]
         tmap_targ = targets[self.target]
 
-        # number of ensembles extracted from TensorMaps
-        n_ens = (
-            tmap_pred_ens.block(0).values.shape[-1]
-            // tmap_pred_orig.block(0).values.shape[-1]
-        )
+        mean_blocks: List[TensorBlock] = []
+        var_blocks: List[TensorBlock] = []
+        for key, block_targ in tmap_targ.items():
+            # number of ensembles extracted from TensorMaps
+            n_ens = (
+                tmap_pred_ens.block(key).values.shape[-1]
+                // tmap_pred_orig.block(key).values.shape[-1]
+            )
 
-        # shape: samples, *components, n_ens * properties
-        ens_pred_values = tmap_pred_ens.block().values
-
-        ens_pred_values = ens_pred_values.reshape(
-            list(ens_pred_values.shape[:-1]) + [n_ens, -1]
-        )
-        ens_pred_mean = ens_pred_values.mean(dim=-2)
-        ens_pred_var = ens_pred_values.var(dim=-2, unbiased=True)
-
-        tmap_pred_mean = TensorMap(
-            keys=Labels(
-                names=["_"],
-                values=torch.tensor([[0]], device=tmap_targ.block().values.device),
-            ),
-            blocks=[
+            # shape: samples, *components, n_ens * properties
+            ens_pred_values = tmap_pred_ens.block(key).values
+            ens_pred_values = ens_pred_values.reshape(
+                list(ens_pred_values.shape[:-1]) + [n_ens, -1]
+            )
+            mean_blocks.append(
                 TensorBlock(
-                    values=ens_pred_mean,
-                    samples=tmap_targ.block().samples,
-                    components=tmap_targ.block().components,
-                    properties=tmap_targ.block().properties,
-                ),
-            ],
-        )
-
-        tmap_pred_var = TensorMap(
-            keys=Labels(
-                names=["_"],
-                values=torch.tensor([[0]], device=tmap_targ.block().values.device),
-            ),
-            blocks=[
+                    values=ens_pred_values.mean(dim=-2),
+                    samples=block_targ.samples,
+                    components=block_targ.components,
+                    properties=block_targ.properties,
+                )
+            )
+            var_blocks.append(
                 TensorBlock(
-                    values=ens_pred_var,
-                    samples=tmap_targ.block().samples,
-                    components=tmap_targ.block().components,
-                    properties=tmap_targ.block().properties,
-                ),
-            ],
-        )
+                    values=ens_pred_values.var(dim=-2, unbiased=True),
+                    samples=block_targ.samples,
+                    components=block_targ.components,
+                    properties=block_targ.properties,
+                )
+            )
+
+        tmap_pred_mean = TensorMap(keys=tmap_targ.keys, blocks=mean_blocks)
+        tmap_pred_var = TensorMap(keys=tmap_targ.keys, blocks=var_blocks)
 
         # Note that we're ignoring all gradients for now. This can be extended later.
         return self.compute_flattened(tmap_pred_mean, tmap_targ, tmap_pred_var)
@@ -1014,26 +1003,27 @@ class TensorMapEmpiricalCRPSLoss(TensorMapEnsembleLoss):
         tmap_pred_ens = predictions[ens_name]
         tmap_targ = targets[self.target]
 
-        # number of ensembles extracted from TensorMaps
-        n_ens = (
-            tmap_pred_ens.block(0).values.shape[-1]
-            // tmap_pred_orig.block(0).values.shape[-1]
-        )
-
-        # shape: samples, *components, n_ens * properties
-        ens_pred_values = tmap_pred_ens.block().values
-        ens_pred_values = ens_pred_values.reshape(
-            list(ens_pred_values.shape[:-1]) + [n_ens, -1]
-        )
-
         # For empirical CRPS, we need the full ensemble predictions
-        target_values = tmap_targ.block().values  # (S, *C, P)
+        y_ensemble_blocks: List[torch.Tensor] = []
+        y_target_blocks: List[torch.Tensor] = []
+        for key, block_targ in tmap_targ.items():
+            # number of ensembles extracted from TensorMaps
+            n_ens = (
+                tmap_pred_ens.block(key).values.shape[-1]
+                // tmap_pred_orig.block(key).values.shape[-1]
+            )
 
-        # y_ensemble: (B, n_ens), y_target: (B,)
-        y_ensemble = ens_pred_values.movedim(-2, -1).reshape(-1, n_ens)
-        y_target = target_values.reshape(-1)
+            # shape: samples, *components, n_ens * properties
+            ens_pred_values = tmap_pred_ens.block(key).values
+            ens_pred_values = ens_pred_values.reshape(
+                list(ens_pred_values.shape[:-1]) + [n_ens, -1]
+            )
 
-        return self.torch_loss(y_ensemble, y_target)
+            # y_ensemble: (B, n_ens), y_target: (B,)
+            y_ensemble_blocks.append(ens_pred_values.movedim(-2, -1).reshape(-1, n_ens))
+            y_target_blocks.append(block_targ.values.reshape(-1))
+
+        return self.torch_loss(torch.cat(y_ensemble_blocks), torch.cat(y_target_blocks))
 
 
 # --- aggregator -----------------------------------------------------------------------

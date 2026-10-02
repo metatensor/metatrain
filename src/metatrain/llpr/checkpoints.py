@@ -92,6 +92,43 @@ def model_update_v3_v4(checkpoint: dict) -> None:
     checkpoint["model_state_dict"] = new_state_dict
 
 
+def model_update_v4_v5(checkpoint: dict) -> None:
+    """
+    Update a v4 checkpoint to v5.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # buffers and ensemble layers are indexed by (feature) block, and the
+    # multipliers hold one value per property
+    from .model import _get_uncertainty_name
+
+    dataset_info = checkpoint["wrapped_model_checkpoint"]["model_data"]["dataset_info"]
+    layouts = {
+        _get_uncertainty_name(name): target_info.layout
+        for name, target_info in dataset_info.targets.items()
+    }
+    for state_dict_name in ("model_state_dict", "best_model_state_dict"):
+        state_dict = checkpoint[state_dict_name]
+        if state_dict is None:
+            continue
+        new_state_dict = {}
+        for key, value in state_dict.items():
+            if key.startswith("covariance_") or key.startswith("cholesky_"):
+                new_state_dict[f"{key}_0"] = value
+            elif key.startswith("multiplier_"):
+                layout = layouts[key[len("multiplier_") :]]
+                for block_index, block in enumerate(layout.blocks()):
+                    new_state_dict[f"{key}_{block_index}"] = value.expand(
+                        len(block.properties)
+                    ).clone()
+            elif key.startswith("llpr_ensemble_layers."):
+                name, parameter = key[len("llpr_ensemble_layers.") :].rsplit(".", 1)
+                new_state_dict[f"llpr_ensemble_layers.{name}_0.{parameter}"] = value
+            else:
+                new_state_dict[key] = value
+        checkpoint[state_dict_name] = new_state_dict
+
+
 def trainer_update_v1_v2(checkpoint: dict) -> None:
     """
     Update trainer checkpoint from version 1 to version 2.
