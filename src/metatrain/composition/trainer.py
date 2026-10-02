@@ -12,12 +12,14 @@ from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    DatasetInfo,
     build_val_dataloaders,
     get_num_workers,
     unpack_batch,
     validate_num_workers,
 )
 from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_dataset_info,
     get_prepare_atomic_basis_targets_transform,
 )
 from metatrain.utils.distributed.slurm import (
@@ -49,12 +51,27 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     def setup(
         self, model_hypers: ModelHypers, dataset_info: Dict[str, Any]
     ) -> MetatrainModel:
+        if self.hypers["densify_atomic_basis"]:
+            model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
         return MetatrainModel(
-            model=CompositionModel(model_hypers, dataset_info),
+            model=CompositionModel(model_hypers, model_dataset_info),
             additive_models=[],
             scaler=None,
             dataset_info=dataset_info,
         )
+
+    def restart(
+        self,
+        model: MetatrainModel,
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypers,
+    ) -> MetatrainModel:
+        if self.hypers["densify_atomic_basis"]:
+            model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+
+        model.restart(dataset_info, model_dataset_info, model_hypers=model_hypers)
+
+        return model
 
     def train(
         self,
@@ -263,7 +280,9 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         hypers: TrainerHypers,
         context: Literal["restart", "finetune"],
     ) -> "Trainer":
-        raise ValueError("Composition model does not allow restarting training")
+        hypers = copy.copy(checkpoint.get("train_hypers", {}))
+        hypers.update(checkpoint.get("train_hypers", {}))
+        return cls(hypers)
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:

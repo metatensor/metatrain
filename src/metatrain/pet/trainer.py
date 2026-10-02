@@ -827,7 +827,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         if is_distributed:
             torch.distributed.destroy_process_group()
 
-    def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
+    def save_checkpoint(self, model: MetatrainModel, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
         if self.best_model_state_dict is not None:
             self.best_model_state_dict["finetune_config"] = model.model.finetune_config

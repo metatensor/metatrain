@@ -11,6 +11,7 @@ from metatrain.utils.data.target_info import (
     get_energy_target_info,
     get_generic_target_info,
 )
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import DATASET_PATH, DEFAULT_HYPERS
 
@@ -131,16 +132,21 @@ def test_restart_no_new_targets_preserves_weights():
             "sample_kind": "atom",
         },
     )
-    model.restart(
-        DatasetInfo(
-            length_unit="Angstrom",
-            atomic_types=[1, 6, 7, 8],
-            targets={"vector_target": vector_info},
-        )
-    )
 
     dataset_without_energy = Dataset.from_dict({"system": systems[:4]})
     trainer = Trainer(hypers={**DEFAULT_HYPERS["training"], "batch_size": 2})
+    model = MetatrainModel(
+        model, additive_models=[], scaler=None, dataset_info=model.dataset_info
+    )
+    trainer.restart(
+        model=model,
+        dataset_info=DatasetInfo(
+            length_unit="Angstrom",
+            atomic_types=[1, 6, 7, 8],
+            targets={"vector_target": vector_info},
+        ),
+        model_hypers={},
+    )
     trainer.train(
         model=model,
         dtype=torch.float64,
@@ -151,7 +157,7 @@ def test_restart_no_new_targets_preserves_weights():
     )
 
     torch.testing.assert_close(
-        model.model.weights["energy"].block().values, weights_before
+        model.model.model.weights["energy"].block().values, weights_before
     )
 
 
@@ -190,11 +196,10 @@ def test_multi_dataset_fixed_and_fitted_targets():
             "energy_b": get_energy_target_info("energy_b", {"unit": "eV"}),
         },
     )
-    model = CompositionModel(hypers={}, dataset_info=dataset_info)
-
     trainer = Trainer(
         hypers={**DEFAULT_HYPERS["training"], "atomic_baseline": {"energy_a": 0.0}}
     )
+    model = trainer.setup(model_hypers={}, dataset_info=dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float64,
@@ -204,7 +209,7 @@ def test_multi_dataset_fixed_and_fitted_targets():
         checkpoint_dir="",
     )
 
-    fitted_weights = model.model.weights["energy_b"].block().values
+    fitted_weights = model.model.model.weights["energy_b"].block().values
     fitted = dict(zip([1, 6, 7, 8], fitted_weights.flatten().tolist(), strict=True))
     for species, expected in per_species_energies.items():
         assert fitted[species] == pytest.approx(expected, abs=1e-8)
