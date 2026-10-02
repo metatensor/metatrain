@@ -144,7 +144,8 @@ def _mixed_batch(full_list):
 
 def test_batched_potentials_match_per_system_calls():
     # 0: every periodic system one by one; 400: only the largest k-grids
-    for full_list, max_batched_pairs in ((True, 1 << 20), (False, 1 << 20), (True, 400), (True, 0)):
+    cases = ((True, 1 << 20), (False, 1 << 20), (True, 400), (True, 0))
+    for full_list, max_batched_pairs in cases:
         systems, nlo = _mixed_batch(full_list)
         long_range = LongRange(
             feature_dim=NUM_FEATURES,
@@ -168,7 +169,8 @@ def test_batched_potentials_match_per_system_calls():
             grads = torch.autograd.grad(
                 energy, [charges] + [s.positions for s in systems], create_graph=True
             )
-            (second,) = torch.autograd.grad(sum((g**2).sum() for g in grads[1:]), charges)
+            forces_squared = sum((g**2).sum() for g in grads[1:])
+            (second,) = torch.autograd.grad(forces_squared, charges)
             results.append((pot, *grads, second))
         for batched, reference in zip(*results):
             torch.testing.assert_close(batched, reference)

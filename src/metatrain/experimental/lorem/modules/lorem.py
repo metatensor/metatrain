@@ -146,7 +146,13 @@ class _MessagePassingStep(torch.nn.Module):
         if n_edges == 0:
             edges_scalar = nodes_scalar.new_zeros((0, d))
         else:
-            pair = torch.cat([nodes_scalar[centers], nodes_scalar[neighbors]], dim=-1)
+            pair = torch.cat(
+                [
+                    nodes_scalar.index_select(0, centers),
+                    nodes_scalar.index_select(0, neighbors),
+                ],
+                dim=-1,
+            )
             coefficients = self.radial_coefficients(pair).reshape(
                 n_edges, self.num_radial, d
             )
@@ -293,7 +299,11 @@ class ShortRange(torch.nn.Module):
                 cells[system_indices][centers],
             )
 
-        vectors = positions[neighbors] - positions[centers] + cell_contributions
+        vectors = (
+            positions.index_select(0, neighbors)
+            - positions.index_select(0, centers)
+            + cell_contributions
+        )
         distances = torch.linalg.vector_norm(vectors, dim=-1)
         cutoff_weights = _e3x_cosine_cutoff(distances, self.cutoff)
 
@@ -308,7 +318,11 @@ class ShortRange(torch.nn.Module):
 
         species_embed = self.chemical_embedding(species)  # (n_atoms, c)
         pair_features = torch.cat(
-            [species_embed[centers], species_embed[neighbors]], dim=-1
+            [
+                species_embed.index_select(0, centers),
+                species_embed.index_select(0, neighbors),
+            ],
+            dim=-1,
         )  # (n_pairs, 2c)
 
         coefficients = self.radial_coefficients(pair_features).reshape(
@@ -485,9 +499,13 @@ class LongRange(torch.nn.Module):
         neighbors = pairs[:, 1] + edge_offsets
         ewald = self.ewald_calculator.potential
         sr = ewald.sr_from_dist(neighbor_distances) * atom_periodic[centers].to(dtype)
-        potentials.index_add_(0, centers, charges[neighbors] * sr.unsqueeze(-1))
+        potentials.index_add_(
+            0, centers, charges.index_select(0, neighbors) * sr.unsqueeze(-1)
+        )
         if not self.neighbor_list_options.full_list:
-            potentials.index_add_(0, neighbors, charges[centers] * sr.unsqueeze(-1))
+            potentials.index_add_(
+                0, neighbors, charges.index_select(0, centers) * sr.unsqueeze(-1)
+            )
 
         positions = torch.cat([system.positions for system in systems])
 
@@ -515,13 +533,15 @@ class LongRange(torch.nn.Module):
             # no zero-length vectors on the diagonal: their norm has NaN gradients
             vectors = torch.where(
                 off_diagonal.unsqueeze(-1),
-                positions[second] - positions[first],
+                positions.index_select(0, second) - positions.index_select(0, first),
                 torch.ones_like(positions[first]),
             )
             direct = self.direct_calculator.potential.from_dist(
                 torch.linalg.vector_norm(vectors, dim=-1)
             ) * off_diagonal.to(dtype)
-            potentials.index_add_(0, first, charges[second] * direct.unsqueeze(-1))
+            potentials.index_add_(
+                0, first, charges.index_select(0, second) * direct.unsqueeze(-1)
+            )
 
         # reciprocal-space Ewald of periodic systems, k-vectors as in torch-pme
         p_index = torch.arange(n_systems)[periodic]
@@ -556,9 +576,13 @@ class LongRange(torch.nn.Module):
             grid = torch.where(grid < (nk + 1) // 2, grid, grid - nk).to(dtype)
             p_cells = cells[p_index]
             reciprocal = 2 * math.pi * torch.linalg.inv_ex(p_cells)[0].transpose(1, 2)
-            kvectors = torch.einsum("kd,kde->ke", grid, reciprocal[k_system])
+            kvectors = torch.einsum(
+                "kd,kde->ke", grid, reciprocal.index_select(0, k_system)
+            )
             volumes = torch.abs(torch.linalg.det(p_cells))
-            weights = ewald.lr_from_k_sq((kvectors**2).sum(dim=-1)) / volumes[k_system]
+            weights = ewald.lr_from_k_sq(
+                (kvectors**2).sum(dim=-1)
+            ) / volumes.index_select(0, k_system)
 
             # (atom, k) pairs within each periodic system
             local_ak = torch.arange(total_ak, device=device) - (
@@ -567,16 +591,24 @@ class LongRange(torch.nn.Module):
             size = p_sizes[ak_system]
             ak_atom = local_ak % size + p_offsets[ak_system]
             ak_k = local_ak // size + (torch.cumsum(n_k, 0) - n_k)[ak_system]
-            phase = (kvectors[ak_k] * positions[ak_atom]).sum(dim=-1)
+            phase = (
+                kvectors.index_select(0, ak_k) * positions.index_select(0, ak_atom)
+            ).sum(dim=-1)
             cos, sin = torch.cos(phase).unsqueeze(-1), torch.sin(phase).unsqueeze(-1)
-            q = charges[ak_atom]
+            q = charges.index_select(0, ak_atom)
             n_channels = charges.shape[1]
-            s_cos = charges.new_zeros((total_k, n_channels)).index_add_(0, ak_k, q * cos)
-            s_sin = charges.new_zeros((total_k, n_channels)).index_add_(0, ak_k, q * sin)
+            s_cos = charges.new_zeros((total_k, n_channels))
+            s_cos = s_cos.index_add_(0, ak_k, q * cos)
+            s_sin = charges.new_zeros((total_k, n_channels))
+            s_sin = s_sin.index_add_(0, ak_k, q * sin)
             kspace = charges.new_zeros((n_atoms, n_channels)).index_add_(
                 0,
                 ak_atom,
-                weights[ak_k].unsqueeze(-1) * (cos * s_cos[ak_k] + sin * s_sin[ak_k]),
+                weights.index_select(0, ak_k).unsqueeze(-1)
+                * (
+                    cos * s_cos.index_select(0, ak_k)
+                    + sin * s_sin.index_select(0, ak_k)
+                ),
             )
 
             atom_system = torch.repeat_interleave(
