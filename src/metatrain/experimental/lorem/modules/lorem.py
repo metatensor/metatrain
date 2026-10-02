@@ -394,6 +394,11 @@ class LongRange(torch.nn.Module):
             lr_wavelength=float(kspace_resolution),
         )
         self.lr_wavelength = float(kspace_resolution)
+        # periodic systems with more (atom, k-vector) pairs than this go
+        # through torch-pme one by one: the batched k-space materializes
+        # (pairs, channels) tensors, torch-pme only (pairs,), and the rare
+        # huge MAD cells have millions of k-vectors
+        self.max_batched_pairs = 1 << 20
         # lorem-jax's non-PBC path: plain pairwise 1/r over *all* pairs (not
         # restricted to the short-range cutoff neighbor list), no smearing,
         # no exclusion (same reasoning as ewald_calculator above).
@@ -442,8 +447,8 @@ class LongRange(torch.nn.Module):
         """Ewald (3D periodic) or direct 1/r (non-periodic) potentials for the
         whole batch at once: the same terms as one torch-pme call per system
         (:meth:`_potentials_per_system`), as ragged index operations, with a
-        single device-to-host copy of the cells per batch. Batches with
-        partially periodic systems fall back to the per-system calls."""
+        single device-to-host copy of the cells per batch. Partially periodic
+        systems and very large k-grids use the per-system calls."""
         device = charges.device
         dtype = charges.dtype
         sizes = [len(system) for system in systems]
@@ -455,12 +460,15 @@ class LongRange(torch.nn.Module):
         host = torch.cat(
             [torch.linalg.norm(cells, dim=-1), pbc.to(cells.dtype)], dim=1
         ).detach().cpu()
-        n_pbc = host[:, 3:].sum(dim=1)
-        if bool(((n_pbc > 0) & (n_pbc < 3)).any()):
-            return self._potentials_per_system(systems, charges, neighbor_distances)
-        periodic = n_pbc == 3
-
         sizes_host = torch.tensor(sizes, dtype=torch.long)
+        n_pbc = host[:, 3:].sum(dim=1)
+        k_cutoff = 2 * math.pi / self.lr_wavelength
+        ns_all = torch.ceil(k_cutoff * host[:, :3] / 2 / math.pi).long()
+        too_large = sizes_host * ns_all.prod(dim=1) > self.max_batched_pairs
+        one_by_one = ((n_pbc > 0) & (n_pbc < 3)) | ((n_pbc == 3) & too_large)
+        periodic = (n_pbc == 3) & ~one_by_one
+        non_periodic = n_pbc == 0
+
         offsets_host = torch.cumsum(sizes_host, 0) - sizes_host
         atom_periodic = torch.repeat_interleave(periodic, sizes_host).to(device)
         potentials = torch.zeros_like(charges)
@@ -484,9 +492,9 @@ class LongRange(torch.nn.Module):
         positions = torch.cat([system.positions for system in systems])
 
         # direct 1/r over all ordered pairs of each non-periodic system
-        np_sizes = sizes_host[~periodic]
+        np_sizes = sizes_host[non_periodic]
         if len(np_sizes) > 0:
-            np_offsets = offsets_host[~periodic]
+            np_offsets = offsets_host[non_periodic]
             n_pairs = np_sizes * np_sizes
             total = int(n_pairs.sum())
             pair_system = torch.repeat_interleave(
@@ -518,8 +526,7 @@ class LongRange(torch.nn.Module):
         # reciprocal-space Ewald of periodic systems, k-vectors as in torch-pme
         p_index = torch.arange(n_systems)[periodic]
         if len(p_index) > 0:
-            k_cutoff = 2 * math.pi / self.lr_wavelength
-            ns = torch.ceil(k_cutoff * host[p_index, :3] / 2 / math.pi).long()
+            ns = ns_all[p_index]
             n_k = ns.prod(dim=1)
             p_sizes = sizes_host[p_index]
             n_ak = p_sizes * n_k
@@ -588,7 +595,22 @@ class LongRange(torch.nn.Module):
             )[atom_system]
             potentials = potentials + kspace * atom_periodic.unsqueeze(-1).to(dtype)
 
-        return potentials / 2
+        potentials = potentials / 2
+        edge_starts = torch.cumsum(n_edges, 0) - n_edges
+        one_by_one_index: List[int] = torch.nonzero(one_by_one).flatten().tolist()
+        for i in one_by_one_index:
+            start, size = int(offsets_host[i]), sizes[i]
+            first_edge, n_edge = int(edge_starts[i]), int(n_edges[i])
+            system = systems[i]
+            potentials[start : start + size] += self.ewald_calculator.forward(
+                charges=charges[start : start + size],
+                cell=system.cell,
+                positions=system.positions,
+                neighbor_indices=nl_values[i][:, :2],
+                neighbor_distances=neighbor_distances[first_edge : first_edge + n_edge],
+                periodic=system.pbc,
+            )
+        return potentials
 
     def _potentials_per_system(
         self,

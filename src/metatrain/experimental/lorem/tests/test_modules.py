@@ -121,7 +121,13 @@ def _mixed_batch(full_list):
     g = torch.Generator().manual_seed(0)
     nlo = NeighborListOptions(cutoff=CUTOFF, full_list=full_list, strict=True)
     systems = []
-    for n_atoms, periodic in ((5, True), (3, False), (1, False), (2, True), (7, True)):
+    for n_atoms, pbc in (
+        (5, [True] * 3),
+        (3, [False] * 3),
+        (1, [False] * 3),
+        (2, [True] * 3),
+        (7, [True] * 3),
+    ):
         cell = torch.eye(3, dtype=torch.float64) * (2.0 + n_atoms) + 0.3 * torch.rand(
             3, 3, generator=g, dtype=torch.float64
         )
@@ -129,15 +135,16 @@ def _mixed_batch(full_list):
         system = System(
             types=torch.tensor([1, 6, 6, 1, 6, 1, 6][:n_atoms]),
             positions=positions.requires_grad_(True),
-            cell=cell if periodic else torch.zeros(3, 3, dtype=torch.float64),
-            pbc=torch.tensor([periodic] * 3),
+            cell=cell if any(pbc) else torch.zeros(3, 3, dtype=torch.float64),
+            pbc=torch.tensor(pbc),
         )
         systems.append(get_system_with_neighbor_lists(system, [nlo]))
     return systems, nlo
 
 
 def test_batched_potentials_match_per_system_calls():
-    for full_list in (True, False):
+    # 0: every periodic system one by one; 400: only the largest k-grids
+    for full_list, max_batched_pairs in ((True, 1 << 20), (False, 1 << 20), (True, 400), (True, 0)):
         systems, nlo = _mixed_batch(full_list)
         long_range = LongRange(
             feature_dim=NUM_FEATURES,
@@ -148,6 +155,7 @@ def test_batched_potentials_match_per_system_calls():
             smearing=0.75,
             kspace_resolution=0.375,
         ).double()
+        long_range.max_batched_pairs = max_batched_pairs
         n_atoms = sum(len(s) for s in systems)
         charges = torch.randn(n_atoms, 4, dtype=torch.float64, requires_grad=True)
         distances = torch.cat(
