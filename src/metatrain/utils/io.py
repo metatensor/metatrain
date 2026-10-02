@@ -1,5 +1,6 @@
 import re
 import warnings
+from importlib import import_module
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional, Union
 from urllib.parse import unquote, urlparse
@@ -238,15 +239,31 @@ def model_from_checkpoint(
     )
 
 
+# Registry of models that do not belong to an architecture.
+_MODEL_REGISTRY = {
+    "zbl": "metatrain.utils.additive.zbl.ZBL",
+}
+
+
+def _find_model_class(architecture_name: str) -> Any:
+    if architecture_name in _MODEL_REGISTRY:
+        module_path, class_name = _MODEL_REGISTRY[architecture_name].rsplit(".", 1)
+        module = import_module(module_path)
+        return getattr(module, class_name)
+    else:
+        architecture = import_architecture(architecture_name)
+        return architecture.__model__
+
+
 def arch_model_from_checkpoint(
     checkpoint: Dict[str, Any], context: Literal["restart", "finetune", "export"]
 ) -> ModelInterface:
 
     checkpoint = upgrade_checkpoint(checkpoint)
     architecture_name = checkpoint["architecture_name"]
-    architecture = import_architecture(architecture_name)
+    model_cls = _find_model_class(architecture_name)
 
-    return architecture.__model__.load_checkpoint(checkpoint, context=context)
+    return model_cls.load_checkpoint(checkpoint, context=context)
 
 
 _mtt_model_versions = {
@@ -356,14 +373,15 @@ def upgrade_checkpoint(checkpoint: dict) -> dict:
         # Upgrade this checkpoint.
         architecture_name = checkpoint["architecture_name"]
 
-        if architecture_name not in find_all_architectures():
+        known_archs = find_all_architectures() + list(_MODEL_REGISTRY.keys())
+        if architecture_name not in known_archs:
             raise ValueError(
                 f"Checkpoint architecture '{architecture_name}' not found "
                 "in the available architectures. Available architectures are: "
-                f"{find_all_architectures()}"
+                f"{known_archs}"
             )
 
-        model_cls = import_architecture(architecture_name).__model__
+        model_cls = _find_model_class(architecture_name)
 
         model_ckpt_version = checkpoint.get("model_ckpt_version")
         ckpt_before_versioning = model_ckpt_version is None
