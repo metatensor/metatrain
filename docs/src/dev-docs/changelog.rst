@@ -27,6 +27,10 @@ Unreleased
 Fixed
 #####
 
+- Ensemble losses (``gaussian_nll_ensemble``, ``gaussian_crps_ensemble`` and
+  ``empirical_crps_ensemble``) now work for targets with components, such as
+  ``non_conservative_force``, instead of failing when the mean and variance
+  blocks are built.
 - Dataset merging and training restarts now accept equivalent unit spellings
   such as ``A`` and ``angstrom`` or ``eV/A^3`` and
   ``eV/angstrom^3``, avoiding false unit incompatibility errors.

@@ -106,10 +106,10 @@ class TestCheckpoints(CheckpointTests, ClassifierTests):
         # Since classifier doesn't support restart/finetune, this is expected
         pass
 
-    def test_loading_old_checkpoints_export(self, model_trainer, default_hypers):
+    def test_loading_old_checkpoints_export(self, default_hypers):
         """Test that old checkpoints can be loaded in export context."""
         # Call parent method with export context only
-        super().test_loading_old_checkpoints(default_hypers, model_trainer, "export")
+        super().test_loading_old_checkpoints(default_hypers, "export")
 
     @pytest.mark.parametrize("context", ["restart", "finetune"])
     def test_get_checkpoint(self, context, model_trainer, caplog):
