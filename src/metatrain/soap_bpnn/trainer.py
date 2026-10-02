@@ -9,14 +9,17 @@ import torch.distributed
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DistributedSampler
 
-from metatrain.composition import train_or_load_composition_model
-from metatrain.scaler import train_or_load_scaler
+from metatrain.composition import CompositionModel, train_or_load_composition_model
+from metatrain.scaler import Scaler, train_or_load_scaler
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
+from metatrain.utils.additive.zbl import ZBL
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    DatasetInfo,
     build_train_dataloaders,
     build_val_dataloaders,
     get_num_workers,
@@ -24,6 +27,7 @@ from metatrain.utils.data import (
     validate_num_workers,
 )
 from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_dataset_info,
     get_prepare_atomic_basis_targets_transform,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
@@ -45,9 +49,10 @@ from metatrain.utils.neighbor_lists import (
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .documentation import TrainerHypers
+from .documentation import ModelHypers, TrainerHypers
 from .model import SoapBpnn
 
 
@@ -84,7 +89,7 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 12
 
     def __init__(self, hypers: TrainerHypers):
@@ -97,10 +102,97 @@ class Trainer(TrainerInterface[TrainerHypers]):
         self.best_metric: Optional[float] = None
         self.best_model_state_dict: Optional[Dict[str, Any]] = None
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
+        self.has_new_targets: bool = False
+
+    def setup(
+        self, model_hypers: ModelHypers, dataset_info: DatasetInfo
+    ) -> MetatrainModel:
+        model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+
+        model = SoapBpnn(hypers=model_hypers, dataset_info=model_dataset_info)
+
+        # Set up additive models
+        composition_model = CompositionModel.from_valid_targets(
+            model_dataset_info, model_dataset_info.atomic_types
+        )
+        additive_models = [composition_model]
+
+        # Adds the ZBL repulsion model if requested
+        if model_hypers["zbl"]:
+            zbl_targets = {
+                target_name: target_info
+                for target_name, target_info in model_dataset_info.targets.items()
+                if ZBL.is_valid_target(target_name, target_info)
+            }
+            additive_models.append(
+                ZBL(
+                    {},
+                    dataset_info=DatasetInfo(
+                        length_unit=model_dataset_info.length_unit,
+                        atomic_types=model_dataset_info.atomic_types,
+                        targets=zbl_targets,
+                    ),
+                )
+            )
+        additive_models = torch.nn.ModuleList(additive_models)
+
+        # Initialize scaler
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        scaler = Scaler(hypers=scaler_hypers, dataset_info=model_dataset_info)
+
+        return MetatrainModel(
+            model=model,
+            additive_models=additive_models,
+            scaler=scaler,
+            dataset_info=dataset_info,
+        )
+
+    def restart(
+        self,
+        model: MetatrainModel,
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypers,
+    ) -> MetatrainModel:
+        # -------------------------------------------------
+        #        Find out what are the new targets
+        # --------------------------------------------------
+        merged_info = model.dataset_info.union(dataset_info)
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in model.dataset_info.targets
+        }
+        self.has_new_targets = len(new_targets) > 0
+
+        # ------------------------------------------------------
+        #  Ask the models to restart with the new dataset info
+        # -------------------------------------------------------
+        model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+
+        comp_model_info = DatasetInfo(
+            length_unit=model_dataset_info.length_unit,
+            atomic_types=model_dataset_info.atomic_types,
+            targets={
+                target_name: target_info
+                for target_name, target_info in model_dataset_info.targets.items()
+                if model.additive_models[0].is_valid_target(target_name, target_info)
+            },
+        )
+
+        model.restart(
+            dataset_info,
+            model_dataset_info,
+            additive_models_dataset_info=[comp_model_info]
+            + [model_dataset_info] * (len(model.additive_models) - 1),
+            scaler_dataset_info=model_dataset_info,
+            model_hypers=model_hypers,
+        )
+
+        return model
 
     def train(
         self,
-        model: SoapBpnn,
+        model: MetatrainModel,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -108,6 +200,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
         checkpoint_dir: str,
     ) -> None:
         assert dtype in SoapBpnn.__supported_dtypes__
+        assert isinstance(model, MetatrainModel)
+
+        soap_bpnn = model.model
+        assert isinstance(soap_bpnn, SoapBpnn)
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
 
@@ -148,12 +244,17 @@ class Trainer(TrainerInterface[TrainerHypers]):
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         atomic_basis_transform, atomic_basis_reverse_transform = (
             get_prepare_atomic_basis_targets_transform(
-                train_targets, dataset_info.extra_data
+                model.dataset_info, soap_bpnn.dataset_info
             )
         )
 
         train_or_load_composition_model(
-            composition_model=model.additive_models[0],
+            composition_model=MetatrainModel(
+                model=model.additive_models[0],
+                additive_models=[],
+                scaler=None,
+                dataset_info=model.dataset_info,
+            ),
             atomic_baseline=self.hypers["atomic_baseline"],
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
@@ -171,7 +272,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     "a checkpoint also for the composition model."
                 )
             train_or_load_scaler(
-                scaler=model.scaler,
+                scaler=MetatrainModel(
+                    model=model.scaler,
+                    additive_models=[],
+                    scaler=None,
+                    dataset_info=model.dataset_info,
+                ),
                 fixed_weights=self.hypers["fixed_scaling_weights"],
                 train_datasets=train_datasets,
                 additive_models=model.additive_models,
@@ -302,7 +408,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not self.has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a learning rate scheduler
@@ -310,7 +416,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not self.has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         # per-atom targets:
