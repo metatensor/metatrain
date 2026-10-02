@@ -31,6 +31,13 @@ Fixed
   ``empirical_crps_ensemble``) now work for targets with components, such as
   ``non_conservative_force``, instead of failing when the mean and variance
   blocks are built.
+- SPACE's ``restart`` now creates heads for new targets, so fine-tuning on a target
+  the model was not trained on (optionally with ``inherit_heads``) works.
+- SPACE no longer re-applies ``inherit_heads`` when reloading a fine-tuned
+  checkpoint.
+- SPACE's per-block validation metrics are now computed on the reverse-transformed
+  predictions and targets.
+- SPACE's last-layer features of a target no longer depend on the other targets.
 
 Added
 #####
