@@ -669,7 +669,7 @@ def get_prepare_atomic_basis_targets_transform(
         systems, targets and extra data with prepared atomic basis targets.
     """
 
-    def transform(
+    def densify_atomic_basis_targets(
         systems: List[System],
         targets: Dict[str, TensorMap],
         extra: Dict[str, TensorMap],
@@ -790,7 +790,7 @@ def get_prepare_atomic_basis_targets_transform(
 
         return systems, targets, extra
 
-    return transform, reverse_transform
+    return densify_atomic_basis_targets, reverse_transform
 
 
 # ===== DatasetInfo manipulation utilities

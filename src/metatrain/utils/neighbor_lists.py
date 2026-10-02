@@ -22,7 +22,7 @@ def get_system_with_neighbor_lists_transform(
         list of `System` objects with the requested neighbor lists added.
     """
 
-    def transform(
+    def add_neighbor_lists(
         systems: List[System],
         targets: Dict[str, TensorBlock],
         extra: Dict[str, TensorBlock],
@@ -43,7 +43,7 @@ def get_system_with_neighbor_lists_transform(
             new_systems.append(new_system)
         return new_systems, targets, extra
 
-    return transform
+    return add_neighbor_lists
 
 
 def get_requested_neighbor_lists(
