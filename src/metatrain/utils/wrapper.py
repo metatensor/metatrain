@@ -40,11 +40,15 @@ class MetatrainModel(torch.nn.Module):
         self.scaler = scaler
         self.dataset_info = dataset_info
 
-        # -------------------------------
-        # Find out which transformations we will need to do at evaluation time
-        # to make sure that the outputs of the model, scaler and additive models
-        # are compatible.
-        # -------------------------------
+        # Compute transformations needed at evaluation time.
+        self._eval_transforms = self._get_eval_transforms()
+
+    def _get_eval_transforms(self) -> dict[str, list[str]]:
+        """Finds out which targets need to be transformed at evaluation time to
+        make sure that the outputs of the model, scaler and additive models are compatible."""
+        eval_transforms = {}
+
+        # Get targets of each model.
         model_targets = self.model.dataset_info.targets
         scaler_targets = (
             self.scaler.dataset_info.targets if self.scaler is not None else {}
@@ -54,34 +58,36 @@ class MetatrainModel(torch.nn.Module):
             for additive_model in self.additive_models
         ]
 
-        self._eval_transforms = {}
+        # Go through the steps of the evaluation and find out the required transformations.
         current_targets = model_targets.copy()
         # Targets to transform before applying the scaler
-        self._eval_transforms["pre_scaler"] = []
+        eval_transforms["pre_scaler"] = []
         for name, target in current_targets.items():
             if name in scaler_targets and not mts.equal_metadata(
                 target.layout, scaler_targets[name].layout
             ):
-                self._eval_transforms["pre_scaler"].append(name)
+                eval_transforms["pre_scaler"].append(name)
                 current_targets[name] = scaler_targets[name]
 
         # Targets to transform before applying each additive model
         for i in range(len(self.additive_models)):
-            self._eval_transforms[f"pre_additive_{i}"] = []
+            eval_transforms[f"pre_additive_{i}"] = []
             for name, target in current_targets.items():
                 if name in additive_targets[i] and not mts.equal_metadata(
                     target.layout, additive_targets[i][name].layout
                 ):
-                    self._eval_transforms[f"pre_additive_{i}"].append(name)
+                    eval_transforms[f"pre_additive_{i}"].append(name)
                     current_targets[name] = additive_targets[i][name]
 
         # Targets to transform before returning the final outputs
-        self._eval_transforms["pre_return"] = []
+        eval_transforms["pre_return"] = []
         for name, target in current_targets.items():
             if name in self.dataset_info.targets and not mts.equal_metadata(
                 target.layout, self.dataset_info.targets[name].layout
             ):
-                self._eval_transforms["pre_return"].append(name)
+                eval_transforms["pre_return"].append(name)
+
+        return eval_transforms
 
     def forward(
         self,
@@ -348,7 +354,14 @@ class MetatrainModel(torch.nn.Module):
         }
         return checkpoint
 
-    def restart(self, dataset_info, model_hypers=None):
+    def restart(
+        self,
+        dataset_info,
+        model_dataset_info: Optional[DatasetInfo] = None,
+        additive_models_dataset_info: Optional[list[DatasetInfo]] = None,
+        scaler_dataset_info: Optional[DatasetInfo] = None,
+        model_hypers=None,
+    ):
         """
         Restart the model with new dataset_info and model_hypers.
         This is used when the model is loaded from a checkpoint and the dataset_info
@@ -358,29 +371,31 @@ class MetatrainModel(torch.nn.Module):
         :param model_hypers: The new model_hypers to use. If None, the current
             hypers will be used.
         """
-        # merge old and new dataset info
+        # Update the dataset info for the wrapper.
         merged_info = self.dataset_info.union(dataset_info)
+        self.dataset_info = merged_info
 
-        self.model.restart(dataset_info, model_hypers)
+        # Get the dataset infos for each of the components.
+        model_dataset_info = model_dataset_info or dataset_info
+        additive_models_dataset_info = additive_models_dataset_info or [
+            dataset_info
+        ] * len(self.additive_models)
+        scaler_dataset_info = scaler_dataset_info or dataset_info
 
-        if len(self.additive_models) > 0:
-            composition_model = self.additive_models[0]
-            self.additive_models[0] = composition_model.restart(
-                dataset_info=DatasetInfo(
-                    length_unit=dataset_info.length_unit,
-                    atomic_types=dataset_info.atomic_types,
-                    targets={
-                        target_name: target_info
-                        for target_name, target_info in dataset_info.targets.items()
-                        if composition_model.is_valid_target(target_name, target_info)
-                    },
-                ),
-            )
+        # Update main model
+        self.model.restart(model_dataset_info, model_hypers)
+
+        # Update additive models
+        for info, additive_model in zip(
+            additive_models_dataset_info, self.additive_models, strict=True
+        ):
+            additive_model.restart(dataset_info=info)
 
         if self.scaler is not None:
-            self.scaler = self.scaler.restart(dataset_info)
+            self.scaler = self.scaler.restart(scaler_dataset_info)
 
-        self.dataset_info = merged_info
+        # Compute transformations needed at evaluation time.
+        self._eval_transforms = self._get_eval_transforms()
 
     def remove_output(self, target_name: str) -> None:
         """
