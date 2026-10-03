@@ -6,11 +6,12 @@ import torch
 from torch import nn
 
 from metatrain.utils.architectures import get_default_hypers
-from metatrain.utils.data import Dataset
+from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.dataset import Subset
 from metatrain.utils.io import load_model
+from metatrain.utils.wrapper import MetatrainModel
 
-from .documentation import FixedScalerWeights
+from .documentation import FixedScalerWeights, ModelHypers, TrainerHypers
 from .model import Scaler
 from .trainer import Trainer
 
@@ -27,9 +28,73 @@ __maintainers__ = [
     ("Pol Febrer <pol.febrer@epfl.ch>", "@pfebrer"),
 ]
 
+# def setup_scaler(
+#     model_hypers: ModelHypers,
+#     dataset_info: DatasetInfo,
+#     trainer_hypers: TrainerHypers,
+#     scaler_ckpt: Optional[str] = None,
+#     additive_models: Optional[list[nn.Module]] = None,
+# ) -> tuple[MetatrainModel, Trainer]:
+#     """
+#     Set up a scaler and its trainer.
+
+#     :param model_hypers: Hyperparameters for the scaler model
+#     :param dataset_info: Information about the dataset that the scaler should be
+#         able to handle.
+#     :param trainer_hypers: Hyperparameters for the scaler's trainer.
+#     :param checkpoint_dir: Directory to save the scaler checkpoint
+#     :return: A tuple containing the scaler model and its trainer
+#     """
+#     trainer = Trainer(trainer_hypers)
+#     scaler_model = trainer.setup(hypers=model_hypers, dataset_info=dataset_info)
+#     scaler = scaler_model.model
+
+#     if scaler_ckpt is not None:
+#         logging.info(f"Loading scaler from {scaler_ckpt}")
+#         loaded = load_model(scaler_ckpt).model
+#         if not isinstance(loaded, Scaler):
+#             raise ValueError(
+#                 f"The model loaded from {scaler_ckpt} is a "
+#                 f"{type(loaded).__name__}, not a Scaler."
+#             )
+#         if loaded.atomic_types != scaler.atomic_types:
+#             raise ValueError(
+#                 "Scaler checkpoint atomic types "
+#                 f"({loaded.atomic_types}) do not match the current model's "
+#                 f"atomic types ({scaler.atomic_types})."
+#             )
+#         loaded_targets = loaded.dataset_info.targets
+#         current_targets = scaler.dataset_info.targets
+#         if set(loaded_targets) != set(current_targets):
+#             raise ValueError(
+#                 "Scaler checkpoint targets "
+#                 f"({sorted(loaded_targets)}) do not match the current model's "
+#                 f"targets ({sorted(current_targets)})."
+#             )
+#         for name, target_info in current_targets.items():
+#             loaded_info = loaded_targets[name]
+#             if (loaded_info.quantity, loaded_info.unit) != (
+#                 target_info.quantity,
+#                 target_info.unit,
+#             ):
+#                 raise ValueError(
+#                     f"Target '{name}' from the scaler checkpoint has "
+#                     f"quantity '{loaded_info.quantity}' and unit "
+#                     f"'{loaded_info.unit}', while the current model expects "
+#                     f"quantity '{target_info.quantity}' and unit "
+#                     f"'{target_info.unit}'."
+#                 )
+#         scaler.load_state_dict(loaded.state_dict())
+#         scaler.sync_tensor_maps()
+
+#         loaded.check_correct_additive_models(additive_models)
+#         scaler.training_additive_models = loaded.training_additive_models
+
+#     return scaler_model, trainer
+
 
 def train_or_load_scaler(
-    scaler: Scaler,
+    scaler: Union[Scaler, MetatrainModel],
     train_datasets: List[Union[Dataset, Subset]],
     additive_models: List[nn.Module],
     batch_size: int,
@@ -63,22 +128,30 @@ def train_or_load_scaler(
     :param trainer_hypers: Additional hyperparameters for the trainer.
     :param checkpoint_dir: Directory to save the scaler checkpoint
     """
+    if isinstance(scaler, Scaler):
+        scaler = MetatrainModel(
+            model=scaler,
+            additive_models=[],
+            scaler=None,
+            dataset_info=scaler.dataset_info,
+        )
+
     if isinstance(fixed_weights, str):
         logging.info(f"Loading scaler from {fixed_weights}")
         loaded = load_model(fixed_weights)
-        if not isinstance(loaded, Scaler):
+        if not isinstance(loaded.model, Scaler):
             raise ValueError(
                 f"The model loaded from {fixed_weights} is a "
                 f"{type(loaded).__name__}, not a Scaler."
             )
-        if loaded.atomic_types != scaler.atomic_types:
+        if loaded.model.atomic_types != scaler.model.atomic_types:
             raise ValueError(
                 "Scaler checkpoint atomic types "
-                f"({loaded.atomic_types}) do not match the current model's "
-                f"atomic types ({scaler.atomic_types})."
+                f"({loaded.model.atomic_types}) do not match the current model's "
+                f"atomic types ({scaler.model.atomic_types})."
             )
-        loaded_targets = loaded.dataset_info.targets
-        current_targets = scaler.dataset_info.targets
+        loaded_targets = loaded.model.dataset_info.targets
+        current_targets = scaler.model.dataset_info.targets
         if set(loaded_targets) != set(current_targets):
             raise ValueError(
                 "Scaler checkpoint targets "
@@ -98,11 +171,11 @@ def train_or_load_scaler(
                     f"quantity '{target_info.quantity}' and unit "
                     f"'{target_info.unit}'."
                 )
-        scaler.load_state_dict(loaded.state_dict())
-        scaler.sync_tensor_maps()
+        scaler.model.load_state_dict(loaded.model.state_dict())
+        scaler.model.sync_tensor_maps()
 
-        loaded.check_correct_additive_models(additive_models)
-        scaler.training_additive_models = loaded.training_additive_models
+        loaded.model.check_correct_additive_models(additive_models)
+        scaler.model.training_additive_models = loaded.model.training_additive_models
     else:
         hypers = deepcopy(get_default_hypers("scaler")["training"])
         if fixed_weights is None:
@@ -123,7 +196,7 @@ def train_or_load_scaler(
         trainer.train(
             model=scaler,
             dtype=torch.float64,
-            devices=[scaler.dummy_buffer.device],
+            devices=[scaler.model.dummy_buffer.device],
             train_datasets=train_datasets,
             val_datasets=train_datasets,
             checkpoint_dir=checkpoint_dir,

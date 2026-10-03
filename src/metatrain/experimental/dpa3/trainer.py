@@ -7,13 +7,15 @@ import torch
 import torch.distributed
 from torch.utils.data import DistributedSampler
 
-from metatrain.composition import train_or_load_composition_model
-from metatrain.scaler import train_or_load_scaler
+from metatrain.composition import train_or_load_composition_model, CompositionModel
+from metatrain.scaler import train_or_load_scaler, Scaler
 from metatrain.utils.abc import TrainerInterface
 from metatrain.utils.additive import remove_additive
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
+    DatasetInfo,
     Dataset,
     _is_disk_dataset,
     build_train_dataloaders,
@@ -45,9 +47,10 @@ from metatrain.utils.scaler import remove_scale
 from metatrain.utils.transfer import (
     batch_to,
 )
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .documentation import TrainerHypers
+from .documentation import TrainerHypers, ModelHypers
 from .model import DPA3
 
 
@@ -60,7 +63,7 @@ def _get_raw_model(model: Union[DPA3, DistributedDataParallel], is_distributed: 
     return model.module if is_distributed else model
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 3
 
     def __init__(self, hypers: TrainerHypers):
@@ -74,9 +77,80 @@ class Trainer(TrainerInterface[TrainerHypers]):
         self.best_model_state_dict = None
         self.best_optimizer_state_dict = None
 
+    def setup(
+        self, model_hypers: ModelHypers, dataset_info: DatasetInfo
+    ) -> MetatrainModel:
+
+        model = DPA3(hypers=model_hypers, dataset_info=dataset_info)
+
+        # If a DPA3 model has been loaded from a checkpoint, the atomic types
+        # that it supports have been loaded from the checkpoint. So get back
+        # the dataset info from the model.
+        dataset_info = model.dataset_info
+
+        # Set up additive models
+        composition_model = CompositionModel.from_valid_targets(
+            dataset_info, dataset_info.atomic_types
+        )
+        additive_models = [composition_model]
+
+        # Initialize scaler
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
+
+        return MetatrainModel(
+            model=model,
+            additive_models=additive_models,
+            scaler=scaler,
+            dataset_info=dataset_info,
+        )
+    
+    def restart(
+        self,
+        model: MetatrainModel,
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypers,
+    ) -> MetatrainModel:
+
+        # -------------------------------------------------
+        #        Find out what are the new targets
+        # --------------------------------------------------
+        merged_info = model.dataset_info.union(dataset_info)
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in model.dataset_info.targets
+        }
+        self.has_new_targets = len(new_targets) > 0
+
+        # ------------------------------------------------------
+        #  Ask the models to restart with the new dataset info
+        # -------------------------------------------------------
+
+        comp_model_info = DatasetInfo(
+            length_unit=dataset_info.length_unit,
+            atomic_types=dataset_info.atomic_types,
+            targets={
+                target_name: target_info
+                for target_name, target_info in dataset_info.targets.items()
+                if model.additive_models[0].is_valid_target(target_name, target_info)
+            },
+        )
+
+        model.restart(
+            dataset_info,
+            dataset_info,
+            additive_models_dataset_info=[comp_model_info]
+            + [dataset_info] * (len(model.additive_models) - 1),
+            scaler_dataset_info=dataset_info,
+            model_hypers=model_hypers,
+        )
+
+        return model
+
     def train(
         self,
-        model: DPA3,
+        model: MetatrainModel,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -84,6 +158,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
         checkpoint_dir: str,
     ):
         assert dtype in DPA3.__supported_dtypes__
+        assert isinstance(model, MetatrainModel)
+        dpa3 = model.model
+        assert isinstance(dpa3, DPA3)
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
 
@@ -141,7 +218,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # precision.  deepmd-kit's internal self.prec is set at construction
         # and is NOT updated by .to(dtype=...), so a mismatch would cause
         # silent precision loss.
-        model_dtype = next(model.model.parameters()).dtype
+        model_dtype = next(dpa3.model.parameters()).dtype
         if dtype != model_dtype:
             from .model import _PRECISION_INT_TO_DTYPE
 
@@ -164,7 +241,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         atomic_baseline = self.hypers["fixed_composition_weights"]
         if isinstance(atomic_baseline, str):
-            if model.get_fixed_composition_weights():
+            if dpa3.get_fixed_composition_weights():
                 raise ValueError(
                     "The loaded DPA3 model provides its own atomic baselines, "
                     "which cannot be combined with a composition model "
@@ -173,7 +250,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
         else:
             atomic_baseline = {
-                **model.get_fixed_composition_weights(),
+                **dpa3.get_fixed_composition_weights(),
                 **atomic_baseline,
             }
 
@@ -190,7 +267,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.hypers["scale_targets"]:
             train_or_load_scaler(
                 scaler=model.scaler,
-                fixed_weights=model.get_fixed_scaling_weights(),
+                fixed_weights=dpa3.get_fixed_scaling_weights(),
                 train_datasets=train_datasets,
                 additive_models=model.additive_models,
                 batch_size=self.hypers["batch_size"],
@@ -292,7 +369,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not raw_model.has_new_targets:
+            if not self.has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a scheduler:
@@ -305,7 +382,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
-            if not raw_model.has_new_targets:
+            if not self.has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         # per-atom targets:
