@@ -134,10 +134,10 @@ def test_regression_train():
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
-    model = SPACE(MODEL_HYPERS, dataset_info)
 
     hypers["training"]["num_epochs"] = 1
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(MODEL_HYPERS, dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float32,
@@ -152,9 +152,9 @@ def test_regression_train():
     for system in systems:
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
-    model.module = model.fake_gradient_model
-    del model.gradient_model
-    del model.fake_gradient_model
+    model.model.module = model.model.fake_gradient_model
+    del model.model.gradient_model
+    del model.model.fake_gradient_model
     model = torch.jit.script(model)
     output = model(
         systems[:5],
@@ -234,12 +234,11 @@ def test_regression_train_spherical(device):
     )
     model_hypers = copy.deepcopy(MODEL_HYPERS)
     model_hypers["radial_basis"]["max_eigenvalue"] = 50.0
-    model = SPACE(model_hypers, dataset_info)
-    requested_neighbor_lists = get_requested_neighbor_lists(model)
 
     hypers["training"]["num_epochs"] = 1
     hypers["training"]["num_workers"] = 0  # for reproducibility
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(model_hypers, dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float32,
@@ -250,6 +249,7 @@ def test_regression_train_spherical(device):
     )
 
     # Predict on the first five systems
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
     systems = [sample["system"] for sample in dataset]
     systems = [system.to(torch.float32, device) for system in systems]
     systems = [

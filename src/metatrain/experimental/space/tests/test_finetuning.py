@@ -133,7 +133,6 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
-    model = SPACE(MODEL_HYPERS, dataset_info)
 
     conf = {
         "mtt::U0": {
@@ -166,6 +165,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
 
     # Pre-training
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(MODEL_HYPERS, dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float32,
@@ -179,8 +179,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     # Finetuning
     checkpoint = torch.load("tmp.ckpt", weights_only=False, map_location="cpu")
     model_finetune = model_from_checkpoint(checkpoint, context="finetune")
-    assert isinstance(model_finetune, SPACE)
-    model_finetune.restart(dataset_info)
+    assert isinstance(model_finetune.model, SPACE)
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 0
@@ -193,6 +192,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     }
 
     trainer = Trainer(hypers["training"])
+    trainer.restart(model_finetune, dataset_info, model_hypers={})
     trainer.train(
         model=model_finetune,
         dtype=torch.float32,
@@ -209,8 +209,8 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     # Finetuning restart
     checkpoint = torch.load("finetuned.ckpt", weights_only=False, map_location="cpu")
     model_finetune_restart = model_from_checkpoint(checkpoint, context="restart")
-    assert isinstance(model_finetune_restart, SPACE)
-    model_finetune_restart.restart(dataset_info)
+    assert isinstance(model_finetune_restart.model, SPACE)
+    trainer.restart(model_finetune_restart, dataset_info, model_hypers={})
 
     assert any("lora_" in name for name, _ in model_finetune_restart.named_parameters())
 
@@ -391,12 +391,12 @@ def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path
     both_datasets = [_dataset("energy"), _dataset("mtt::U0")]
 
     # Pre-training on both targets.
-    model = SPACE(MODEL_HYPERS, dataset_info)
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 1
     hypers["training"]["loss"] = _loss("energy", "mtt::U0")
 
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(MODEL_HYPERS, dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float32,
@@ -412,7 +412,6 @@ def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path
     # is the only thing that moves.
     checkpoint = torch.load("pretrained.ckpt", weights_only=False, map_location="cpu")
     model_finetune = model_from_checkpoint(checkpoint, context="finetune")
-    model_finetune.restart(dataset_info)
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 1
@@ -422,6 +421,7 @@ def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path
     )
 
     trainer = Trainer(hypers["training"])
+    trainer.restart(model_finetune, dataset_info, model_hypers={})
     trainer.train(
         model=model_finetune,
         dtype=torch.float32,
