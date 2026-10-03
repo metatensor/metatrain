@@ -20,8 +20,6 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.composition import CompositionModel
-from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import TargetInfo
@@ -87,7 +85,7 @@ def _register_untracked_tensors(model: torch.nn.Module) -> None:
 
 
 class DPA3(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -255,8 +253,6 @@ class DPA3(ModelInterface[ModelHypers]):
                 self.model = get_standard_model(deepmd_hypers)
             _register_untracked_tensors(self.model)
 
-        scaler_hypers = get_default_hypers("scaler")["model"]
-        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
         self.outputs: Dict[str, ModelOutput] = {}
         self.single_label = Labels.single()
 
@@ -273,11 +269,6 @@ class DPA3(ModelInterface[ModelHypers]):
             full_list=True,
             strict=True,
         )
-        composition_model = CompositionModel.from_valid_targets(
-            dataset_info, self.atomic_types
-        )
-        additive_models = [composition_model]
-        self.additive_models = torch.nn.ModuleList(additive_models)
 
     def _add_output(self, target_name: str, target: TargetInfo) -> None:
         if not target.is_scalar:
@@ -327,8 +318,7 @@ class DPA3(ModelInterface[ModelHypers]):
         """Pure-tensor forward pass for compilation preparation.
 
         Takes pre-processed batch tensors and returns raw per-atom energies
-        as a flat dictionary.  This bypasses System/TensorMap creation and
-        the scaler/additive models, making it suitable for FX tracing.
+        as a flat dictionary.
 
         :param positions: Padded positions [batch, max_atoms, 3].
         :param atype: Deepmd-kit type indices [batch, max_atoms] (already
@@ -442,31 +432,6 @@ class DPA3(ModelInterface[ModelHypers]):
                 # sum the atomic property to get the total property
                 return_dict[output_name] = sum_over_atoms(atomic_property)
 
-        if not self.training:
-            # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler.apply_scales(
-                systems,
-                return_dict,
-                selected_atoms=selected_atoms,
-                use_per_target_scales=True,
-                use_per_property_scales=True,
-            )
-            for additive_model in self.additive_models:
-                outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                for name, output in outputs.items():
-                    if name in additive_model.outputs:
-                        outputs_for_additive_model[name] = output
-                additive_contributions = additive_model(
-                    systems,
-                    outputs_for_additive_model,
-                    selected_atoms,
-                )
-                for name in additive_contributions:
-                    return_dict[name] = mts.add(
-                        return_dict[name],
-                        additive_contributions[name],
-                    )
-
         return return_dict
 
     def restart(
@@ -489,7 +454,6 @@ class DPA3(ModelInterface[ModelHypers]):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
-        self.has_new_targets = len(new_targets) > 0
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -502,20 +466,6 @@ class DPA3(ModelInterface[ModelHypers]):
             self._add_output(target_name, target)
 
         self.dataset_info = merged_info
-
-        # restart the composition and scaler models
-        self.additive_models[0].restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        self.scaler.restart(dataset_info)
 
         return self
 
@@ -548,8 +498,6 @@ class DPA3(ModelInterface[ModelHypers]):
         dtype = next(model.model.parameters()).dtype
 
         model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         metadata = checkpoint.get("metadata", None)
@@ -564,25 +512,12 @@ class DPA3(ModelInterface[ModelHypers]):
             raise ValueError(f"unsupported dtype {dtype} for DPA3")
 
         # Make sure the model is all in the same dtype
-        # For example, after training, the additive models could still be in
-        # float64
         self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This function moves them:
-
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
-
-        interaction_ranges = [self.hypers["descriptor"]["repflow"]["e_rcut"]]
-        for additive_model in self.additive_models:
-            if hasattr(additive_model, "cutoff_radius"):
-                interaction_ranges.append(additive_model.cutoff_radius)
-        interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=self.atomic_types,
-            interaction_range=interaction_range,
+            interaction_range=self.hypers["descriptor"]["repflow"]["e_rcut"],
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
             dtype=dtype_to_str(dtype),
@@ -595,19 +530,42 @@ class DPA3(ModelInterface[ModelHypers]):
         return AtomisticModel(self.eval(), metadata, capabilities)
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
+    def upgrade_checkpoint(
+        cls, checkpoint: Dict, version: Optional[int] = None
+    ) -> Dict:
+        if version is None:
+            version = cls.__checkpoint_version__
+        elif version > cls.__checkpoint_version__:
+            raise ValueError(
+                f"Was asked to upgrade checkpoint to version {version},"
+                "which is higher than the current model version:"
+                f" {cls.__checkpoint_version__}."
+            )
+        elif version < checkpoint["model_ckpt_version"]:
+            raise ValueError(
+                f"Was asked to upgrade checkpoint to version {version},"
+                "but the checkpoint is at a higher version:"
+                f" {checkpoint['model_ckpt_version']}."
+            )
+
+        for v in range(1, version):
             if checkpoint["model_ckpt_version"] == v:
                 update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
                 update(checkpoint)
                 checkpoint["model_ckpt_version"] = v + 1
 
-        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {checkpoint['model_ckpt_version']}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
-            )
+        if checkpoint["model_ckpt_version"] != version:
+            if version == cls.__checkpoint_version__:
+                raise RuntimeError(
+                    f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                    f"version {checkpoint['model_ckpt_version']}, while the current model "
+                    f"version is {version}."
+                )
+            else:
+                raise RuntimeError(
+                    f"Unable to upgrade the checkpoint from version"
+                    f" {checkpoint['model_ckpt_version']} to version {version}."
+                )
 
         return checkpoint
 

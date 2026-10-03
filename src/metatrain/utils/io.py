@@ -271,6 +271,7 @@ _mtt_model_versions = {
     "llpr": 5,
     "soap_bpnn": 10,
     "experimental.mace": 5,
+    "experimental.dpa3": 4,
 }
 
 
