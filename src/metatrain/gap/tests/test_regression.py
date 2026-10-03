@@ -64,7 +64,7 @@ def test_regression_train():
     gap.eval()
 
     # Predict on the first five systems
-    output = gap(systems[:5], {"mtt::U0": gap.outputs["mtt::U0"]})
+    output = gap(systems[:5], {"mtt::U0": gap.model.outputs["mtt::U0"]})
 
     expected_output = torch.tensor(
         [[-40.5891], [-56.7122], [-76.4146], [-77.3364], [-93.4905]]
@@ -127,7 +127,7 @@ def test_invariance():
     gap.eval()
 
     # Predict on the first five systems
-    output = gap(systems[:5], {"energy": gap.outputs["energy"]})
+    output = gap(systems[:5], {"energy": gap.model.outputs["energy"]})
     data = read(DATASET_ETHANOL_PATH, ":5", format="extxyz")
 
     expected_output = torch.tensor([[i.info["energy"]] for i in data])
@@ -144,11 +144,11 @@ def test_invariance():
 
     original_output = gap(
         [metatomic.torch.systems_to_torch(original_system)],
-        {"energy": gap.outputs["energy"]},
+        {"energy": gap.model.outputs["energy"]},
     )
     rotated_output = gap(
         [metatomic.torch.systems_to_torch(system)],
-        {"energy": gap.outputs["energy"]},
+        {"energy": gap.model.outputs["energy"]},
     )
 
     assert torch.allclose(
