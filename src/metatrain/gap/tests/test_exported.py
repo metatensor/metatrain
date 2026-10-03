@@ -49,10 +49,10 @@ def test_export():
             )
         },
     )
-    model = GAP(DEFAULT_HYPERS["model"], dataset_info)
 
     # we have to train gap before we can export...
     trainer = Trainer(DEFAULT_HYPERS["training"])
+    model = trainer.setup(DEFAULT_HYPERS["model"], dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float64,

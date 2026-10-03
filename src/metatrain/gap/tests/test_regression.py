@@ -51,8 +51,8 @@ def test_regression_train():
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
 
-    gap = GAP(DEFAULT_HYPERS["model"], dataset_info)
     trainer = Trainer(DEFAULT_HYPERS["training"])
+    gap = trainer.setup(DEFAULT_HYPERS["model"], dataset_info)
     trainer.train(
         model=gap,
         dtype=torch.float64,
@@ -113,7 +113,8 @@ def test_invariance():
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
 
-    gap = GAP(hypers["model"], dataset_info)
+    trainer = Trainer(hypers["training"])
+    gap = trainer.setup(hypers["model"], dataset_info)
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=gap,

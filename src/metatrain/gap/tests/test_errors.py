@@ -71,8 +71,8 @@ def test_more_sparse_points_than_envs():
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
 
-    gap = GAP(hypers["model"], dataset_info)
     trainer = Trainer(hypers["training"])
+    gap = trainer.setup(hypers["model"], dataset_info)
     with pytest.raises(
         ValueError,
         match=re.escape(
