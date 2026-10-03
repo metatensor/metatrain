@@ -272,6 +272,7 @@ _mtt_model_versions = {
     "soap_bpnn": 10,
     "experimental.mace": 5,
     "experimental.dpa3": 4,
+    "experimental.space": 4,
 }
 
 

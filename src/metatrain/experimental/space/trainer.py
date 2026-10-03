@@ -13,15 +13,19 @@ from torch.optim.lr_scheduler import LambdaLR
 from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 from torch.utils.data import DistributedSampler
 
-from metatrain.composition import train_or_load_composition_model
-from metatrain.scaler import train_or_load_scaler
+from metatrain.composition import train_or_load_composition_model, CompositionModel
+from metatrain.scaler import train_or_load_scaler, Scaler
+from metatrain.utils.wrapper import MetatrainModel
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
+from metatrain.utils.additive.zbl import ZBL
 from metatrain.utils.augmentation import O3Augmenter
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    DatasetInfo,
     build_train_dataloaders,
     build_val_dataloaders,
     get_num_workers,
@@ -30,6 +34,7 @@ from metatrain.utils.data import (
 )
 from metatrain.utils.data.atomic_basis_helpers import (
     get_prepare_atomic_basis_targets_transform,
+    densify_atomic_basis_dataset_info,
 )
 from metatrain.utils.distributed.slurm import (
     initialize_slurm_nccl_process_group,
@@ -46,9 +51,10 @@ from metatrain.utils.neighbor_lists import (
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
+from metatrain.pet.modules.finetuning import compute_stale_targets
 
 from . import checkpoints
-from .documentation import TrainerHypers
+from .documentation import TrainerHypers, ModelHypers
 from .model import SPACE
 from .modules.finetuning import apply_finetuning_strategy
 from .utils import systems_to_batch
@@ -142,7 +148,7 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 4
 
     def __init__(self, hypers: TrainerHypers) -> None:
@@ -156,10 +162,112 @@ class Trainer(TrainerInterface[TrainerHypers]):
         self.best_model_state_dict: Optional[Dict[str, Any]] = None
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
         self.ema_state_dict: Optional[Dict[str, Any]] = None
+        self.has_new_targets: bool = False
+
+    def setup(
+        self, model_hypers: ModelHypers, dataset_info: DatasetInfo
+    ) -> MetatrainModel:
+        model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+
+        model = SPACE(hypers=model_hypers, dataset_info=model_dataset_info)
+
+        # Set up additive models
+        composition_model = CompositionModel.from_valid_targets(
+            model_dataset_info, model_dataset_info.atomic_types
+        )
+        additive_models = [composition_model]
+
+        # Adds the ZBL repulsion model if requested
+        if model_hypers["zbl"]:
+            zbl_targets = {
+                target_name: target_info
+                for target_name, target_info in model_dataset_info.targets.items()
+                if ZBL.is_valid_target(target_name, target_info)
+            }
+            additive_models.append(
+                ZBL(
+                    {},
+                    dataset_info=DatasetInfo(
+                        length_unit=model_dataset_info.length_unit,
+                        atomic_types=model_dataset_info.atomic_types,
+                        targets=zbl_targets,
+                    ),
+                )
+            )
+        additive_models = torch.nn.ModuleList(additive_models)
+
+        # Initialize scaler
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        scaler = Scaler(hypers=scaler_hypers, dataset_info=model_dataset_info)
+
+        return MetatrainModel(
+            model=model,
+            additive_models=additive_models,
+            scaler=scaler,
+            dataset_info=dataset_info,
+        )
+
+    def restart(
+        self,
+        model: MetatrainModel,
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypers,
+    ) -> MetatrainModel:
+
+        # -------------------------------------------------
+        #        Find out what are the new targets
+        # --------------------------------------------------
+        merged_info = model.dataset_info.union(dataset_info)
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in model.dataset_info.targets
+        }
+        self.has_new_targets = len(new_targets) > 0
+
+        # Targets that were present before this run but are not part of the current
+        # run's dataset: with a backbone-altering finetuning method (full/lora), their
+        # heads are no longer meaningful and are dropped once training starts, by
+        # ``apply_finetuning_strategy`` (which decides based on the method).
+        stale_targets = compute_stale_targets(
+            model.dataset_info.targets, dataset_info.targets
+        )
+
+        # Actual removal (if any) is deferred to ``apply_finetuning_strategy``
+        # (called later, once training starts), since ``inherit_heads`` needs these
+        # stale targets' heads to still be around to copy weights from, and only
+        # backbone-altering methods (``full``/``lora``) actually drop them.
+        self._stale_finetune_targets = stale_targets
+
+        # ------------------------------------------------------
+        #  Ask the models to restart with the new dataset info
+        # -------------------------------------------------------
+        model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+
+        comp_model_info = DatasetInfo(
+            length_unit=model_dataset_info.length_unit,
+            atomic_types=model_dataset_info.atomic_types,
+            targets={
+                target_name: target_info
+                for target_name, target_info in model_dataset_info.targets.items()
+                if model.additive_models[0].is_valid_target(target_name, target_info)
+            },
+        )
+
+        model.restart(
+            dataset_info,
+            model_dataset_info,
+            additive_models_dataset_info=[comp_model_info]
+            + [model_dataset_info] * (len(model.additive_models) - 1),
+            scaler_dataset_info=model_dataset_info,
+            model_hypers=model_hypers,
+        )
+
+        return model
 
     def train(
         self,
-        model: SPACE,
+        model: MetatrainModel,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -167,6 +275,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
         checkpoint_dir: str,
     ) -> None:
         assert dtype in SPACE.__supported_dtypes__
+        assert isinstance(model, MetatrainModel)
+        space = model.model
+        assert isinstance(model.model, SPACE)
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
 
@@ -250,12 +361,17 @@ class Trainer(TrainerInterface[TrainerHypers]):
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         atomic_basis_transform, atomic_basis_reverse_transform = (
             get_prepare_atomic_basis_targets_transform(
-                train_targets, dataset_info.extra_data
+                model.dataset_info, model.model.dataset_info
             )
         )
 
         train_or_load_composition_model(
-            composition_model=model.additive_models[0],
+            composition_model=MetatrainModel(
+                model=model.additive_models[0],
+                additive_models=[],
+                scaler=None,
+                dataset_info=model.dataset_info
+            ),
             atomic_baseline=self.hypers["atomic_baseline"],
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
@@ -273,7 +389,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     "a checkpoint also for the composition model."
                 )
             train_or_load_scaler(
-                scaler=model.scaler,
+                scaler=MetatrainModel(
+                    model=model.scaler,
+                    additive_models=[],
+                    scaler=None,
+                    dataset_info=model.dataset_info
+                ),
                 fixed_weights=self.hypers["fixed_scaling_weights"],
                 train_datasets=train_datasets,
                 additive_models=model.additive_models,
@@ -291,7 +412,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             model.scaler.scales_to(device="cpu", dtype=torch.float64)
             model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
             ema_model = AveragedModel(
-                model,
+                space,
                 multi_avg_fn=get_ema_multi_avg_fn(self.hypers["ema_decay"]),
             )
             ema_model.to(device=device, dtype=dtype)
@@ -398,10 +519,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         # by default, we initialize the model to use the gradient-free module; here we
         # set it to use the gradient module for training so that we can compile
-        model.module = model.gradient_model
+        space.module = space.gradient_model
 
         if self.hypers["compile"]:
-            compile_model(model, train_dataloader)
+            compile_model(space, train_dataloader)
 
         # For distributed training, we don't use DDP to avoid gradient bucketing
         # which can break up the computational graph for the backward pass.
@@ -442,7 +563,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not model.has_new_targets:
+            if not self.has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a learning rate scheduler
@@ -450,7 +571,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
-            if not model.has_new_targets:
+            if not self.has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         # per-atom targets:
@@ -537,7 +658,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 if self.hypers["ema_decay"] is not None:
                     with torch.no_grad():
-                        ema_model.update_parameters(model)
+                        ema_model.update_parameters(space)
 
                 if is_distributed:
                     # sum the loss over all processes
@@ -603,7 +724,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             if self.hypers["ema_decay"] is not None:
                 # swap in the EMA model parameters for evaluation
                 model_state_dict = copy.deepcopy(model.state_dict())
-                model.load_state_dict(ema_model.module.state_dict())
+                space.load_state_dict(ema_model.module.state_dict())
 
             with torch.no_grad():
                 val_loss = 0.0
@@ -758,7 +879,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
         if self.best_model_state_dict is not None:
-            self.best_model_state_dict["finetune_config"] = model.finetune_config
+            self.best_model_state_dict["finetune_config"] = model.model.finetune_config
         checkpoint.update(
             {
                 "train_hypers": self.hypers,
