@@ -9,16 +9,21 @@ import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DistributedSampler
 
-from metatrain.composition import train_or_load_composition_model
-from metatrain.pet.modules.finetuning import apply_finetuning_strategy
-from metatrain.scaler import train_or_load_scaler
+from metatrain.composition import CompositionModel, train_or_load_composition_model
+from metatrain.pet.modules.finetuning import (
+    apply_finetuning_strategy,
+    compute_stale_targets,
+)
+from metatrain.scaler import Scaler, train_or_load_scaler
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.augmentation import O3Augmenter
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    DatasetInfo,
     build_train_dataloaders,
     build_val_dataloaders,
     get_num_workers,
@@ -44,10 +49,31 @@ from metatrain.utils.neighbor_lists import (
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .documentation import TrainerHypers
+from .documentation import ModelHypers, TrainerHypers
 from .model import FlashMD
+from .modules.additive import PositionAdditive
+
+
+def _position_additive_dataset_info(dataset_info: DatasetInfo) -> DatasetInfo:
+    """
+    Get the dataset info for the ``PositionAdditive`` model, which only contains
+    the position and momentum targets.
+
+    :param dataset_info: The full dataset info.
+    :return: The dataset info restricted to the valid targets.
+    """
+    return DatasetInfo(
+        length_unit=dataset_info.length_unit,
+        atomic_types=dataset_info.atomic_types,
+        targets={
+            target_name: target_info
+            for target_name, target_info in dataset_info.targets.items()
+            if PositionAdditive.is_valid_target(target_name, target_info)
+        },
+    )
 
 
 def get_scheduler(
@@ -83,7 +109,7 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 7
 
     def __init__(self, hypers: TrainerHypers) -> None:
@@ -97,9 +123,71 @@ class Trainer(TrainerInterface[TrainerHypers]):
         self.best_model_state_dict: Optional[Dict[str, Any]] = None
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
 
+        self.has_new_targets = False
+        self._stale_finetune_targets: List[str] = []
+
+    def setup(
+        self, model_hypers: ModelHypers, dataset_info: DatasetInfo
+    ) -> MetatrainModel:
+        model = FlashMD(hypers=model_hypers, dataset_info=dataset_info)
+
+        # Set up additive models
+        composition_model = CompositionModel.from_valid_targets(
+            dataset_info, dataset_info.atomic_types
+        )
+        position_additive = PositionAdditive(
+            hypers={"also_momenta": model_hypers["predict_momenta_as_difference"]},
+            dataset_info=_position_additive_dataset_info(dataset_info),
+        )
+        additive_models = [composition_model, position_additive]
+
+        # Initialize scaler
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
+
+        return MetatrainModel(
+            model=model,
+            additive_models=additive_models,
+            scaler=scaler,
+            dataset_info=dataset_info,
+        )
+
+    def restart(
+        self,
+        model: MetatrainModel,
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypers,
+    ) -> MetatrainModel:
+        merged_info = model.dataset_info.union(dataset_info)
+        self.has_new_targets = any(
+            key not in model.dataset_info.targets for key in merged_info.targets
+        )
+        # Stale targets are only removed later, by ``apply_finetuning_strategy``
+        self._stale_finetune_targets = compute_stale_targets(
+            model.dataset_info.targets, dataset_info.targets
+        )
+        comp_model_info = DatasetInfo(
+            length_unit=dataset_info.length_unit,
+            atomic_types=dataset_info.atomic_types,
+            targets={
+                target_name: target_info
+                for target_name, target_info in dataset_info.targets.items()
+                if model.additive_models[0].is_valid_target(target_name, target_info)
+            },
+        )
+        model.restart(
+            dataset_info,
+            additive_models_dataset_info=[
+                comp_model_info,
+                _position_additive_dataset_info(dataset_info),
+            ],
+            model_hypers=model_hypers,
+        )
+        return model
+
     def train(
         self,
-        model: FlashMD,
+        model: MetatrainModel,
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -120,7 +208,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 "details, see the FlashMD tutorial in the documentation."
             )
         else:
-            model.set_timestep(self.hypers["timestep"])
+            model.model.set_timestep(self.hypers["timestep"])
 
         # Set masses for the model
         if len(self.hypers["masses"]) == 0:
@@ -134,7 +222,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
             for atomic_number in model.dataset_info.atomic_types
         }
-        model.set_masses(atomic_mass_dict)
+        model.model.set_masses(atomic_mass_dict)
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
         is_finetune = self.hypers["finetune"]["read_from"] is not None
@@ -177,6 +265,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 model,
                 self.hypers["finetune"],
                 apply_inherit_heads=self.optimizer_state_dict is None,
+                stale_targets=self._stale_finetune_targets,
             )
             method = self.hypers["finetune"]["method"]
             num_params = sum(p.numel() for p in model.parameters())
@@ -218,7 +307,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     "a checkpoint also for the composition model."
                 )
             train_or_load_scaler(
-                scaler=model.scaler,
+                scaler=MetatrainModel(
+                    model=model.scaler,
+                    additive_models=[],
+                    scaler=None,
+                    dataset_info=model.dataset_info,
+                ),
                 fixed_weights=self.hypers["fixed_scaling_weights"],
                 train_datasets=train_datasets,
                 additive_models=model.additive_models,
@@ -369,7 +463,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.optimizer_state_dict is not None and not is_finetune:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not self.has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a learning rate scheduler
@@ -377,7 +471,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         if self.scheduler_state_dict is not None and not is_finetune:
             # same as the optimizer, try to load the scheduler state dict
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not self.has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         per_structure_targets = self.hypers["per_structure_targets"]
@@ -660,7 +754,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
         checkpoint = model.get_checkpoint()
         if self.best_model_state_dict is not None:
-            self.best_model_state_dict["finetune_config"] = model.finetune_config
+            self.best_model_state_dict["finetune_config"] = model.model.finetune_config
         checkpoint.update(
             {
                 "trainer_ckpt_version": self.__checkpoint_version__,

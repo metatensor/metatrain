@@ -242,6 +242,9 @@ def model_from_checkpoint(
 # Registry of models that do not belong to an architecture.
 _MODEL_REGISTRY = {
     "zbl": "metatrain.utils.additive.zbl.ZBL",
+    "flashmd_position_additive": (
+        "metatrain.experimental.flashmd.modules.additive.PositionAdditive"
+    ),
 }
 
 
@@ -273,6 +276,8 @@ _mtt_model_versions = {
     "experimental.mace": 5,
     "experimental.dpa3": 4,
     "experimental.space": 4,
+    "experimental.flashmd": 6,
+    "experimental.flashmd_symplectic": 4,
 }
 
 
@@ -330,33 +335,40 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
     new_ckpt["model"] = checkpoint
 
     # Fill the state dicts of the scaler and additive models by finding
-    # them in the state dict of the original checkpoint.
-    scaler_state_dict = {}
-    additive_models_state_dict = [{} for _ in range(len(new_ckpt["additive_models"]))]
+    # them in the state dicts of the original checkpoint. Some checkpoints only
+    # contain one of the two state dicts, which is then used for both.
+    for key, fallback_key in [
+        ("model_state_dict", "best_model_state_dict"),
+        ("best_model_state_dict", "model_state_dict"),
+    ]:
+        scaler_state_dict = {}
+        additive_models_state_dict = [
+            {} for _ in range(len(new_ckpt["additive_models"]))
+        ]
 
-    state_dict = checkpoint["model_state_dict"]
-    for k, v in state_dict.items():
-        if k.startswith("scaler."):
-            scaler_state_dict[k.replace("scaler.", "")] = v
+        state_dict = checkpoint.get(key)
+        if state_dict is None:
+            state_dict = checkpoint[fallback_key]
+        for k, v in state_dict.items():
+            if k.startswith("scaler."):
+                scaler_state_dict[k.replace("scaler.", "")] = v
+            for i, additive_model_state_dict in enumerate(additive_models_state_dict):
+                if k.startswith(f"additive_models.{i}."):
+                    additive_model_state_dict[
+                        k.replace(f"additive_models.{i}.", "")
+                    ] = v
+
+        if new_ckpt["scaler"] is None:
+            if len(scaler_state_dict) > 0:
+                raise ValueError(
+                    "The checkpoint contains a scaler state dict, but the model "
+                    "does not have a scaler."
+                )
+        else:
+            new_ckpt["scaler"][key] = scaler_state_dict
+
         for i, additive_model_state_dict in enumerate(additive_models_state_dict):
-            if k.startswith(f"additive_models.{i}."):
-                additive_model_state_dict[k.replace(f"additive_models.{i}.", "")] = v
-
-    if new_ckpt["scaler"] is None:
-        if len(scaler_state_dict) > 0:
-            raise ValueError(
-                "The checkpoint contains a scaler state dict, but the model "
-                "does not have a scaler."
-            )
-    else:
-        new_ckpt["scaler"]["model_state_dict"] = scaler_state_dict
-        new_ckpt["scaler"]["best_model_state_dict"] = scaler_state_dict
-
-    for i, additive_model_state_dict in enumerate(additive_models_state_dict):
-        new_ckpt["additive_models"][i]["model_state_dict"] = additive_model_state_dict
-        new_ckpt["additive_models"][i]["best_model_state_dict"] = (
-            additive_model_state_dict
-        )
+            new_ckpt["additive_models"][i][key] = additive_model_state_dict
 
     return new_ckpt
 

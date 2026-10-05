@@ -91,7 +91,7 @@ def model_trainer_():
     hypers["num_attention_layers"] = 1
     hypers["num_gnn_layers"] = 1
 
-    model = FlashMDSymplectic(hypers, dataset_info)
+    model_hypers = hypers
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 1
@@ -102,10 +102,11 @@ def model_trainer_():
     hypers["training"]["loss"] = loss_hypers
 
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(model_hypers, dataset_info)
 
     trainer.train(
         model,
-        dtype=model.__supported_dtypes__[0],
+        dtype=model.model.__supported_dtypes__[0],
         devices=[torch.device("cpu")],
         train_datasets=[dataset],
         val_datasets=[dataset],
@@ -180,7 +181,7 @@ class TestCheckpoints(CheckpointTests):
         hypers["num_attention_layers"] = 1
         hypers["num_gnn_layers"] = 1
 
-        model = FlashMDSymplectic(hypers, dataset_info)
+        model_hypers = hypers
 
         hypers = copy.deepcopy(DEFAULT_HYPERS)
         hypers["training"]["num_epochs"] = 1
@@ -191,10 +192,11 @@ class TestCheckpoints(CheckpointTests):
         hypers["training"]["loss"] = loss_hypers
 
         trainer = Trainer(hypers["training"])
+        model = trainer.setup(model_hypers, dataset_info)
 
         trainer.train(
             model,
-            dtype=model.__supported_dtypes__[0],
+            dtype=model.model.__supported_dtypes__[0],
             devices=[torch.device("cpu")],
             train_datasets=[dataset],
             val_datasets=[dataset],

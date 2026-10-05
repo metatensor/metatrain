@@ -293,6 +293,12 @@ class MetatrainModel(torch.nn.Module):
             scaler=scaler.module if scaler is not None else None,
             dataset_info=self.dataset_info,
         )
+        # Some architectures have attributes that downstream code reads from the
+        # exported module (e.g. FlashMD's ``timestep``, read by the ``flashmd``
+        # integrators and by LAMMPS' ``fix metatomic``). Expose them on the wrapper
+        # too, so that they can still be found at the same place.
+        for name in getattr(model.module, "__exported_buffers__", []):
+            to_export.register_buffer(name, getattr(model.module, name))
 
         if metadata is None:
             metadata = model.metadata()

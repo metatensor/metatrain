@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Literal, Optional, Tuple
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -17,14 +16,9 @@ from metatomic.torch import (
 )
 from torch.profiler import record_function
 
-from metatrain.composition import CompositionModel
-from metatrain.pet.modules.finetuning import (
-    apply_finetuning_strategy,
-    compute_stale_targets,
-)
+from metatrain.pet.modules.finetuning import apply_finetuning_strategy
 from metatrain.pet.modules.transformer import CartesianTransformer
 from metatrain.pet.modules.utilities import cutoff_func_cosine as cutoff_func
-from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, TargetInfo
@@ -37,7 +31,6 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .documentation import ModelHypers
-from .modules.additive import PositionAdditive
 from .modules.encoder import NodeEncoder
 from .modules.structures import systems_to_batch
 
@@ -52,9 +45,11 @@ class FlashMD(ModelInterface[ModelHypers]):
     For more information, you can refer to https://arxiv.org/abs/2505.19350.
     """
 
-    __checkpoint_version__ = 5
+    __checkpoint_version__ = 6
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
+    # read by downstream integrators from the exported module
+    __exported_buffers__ = ["timestep"]
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2505.19350"]}
     )
@@ -191,31 +186,6 @@ class FlashMD(ModelInterface[ModelHypers]):
             self.long_range = False
             self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
 
-        # additive models: these are handled by the trainer at training
-        # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel.from_valid_targets(
-            dataset_info, self.atomic_types
-        )
-        position_additive = PositionAdditive(
-            hypers={"also_momenta": self.hypers["predict_momenta_as_difference"]},
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if PositionAdditive.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        additive_models = [composition_model, position_additive]
-
-        self.additive_models = torch.nn.ModuleList(additive_models)
-
-        # scaler: this is also handled by the trainer at training time
-        scaler_hypers = get_default_hypers("scaler")["model"]
-        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
-
         self.single_label = Labels.single()
 
         self.finetune_config: Dict[str, Any] = {}
@@ -255,15 +225,6 @@ class FlashMD(ModelInterface[ModelHypers]):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
-        self.has_new_targets = len(new_targets) > 0
-
-        # Targets that were present before this run but are not part of the current
-        # run's dataset: with a backbone-altering finetuning method (full/lora), their
-        # heads are no longer meaningful and are dropped once training starts, by
-        # ``apply_finetuning_strategy`` (which decides based on the method).
-        stale_targets = compute_stale_targets(
-            self.dataset_info.targets, dataset_info.targets
-        )
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -277,37 +238,6 @@ class FlashMD(ModelInterface[ModelHypers]):
             self._add_output(target_name, target)
 
         self.dataset_info = merged_info
-
-        # restart the composition and scaler models
-        self.additive_models[0] = self.additive_models[0].restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        self.additive_models[1] = self.additive_models[1].restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if PositionAdditive.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        self.scaler = self.scaler.restart(dataset_info)
-
-        # Actual removal (if any) is deferred to ``apply_finetuning_strategy``
-        # (called later, once training starts), since ``inherit_heads`` needs these
-        # stale targets' heads to still be around to copy weights from, and only
-        # backbone-altering methods (``full``/``lora``) actually drop them.
-        self._stale_finetune_targets = stale_targets
 
         return self
 
@@ -404,15 +334,6 @@ class FlashMD(ModelInterface[ModelHypers]):
         - Contributions from all GNN layers are summed
         - Edge contributions are summed over neighbors with cutoff weighting
         - Multiple tensor blocks per output are handled independently
-
-        **Post-processing (Evaluation Only)**
-
-        During evaluation (not training), the following transformations are applied:
-
-        1. **Scaling**: Predictions are scaled using learned or configured scale
-           factors
-        2. **Additive contributions**: Composition model and optional ZBL repulsion
-           contributions are added to the predictions
 
         :param systems: List of `metatomic.torch.System` objects to process. Each
             system should contain atomic positions, species, and cell information, with
@@ -570,57 +491,6 @@ class FlashMD(ModelInterface[ModelHypers]):
 
             for k, v in atomic_predictions_dict.items():
                 return_dict[k] = v
-
-        # **Post-processing (Evaluation Only)**
-
-        if not self.training:
-            with record_function("FlashMD::post-processing"):
-                # at evaluation, we also introduce the scaler and additive contributions
-                return_dict = self.scaler.apply_scales(
-                    systems,
-                    return_dict,
-                    selected_atoms=selected_atoms,
-                    use_per_target_scales=True,
-                    use_per_property_scales=True,
-                )
-                for additive_model in self.additive_models:
-                    outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                    for name, output in outputs.items():
-                        if name in additive_model.outputs:
-                            outputs_for_additive_model[name] = output
-                    additive_contributions = additive_model(
-                        systems,
-                        outputs_for_additive_model,
-                        selected_atoms,
-                    )
-                    for name in additive_contributions:
-                        # TODO: uncomment this after metatensor.torch.add
-                        # is updated to handle sparse sums
-                        # return_dict[name] = metatensor.torch.add(
-                        #     return_dict[name],
-                        #     additive_contributions[name].to(
-                        #         device=return_dict[name].device,
-                        #         dtype=return_dict[name].dtype
-                        #         ),
-                        # )
-                        # TODO: "manual" sparse sum: update to metatensor.torch.add
-                        # after sparse sum is implemented in metatensor.operations
-                        output_blocks: List[TensorBlock] = []
-                        for k, b in return_dict[name].items():
-                            if k in additive_contributions[name].keys:
-                                output_blocks.append(
-                                    _add_block_block(
-                                        b,
-                                        additive_contributions[name]
-                                        .block(k)
-                                        .to(device=b.device, dtype=b.dtype),
-                                    )
-                                )
-                            else:
-                                output_blocks.append(b.copy(deep=False))
-                        return_dict[name] = TensorMap(
-                            return_dict[name].keys, output_blocks
-                        )
 
         return return_dict
 
@@ -1204,8 +1074,6 @@ class FlashMD(ModelInterface[ModelHypers]):
         next(state_dict_iter)  # skip the species_to_species_index
         dtype = next(state_dict_iter).dtype
         model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -1218,24 +1086,12 @@ class FlashMD(ModelInterface[ModelHypers]):
             raise ValueError(f"unsupported dtype {dtype} for FlashMD")
 
         # Make sure the model is all in the same dtype
-        # For example, after training, the additive models could still be in
-        # float64
         self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
-
-        interaction_ranges = [self.num_gnn_layers * self.cutoff]
-        for additive_model in self.additive_models:
-            if hasattr(additive_model, "cutoff_radius"):
-                interaction_ranges.append(additive_model.cutoff_radius)
-        interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=self.atomic_types,
-            interaction_range=interaction_range,
+            interaction_range=self.num_gnn_layers * self.cutoff,
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
             dtype=dtype_to_str(dtype),
@@ -1361,6 +1217,9 @@ class FlashMD(ModelInterface[ModelHypers]):
         self.key_labels.pop(target_name, None)
         self.component_labels.pop(target_name, None)
         self.property_labels.pop(target_name, None)
+        if target_name in self.target_names:
+            self.target_names.remove(target_name)
+        self.dataset_info.targets.pop(target_name, None)
 
     def _move_labels_to_device(self, device: torch.device) -> None:
         self.single_label = self.single_label.to(device)
@@ -1381,19 +1240,42 @@ class FlashMD(ModelInterface[ModelHypers]):
         }
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
+    def upgrade_checkpoint(
+        cls, checkpoint: Dict, version: Optional[int] = None
+    ) -> Dict:
+        if version is None:
+            version = cls.__checkpoint_version__
+        elif version > cls.__checkpoint_version__:
+            raise ValueError(
+                f"Was asked to upgrade checkpoint to version {version},"
+                "which is higher than the current model version:"
+                f" {cls.__checkpoint_version__}."
+            )
+        elif version < checkpoint["model_ckpt_version"]:
+            raise ValueError(
+                f"Was asked to upgrade checkpoint to version {version},"
+                "but the checkpoint is at a higher version:"
+                f" {checkpoint['model_ckpt_version']}."
+            )
+
+        for v in range(1, version):
             if checkpoint["model_ckpt_version"] == v:
                 update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
                 update(checkpoint)
                 checkpoint["model_ckpt_version"] = v + 1
 
-        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {checkpoint['model_ckpt_version']}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
-            )
+        if checkpoint["model_ckpt_version"] != version:
+            if version == cls.__checkpoint_version__:
+                raise RuntimeError(
+                    f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                    f"version {checkpoint['model_ckpt_version']}, while the current "
+                    f"model version is {version}."
+                )
+            else:
+                raise RuntimeError(
+                    f"Unable to upgrade the checkpoint from version"
+                    f" {checkpoint['model_ckpt_version']} to version {version}."
+                )
 
         return checkpoint
 

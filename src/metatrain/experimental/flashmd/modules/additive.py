@@ -1,20 +1,30 @@
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import ModelOutput, NeighborListOptions, System
+from metatomic.torch import (
+    AtomisticModel,
+    ModelCapabilities,
+    ModelMetadata,
+    ModelOutput,
+    NeighborListOptions,
+    System,
+)
 from pydantic import TypeAdapter
 from typing_extensions import TypedDict
 
+from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.metadata import merge_metadata
 
 
 class PositionAdditiveHypers(TypedDict):
     also_momenta: bool
 
 
-class PositionAdditive(torch.nn.Module):
+class PositionAdditive(ModelInterface):
     """
     A simple additive model that adds the positions of the system to any outputs that
     is either "position" or one of its variants.
@@ -22,8 +32,13 @@ class PositionAdditive(torch.nn.Module):
     Optionally, it can also do the same with momenta.
     """
 
+    __checkpoint_version__ = 1
+    __supported_devices__ = ["cuda", "cpu"]
+    __supported_dtypes__ = [torch.float32, torch.float64]
+    __default_metadata__ = ModelMetadata()
+
     def __init__(self, hypers: PositionAdditiveHypers, dataset_info: DatasetInfo):
-        super().__init__()
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         TypeAdapter(PositionAdditiveHypers).validate_python(
             hypers, strict=True, extra="forbid"
@@ -46,10 +61,13 @@ class PositionAdditive(torch.nn.Module):
                 description=value.description,
             )
 
-    def restart(self, dataset_info: DatasetInfo) -> "PositionAdditive":
+    def restart(
+        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+    ) -> "PositionAdditive":
         """Restart the model with a new dataset info.
 
         :param dataset_info: New dataset information to be used.
+        :param model_hypers: Not used.
         :return: The restarted model.
         """
 
@@ -193,3 +211,86 @@ class PositionAdditive(torch.nn.Module):
         if target_name == "momentum" or target_name.startswith("momentum/"):
             return True
         return False
+
+    def get_checkpoint(self) -> Dict[str, Any]:
+        """
+        Get the checkpoint of the model. This should contain all the information
+        needed by `load_checkpoint` to recreate the same model instance.
+
+        :return: The model's checkpoint.
+        """
+        checkpoint = {
+            "architecture_name": "flashmd_position_additive",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "model_data": {
+                "hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "model_state_dict": self.state_dict(),
+        }
+        return checkpoint
+
+    @classmethod
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "PositionAdditive":
+        """
+        Create a model from a checkpoint (i.e. state dictionary).
+
+        :param checkpoint: Checkpoint's state dictionary.
+        :param context: Context in which to load the model. Not used.
+
+        :return: An instance of the model.
+        """
+        model = cls(
+            hypers=checkpoint["model_data"]["hypers"],
+            dataset_info=checkpoint["model_data"]["dataset_info"],
+        )
+        model.load_state_dict(checkpoint["model_state_dict"])
+        return model
+
+    @classmethod
+    def upgrade_checkpoint(
+        cls, checkpoint: Dict, version: Optional[int] = None
+    ) -> Dict:
+        """
+        Upgrade the checkpoint to the current version of the model.
+
+        :param checkpoint: Checkpoint's state dictionary.
+        :param version: Version to which the checkpoint should be upgraded. If ``None``,
+            the checkpoint will be upgraded to the current version of the model.
+
+        :return: The upgraded checkpoint.
+        """
+        if version is None:
+            version = cls.__checkpoint_version__
+        if checkpoint["model_ckpt_version"] != version:
+            raise NotImplementedError(
+                "PositionAdditive does not support checkpoint upgrading. "
+                "There is only one checkpoint version."
+            )
+        return checkpoint
+
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
+        """
+        Turn this model into an :py:class:`metatomic.torch.AtomisticModel`,
+        containing the model itself, its capabilities and its metadata.
+
+        :param metadata: Additional metadata to add to the model, as specified
+            by the user.
+        :return: An instance of :py:class:`metatomic.torch.AtomisticModel`.
+        """
+        capabilities = ModelCapabilities(
+            outputs=self.outputs,
+            atomic_types=self.atomic_types,
+            interaction_range=0.0,
+            length_unit=self.dataset_info.length_unit,
+            supported_devices=self.__supported_devices__,
+            dtype=dtype_to_str(torch.float64),
+        )
+
+        metadata = merge_metadata(self.metadata, metadata)
+
+        return AtomisticModel(self.eval(), metadata, capabilities)
