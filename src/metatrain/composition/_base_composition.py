@@ -86,7 +86,6 @@ class BaseCompositionModel(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.atomic_types = torch.as_tensor(atomic_types, dtype=torch.int32)
         self.target_names = []
         self.sample_kinds = {}
         # `XTX` and `XTY` are only used during fitting, not at inference, so they
@@ -95,6 +94,10 @@ class BaseCompositionModel(nn.Module):
         self.register_buffer("XTY", {}, persistent=False)
         self.register_buffer("weights", {})
 
+        self.register_buffer(
+            "atomic_types", torch.as_tensor(atomic_types, dtype=torch.int32),
+            persistent=False,
+        )
         # go from an atomic type to its position in `self.atomic_types`
         self.register_buffer(
             "type_to_index", torch.empty(max(self.atomic_types) + 1, dtype=torch.long)
