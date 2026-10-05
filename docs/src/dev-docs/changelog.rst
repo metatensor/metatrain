@@ -35,6 +35,9 @@ Fixed
 Added
 #####
 
+- Added ``experimental.lorem`` architecture (*Learning Long-Range
+  Representations with Equivariant Messages*, https://arxiv.org/abs/2507.19382).
+
 Changed
 #######
 
