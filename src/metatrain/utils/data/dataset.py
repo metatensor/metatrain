@@ -42,6 +42,7 @@ from metatrain.utils.data.target_info import (
     TargetInfo,
     get_energy_target_info,
     get_generic_target_info,
+    property_label_name,
 )
 from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.units import get_gradient_units
@@ -1658,7 +1659,7 @@ class MemmapDataset(TorchDataset):
                         samples=extra_samples,
                         components=[],
                         properties=Labels.range(
-                            key.replace("mtt::", ""), arr.shape[-1]
+                            property_label_name(key), arr.shape[-1]
                         ),
                     )
                 ],

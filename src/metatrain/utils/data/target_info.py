@@ -384,6 +384,18 @@ class TargetInfo:
             self.blocks_shape = state["blocks_shape"]
 
 
+def property_label_name(name: str) -> str:
+    """Return the metatensor property label for a target or extra-data key.
+
+    A ``/<variant>`` suffix and an ``mtt::`` prefix are removed. ``/`` is not a
+    valid label name, and the prefix is not part of the quantity name.
+
+    :param name: Target name, extra-data key, or output name.
+    :return: The property label name.
+    """
+    return name.split("/")[0].replace("mtt::", "")
+
+
 def get_energy_target_info(
     target_name: str,
     target: DictConfig,
@@ -510,10 +522,7 @@ def _get_scalar_target_info(target_name: str, target: DictConfig) -> TargetInfo:
         ),
         components=[],
         properties=Labels.range(
-            # remove variant and/or mtt:: prefix from target name
-            (target_name.split("/")[0] if "/" in target_name else target_name).replace(
-                "mtt::", ""
-            ),
+            property_label_name(target_name),
             target["num_subtargets"],
         ),
     )
@@ -571,10 +580,7 @@ def _get_cartesian_target_info(target_name: str, target: DictConfig) -> TargetIn
         ),
         components=components,
         properties=Labels.range(
-            # remove variant and/or mtt:: prefix from target name
-            (target_name.split("/")[0] if "/" in target_name else target_name).replace(
-                "mtt::", ""
-            ),
+            property_label_name(target_name),
             target["num_subtargets"],
         ),
     )

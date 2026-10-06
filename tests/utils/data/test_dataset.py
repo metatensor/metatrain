@@ -889,13 +889,17 @@ def test_memmap_extra_data_system_label(tmp_path):
         assert system_label == [i]
 
 
-def test_memmap_extra_data_property_name_from_key(tmp_path):
-    """Properties label name is the extra_data key with the 'mtt::' prefix stripped."""
+@pytest.mark.parametrize(
+    "extra_key",
+    ["charge", "mtt::charge", "charge/dft", "mtt::charge/dft"],
+)
+def test_memmap_extra_data_property_name_from_key(tmp_path, extra_key):
+    """The property label drops an ``mtt::`` prefix and a ``/<variant>`` suffix."""
     target_options, _ = _write_minimal_memmap(tmp_path)
     np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
 
     extra_data_options = {
-        "charge": {
+        extra_key: {
             "key": "charge",
             "type": "scalar",
             "sample_kind": "system",
@@ -905,7 +909,7 @@ def test_memmap_extra_data_property_name_from_key(tmp_path):
     }
     dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
 
-    tm = dataset[0]._asdict()["charge"]
+    tm = dataset[0]._asdict()[extra_key]
     prop_name = tm.block().properties.names[0]
     assert prop_name == "charge"
 
