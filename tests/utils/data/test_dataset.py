@@ -765,6 +765,39 @@ def test_memmap_per_atom_labels_use_local_indices(tmp_path):
     )
 
 
+@pytest.mark.parametrize(
+    "target_name", ["non_conservative_stress", "non_conservative_stress/variant"]
+)
+def test_memmap_variant_target_property_labels(tmp_path, target_name):
+    """The property label name of generic targets must not contain the variant, so
+    that it matches the layout from get_generic_target_info."""
+    ns = 1
+    na = np.array([0, 2], dtype=np.int64)
+    np.save(tmp_path / "ns.npy", ns)
+    np.save(tmp_path / "na.npy", na)
+    np.zeros((2, 3), dtype="float32").tofile(tmp_path / "x.bin")
+    np.array([1, 1], dtype="int32").tofile(tmp_path / "a.bin")
+    np.eye(3, dtype="float32").reshape(ns, 3, 3).tofile(tmp_path / "c.bin")
+    np.ones((ns, 3, 3, 1), dtype="float32").tofile(tmp_path / "s.bin")
+
+    target_options = {
+        target_name: {
+            "key": "s",
+            "sample_kind": "system",
+            "num_subtargets": 1,
+            "type": {"cartesian": {"rank": 2}},
+            "quantity": "",
+            "unit": "",
+        }
+    }
+    dataset = MemmapDataset(tmp_path, target_options)
+
+    properties = dataset[0][1].block().properties
+    assert properties.names == ["non_conservative_stress"]
+    # checks that the TensorMaps are consistent with the target info layout
+    dataset.get_target_info()
+
+
 @pytest.mark.parametrize("bad_dtype", [np.int32, np.uint64, np.float64])
 def test_memmap_rejects_non_int64_na(tmp_path, bad_dtype):
     """na.npy must be int64; int32 (overflow risk), uint64, float64 are all rejected."""
