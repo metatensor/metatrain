@@ -27,12 +27,37 @@ Unreleased
 Fixed
 #####
 
+- Ensemble losses (``gaussian_nll_ensemble``, ``gaussian_crps_ensemble`` and
+  ``empirical_crps_ensemble``) now work for targets with components, such as
+  ``non_conservative_force``, instead of failing when the mean and variance
+  blocks are built.
+
+Added
+#####
+
+- Added ``experimental.lorem`` architecture (*Learning Long-Range
+  Representations with Equivariant Messages*, https://arxiv.org/abs/2507.19382).
+
+Changed
+#######
+
+Removed
+#######
+
+Version 2026.4.1 - 2026-09-25
+-----------------------------
+
+Fixed
+#####
+
 - ``ZBL`` now accepts every spelling of the angstrom that metatomic accepts
   (``angstrom``, ``Angstrom``, ``A``, ...), instead of only the exact string
   ``angstrom``.
 
 Added
 #####
+
+- The DPA3 architecture now can load pretrained multi-task DPA3 models.
 
 Changed
 #######
