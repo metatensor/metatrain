@@ -71,7 +71,13 @@ def _set(values: List[int]) -> List[int]:
 
 @torch.jit.unused
 def _layout_metadata_diff(left: TensorMap, right: TensorMap) -> str:
-    """Describe sample, component, and property label names that differ."""
+    """Describe sample, component, and property label names that differ.
+
+    :param left: The first layout.
+    :param right: The second layout.
+    :return: A short description of the differing label names, or an empty string
+        when the names match.
+    """
     parts = []
     if left.keys.names != right.keys.names:
         parts.append(f"keys {list(left.keys.names)} vs {list(right.keys.names)}")
