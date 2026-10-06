@@ -348,6 +348,46 @@ def test_dataset_info_update_different_target_info(layout_scalar):
         info.update(info2)
 
 
+def _rank1_layout(property_name: str) -> TensorMap:
+    block = TensorBlock(
+        values=torch.empty((0, 3, 1), dtype=torch.float64),
+        samples=Labels(["system", "atom"], torch.empty((0, 2), dtype=torch.int32)),
+        components=[Labels(["xyz"], torch.arange(3, dtype=torch.int32).reshape(-1, 1))],
+        properties=Labels([property_name], torch.zeros((1, 1), dtype=torch.int32)),
+    )
+    return TensorMap(keys=Labels.single(), blocks=[block])
+
+
+def test_dataset_info_update_reports_property_label_names():
+    """Incompatible layouts name the property labels that differ."""
+    info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1],
+        targets={
+            "non_conservative_force": TargetInfo(
+                layout=_rank1_layout("non_conservative_forces"),
+                quantity="force",
+                unit="eV/A",
+            )
+        },
+    )
+    other = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1],
+        targets={
+            "non_conservative_force": TargetInfo(
+                layout=_rank1_layout("non_conservative_force"),
+                quantity="force",
+                unit="eV/A",
+            )
+        },
+    )
+    with pytest.raises(
+        ValueError, match="non_conservative_forces.*non_conservative_force"
+    ):
+        info.update(other)
+
+
 def test_dataset_info_union(layout_scalar, layout_cartesian):
     """Tests the union method."""
     targets = {}

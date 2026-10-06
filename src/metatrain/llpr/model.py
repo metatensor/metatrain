@@ -43,7 +43,7 @@ from .documentation import ModelHypers
 
 
 class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 5
 
     ensemble_gradient_outputs: List[str]
 
