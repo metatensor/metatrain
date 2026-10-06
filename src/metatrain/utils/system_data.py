@@ -7,6 +7,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
 from .data.dataset import CollateTransform
+from .data.target_info import property_label_name
 
 
 def get_system_data_transform(
@@ -40,7 +41,9 @@ def get_system_data_transform(
         for key in data_keys:
             if key not in extra:
                 continue
-            prop_name = key.split("::")[-1]
+            # The last ``::`` segment is the quantity; drop a ``/<variant>``
+            # suffix so the property label stays a valid metatensor name.
+            prop_name = property_label_name(key.split("::")[-1])
             block = extra[key].block()
             if block.samples.names != ["system"]:
                 raise ValueError(

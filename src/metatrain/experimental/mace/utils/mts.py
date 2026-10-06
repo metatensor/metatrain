@@ -13,6 +13,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
 from metatrain.utils.data import TargetInfo
+from metatrain.utils.data.target_info import property_label_name
 
 
 def e3nn_to_tensormap(
@@ -101,7 +102,7 @@ def get_e3nn_mts_layout(
         sample_names.append("first_atom")
         sample_names.append("second_atom")
 
-    properties_name = target.get("properties_name", target_name.replace("mtt::", ""))
+    properties_name = target.get("properties_name", property_label_name(target_name))
 
     keys = []
     blocks = []
