@@ -17,6 +17,7 @@ from .architectures import (
     get_default_hypers,
     import_architecture,
 )
+from .data.legacy_names import upgrade_legacy_non_conservative_force
 from .wrapper import MetatrainModel
 
 
@@ -515,6 +516,11 @@ def upgrade_checkpoint(checkpoint: dict) -> dict:
                     f"{model_cls.__checkpoint_version__}; and trying to "
                     "upgrade the checkpoint failed."
                 ) from e
+
+        # #1153 renamed the target without a checkpoint migration. Apply the
+        # rename even when the checkpoint version already matches, and for
+        # architectures other than PET and LLPR.
+        upgrade_legacy_non_conservative_force(checkpoint)
 
     # Continue to recursively search for models in the checkpoint and upgrade them.
     if isinstance(checkpoint, dict):
