@@ -440,6 +440,33 @@ class Scaler(ModelInterface[ModelHypers]):
             if hasattr(self, buffer_name):
                 delattr(self, buffer_name)
 
+    def inherit_scales(self, dest_target: str, source_target: str) -> None:
+        """
+        Copy the scales of ``source_target`` onto ``dest_target``, and exclude
+        ``dest_target`` from the next fit.
+
+        :param dest_target: Name of the target to copy the scales into.
+        :param source_target: Name of the target to copy the scales from.
+        """
+        scales_by_suffix = {
+            "_scaler_buffer": self.model.scales,
+            "_per_target_scaler_buffer": self.model.per_target_scales,
+            "_per_property_scaler_buffer": self.model.per_property_scales,
+        }
+        for suffix, all_scales in scales_by_suffix.items():
+            dest = all_scales[dest_target]
+            for key, dest_block in dest.items():
+                dest_block.values[:] = all_scales[source_target].block(key).values
+            buffer_name = dest_target + suffix
+            self.register_buffer(
+                buffer_name,
+                mts.save_buffer(mts.make_contiguous(dest.to("cpu", torch.float64))).to(
+                    self.__getattr__(buffer_name).device
+                ),
+            )
+        if dest_target in self.new_outputs:
+            self.new_outputs.remove(dest_target)
+
     def scales_to(self, device: torch.device, dtype: torch.dtype) -> None:
         if len(self.model.scales) != 0:
             if self.model.scales[list(self.model.scales.keys())[0]].device != device:
