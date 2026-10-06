@@ -22,6 +22,11 @@ def rename_label_column(
     """Return ``tensor_map`` with every ``old_name`` label column renamed.
 
     The input is returned unchanged when ``old_name`` does not appear.
+
+    :param tensor_map: Tensor map whose label columns may use ``old_name``.
+    :param old_name: Label name to replace.
+    :param new_name: Label name to use instead.
+    :return: ``tensor_map`` itself when nothing changed, otherwise a copy.
     """
 
     def column(labels: Labels) -> Labels:
@@ -79,7 +84,11 @@ def _rename_target_info(target_info: TargetInfo) -> TargetInfo:
 
 
 def _rename_mapping(mapping: Any) -> None:
-    """Rename the legacy force key inside dicts and lists stored in a checkpoint."""
+    """Rename the legacy force key inside dicts and lists stored in a checkpoint.
+
+    :param mapping: A checkpoint fragment. Nested dicts and lists are updated
+        in place. Other objects are ignored.
+    """
     if isinstance(mapping, dict):
         if (
             LEGACY_NON_CONSERVATIVE_FORCE in mapping
@@ -133,6 +142,8 @@ def upgrade_legacy_non_conservative_force(checkpoint: dict) -> None:
     key paths, and target-keyed training hypers. Nested ``wrapped_model_checkpoint``
     entries (LLPR) are updated as well. Checkpoints that already use the singular
     name are left unchanged.
+
+    :param checkpoint: Checkpoint dictionary to update.
     """
     model_data = checkpoint.get("model_data")
     if isinstance(model_data, dict):
