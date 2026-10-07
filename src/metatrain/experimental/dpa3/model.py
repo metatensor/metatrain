@@ -404,12 +404,12 @@ class DPA3(ModelInterface[ModelHypers]):
                 values=atomic_property_tensor,
                 samples=invariant_coefficients,
                 components=self.component_labels[self.targets_keys][0],
-                properties=self.property_labels[self.targets_keys][0].to(device),
+                properties=self.property_labels[self.targets_keys][0],
             )
         )
 
         atomic_properties[self.targets_keys] = TensorMap(
-            self.key_labels[self.targets_keys].to(device), blocks
+            self.key_labels[self.targets_keys], blocks
         )
 
         if selected_atoms is not None:

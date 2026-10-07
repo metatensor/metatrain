@@ -627,9 +627,7 @@ class BaseScaler(nn.Module):
 
             # Store the per-property scales
             self.per_property_scales[target_name] = TensorMap(
-                self.per_property_Y2[target_name].keys.to(
-                    device=scale_vals_type.device
-                ),
+                self.per_property_Y2[target_name].keys,
                 blocks,
             )
 
@@ -922,10 +920,10 @@ class BaseScaler(nn.Module):
             )
 
         self.scales[target_name] = TensorMap(
-            self.Y2[target_name].keys.to(device=block.values.device),
+            self.Y2[target_name].keys,
             [block.copy(deep=False)],
         )
         self.per_target_scales[target_name] = TensorMap(
-            self.Y2[target_name].keys.to(device=block.values.device),
+            self.Y2[target_name].keys,
             [block.copy(deep=False)],
         )

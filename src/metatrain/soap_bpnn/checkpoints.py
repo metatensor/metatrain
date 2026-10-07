@@ -280,9 +280,9 @@ def model_update_v9_v10(checkpoint: dict) -> None:
         empty_tensor = torch.zeros(
             0, dtype=dummy_buffer.dtype, device=dummy_buffer.device
         )
-
-        state_dict["_mts_helper"] = empty_tensor
-        state_dict["_extra_state"] = {}
+        for prefix in ['', "soap_calculator.", "basis_calculators.energy.energy___0.", "basis_calculators.energy.energy___0.lambda_basis_module."]:
+            state_dict[f"{prefix}_mts_helper"] = empty_tensor
+            state_dict[f"{prefix}_extra_state"] = {}    
 
 
 ###########################

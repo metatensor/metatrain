@@ -473,14 +473,14 @@ class BaseCompositionModel(nn.Module):
                 blocks.append(
                     TensorBlock(
                         values=weight_vals.contiguous(),
-                        samples=XTY_block.samples.to(device=weight_vals.device),
+                        samples=XTY_block.samples,
                         components=XTY_block.components,
-                        properties=XTY_block.properties.to(device=weight_vals.device),
+                        properties=XTY_block.properties,
                     )
                 )
 
             self.weights[target_name] = TensorMap(
-                self.XTX[target_name].keys.to(device=weight_vals.device),
+                self.XTX[target_name].keys,
                 blocks,
             )
 
