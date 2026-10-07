@@ -127,8 +127,8 @@ def test_regression_energies_forces_train(tmp_path):
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[6], targets=target_info_dict
     )
-    model = LOREM(_regression_hypers(), dataset_info)
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(_regression_hypers(), dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float32,

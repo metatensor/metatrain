@@ -48,7 +48,7 @@ def _tensor_map(values: torch.Tensor, samples: Labels, layout: TensorMap) -> Ten
 
 
 class LOREM(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -120,14 +120,6 @@ class LOREM(ModelInterface[ModelHypers]):
         self.layouts: Dict[str, TensorMap] = {}
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
-
-        composition_model = CompositionModel.from_valid_targets(
-            dataset_info, self.atomic_types
-        )
-        self.additive_models = torch.nn.ModuleList([composition_model])
-
-        scaler_hypers = get_default_hypers("scaler")["model"]
-        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
     def _add_output(self, target_name: str, target: TargetInfo) -> None:
         n_properties = len(target.layout.block().properties)
@@ -275,29 +267,6 @@ class LOREM(ModelInterface[ModelHypers]):
             else:
                 return_dict[target_name] = sum_over_atoms(atomic_property)
 
-        if not self.training:
-            return_dict = self.scaler.apply_scales(
-                systems,
-                return_dict,
-                selected_atoms=selected_atoms,
-                use_per_target_scales=True,
-                use_per_property_scales=True,
-            )
-            for additive_model in self.additive_models:
-                outputs_for_additive: Dict[str, ModelOutput] = {}
-                for name, output in outputs.items():
-                    if name in additive_model.outputs:
-                        outputs_for_additive[name] = output
-                additive_contributions = additive_model(
-                    systems,
-                    outputs_for_additive,
-                    selected_atoms,
-                )
-                for name in additive_contributions:
-                    return_dict[name] = mts.add(
-                        return_dict[name], additive_contributions[name]
-                    )
-
         return return_dict
 
     def restart(
@@ -321,7 +290,6 @@ class LOREM(ModelInterface[ModelHypers]):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
-        self.has_new_targets = len(new_targets) > 0
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -333,18 +301,6 @@ class LOREM(ModelInterface[ModelHypers]):
             self._add_output(target_name, target)
 
         self.dataset_info = merged_info
-        self.additive_models[0].restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        self.scaler.restart(dataset_info)
         return self
 
     @classmethod
@@ -378,8 +334,6 @@ class LOREM(ModelInterface[ModelHypers]):
             if torch.is_tensor(tensor) and tensor.is_floating_point()
         )
         model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         metadata = checkpoint.get("metadata", None)
         if metadata is not None:
@@ -393,7 +347,6 @@ class LOREM(ModelInterface[ModelHypers]):
             raise ValueError(f"unsupported dtype {dtype} for LOREM")
 
         self.to(dtype)
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         # Long-range Coulomb interactions are always on, so the interaction
         # range is unbounded.
@@ -415,19 +368,43 @@ class LOREM(ModelInterface[ModelHypers]):
         return AtomisticModel(self.eval(), metadata, capabilities)
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
+    def upgrade_checkpoint(
+        cls, checkpoint: Dict, version: Optional[int] = None
+    ) -> Dict:
+        if version is None:
+            version = cls.__checkpoint_version__
+        elif version > cls.__checkpoint_version__:
+            raise ValueError(
+                f"Was asked to upgrade checkpoint to version {version},"
+                "which is higher than the current model version:"
+                f" {cls.__checkpoint_version__}."
+            )
+        elif version < checkpoint["model_ckpt_version"]:
+            raise ValueError(
+                f"Was asked to upgrade checkpoint to version {version},"
+                "but the checkpoint is at a higher version:"
+                f" {checkpoint['model_ckpt_version']}."
+            )
+
+        for v in range(1, version):
             if checkpoint["model_ckpt_version"] == v:
                 update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
                 update(checkpoint)
                 checkpoint["model_ckpt_version"] = v + 1
 
-        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {checkpoint['model_ckpt_version']}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
-            )
+        if checkpoint["model_ckpt_version"] != version:
+            if version == cls.__checkpoint_version__:
+                raise RuntimeError(
+                    f"Unable to upgrade the checkpoint: the checkpoint is using model "
+                    f"version {checkpoint['model_ckpt_version']}, while the current model "
+                    f"version is {version}."
+                )
+            else:
+                raise RuntimeError(
+                    f"Unable to upgrade the checkpoint from version"
+                    f" {checkpoint['model_ckpt_version']} to version {version}."
+                )
+
         return checkpoint
 
     def get_checkpoint(self) -> Dict[str, Any]:

@@ -1,8 +1,21 @@
-"""Checkpoint upgrade helpers for the LOREM architecture.
+"""Checkpoint upgrade helpers for the LOREM architecture."""
 
-LOREM has not had a public release yet, so there is no prior checkpoint
-format to stay compatible with: version 1 is the first checkpoint format,
-and there is nothing to upgrade from. Future versions should add a
-``model_update_v{n}_v{n + 1}`` function here, following the pattern used by
-metatrain's other architectures.
-"""
+def model_update_v1_v2(checkpoint: dict) -> None:
+    """
+    Update a v1 checkpoint to v2.
+
+    It removes the additive models and scaler from the model checkpoint,
+    as this is now handled by the MetatrainModel wrapper.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    removed_prefixes = (
+        "additive_models.",
+        "scaler.",
+    )
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            for k in list(state_dict):
+                for prefix in removed_prefixes:
+                    if k.startswith(prefix):
+                        state_dict.pop(k)
