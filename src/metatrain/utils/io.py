@@ -278,6 +278,7 @@ _mtt_model_versions = {
     "experimental.space": 4,
     "experimental.flashmd": 6,
     "experimental.flashmd_symplectic": 4,
+    "experimental.lorem": 2,
 }
 
 
