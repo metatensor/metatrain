@@ -13,7 +13,11 @@ from metatrain.utils.architectures import get_default_hypers
 def pytest_xdist_auto_num_workers():
     """Limit the number of workers used by pytest"""
     n_processes = os.cpu_count() or 1
-    return 1 #min(12, math.ceil(n_processes * 0.8))
+    # We are setting the maximum to 1 because there
+    # are some tests that fail on the CI when using more
+    # than 1 worker. We need to investigate this and hopefully
+    # bring the maximum back to 12 (the previous value)
+    return min(1, math.ceil(n_processes * 0.8))
 
 
 MODEL_HYPERS = get_default_hypers("soap_bpnn")["model"]
