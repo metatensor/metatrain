@@ -415,25 +415,29 @@ def _sparsify_per_atom_atomic_basis_target(
 
     device = tensor.device
 
-    # Sparsify by moving the "atom_type" from the samples to the keys
-    unique_types: list[int] = (
-        torch.unique(atom_types_batch).to(torch.int64).cpu().tolist()
-    )
-    atom_type_masks: Dict[int, torch.Tensor] = {}
-    atom_type_samples: Dict[int, Labels] = {}
+    # Sparsify by moving the "atom_type" from the samples to the keys. The atoms
+    # are sorted by type once (stably, so each type keeps its sample order), after
+    # which the atoms of each type are a contiguous slice of every block.
+    types, counts = torch.unique(atom_types_batch, return_counts=True)
+    unique_types: list[int] = types.to(torch.int64).cpu().tolist()
+    type_ends: list[int] = torch.cumsum(counts, dim=0).cpu().tolist()
+    order = torch.argsort(atom_types_batch, stable=True)
 
-    # Compute the samples masks (i.e. get the indices for the atoms
-    # of each type), and build the samples labels. This could be computed
-    # in the dataloader since it only depends on the atom types of the systems.
-    sample_indices = torch.arange(len(atom_types_batch)).to(device=device)
-    for atom_type in unique_types:
-        atom_type_masks[atom_type] = sample_indices[atom_types_batch == atom_type]
-        atom_type_samples[atom_type] = Labels(
-            names=["system", "atom"],
-            values=tensor[0].samples.values[atom_type_masks[atom_type]],
+    sorted_samples = tensor[0].samples.values.index_select(0, order)
+    atom_type_samples: List[Labels] = []
+    start = 0
+    for end in type_ends:
+        atom_type_samples.append(
+            Labels(
+                names=["system", "atom"],
+                values=sorted_samples[start:end],
+                assume_unique=True,
+            )
         )
+        start = end
 
-    sparse_properties = sparse_properties.to(device=device)
+    if sparse_properties.device != device:
+        sparse_properties = sparse_properties.to(device=device)
 
     # Build the sparsified tensormap by looping over the dense one
     # and splitting each block into one block per atom type.
@@ -441,41 +445,30 @@ def _sparsify_per_atom_atomic_basis_target(
     sparse_blocks: List[TensorBlock] = []
     for key, block in tensor.items():
         key_values: list[int] = key.values.to(torch.int64).tolist()
-        for atom_type in unique_types:
+        sorted_values = block.values.index_select(0, order)
+        start = 0
+        for type_index, atom_type in enumerate(unique_types):
+            end = type_ends[type_index]
             new_key = key_values + [atom_type]
 
             # Get the corresponding layout block to know which properties to select
             block_position = sparse_properties.keys.position(new_key)
-            if block_position is None:
-                # This irrep doesn't exist for this atom type in the layout
-                continue
-            assert block_position is not None  # for torchscript
-            layout_block = sparse_properties.block_by_id(block_position)
-
-            # Select samples
-            values = block.values[atom_type_masks[atom_type]]
-            # Select properties
-            properties_mask = layout_block.values.ravel()
-            # Do block.values[..., properties_mask] in a torchscriptable way.
-            if block.values.ndim == 3:
-                values = values[:, :, properties_mask]
-            elif block.values.ndim == 4:
-                values = values[:, :, :, properties_mask]
-            else:
-                raise ValueError(
-                    "Tensorblocks with more than 2 component dimensions can't be "
-                    "sparsified with the current implementation."
+            if block_position is not None:
+                layout_block = sparse_properties.block_by_id(block_position)
+                values = sorted_values[start:end].index_select(
+                    -1, layout_block.values.reshape(-1)
                 )
-
-            sparse_block = TensorBlock(
-                values=values,
-                samples=atom_type_samples[atom_type],
-                components=block.components,
-                properties=layout_block.properties,
-            )
-
-            new_keys.append(new_key)
-            sparse_blocks.append(sparse_block)
+                sparse_blocks.append(
+                    TensorBlock(
+                        values=values,
+                        samples=atom_type_samples[type_index],
+                        components=block.components,
+                        properties=layout_block.properties,
+                    )
+                )
+                new_keys.append(new_key)
+            # otherwise this irrep doesn't exist for this atom type in the layout
+            start = end
 
     tensor = TensorMap(
         Labels(

@@ -27,6 +27,7 @@ from metatrain.utils.data.atom_pair_helpers import (
     get_pair_sample_labels,
 )
 from metatrain.utils.data.atomic_basis_helpers import (
+    _compute_sparse_properties,
     densify_atomic_basis_dataset_info,
     sparsify_atomic_basis_target,
 )
@@ -73,6 +74,7 @@ class PET(ModelInterface[ModelHypers]):
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
     component_labels: Dict[str, List[List[Labels]]]
+    sparse_properties: Dict[str, TensorMap]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
@@ -157,6 +159,9 @@ class PET(ModelInterface[ModelHypers]):
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
         self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
+        # For atomic-basis targets: what ``sparsify_atomic_basis_target`` needs to
+        # undo the densification, computed from the layout on first use.
+        self.sparse_properties: Dict[str, TensorMap] = {}
         for target_name, target_info in train_dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
@@ -656,11 +661,15 @@ class PET(ModelInterface[ModelHypers]):
                 # sparsified (by the additive models themselves, in eval mode).
                 for k in atomic_predictions_dict.keys():
                     if self.dataset_info.targets[k].is_atomic_basis:
+                        if k not in self.sparse_properties:
+                            self.sparse_properties[k] = _compute_sparse_properties(
+                                self.dataset_info.targets[k].layout
+                            ).to(device=device)
                         return_dict[k] = sparsify_atomic_basis_target(
                             systems,
                             return_dict[k],
-                            self.dataset_info.targets[k].layout,
-                            species,
+                            atom_types_batch=species,
+                            sparse_properties=self.sparse_properties[k],
                         )
 
                 for additive_model in self.additive_models:
@@ -1251,6 +1260,7 @@ class PET(ModelInterface[ModelHypers]):
         self.key_labels.pop(target_name, None)
         self.component_labels.pop(target_name, None)
         self.property_labels.pop(target_name, None)
+        self.sparse_properties.pop(target_name, None)
 
     def _move_labels_to_device(self, device: torch.device) -> None:
         self.single_label = self.single_label.to(device)
@@ -1269,7 +1279,10 @@ class PET(ModelInterface[ModelHypers]):
             output_name: [labels.to(device) for labels in properties_tmap]
             for output_name, properties_tmap in self.property_labels.items()
         }
-
+        self.sparse_properties = {
+            output_name: sparse_properties.to(device=device)
+            for output_name, sparse_properties in self.sparse_properties.items()
+        }
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:

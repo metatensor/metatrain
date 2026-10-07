@@ -19,6 +19,7 @@ from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.atomic_basis_helpers import (
+    _compute_sparse_properties,
     densify_atomic_basis_dataset_info,
     sparsify_atomic_basis_target,
 )
@@ -62,6 +63,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
     outputs: Dict[str, ModelOutput]
     atomic_types: List[int]
     target_infos: Dict[str, TargetInfo]
+    sparse_properties: Dict[str, TensorMap]
     _new_outputs: List[str]
 
     @staticmethod
@@ -115,6 +117,9 @@ class CompositionModel(ModelInterface[ModelHypers]):
         )
 
         self.outputs: Dict[str, ModelOutput] = {}
+        # For atomic-basis targets: what ``sparsify_atomic_basis_target`` needs to
+        # undo the densification, computed from the layout on first use.
+        self.sparse_properties: Dict[str, TensorMap] = {}
 
         self.register_buffer("dummy_buffer", torch.randn(1, dtype=torch.float64))
 
@@ -337,10 +342,17 @@ class CompositionModel(ModelInterface[ModelHypers]):
             targets = self.dataset_info.targets
             for k, v in pred.items():
                 if k in targets and targets[k].is_atomic_basis:
+                    if (
+                        k not in self.sparse_properties
+                        or self.sparse_properties[k].device != device
+                    ):
+                        self.sparse_properties[k] = _compute_sparse_properties(
+                            targets[k].layout
+                        ).to(device=device)
                     pred[k] = sparsify_atomic_basis_target(
                         systems,
                         v,
-                        targets[k].layout,
+                        sparse_properties=self.sparse_properties[k],
                     )
 
         return pred
