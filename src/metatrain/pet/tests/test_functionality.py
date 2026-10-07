@@ -223,7 +223,10 @@ def test_attention_above_cuda_grid_limit():
 
 
 @pytest.mark.parametrize("sample_kind", ["atom", "system"])
-def test_nc_stress(sample_kind):
+@pytest.mark.parametrize(
+    "target_name", ["non_conservative_stress", "non_conservative_stress/variant"]
+)
+def test_nc_stress(sample_kind, target_name):
     """Tests that the model can predict a symmetric rank-2 tensor as the NC stress."""
     # (note that no composition energies are supplied or calculated here)
 
@@ -231,8 +234,8 @@ def test_nc_stress(sample_kind):
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "non_conservative_stress": get_generic_target_info(
-                "non_conservative_stress",
+            target_name: get_generic_target_info(
+                target_name,
                 {
                     "quantity": "stress",
                     "unit": "",
@@ -253,8 +256,8 @@ def test_nc_stress(sample_kind):
         pbc=torch.tensor([True, True, True]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"non_conservative_stress": ModelOutput(sample_kind=sample_kind)}
-    stress = model([system], outputs)["non_conservative_stress"].block().values
+    outputs = {target_name: ModelOutput(sample_kind=sample_kind)}
+    stress = model([system], outputs)[target_name].block().values
     assert torch.allclose(stress, stress.transpose(1, 2))
 
 

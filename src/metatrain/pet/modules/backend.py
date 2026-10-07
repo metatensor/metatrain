@@ -480,7 +480,7 @@ class PETBackend(torch.nn.Module):
                     )
                 block_sums.append(block_sum)
 
-            if output_name == "non_conservative_stress":  # TODO: variants
+            if output_name.split("/")[0] == "non_conservative_stress":
                 num_properties = block_sums[0].shape[1] // 9
                 block_sums[0] = process_non_conservative_stress(
                     block_sums[0],

@@ -31,6 +31,12 @@ Fixed
   ``empirical_crps_ensemble``) now work for targets with components, such as
   ``non_conservative_force``, instead of failing when the mean and variance
   blocks are built.
+- PET now symmetrizes and divides by the cell volume the predictions of
+  ``non_conservative_stress/<variant>`` targets, as it already did for
+  ``non_conservative_stress``.
+- ``MemmapDataset`` can now load generic targets with a variant (e.g.
+  ``non_conservative_stress/<variant>``), instead of failing with
+  ``'<name>/<variant>' is not a valid label name``.
 - Dataset merging and training restarts now accept equivalent unit spellings
   such as ``A`` and ``angstrom`` or ``eV/A^3`` and
   ``eV/angstrom^3``, avoiding false unit incompatibility errors.
