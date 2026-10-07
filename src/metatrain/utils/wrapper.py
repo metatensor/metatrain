@@ -344,19 +344,37 @@ class MetatrainModel(torch.nn.Module):
 
         return checkpoint
 
-    def get_checkpoint(self) -> Dict[str, Any]:
+    def get_checkpoint(self, best_model_state_dict: dict[str, Any] = None) -> dict[str, Any]:
         """
         Get the checkpoint of the model. This should contain all the information
         needed by `load_checkpoint` to recreate the same model instance.
 
+        :param best_model_state_dict: Optional state dictionary of the best model
+            (if available). If provided, the submodels will receive their
+            corresponding best state dict so that they can include it in their
+            checkpoints.
+
         :return: The model's checkpoint.
         """
+        model_best_state_dict = None
+        additive_models_best_state_dicts = [None] * len(self.additive_models)
+        scaler_best_state_dict = None
+
+        # Split the best_model_state_dict into the corresponding sub-models' state dicts
+        if best_model_state_dict is not None:
+            model_best_state_dict = {k.replace("model.", ""): v for k, v in best_model_state_dict.items() if k.startswith("model.")}
+            additive_models_best_state_dicts = [
+                {k.replace(f"additive_models.{i}.", ""): v for k, v in best_model_state_dict.items() if k.startswith(f"additive_models.{i}.")}
+                for i in range(len(self.additive_models))
+            ]
+            scaler_best_state_dict = {k.replace("scaler.", ""): v for k, v in best_model_state_dict.items() if k.startswith("scaler.")}
+
         checkpoint = {
             "model_ckpt_version": self.__checkpoint_version__,
             "dataset_info": self.dataset_info,
-            "model": self.model.get_checkpoint(),
-            "additive_models": [m.get_checkpoint() for m in self.additive_models],
-            "scaler": self.scaler.get_checkpoint() if self.scaler is not None else None,
+            "model": self.model.get_checkpoint(model_best_state_dict),
+            "additive_models": [m.get_checkpoint(best_state) for best_state in zip(self.additive_models, additive_models_best_state_dicts, strict=True)],
+            "scaler": self.scaler.get_checkpoint(scaler_best_state_dict) if self.scaler is not None else None,
         }
         return checkpoint
 

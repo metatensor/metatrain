@@ -231,10 +231,14 @@ class ModelInterface(torch.nn.Module, Generic[ModelHypersType], metaclass=ABCMet
         """
 
     @abstractmethod
-    def get_checkpoint(self) -> Dict[str, Any]:
+    def get_checkpoint(self, best_model_state_dict: Optional[dict[str, Any]]) -> Dict[str, Any]:
         """
         Get the checkpoint of the model. This should contain all the information
         needed by `load_checkpoint` to recreate the same model instance.
+
+        :param best_model_state_dict: Optional state dictionary of the best model
+            (if available). If provided, it should likely be included in the checkpoint
+            to allow for resuming training or evaluation from the best model state.
 
         :return: The model's checkpoint.
         """
