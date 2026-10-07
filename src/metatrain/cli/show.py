@@ -14,7 +14,6 @@ from metatomic.torch import (
 
 from ..utils.data import TargetInfo
 from ..utils.io import is_exported_file, model_from_checkpoint, resolve_model_path
-from .formatter import CustomHelpFormatter
 
 
 def _add_show_model_parser(subparser: argparse._SubParsersAction) -> None:
@@ -28,11 +27,7 @@ def _add_show_model_parser(subparser: argparse._SubParsersAction) -> None:
     else:
         description = None
 
-    parser = subparser.add_parser(
-        "show",
-        description=description,
-        formatter_class=CustomHelpFormatter,
-    )
+    parser = subparser.add_parser("show", description=description)
     parser.set_defaults(callable="show_model")
 
     parser.add_argument(
