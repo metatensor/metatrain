@@ -106,8 +106,16 @@ class AttentionBlock(nn.Module):
         x = x.permute(2, 0, 3, 1, 4)
 
         queries, keys, values = x[0], x[1], x[2]
-        attn_weights = torch.clamp(cutoff_factors[:, None, :, :], self.epsilon)
-        attn_weights = torch.log(attn_weights)
+
+        factors = cutoff_factors[:, None, :, :]
+        excluded = factors <= 0.0
+
+        # clamp to avoid log(0) in autograd
+        attn_weights = torch.log(torch.clamp(factors, self.epsilon))
+
+        # excluded keys get zero weight in the softmax
+        attn_weights = attn_weights.masked_fill(excluded, float("-inf"))
+
         scale = 1.0 / (self.head_dim**0.5 * self.temperature)
         if use_manual_attention:
             x = manual_attention(queries, keys, values, attn_weights, self.temperature)

@@ -40,6 +40,8 @@ Fixed
 - Dataset merging and training restarts now accept equivalent unit spellings
   such as ``A`` and ``angstrom`` or ``eV/A^3`` and
   ``eV/angstrom^3``, avoiding false unit incompatibility errors.
+- PET attention now excludes keys with a zero cutoff factor with ``-inf`` instead of
+  penalising them with ``log(1e-15)``.
 
 Added
 #####
