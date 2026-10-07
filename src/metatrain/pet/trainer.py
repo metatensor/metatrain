@@ -222,6 +222,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     ) -> None:
         assert dtype in PET.__supported_dtypes__
 
+        self.best_model_state_dict = copy.deepcopy(model.state_dict())
+
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
         is_finetune = self.hypers["finetune"]["read_from"] is not None
 
@@ -828,9 +830,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             torch.distributed.destroy_process_group()
 
     def save_checkpoint(self, model: MetatrainModel, path: Union[str, Path]) -> None:
-        checkpoint = model.get_checkpoint()
-        if self.best_model_state_dict is not None:
-            self.best_model_state_dict["finetune_config"] = model.model.finetune_config
+        checkpoint = model.get_checkpoint(self.best_model_state_dict)
         checkpoint.update(
             {
                 "trainer_ckpt_version": self.__checkpoint_version__,
@@ -840,7 +840,6 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 "scheduler_state_dict": self.scheduler_state_dict,
                 "best_epoch": self.best_epoch,
                 "best_metric": self.best_metric,
-                "best_model_state_dict": self.best_model_state_dict,
                 "best_optimizer_state_dict": self.best_optimizer_state_dict,
             }
         )
@@ -866,7 +865,6 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             trainer.epoch = None  # interpreted as zero in the training loop
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
-        trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
         trainer.best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         return trainer

@@ -1005,9 +1005,15 @@ class PET(ModelInterface[ModelHypers]):
 
         return checkpoint
 
-    def get_checkpoint(self) -> Dict:
+    def get_checkpoint(self, best_model_state_dict: Optional[dict[str, Any]] = None) -> Dict:
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
+
+        if best_model_state_dict is None:
+            best_model_state_dict = model_state_dict
+        else:
+            best_model_state_dict["finetune_config"] = self.finetune_config
+
         checkpoint = {
             "architecture_name": "pet",
             "model_ckpt_version": self.__checkpoint_version__,
@@ -1019,7 +1025,7 @@ class PET(ModelInterface[ModelHypers]):
             "epoch": None,
             "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": self.state_dict(),
+            "best_model_state_dict": best_model_state_dict,
         }
         return checkpoint
 
