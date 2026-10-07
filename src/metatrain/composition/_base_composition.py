@@ -95,7 +95,8 @@ class BaseCompositionModel(nn.Module):
         self.register_buffer("weights", {})
 
         self.register_buffer(
-            "atomic_types", torch.as_tensor(atomic_types, dtype=torch.int32),
+            "atomic_types",
+            torch.as_tensor(atomic_types, dtype=torch.int32),
             persistent=False,
         )
         # go from an atomic type to its position in `self.atomic_types`
