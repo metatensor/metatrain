@@ -266,6 +266,9 @@ class PETBackend(torch.nn.Module):
         # ``ModuleList``, and this is the stride needed to index into it. Populated
         # for every target, ensembled or not.
         self.heads_per_layer: Dict[str, int] = {}
+        # Whether any readout is gated by atomic type, in which case ``predict``
+        # finds the types present in the batch for them (see ``LinearReadout``).
+        self.has_gated_readouts = False
 
         # ===== BEGIN DIAGNOSTIC-RELATED ATTRIBUTES
         # These are used to capture the node and edge features from each GNN layer post
@@ -500,6 +503,7 @@ class PETBackend(torch.nn.Module):
         if not gating:
             return LinearReadout(in_features, out_features, bias=True)
         if gating == "one-hot":
+            self.has_gated_readouts = True
             return LinearReadout(
                 in_features,
                 out_features,
@@ -791,6 +795,7 @@ class PETBackend(torch.nn.Module):
         cells: torch.Tensor,
         system_indices: torch.Tensor,
         requested_output_names: List[str],
+        capture_diagnostics: bool = False,
     ) -> Tuple[
         Dict[str, List[torch.Tensor]],
         Dict[str, List[torch.Tensor]],
@@ -799,6 +804,10 @@ class PETBackend(torch.nn.Module):
     ]:
         """
         Compute the per-block atomic predictions and last-layer features.
+
+        The edge heads are evaluated on the real (unpadded) edges only, and their
+        outputs are pooled over each atom's neighbours with the cutoff factors right
+        away, so the edge last-layer features are per atom.
 
         :param node_features_list: Per-layer node features (possibly modified by the
             long-range featurizer).
@@ -809,13 +818,16 @@ class PETBackend(torch.nn.Module):
             normalize non-conservative stress predictions by cell volume.
         :param system_indices: System index for each atom, shape ``(num_nodes,)``.
         :param requested_output_names: Names of the target outputs to compute.
+        :param capture_diagnostics: Whether diagnostic hooks are capturing module
+            outputs. If so, the edge heads run on the padded NEF edge features, so
+            that their captured outputs keep the NEF layout.
         :return: A tuple ``(atomic_predictions, node_ll_features, edge_ll_features,
             uncertainty)``. ``atomic_predictions`` maps each requested output to a
             list of per-block flat prediction tensors -- for a shallow ensemble
             target, this is the *mean* over members, so that every other caller of
             :meth:`predict` keeps seeing exactly one prediction per output, unaware
             that ensembling is active. The last-layer feature dictionaries map each
-            output to its per-layer node / edge last-layer features (only for
+            output to its per-layer node / pooled edge last-layer features (only for
             non-ensembled and ``scope="readout"`` targets; ``scope="head"`` targets
             have per-member features that are not exposed here). ``uncertainty``
             maps each *ensembled* requested output to a list of per-block
@@ -825,20 +837,40 @@ class PETBackend(torch.nn.Module):
         padding_mask = batch_data["padding_mask"]
         cutoff_factors = batch_data["cutoff_factors"]
         element_indices_nodes = batch_data["element_indices_nodes"]
+        present_types: Optional[torch.Tensor] = None
+        if self.has_gated_readouts:
+            present_types = torch.unique(element_indices_nodes)
+
+        # Flat NEF index of every real edge, and each layer's edge features
+        # restricted to them, shared by all the edge heads reading that layer.
+        edge_index = padding_mask.reshape(-1).nonzero().squeeze(1)
+        edge_centers = edge_index // padding_mask.shape[1]
+        if not capture_diagnostics:
+            edge_features_list = [
+                features.reshape(-1, features.shape[-1]).index_select(0, edge_index)
+                for features in edge_features_list
+            ]
+        edge_weights = torch.where(
+            padding_mask, cutoff_factors, torch.zeros_like(cutoff_factors)
+        )
+        edge_weight_sums = edge_weights.sum(dim=1)
 
         node_ll_features, edge_ll_features = self._calculate_last_layer_features(
             node_features_list,
             edge_features_list,
+            edge_index,
+            edge_centers,
+            edge_weights,
         )
 
         node_atomic_predictions_dict, edge_atomic_predictions_dict = (
             self._calculate_atomic_predictions(
                 node_ll_features,
                 edge_ll_features,
-                padding_mask,
-                cutoff_factors,
+                edge_weight_sums,
                 requested_output_names,
                 element_indices_nodes,
+                present_types,
             )
         )
 
@@ -878,7 +910,11 @@ class PETBackend(torch.nn.Module):
         if self.shallow_ensemble_scope is not None:
             node_ll_features_ens, edge_ll_features_ens = (
                 self._calculate_last_layer_features_ensemble(
-                    node_features_list, edge_features_list
+                    node_features_list,
+                    edge_features_list,
+                    edge_index,
+                    edge_centers,
+                    edge_weights,
                 )
             )
             node_member_predictions, edge_member_predictions = (
@@ -887,10 +923,10 @@ class PETBackend(torch.nn.Module):
                     edge_ll_features,
                     node_ll_features_ens,
                     edge_ll_features_ens,
-                    padding_mask,
-                    cutoff_factors,
+                    edge_weight_sums,
                     requested_output_names,
                     element_indices_nodes,
+                    present_types,
                 )
             )
 
@@ -1104,6 +1140,9 @@ class PETBackend(torch.nn.Module):
         self,
         node_features_list: List[torch.Tensor],
         edge_features_list: List[torch.Tensor],
+        edge_index: torch.Tensor,
+        edge_centers: torch.Tensor,
+        edge_weights: torch.Tensor,
     ) -> Tuple[Dict[str, List[torch.Tensor]], Dict[str, List[torch.Tensor]]]:
         """
         Apply output-specific heads to node and edge features from each GNN layer.
@@ -1115,11 +1154,20 @@ class PETBackend(torch.nn.Module):
         too: head ``j`` of readout layer ``i`` is at index ``i * heads_per_layer +
         j``.
 
+        The edge head outputs are pooled over neighbours (see :func:`_pool_edges`),
+        so the edge last layer features are per atom, like the node ones.
+
         :param node_features_list: List of node feature tensors from each GNN layer.
-        :param edge_features_list: List of edge feature tensors from each GNN layer.
+        :param edge_features_list: List of edge feature tensors from each GNN layer,
+            either in NEF layout or restricted to the real edges (see
+            :func:`_pool_edges`).
+        :param edge_index: Flat NEF index of each real edge [n_real_edges].
+        :param edge_centers: Central atom of each real edge [n_real_edges].
+        :param edge_weights: Cutoff factors, zero on padding [n_atoms, max_neighbors].
         :return: Tuple of two dictionaries:
             - Dictionary mapping output names to lists of node last layer features
-            - Dictionary mapping output names to lists of edge last layer features
+            - Dictionary mapping output names to lists of pooled edge last layer
+              features
         """
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
         edge_last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
@@ -1140,7 +1188,12 @@ class PETBackend(torch.nn.Module):
             edge_features: List[torch.Tensor] = []
             for i, edge_head in enumerate(edge_heads):
                 edge_features.append(
-                    edge_head(edge_features_list[i // heads_per_layer])
+                    _pool_edges(
+                        edge_head(edge_features_list[i // heads_per_layer]),
+                        edge_index,
+                        edge_centers,
+                        edge_weights,
+                    )
                 )
             edge_last_layer_features_dict[output_name] = edge_features
 
@@ -1150,6 +1203,9 @@ class PETBackend(torch.nn.Module):
         self,
         node_features_list: List[torch.Tensor],
         edge_features_list: List[torch.Tensor],
+        edge_index: torch.Tensor,
+        edge_centers: torch.Tensor,
+        edge_weights: torch.Tensor,
     ) -> Tuple[
         Dict[str, List[List[torch.Tensor]]], Dict[str, List[List[torch.Tensor]]]
     ]:
@@ -1167,7 +1223,10 @@ class PETBackend(torch.nn.Module):
         :param node_features_list: List of node feature tensors from each GNN
             layer.
         :param edge_features_list: List of edge feature tensors from each GNN
-            layer.
+            layer, as in :meth:`_calculate_last_layer_features`.
+        :param edge_index: Flat NEF index of each real edge [n_real_edges].
+        :param edge_centers: Central atom of each real edge [n_real_edges].
+        :param edge_weights: Cutoff factors, zero on padding [n_atoms, max_neighbors].
         :return: Tuple of two dictionaries mapping output names to a list of
             per-member, flat (layer-major) last-layer feature lists.
         """
@@ -1190,7 +1249,14 @@ class PETBackend(torch.nn.Module):
             for edge_heads_m in member_heads.values():
                 features = []
                 for i, edge_head in enumerate(edge_heads_m):
-                    features.append(edge_head(edge_features_list[i // heads_per_layer]))
+                    features.append(
+                        _pool_edges(
+                            edge_head(edge_features_list[i // heads_per_layer]),
+                            edge_index,
+                            edge_centers,
+                            edge_weights,
+                        )
+                    )
                 member_edge_features.append(features)
             edge_last_layer_features_dict[output_name] = member_edge_features
 
@@ -1202,10 +1268,10 @@ class PETBackend(torch.nn.Module):
         edge_last_layer_features_dict: Dict[str, List[torch.Tensor]],
         node_last_layer_features_ensemble_dict: Dict[str, List[List[torch.Tensor]]],
         edge_last_layer_features_ensemble_dict: Dict[str, List[List[torch.Tensor]]],
-        padding_mask: torch.Tensor,
-        cutoff_factors: torch.Tensor,
+        edge_weight_sums: torch.Tensor,
         requested_output_names: List[str],
         element_indices_nodes: torch.Tensor,
+        present_types: Optional[torch.Tensor],
     ) -> Tuple[
         Dict[str, List[List[List[torch.Tensor]]]],
         Dict[str, List[List[List[torch.Tensor]]]],
@@ -1226,10 +1292,12 @@ class PETBackend(torch.nn.Module):
             features (from :meth:`_calculate_last_layer_features_ensemble`), used
             for ``scope="head"`` targets.
         :param edge_last_layer_features_ensemble_dict: As above, for edges.
-        :param padding_mask: Boolean mask indicating real vs padded neighbors.
-        :param cutoff_factors: Cutoff factors for edge distances.
+        :param edge_weight_sums: Per-atom sum of the edge cutoff factors [n_atoms],
+            scaling the edge readouts' bias.
         :param requested_output_names: Names of the target outputs to compute.
         :param element_indices_nodes: Species index of each central atom.
+        :param present_types: Sorted species indices present in the batch, passed
+            to the gated readouts, or ``None``.
         :return: Tuple of two dictionaries mapping output name to a list (one
             entry per member) of lists (one per GNN readout layer) of per-block
             prediction tensors -- the same shape :meth:`_calculate_atomic_predictions`
@@ -1237,9 +1305,6 @@ class PETBackend(torch.nn.Module):
         """
         node_out: Dict[str, List[List[List[torch.Tensor]]]] = {}
         edge_out: Dict[str, List[List[List[torch.Tensor]]]] = {}
-        edge_weights, edge_weight_sums = _edge_pooling_weights(
-            padding_mask, cutoff_factors
-        )
 
         # ----- scope="readout": member axis innermost, shared last-layer features
         for (
@@ -1274,7 +1339,9 @@ class PETBackend(torch.nn.Module):
                         m = 0
                         for readout_m in block_members.values():
                             by_member_this_layer[m].append(
-                                readout_m(features, element_indices_nodes)
+                                readout_m(
+                                    features, element_indices_nodes, None, present_types
+                                )
                             )
                             m += 1
                         j += 1
@@ -1308,10 +1375,14 @@ class PETBackend(torch.nn.Module):
                             i * heads_per_layer + j % heads_per_layer
                         ]
                         m = 0
-                        pooled = (features * edge_weights[:, :, None]).sum(dim=1)
                         for readout_m in block_members.values():
                             edge_by_member_this_layer[m].append(
-                                readout_m(pooled, element_indices_nodes, edge_weight_sums)
+                                readout_m(
+                                    features,
+                                    element_indices_nodes,
+                                    edge_weight_sums,
+                                    present_types,
+                                )
                             )
                             m += 1
                         j += 1
@@ -1348,7 +1419,7 @@ class PETBackend(torch.nn.Module):
                             ]
                             block_preds.append(
                                 node_last_layer_by_block(
-                                    features, element_indices_nodes
+                                    features, element_indices_nodes, None, present_types
                                 )
                             )
                             j += 1
@@ -1384,10 +1455,12 @@ class PETBackend(torch.nn.Module):
                                 i * heads_per_layer + j % heads_per_layer
                             ]
                             j += 1
-                            pooled = (features * edge_weights[:, :, None]).sum(dim=1)
                             block_preds_e.append(
                                 edge_last_layer_by_block(
-                                    pooled, element_indices_nodes, edge_weight_sums
+                                    features,
+                                    element_indices_nodes,
+                                    edge_weight_sums,
+                                    present_types,
                                 )
                             )
                         layer_blocks_e.append(block_preds_e)
@@ -1401,10 +1474,10 @@ class PETBackend(torch.nn.Module):
         self,
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
         edge_last_layer_features_dict: Dict[str, List[torch.Tensor]],
-        padding_mask: torch.Tensor,
-        cutoff_factors: torch.Tensor,
+        edge_weight_sums: torch.Tensor,
         requested_output_names: List[str],
         element_indices_nodes: torch.Tensor,
+        present_types: Optional[torch.Tensor],
     ) -> Tuple[
         Dict[str, List[List[torch.Tensor]]], Dict[str, List[List[torch.Tensor]]]
     ]:
@@ -1423,24 +1496,26 @@ class PETBackend(torch.nn.Module):
         readouts are conditioned on the central-atom type; for the edge readout the
         type is therefore shared across that atom's neighbors.
 
-        Because the edge readout is linear in the edge features and conditioned on
-        the central atom only, the cutoff-weighted sum over neighbours is taken
-        *before* the readout (see :func:`_edge_pooling_weights`). This is exactly
-        equal to summing the per-edge readouts, but never materialises the
-        ``(n_atoms, max_neighbors, out)`` per-edge predictions -- nor, for the
-        one-hot gated readout, the ``n_groups`` times wider tensor its dense path
-        forms on 3-D input.
+        The edge last layer features arrive already pooled over neighbours (see
+        :func:`_pool_edges`). Because the edge readout is linear in the edge features
+        and conditioned on the central atom only, applying it to the pooled features
+        is exactly the cutoff-weighted sum of the per-edge readouts:
+
+            sum_j c_ij r(f_ij) = W (sum_j c_ij f_ij) + b (sum_j c_ij)
+
+        with ``c_ij`` the cutoff factor, so the bias is scaled by the summed cutoff
+        factors of each atom.
 
         :param node_last_layer_features_dict: Dictionary mapping output names to
             lists of node last layer features.
         :param edge_last_layer_features_dict: Dictionary mapping output names to
-            lists of edge last layer features.
-        :param padding_mask: Boolean mask indicating real vs padded neighbors
-            [n_atoms, max_num_neighbors].
-        :param cutoff_factors: Tensor of cutoff factors for edge distances
-            [n_atoms, max_num_neighbors].
+            lists of pooled edge last layer features.
+        :param edge_weight_sums: Per-atom sum of the edge cutoff factors [n_atoms],
+            scaling the edge readouts' bias.
         :param requested_output_names: Names of the target outputs to compute.
         :param element_indices_nodes: Species index of each central atom [n_atoms].
+        :param present_types: Sorted species indices present in the batch, passed
+            to the gated readouts, or ``None``.
         :return: Tuple of two dictionaries:
             - Dictionary mapping output names to lists of lists of node atomic
               prediction tensors (one list per GNN layer, one tensor per block)
@@ -1449,9 +1524,6 @@ class PETBackend(torch.nn.Module):
         """
         node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]] = {}
         edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]] = {}
-        edge_weights, edge_weight_sums = _edge_pooling_weights(
-            padding_mask, cutoff_factors
-        )
 
         # Computing node atomic predictions. Since we have last layer features
         # for each GNN layer, and each last layer can have multiple blocks,
@@ -1474,16 +1546,16 @@ class PETBackend(torch.nn.Module):
                             i * heads_per_layer + j % heads_per_layer
                         ]
                         node_atomic_predictions_by_block.append(
-                            node_last_layer_by_block(features, element_indices_nodes)
+                            node_last_layer_by_block(
+                                features, element_indices_nodes, None, present_types
+                            )
                         )
                         j += 1
                     node_atomic_predictions_dict[output_name].append(
                         node_atomic_predictions_by_block
                     )
 
-        # Computing edge atomic predictions. Following the same logic as above,
-        # we (1) iterate over the last layer features and last layer blocks, and (2)
-        # sum the edge features with cutoff factors to get their per-node contribution.
+        # Computing edge atomic predictions, following the same logic as above.
 
         for output_name, edge_last_layers in self.edge_last_layers.items():
             if output_name in requested_output_names:
@@ -1500,14 +1572,12 @@ class PETBackend(torch.nn.Module):
                             i * heads_per_layer + j % heads_per_layer
                         ]
                         j += 1
-                        # Pool over neighbours first (see ``_edge_pooling_weights``):
-                        # the readout is linear and conditioned on the central
-                        # atom only, so this is exactly the cutoff-weighted sum of
-                        # the per-edge readouts, without ever forming them.
-                        pooled = (features * edge_weights[:, :, None]).sum(dim=1)
                         edge_atomic_predictions_by_block.append(
                             edge_last_layer_by_block(
-                                pooled, element_indices_nodes, edge_weight_sums
+                                features,
+                                element_indices_nodes,
+                                edge_weight_sums,
+                                present_types,
                             )
                         )
                     edge_atomic_predictions_dict[output_name].append(
@@ -1517,31 +1587,29 @@ class PETBackend(torch.nn.Module):
         return node_atomic_predictions_dict, edge_atomic_predictions_dict
 
 
-def _edge_pooling_weights(
-    padding_mask: torch.Tensor, cutoff_factors: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor]:
+def _pool_edges(
+    edge_outputs: torch.Tensor,
+    edge_index: torch.Tensor,
+    edge_centers: torch.Tensor,
+    edge_weights: torch.Tensor,
+) -> torch.Tensor:
     """
-    Per-edge weights for pooling edge features over neighbours before a linear
-    readout, and their per-atom sums for the readout bias.
+    Cutoff-weighted sum of per-edge outputs over each atom's neighbours.
 
-    For a readout ``r(f) = W f + b`` that is linear in the edge features ``f_ij``
-    and conditioned on the central atom ``i`` only,
-
-        sum_j c_ij m_ij r(f_ij) = W (sum_j c_ij m_ij f_ij) + b (sum_j c_ij m_ij)
-
-    with ``c_ij`` the cutoff factor and ``m_ij`` the padding mask, so the readout
-    can be applied once per atom to the pooled features, with its bias scaled by
-    the summed weights.
-
-    :param padding_mask: ``(n_atoms, max_neighbors)`` bool, True for real neighbors.
-    :param cutoff_factors: ``(n_atoms, max_neighbors)`` cutoff factors.
-    :return: ``(edge_weights, edge_weight_sums)`` of shapes
-        ``(n_atoms, max_neighbors)`` and ``(n_atoms,)``.
+    :param edge_outputs: Either ``(n_atoms, max_neighbors, d)`` in NEF layout, or
+        ``(n_real_edges, d)`` for the real edges only, in the order of
+        ``edge_index``.
+    :param edge_index: Flat NEF index of each real edge [n_real_edges].
+    :param edge_centers: Central atom of each real edge [n_real_edges].
+    :param edge_weights: Cutoff factors, zero on padding [n_atoms, max_neighbors].
+    :return: ``(n_atoms, d)`` pooled outputs.
     """
-    edge_weights = torch.where(
-        padding_mask, cutoff_factors, torch.zeros_like(cutoff_factors)
-    )
-    return edge_weights, edge_weights.sum(dim=1)
+    if edge_outputs.dim() == 3:
+        return (edge_outputs * edge_weights[:, :, None]).sum(dim=1)
+    weights = edge_weights.reshape(-1).index_select(0, edge_index)
+    return edge_outputs.new_zeros(
+        edge_weights.shape[0], edge_outputs.shape[1]
+    ).index_add(0, edge_centers, edge_outputs * weights[:, None])
 
 
 def process_non_conservative_stress(

@@ -38,10 +38,9 @@ class LinearReadout(torch.nn.Module):
     ``group_idx``.
 
     Two implementations of the gated map are available; they give the same result
-    and differ only in cost. Which one is used is decided **once, in the
-    constructor**, from ``n_groups``, ``in_features`` and ``out_features`` alone, so
-    the forward pass holds no data-dependent control flow and stays one shape-
-    agnostic code path per instance.
+    and differ only in cost. Which one is used depends only on ``n_groups``,
+    ``in_features``, ``out_features`` and the device of the input, never on its
+    values, so the forward pass holds no data-dependent control flow.
 
     * **dense** (default) evaluates a single GEMM against all ``G`` weights stacked
       into one ``(G * out, in)`` matrix, then gathers the group each row needs. It
@@ -67,6 +66,17 @@ class LinearReadout(torch.nn.Module):
     axis). The main case it gets wrong is many groups with a very narrow output
     (e.g. 100 groups onto 8 properties), where it selects grouped and gives up
     ~1.2x against dense.
+
+    The dense path's redundant work can be cut by passing ``present_groups``, the
+    groups that actually occur in ``group_idx``: only their weights then enter the
+    GEMM. Finding them costs a device-to-host synchronisation, so it is left to the
+    caller, which can do it once and share it across many readouts.
+
+    On CUDA the dense path is always used: there the grouped path's per-group
+    kernel launches and host synchronisation dominate, and on PET's density readouts
+    (83 groups, ``in_features`` 256-512, ``out_features`` 14-45, 2000 rows) it
+    measured ~15x slower than dense for forward and backward, despite dense doing 83
+    times the arithmetic.
 
     The grouped path is restricted to 2-D features: sorting copies the whole
     feature tensor, and both that copy and the per-group matmuls scale with the
@@ -111,7 +121,7 @@ class LinearReadout(torch.nn.Module):
         self.n_groups = n_groups if n_groups is not None else 1
         self.in_features = in_features
         self.out_features = out_features
-        # Static choice of gated algorithm; see the class docstring. The dense path
+        # Choice of gated algorithm on CPU; see the class docstring. The dense path
         # does ``n_groups`` times the arithmetic, which is worth it while the
         # widened output stays no wider than the input.
         self.grouped = self.gated and self.n_groups * out_features > in_features
@@ -154,6 +164,7 @@ class LinearReadout(torch.nn.Module):
         features: torch.Tensor,
         group_idx: torch.Tensor,
         bias_scale: Optional[torch.Tensor] = None,
+        present_groups: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         :param features: ``(n_rows, in_features)`` (e.g. node features) or
@@ -167,6 +178,10 @@ class LinearReadout(torch.nn.Module):
             input rather than once per row: ``sum_j w_j (W f_j + b) =
             W (sum_j w_j f_j) + b sum_j w_j``. ``None`` (default) applies the
             bias once per row. Ignored when the readout has no bias.
+        :param present_groups: Optional sorted, unique long tensor containing every
+            group in ``group_idx`` (e.g. ``torch.unique(group_idx)``). The dense path
+            then only evaluates these groups. Ignored when ungated and by the
+            grouped path, which skips empty groups anyway.
         :return: Same leading dimensions as ``features``, with last dimension
             ``out_features``.
         """
@@ -178,10 +193,10 @@ class LinearReadout(torch.nn.Module):
                 bias = self.bias
                 if bias is not None:
                     out = out + bias * _row_scale(bias_scale, features.dim())
-        elif self.grouped and features.dim() == 2:
+        elif self.grouped and features.dim() == 2 and not features.is_cuda:
             out = self._forward_grouped(features, group_idx, bias_scale)
         else:
-            out = self._forward_dense(features, group_idx, bias_scale)
+            out = self._forward_dense(features, group_idx, bias_scale, present_groups)
         if self.scale != 1.0:
             out = out * self.scale
         return out
@@ -191,6 +206,7 @@ class LinearReadout(torch.nn.Module):
         features: torch.Tensor,
         group_idx: torch.Tensor,
         bias_scale: Optional[torch.Tensor] = None,
+        present_groups: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """One GEMM against every group's weights, then keep the group each row needs.
 
@@ -198,6 +214,8 @@ class LinearReadout(torch.nn.Module):
             ``(n_rows, n_columns, in_features)``.
         :param group_idx: Long tensor of shape ``(n_rows,)``.
         :param bias_scale: Optional ``(n_rows,)`` per-row bias multiplier; see
+            :meth:`forward`.
+        :param present_groups: Optional groups to restrict the GEMM to; see
             :meth:`forward`.
         :return: ``features`` with its last dimension replaced by ``out_features``.
         """
@@ -209,22 +227,32 @@ class LinearReadout(torch.nn.Module):
         n_rows = features.shape[0]
         n_columns = features.shape[1]
 
+        weight = self.weight
+        bias = self.bias
+        n_groups = self.n_groups
+        if present_groups is not None:
+            # Keep only the present groups, and renumber the rows' groups to match.
+            weight = weight.index_select(0, present_groups)
+            if bias is not None:
+                bias = bias.index_select(0, present_groups)
+            group_idx = torch.searchsorted(present_groups, group_idx)
+            n_groups = present_groups.shape[0]
+
         # Folding the bias into the same call means the gather below picks up the
         # matching bias for free. With a per-row bias scale the bias is instead
         # gathered separately and added after the scale.
-        bias = self.bias
         flat_bias: Optional[torch.Tensor] = None
         if bias is not None and bias_scale is None:
-            flat_bias = bias.reshape(self.n_groups * self.out_features)
+            flat_bias = bias.reshape(n_groups * self.out_features)
         out = torch.nn.functional.linear(
             features,
-            self.weight.reshape(self.n_groups * self.out_features, self.in_features),
+            weight.reshape(n_groups * self.out_features, self.in_features),
             flat_bias,
         )  # (n_rows, n_columns, n_groups * out_features)
 
         # Keep only the group each row belongs to. ``index`` is an expanded view
         # (stride 0 along the broadcast dimensions), so it costs no real memory.
-        out = out.reshape(n_rows, n_columns, self.n_groups, self.out_features)
+        out = out.reshape(n_rows, n_columns, n_groups, self.out_features)
         index = group_idx.reshape(n_rows, 1, 1, 1).expand(
             n_rows, n_columns, 1, self.out_features
         )
@@ -394,6 +422,7 @@ class MoEReadout(torch.nn.Module):
         features: torch.Tensor,
         group_idx: torch.Tensor,
         bias_scale: Optional[torch.Tensor] = None,
+        present_groups: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         :param features: ``(n_rows, in_features)`` or
@@ -402,6 +431,8 @@ class MoEReadout(torch.nn.Module):
             central-atom type) index.
         :param bias_scale: Optional ``(n_rows,)`` per-row bias multiplier, passed
             through to every expert; see :meth:`LinearReadout.forward`.
+        :param present_groups: Unused, since the experts are not gated; accepted
+            so that the forward signature matches :class:`LinearReadout`.
         :return: Same leading dimensions as ``features``, with last dimension
             ``out_features``.
         """

@@ -571,6 +571,7 @@ class PET(ModelInterface[ModelHypers]):
                 cells,
                 system_indices,
                 requested_target_names,
+                _capture_diagnostics,
             )
 
         # **Stage 2: Intermediate Feature Output (Optional)**
@@ -594,7 +595,6 @@ class PET(ModelInterface[ModelHypers]):
             last_layer_features_dict = self._get_output_last_layer_features(
                 node_last_layer_features_dict,
                 edge_last_layer_features_dict,
-                batch_data["cutoff_factors"],
                 selected_atoms,
                 sample_labels,
                 outputs,
@@ -839,21 +839,18 @@ class PET(ModelInterface[ModelHypers]):
         self,
         node_last_layer_features_dict: Dict[str, List[torch.Tensor]],
         edge_last_layer_features_dict: Dict[str, List[torch.Tensor]],
-        cutoff_factors: torch.Tensor,
         selected_atoms: Optional[Labels],
         sample_labels: Labels,
         requested_outputs: Dict[str, ModelOutput],
     ) -> Dict[str, TensorMap]:
         """
-        Combine node and edge last layer features for requested last layer
-        features output. Edge features are summed with cutoff weighting.
+        Combine node and (already pooled) edge last layer features for requested
+        last layer features output.
 
         :param node_last_layer_features_dict: Dictionary mapping output names to
             lists of node last layer features.
         :param edge_last_layer_features_dict: Dictionary mapping output names to
-            lists of edge last layer features.
-        :param cutoff_factors: Tensor of cutoff factors for edge distances
-            [n_atoms, max_num_neighbors].
+            lists of pooled edge last layer features.
         :param selected_atoms: Optional Labels specifying a subset of atoms to include.
         :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
         :param requested_outputs: Dictionary of requested outputs.
@@ -863,16 +860,13 @@ class PET(ModelInterface[ModelHypers]):
         last_layer_features_dict: Dict[str, List[torch.Tensor]] = {}
         last_layer_features_outputs: Dict[str, TensorMap] = {}
         for output_name in node_last_layer_features_dict.keys():
-            if not should_compute_last_layer_features(output_name, requested_outputs):
+            if get_last_layer_features_name(output_name) not in requested_outputs:
                 continue
             if output_name not in last_layer_features_dict:
                 last_layer_features_dict[output_name] = []
             for i in range(len(node_last_layer_features_dict[output_name])):
                 node_last_layer_features = node_last_layer_features_dict[output_name][i]
                 edge_last_layer_features = edge_last_layer_features_dict[output_name][i]
-                edge_last_layer_features = (
-                    edge_last_layer_features * cutoff_factors[:, :, None]
-                ).sum(dim=1)
                 last_layer_features_dict[output_name].append(node_last_layer_features)
                 last_layer_features_dict[output_name].append(edge_last_layer_features)
 
@@ -1276,6 +1270,7 @@ class PET(ModelInterface[ModelHypers]):
             for output_name, properties_tmap in self.property_labels.items()
         }
 
+
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
         for v in range(1, cls.__checkpoint_version__):
@@ -1362,21 +1357,3 @@ def get_last_layer_features_name(target_name: str) -> str:
     """
     base_name = target_name.replace("mtt::", "")
     return f"mtt::aux::{base_name}_last_layer_features"
-
-
-def should_compute_last_layer_features(
-    output_name: str, requested_outputs: Dict[str, ModelOutput]
-) -> bool:
-    """
-    Check if last layer features should be computed for an output.
-
-    :param output_name: Name of the output to check.
-    :param requested_outputs: Dictionary of requested outputs.
-    :return: True if last layer features should be computed, False otherwise.
-    """
-    if output_name in requested_outputs:
-        return True
-    ll_features_name = get_last_layer_features_name(
-        output_name.replace("mtt::aux::", "")
-    )
-    return ll_features_name in requested_outputs

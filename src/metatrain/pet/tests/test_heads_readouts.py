@@ -16,6 +16,7 @@ import torch
 from metatomic.torch import ModelOutput, System
 
 from metatrain.pet import PET
+from metatrain.pet.modules.structures import concatenate_structures
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_generic_target_info
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
@@ -291,3 +292,53 @@ def test_torchscript(head_type, gating):
         _hypers(head_type=head_type, readout_type=readout_type), _dataset_info()
     )
     torch.jit.script(model)
+
+
+@pytest.mark.parametrize("head_type", ["per_target", "per_block"])
+def test_edge_heads_on_real_edges_match_padded_evaluation(head_type):
+    """Evaluating the edge heads on the real edges only, as done outside diagnostic
+    capture, must reproduce their evaluation on the padded NEF layout."""
+    model = PET(
+        _hypers(head_type=head_type, readout_type={"atom_type_gating": "one-hot"}),
+        _dataset_info(),
+    )
+    model.eval()
+    # The far hydrogen sees only one neighbour, so the NEF layout has padding.
+    system = System(
+        types=torch.tensor([8, 1, 1, 1]),
+        positions=torch.tensor(
+            [[0.0, 0.0, 0.0], [0.0, 0.9, 0.0], [0.9, 0.0, 0.0], [-4.0, 0.0, 0.0]]
+        ),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    backend = model.backend
+    inputs = concatenate_structures([system], model.requested_neighbor_lists()[0])
+    cells, system_indices = inputs[4], inputs[6]
+    batch_data = backend.preprocess(*inputs[:7], model.cutoff_width_adaptive)
+    assert not batch_data["padding_mask"].all()
+
+    node_list, edge_list = backend.calculate_features(batch_data)
+    results = [
+        backend.predict(
+            node_list,
+            edge_list,
+            batch_data,
+            cells,
+            system_indices,
+            [TARGET],
+            capture_diagnostics,
+        )
+        for capture_diagnostics in (False, True)
+    ]
+
+    real_edges, padded = results
+    for real_edges_block, padded_block in zip(
+        real_edges[0][TARGET], padded[0][TARGET], strict=True
+    ):
+        torch.testing.assert_close(real_edges_block, padded_block)
+    for real_edges_features, padded_features in zip(
+        real_edges[2][TARGET], padded[2][TARGET], strict=True
+    ):
+        torch.testing.assert_close(real_edges_features, padded_features)

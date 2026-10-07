@@ -69,6 +69,29 @@ def test_gated_paths_agree(bias):
     torch.testing.assert_close(dense(x, group_idx), grouped(x, group_idx))
 
 
+@pytest.mark.parametrize("bias", [False, True])
+@pytest.mark.parametrize("with_bias_scale", [False, True])
+@pytest.mark.parametrize("n_columns", [None, 6])
+def test_present_groups_matches_all_groups(bias, with_bias_scale, n_columns):
+    """Restricting the dense path to the present groups changes nothing, gradients
+    included."""
+    n_groups, n_rows = 6, 9
+    readout = LinearReadout(4, 3, n_groups=n_groups, bias=bias)
+    shape = (n_rows, 4) if n_columns is None else (n_rows, n_columns, 4)
+    x = torch.randn(*shape)
+    group_idx = torch.tensor([4, 1, 1, 4, 5, 1, 4, 5, 1])  # groups 0, 2, 3 absent
+    bias_scale = torch.rand(n_rows) if with_bias_scale else None
+
+    expected = readout(x, group_idx, bias_scale)
+    expected_grads = torch.autograd.grad(expected.sum(), list(readout.parameters()))
+    actual = readout(x, group_idx, bias_scale, torch.unique(group_idx))
+    actual_grads = torch.autograd.grad(actual.sum(), list(readout.parameters()))
+
+    torch.testing.assert_close(actual, expected)
+    for actual_grad, expected_grad in zip(actual_grads, expected_grads, strict=True):
+        torch.testing.assert_close(actual_grad, expected_grad)
+
+
 def test_algorithm_choice_is_static_and_shape_independent():
     """The path is fixed by (n_groups, in, out) alone, never by the batch.
 
