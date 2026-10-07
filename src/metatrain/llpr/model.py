@@ -61,8 +61,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             ],
         }
     )
-    _mts_buffer_names: List[str]
-    _mts_non_persistent_buffers: List[str]
 
     """A wrapper that adds LLPR uncertainties to a model.
 

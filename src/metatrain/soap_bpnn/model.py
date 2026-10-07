@@ -215,8 +215,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
     property_labels: Dict[str, List[Labels]]
     cartesian_rank1_targets: List[str]  # torchscript needs this
     cartesian_rank2_targets: List[str]  # torchscript needs this
-    _mts_buffer_names: List[str]
-    _mts_non_persistent_buffers: List[str]
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)

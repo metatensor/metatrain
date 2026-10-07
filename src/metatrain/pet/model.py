@@ -76,8 +76,6 @@ class PET(ModelInterface[ModelHypers]):
     property_labels: Dict[str, List[Labels]]
     component_labels: Dict[str, List[List[Labels]]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
-    _mts_buffer_names: List[str]
-    _mts_non_persistent_buffers: List[str]
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)

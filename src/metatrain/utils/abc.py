@@ -70,6 +70,17 @@ class ModelInterface(nn.Module, Generic[HypersType], metaclass=ABCMeta):
     ``architecture`` key should contain references about the general architecture.
     """
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        # TorchScript only reads the annotations defined on the class itself, and
+        # ignores the ones inherited from ``metatensor.torch.learn.nn.Module``.
+        # This allows us to not write the annotations in every model.
+        cls.__annotations__ = {
+            "_mts_buffer_names": List[str],
+            "_mts_non_persistent_buffers": List[str],
+            **cls.__annotations__,
+        }
+
     def __init__(
         self, hypers: HypersType, dataset_info: DatasetInfo, metadata: ModelMetadata
     ) -> None:
