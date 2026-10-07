@@ -53,14 +53,22 @@ class SoapPowerSpectrum(nn.Module):
         self.legacy = "Orthogonal" in species
 
         # Cache Labels for TensorMap construction (avoid per-forward allocations)
-        self.register_buffer("_property_labels", Labels(
-            names=["property"],
-            values=torch.arange(self.shape).unsqueeze(1),
-        ), persistent=False)
-        self.register_buffer("_modern_keys", Labels(
-            names=["_"],
-            values=torch.tensor([[0]], dtype=torch.int32),
-        ), persistent=False)
+        self.register_buffer(
+            "_property_labels",
+            Labels(
+                names=["property"],
+                values=torch.arange(self.shape).unsqueeze(1),
+            ),
+            persistent=False,
+        )
+        self.register_buffer(
+            "_modern_keys",
+            Labels(
+                names=["_"],
+                values=torch.tensor([[0]], dtype=torch.int32),
+            ),
+            persistent=False,
+        )
 
     def forward(
         self,

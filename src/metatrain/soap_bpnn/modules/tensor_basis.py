@@ -170,7 +170,6 @@ def _build_spherical_basis_tensormap(
         )
 
 
-
 class VectorBasis(nn.Module):
     """
     This module creates a basis of 3 vectors for each atomic environment.
@@ -201,40 +200,60 @@ class VectorBasis(nn.Module):
         )
         self.soap_calculator = SphericalExpansion(**spex_soap_hypers)
 
-        self.register_buffer("neighbor_species_labels", Labels(
-            names=["neighbor_type"],
-            values=torch.tensor(self.atomic_types).reshape(-1, 1),
-        ), persistent=False)
+        self.register_buffer(
+            "neighbor_species_labels",
+            Labels(
+                names=["neighbor_type"],
+                values=torch.tensor(self.atomic_types).reshape(-1, 1),
+            ),
+            persistent=False,
+        )
 
         l1_n_radial = self.soap_calculator.radial.n_per_l[1]
         l1_feature_count = l1_n_radial * (len(atomic_types) if legacy else 4)
 
         # Cache Labels for TensorMap construction (avoid per-forward allocations)
-        self.register_buffer("_o3_mu_labels", Labels(
-            names=["o3_mu"],
-            values=torch.arange(-1, 2, dtype=torch.long).unsqueeze(1),
-        ), persistent=False)
-        self.register_buffer("_property_labels", Labels(
-            names=["property"],
-            values=torch.arange(l1_feature_count).unsqueeze(1),
-        ), persistent=False)
+        self.register_buffer(
+            "_o3_mu_labels",
+            Labels(
+                names=["o3_mu"],
+                values=torch.arange(-1, 2, dtype=torch.long).unsqueeze(1),
+            ),
+            persistent=False,
+        )
+        self.register_buffer(
+            "_property_labels",
+            Labels(
+                names=["property"],
+                values=torch.arange(l1_feature_count).unsqueeze(1),
+            ),
+            persistent=False,
+        )
         if legacy:
-            self.register_buffer("_keys_labels", Labels(
-                names=["o3_lambda", "o3_sigma", "center_type"],
-                values=torch.stack(
-                    [
-                        torch.tensor([1] * len(atomic_types)),
-                        torch.tensor([1] * len(atomic_types)),
-                        torch.tensor(atomic_types),
-                    ],
-                    dim=1,
+            self.register_buffer(
+                "_keys_labels",
+                Labels(
+                    names=["o3_lambda", "o3_sigma", "center_type"],
+                    values=torch.stack(
+                        [
+                            torch.tensor([1] * len(atomic_types)),
+                            torch.tensor([1] * len(atomic_types)),
+                            torch.tensor(atomic_types),
+                        ],
+                        dim=1,
                     ),
-                ), persistent=False)
+                ),
+                persistent=False,
+            )
         else:
-            self.register_buffer("_keys_labels", Labels(
-                ["o3_lambda", "o3_sigma"],
-                torch.tensor([[1, 1]]),
-            ), persistent=False)
+            self.register_buffer(
+                "_keys_labels",
+                Labels(
+                    ["o3_lambda", "o3_sigma"],
+                    torch.tensor([[1, 1]]),
+                ),
+                persistent=False,
+            )
 
         if self.legacy:
             # Legacy mode: no chemical embedding, contraction done via LinearMap
@@ -297,8 +316,6 @@ class VectorBasis(nn.Module):
         :return: a tensor of shape (num_atoms, 3, 3) with the basis of 3 vectors for
             each atomic environment
         """
-        device = interatomic_vectors.device
-
         # only l=1 tensor
         l1_spherical_expansion = self.soap_calculator(
             interatomic_vectors,
@@ -378,33 +395,49 @@ class LambdaBasis(nn.Module):
         feature_count = n_radial * (len(atomic_types) if legacy else 4)
 
         # Cache Labels for TensorMap construction (avoid per-forward allocations)
-        self.register_buffer("_o3_mu_labels", Labels(
-            names=["o3_mu"],
-            values=torch.arange(-o3_lambda, o3_lambda + 1, dtype=torch.long).unsqueeze(
-                1
+        self.register_buffer(
+            "_o3_mu_labels",
+            Labels(
+                names=["o3_mu"],
+                values=torch.arange(
+                    -o3_lambda, o3_lambda + 1, dtype=torch.long
+                ).unsqueeze(1),
             ),
-        ), persistent=False)
-        self.register_buffer("_property_labels", Labels(
-            names=["property"],
-            values=torch.arange(feature_count).unsqueeze(1),
-        ), persistent=False)
+            persistent=False,
+        )
+        self.register_buffer(
+            "_property_labels",
+            Labels(
+                names=["property"],
+                values=torch.arange(feature_count).unsqueeze(1),
+            ),
+            persistent=False,
+        )
         if legacy:
-            self.register_buffer("_keys_labels", Labels(
-                names=["o3_lambda", "o3_sigma", "center_type"],
-                values=torch.stack(
-                    [
-                        torch.tensor([o3_lambda] * len(atomic_types)),
-                        torch.tensor([1] * len(atomic_types)),
-                        torch.tensor(atomic_types),
-                    ],
-                    dim=1,
+            self.register_buffer(
+                "_keys_labels",
+                Labels(
+                    names=["o3_lambda", "o3_sigma", "center_type"],
+                    values=torch.stack(
+                        [
+                            torch.tensor([o3_lambda] * len(atomic_types)),
+                            torch.tensor([1] * len(atomic_types)),
+                            torch.tensor(atomic_types),
+                        ],
+                        dim=1,
+                    ),
                 ),
-            ), persistent=False)
+                persistent=False,
+            )
         else:
-            self.register_buffer("_keys_labels", Labels(
-                names=["o3_lambda", "o3_sigma"],
-                values=torch.tensor([[o3_lambda, 1]]),
-            ), persistent=False)
+            self.register_buffer(
+                "_keys_labels",
+                Labels(
+                    names=["o3_lambda", "o3_sigma"],
+                    values=torch.tensor([[o3_lambda, 1]]),
+                ),
+                persistent=False,
+            )
 
         if legacy:
             self.spex_contraction = LinearMap(
@@ -463,8 +496,6 @@ class LambdaBasis(nn.Module):
         :param selected_atoms: optional Labels object to select a subset of atoms.
         :return: tensor of shape ``(n_atoms, 2*o3_lambda+1, 2*o3_lambda+1)``.
         """
-        device = interatomic_vectors.device
-
         lambda_basis = self.spex_calculator(
             interatomic_vectors,
             centers,
@@ -516,7 +547,6 @@ class FakeLambdaBasis(nn.Module):
         selected_atoms: Optional[Labels],
     ) -> torch.Tensor:
         return torch.tensor(0)
-
 
 
 class TensorBasis(nn.Module):
@@ -590,10 +620,14 @@ class TensorBasis(nn.Module):
             # needed to make torchscript work
             self.cgs = {}  # type: ignore[assignment]
 
-        self.register_buffer("neighbor_species_labels", Labels(
-            names=["neighbor_type"],
-            values=torch.tensor(self.atomic_types).reshape(-1, 1),
-        ), persistent=False)
+        self.register_buffer(
+            "neighbor_species_labels",
+            Labels(
+                names=["neighbor_type"],
+                values=torch.tensor(self.atomic_types).reshape(-1, 1),
+            ),
+            persistent=False,
+        )
 
         # Optional lambda basis
         self.add_lambda_basis = add_lambda_basis and o3_lambda > 1
