@@ -12,6 +12,8 @@ from omegaconf import DictConfig
 # recognize the torch.device type
 from torch import device as _torch_device
 
+from metatrain.utils.units import units_are_equivalent
+
 
 class TargetInfo:
     """A class that contains information about a target.
@@ -306,10 +308,11 @@ class TargetInfo:
                 len(comp.values) for comp in block.components
             ] + [len(block.properties.values)]
 
+    @torch.jit.unused
     def is_compatible_with(self, other: "TargetInfo") -> bool:
         """Check if two targets are compatible.
 
-        Two target infos are compatible if they have the same quantity, unit,
+        Two target infos are compatible if they have the same quantity, same units,
         and layout, except for gradients. This method can be used to check if two
         target infos with the same name can correspond to the same output
         in a model.
@@ -321,7 +324,7 @@ class TargetInfo:
 
         if self.quantity != other.quantity:
             return False
-        if self.unit != other.unit:
+        if not units_are_equivalent(self.unit, other.unit):
             return False
         if self.description != other.description:
             return False

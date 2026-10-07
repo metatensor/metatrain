@@ -1,6 +1,6 @@
 import pytest
 
-from metatrain.utils.units import ev_to_mev, get_gradient_units
+from metatrain.utils.units import ev_to_mev, get_gradient_units, units_are_equivalent
 
 
 def test_get_gradient_units():
@@ -27,3 +27,24 @@ def test_ev_to_mev():
     assert ev_to_mev(0.2, "ev") == (200.0, "mev")
     # Test the case where the unit is a derived unit of eV
     assert ev_to_mev(1.0, "eV/unit") == (1000.0, "meV/unit")
+
+
+@pytest.mark.parametrize(
+    "unit, other_unit, equivalent",
+    [
+        pytest.param("eV", "eV", True, id="identical-units"),
+        pytest.param("", "", True, id="both-units-empty"),
+        pytest.param("", "eV", False, id="one-unit-empty"),
+        pytest.param("A", "angstrom", True, id="length-alias"),
+        pytest.param("eV/A", "eV/angstrom", True, id="derived-unit-alias"),
+        pytest.param("eV/A^3", "eV/angstrom^3", True, id="powered-unit-alias"),
+        pytest.param("eV", "meV", False, id="different-energy-scales"),
+        pytest.param("angstrom", "nm", False, id="different-length-scales"),
+        pytest.param("eV", "angstrom", False, id="different-dimensions"),
+        pytest.param("invalid-unit", "eV", False, id="invalid-unit"),
+        pytest.param("eV/(", "eV", False, id="malformed-unit"),
+    ],
+)
+def test_units_are_equivalent(unit: str, other_unit: str, equivalent: bool):
+    assert units_are_equivalent(unit, other_unit) is equivalent
+    assert units_are_equivalent(other_unit, unit) is equivalent
