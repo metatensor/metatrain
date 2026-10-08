@@ -610,7 +610,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 f"Error loading the checkpoint: missing keys {missing_keys}, "
                 f"unexpected keys {unexpected_keys}."
             )
-        # Set up composition model
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))

@@ -138,9 +138,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
             alpha_forces=alpha_forces,
         )
 
+        # Have to `to` here, because previously we manually move the weights to the
+        # correct device and dtype inside the forward, but now we adopted to
+        # mts.learn.nn.Module and removed the moving in the forward, so we have to do it
+        # here.
         model._subset_of_regressors_torch = (
             model._subset_of_regressors.export_torch_script_model()
-        )
+        ).to(device=devices[0], dtype=dtype)
 
     def save_checkpoint(
         self, model: ModelInterface, checkpoint_dir: Union[str, Path]
