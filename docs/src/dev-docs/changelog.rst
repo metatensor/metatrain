@@ -42,6 +42,8 @@ Fixed
   ``eV/angstrom^3``, avoiding false unit incompatibility errors.
 - PET attention now excludes keys with a zero cutoff factor with ``-inf`` instead of
   penalising them with ``log(1e-15)``.
+- SPACE now creates the property labels of the ``feature`` output on the device of the
+  systems.
 
 Added
 #####
