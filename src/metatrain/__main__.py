@@ -4,6 +4,7 @@ import argparse
 import logging
 import sys
 import traceback
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from .cli.export import (
     _prepare_export_model_args,
     export_model,
 )
-from .cli.show import _add_show_model_parser, show_model
+from .cli.info import _add_info_model_parser, info_model
 from .cli.train import (
     _add_train_model_parser,
     _prepare_train_model_args,
@@ -60,7 +61,7 @@ def main():
     subparser = ap.add_subparsers(help="sub-command help")
     _add_eval_model_parser(subparser)
     _add_export_model_parser(subparser)
-    _add_show_model_parser(subparser)
+    _add_info_model_parser(subparser)
     _add_train_model_parser(subparser)
 
     args = ap.parse_args()
@@ -96,7 +97,12 @@ def main():
     if callable == "train_model":
         _setup_wandb_logging(ROOT_LOGGER, args)
 
-    with setup_logging(ROOT_LOGGER, log_file=log_file, level=level):
+    if callable == "info_model":
+        logging_context = nullcontext()
+    else:
+        logging_context = setup_logging(ROOT_LOGGER, log_file=log_file, level=level)
+
+    with logging_context:
         try:
             if callable == "eval_model":
                 _prepare_eval_model_args(args)
@@ -104,8 +110,8 @@ def main():
             elif callable == "export_model":
                 _prepare_export_model_args(args)
                 export_model(**args.__dict__)
-            elif callable == "show_model":
-                show_model(**args.__dict__)
+            elif callable == "info_model":
+                info_model(**args.__dict__)
             elif callable == "train_model":
                 _prepare_train_model_args(args)
                 train_model(**args.__dict__)

@@ -1,7 +1,7 @@
-Show
+Info
 ####
 
-.. automodule:: metatrain.cli.show
+.. automodule:: metatrain.cli.info
     :members:
     :undoc-members:
     :show-inheritance:

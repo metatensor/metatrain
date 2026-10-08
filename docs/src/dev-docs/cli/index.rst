@@ -2,7 +2,7 @@ CLI API
 =======
 
 This is the API for the command line interface ``cli`` functions for the ``train``, the
-``eval``, the ``export`` and ``show`` functions of ``metatrain``.
+``eval``, the ``export`` and ``info`` functions of ``metatrain``.
 
 .. toctree::
    :maxdepth: 1
@@ -10,4 +10,4 @@ This is the API for the command line interface ``cli`` functions for the ``train
    train
    eval
    export
-   show
+   info

@@ -58,7 +58,7 @@ print(' '.join(find_all_architectures()))
       COMPREPLY=( $(compgen -W "${opts}" -- "${cur_word}") )
       return 0
       ;;
-    show)
+    info)
       case "${prev_word}" in
         -h|--help)
           COMPREPLY=( )
@@ -75,7 +75,7 @@ print(' '.join(find_all_architectures()))
           fi
           ;;
       esac
-      local opts="-h --help -e --extensions-dir"
+      local opts="-h --help -e --extensions-dir --token"
       COMPREPLY=( $(compgen -W "${opts}" -- "${cur_word}") )
       return 0
       ;;
@@ -107,7 +107,7 @@ print(' '.join(find_all_architectures()))
   esac
 
   # Complete the basic metatrain commands.
-  local opts="eval export show train -h --help --debug --version"
+  local opts="eval export info train -h --help --debug --version"
   COMPREPLY=( $(compgen -W "${opts}" -- "${cur_word}") )
   return 0
 }

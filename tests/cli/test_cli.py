@@ -28,7 +28,7 @@ def test_wrong_module():
         subprocess.check_call(["mtt", "foo"])
 
 
-@pytest.mark.parametrize("module", tuple(["eval", "export", "show", "train"]))
+@pytest.mark.parametrize("module", tuple(["eval", "export", "info", "train"]))
 def test_available_modules(module):
     """Test available modules."""
     subprocess.check_call(["mtt", module, "--help"])
@@ -116,7 +116,7 @@ def get_completion_suggestions(partial_word: str) -> List[str]:
     [
         (
             " ",
-            ["--debug", "--help", "--version", "-h", "eval", "export", "show", "train"],
+            ["--debug", "--help", "--version", "-h", "eval", "export", "info", "train"],
         )
     ],
 )
