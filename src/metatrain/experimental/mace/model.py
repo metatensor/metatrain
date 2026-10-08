@@ -270,7 +270,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         # Create heads for each target, store the layout for each of them.
         self.heads = torch.nn.ModuleDict()
-        self.register_buffer("layouts", {}, persistent=False)
+        self.register_buffer("layouts", {})
         for target_name, target_info in train_dataset_info.targets.items():
             self._add_output(target_name, target_info)
 

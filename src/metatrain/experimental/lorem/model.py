@@ -117,7 +117,7 @@ class LOREM(ModelInterface[ModelHypers]):
         self.outputs: Dict[str, ModelOutput] = {}
         self.bec_heads = torch.nn.ModuleDict({})
         self.bec_targets = []
-        self.register_buffer("layouts", {}, persistent=False)
+        self.register_buffer("layouts", {}, persistent=True)
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
 
