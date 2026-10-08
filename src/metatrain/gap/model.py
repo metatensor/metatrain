@@ -305,7 +305,7 @@ class GAP(ModelInterface[ModelHypers]):
         # that is used in the forward path
         self._subset_of_regressors_torch = (
             self._subset_of_regressors.export_torch_script_model()
-        ).to(dtype="float64")
+        ).to(dtype=torch.float64)
 
         metadata = merge_metadata(self.metadata, metadata)
 
