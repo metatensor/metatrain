@@ -1,10 +1,10 @@
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.learn import nn
 from spex.spherical_expansion import SphericalExpansion
-from torch.nn import Module
 
 
-class SoapPowerSpectrum(Module):
+class SoapPowerSpectrum(nn.Module):
     """Class for the SOAP power spectrum.
 
     Arguments are expected in the form of ``specable``-style dictionaries, i.e.,
@@ -53,14 +53,21 @@ class SoapPowerSpectrum(Module):
         self.legacy = "Orthogonal" in species
 
         # Cache Labels for TensorMap construction (avoid per-forward allocations)
-        self._property_labels = Labels(
-            names=["property"],
-            values=torch.arange(self.shape).unsqueeze(1),
+        self.register_buffer(
+            "_property_labels",
+            Labels(
+                names=["property"],
+                values=torch.arange(self.shape).unsqueeze(1),
+            ),
+            persistent=False,
         )
-        # Always define _modern_keys for TorchScript compatibility
-        self._modern_keys = Labels(
-            names=["_"],
-            values=torch.tensor([[0]], dtype=torch.int32),
+        self.register_buffer(
+            "_modern_keys",
+            Labels(
+                names=["_"],
+                values=torch.tensor([[0]], dtype=torch.int32),
+            ),
+            persistent=False,
         )
 
     def forward(
@@ -116,11 +123,6 @@ class SoapPowerSpectrum(Module):
         # centers: [center]
 
         spherical_expansion = self.calculator.forward(R_ij, i, j, species)
-
-        device = R_ij.device
-        if self._property_labels.values.device != device:
-            self._property_labels = self._property_labels.to(device)
-            self._modern_keys = self._modern_keys.to(device)
 
         blocks_from_single_l: list[torch.Tensor] = []
         for tensor in spherical_expansion:

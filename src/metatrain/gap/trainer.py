@@ -36,6 +36,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # checks
         assert dtype in GAP.__supported_dtypes__
         assert devices == [torch.device("cpu")]
+        model.to(device=devices[0], dtype=dtype)
         target_name = next(iter(model.dataset_info.targets.keys()))
         if len(train_datasets) != 1:
             raise ValueError("GAP only supports a single training dataset")
@@ -57,6 +58,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             atomic_baseline={},
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
+            device=devices[0],
             batch_size=1,
             is_distributed=False,
             checkpoint_dir=checkpoint_dir,
@@ -136,9 +138,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
             alpha_forces=alpha_forces,
         )
 
+        # Have to `to` here, because previously we manually move the weights to the
+        # correct device and dtype inside the forward, but now we adopted to
+        # mts.learn.nn.Module and removed the moving in the forward, so we have to do it
+        # here.
         model._subset_of_regressors_torch = (
             model._subset_of_regressors.export_torch_script_model()
-        )
+        ).to(device=devices[0], dtype=dtype)
 
     def save_checkpoint(
         self, model: ModelInterface, checkpoint_dir: Union[str, Path]

@@ -13,6 +13,7 @@ from typing import (
 
 import torch
 from metatensor.torch import Labels, TensorMap
+from metatensor.torch.learn import nn
 from metatomic.torch import (
     AtomisticModel,
     ModelMetadata,
@@ -26,7 +27,7 @@ from metatrain.utils.data.dataset import Dataset, DatasetInfo
 HypersType = TypeVar("HypersType")
 
 
-class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
+class ModelInterface(nn.Module, Generic[HypersType], metaclass=ABCMeta):
     """
     Abstract base class for a machine learning model in metatrain.
 
@@ -68,6 +69,17 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
     software used in the implementation of the architecture, while the
     ``architecture`` key should contain references about the general architecture.
     """
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        # TorchScript drops the attributes if they are unused, but metatensor-torch
+        # checks for the attribute presence to decide wether to send a warning or not.
+        # Adding these to the class annotations forces torchscript to keep them, and
+        # removes the warning until this is fixed in metatensor-torch.
+        cls.__annotations__ = {
+            "_mts_buffer_names": List[str],
+            **cls.__annotations__,
+        }
 
     def __init__(
         self, hypers: HypersType, dataset_info: DatasetInfo, metadata: ModelMetadata
@@ -135,9 +147,7 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
-    ) -> "ModelInterface":
+    def restart(self, dataset_info: DatasetInfo) -> "ModelInterface":
         """
         Update a model to restart training, potentially with different dataset and/or
         targets.
@@ -148,8 +158,6 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
 
         :param dataset_info: Information about the new dataset, including the targets
             that will be used for training.
-
-        :param model_hypers: The new hyperparameters for the model.
 
         :return: The updated model, or a new instance of the model, that is able to
             handle the new dataset.

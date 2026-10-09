@@ -51,13 +51,16 @@ class FlashMDSymplectic(ModelInterface):
     For more information, you can refer to https://arxiv.org/abs/2508.01068.
     """
 
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2508.01068"]}
     )
+    single_label: Labels
+    key_labels: Dict[str, Labels]
     component_labels: Dict[str, List[List[Labels]]]
+    property_labels: Dict[str, List[Labels]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
     def __init__(self, hypers: Dict, dataset_info: DatasetInfo) -> None:
@@ -152,10 +155,10 @@ class FlashMDSymplectic(ModelInterface):
             "feature": ModelOutput(unit="", sample_kind="atom")
         }  # the model is always capable of outputting the internal features
 
+        self.register_buffer("key_labels", {}, persistent=False)
+        self.register_buffer("component_labels", {}, persistent=False)
+        self.register_buffer("property_labels", {}, persistent=False)
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
-        self.key_labels: Dict[str, Labels] = {}
-        self.property_labels: Dict[str, List[Labels]] = {}
-        self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
@@ -206,7 +209,7 @@ class FlashMDSymplectic(ModelInterface):
         scaler_hypers = get_default_hypers("scaler")["model"]
         self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
-        self.single_label = Labels.single()
+        self.register_buffer("single_label", Labels.single(), persistent=False)
 
         self.finetune_config: Dict[str, Any] = {}
 
@@ -428,9 +431,6 @@ class FlashMDSymplectic(ModelInterface):
         device = systems[0].device
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
-
-        if self.single_label.values.device != device:
-            self._move_labels_to_device(device)
 
         # Here, we verify that all systems have masses attached.
         verify_masses(systems, self.masses)
@@ -1259,12 +1259,13 @@ class FlashMDSymplectic(ModelInterface):
             model = apply_finetuning_strategy(
                 model, finetune_config, apply_inherit_heads=False
             )
-        state_dict_iter = iter(model_state_dict.values())
-        next(state_dict_iter)  # skip the species_to_species_index
-        dtype = next(state_dict_iter).dtype
+        state_dict_iter = iter(model_state_dict.keys())
+        while True:
+            key = next(state_dict_iter)
+            if key.endswith("weight"):
+                break
+        dtype = model_state_dict[key].dtype
         model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -1280,10 +1281,6 @@ class FlashMDSymplectic(ModelInterface):
         # For example, after training, the additive models could still be in
         # float64
         self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         interaction_ranges = [self.num_gnn_layers * self.cutoff]
         for additive_model in self.additive_models:
@@ -1418,24 +1415,6 @@ class FlashMDSymplectic(ModelInterface):
         self.key_labels.pop(target_name, None)
         self.component_labels.pop(target_name, None)
         self.property_labels.pop(target_name, None)
-
-    def _move_labels_to_device(self, device: torch.device) -> None:
-        self.single_label = self.single_label.to(device)
-        self.key_labels = {
-            output_name: label.to(device)
-            for output_name, label in self.key_labels.items()
-        }
-        self.component_labels = {
-            output_name: [
-                [labels.to(device) for labels in components_block]
-                for components_block in components_tmap
-            ]
-            for output_name, components_tmap in self.component_labels.items()
-        }
-        self.property_labels = {
-            output_name: [labels.to(device) for labels in properties_tmap]
-            for output_name, properties_tmap in self.property_labels.items()
-        }
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:

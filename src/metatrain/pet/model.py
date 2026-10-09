@@ -65,12 +65,15 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 16
+    __checkpoint_version__ = 17
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
+    single_label: Labels
+    key_labels: Dict[str, Labels]
+    property_labels: Dict[str, List[Labels]]
     component_labels: Dict[str, List[List[Labels]]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
@@ -137,10 +140,10 @@ class PET(ModelInterface[ModelHypers]):
         # during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
+        self.register_buffer("key_labels", {}, persistent=False)
+        self.register_buffer("property_labels", {}, persistent=False)
+        self.register_buffer("component_labels", {}, persistent=False)
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
-        self.key_labels: Dict[str, Labels] = {}
-        self.property_labels: Dict[str, List[Labels]] = {}
-        self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
         self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         for target_name, target_info in train_dataset_info.targets.items():
@@ -198,7 +201,7 @@ class PET(ModelInterface[ModelHypers]):
         scaler_hypers = get_default_hypers("scaler")["model"]
         self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
-        self.single_label = Labels.single()
+        self.register_buffer("single_label", Labels.single())
 
         self.finetune_config: Dict[str, Any] = {}
 
@@ -404,9 +407,6 @@ class PET(ModelInterface[ModelHypers]):
         device = systems[0].device
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
-
-        if self.single_label.values.device != device:
-            self._move_labels_to_device(device)
 
         with torch.profiler.record_function("PET::concatenate_structures"):
             # **Stage 0: Input Preparation**
@@ -985,12 +985,13 @@ class PET(ModelInterface[ModelHypers]):
             model = apply_finetuning_strategy(
                 model, finetune_config, apply_inherit_heads=False
             )
-        state_dict_iter = iter(model_state_dict.values())
-        next(state_dict_iter)  # skip the species_to_species_index
-        dtype = next(state_dict_iter).dtype
+        state_dict_iter = iter(model_state_dict.keys())
+        while True:
+            key = next(state_dict_iter)
+            if key.endswith("weight"):
+                break
+        dtype = model_state_dict[key].dtype
         model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -1006,10 +1007,6 @@ class PET(ModelInterface[ModelHypers]):
         # For example, after training, the additive models could still be in
         # float64
         self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         interaction_ranges = [self.num_gnn_layers * self.cutoff]
         for additive_model in self.additive_models:
@@ -1110,24 +1107,6 @@ class PET(ModelInterface[ModelHypers]):
         self.key_labels.pop(target_name, None)
         self.component_labels.pop(target_name, None)
         self.property_labels.pop(target_name, None)
-
-    def _move_labels_to_device(self, device: torch.device) -> None:
-        self.single_label = self.single_label.to(device)
-        self.key_labels = {
-            output_name: label.to(device)
-            for output_name, label in self.key_labels.items()
-        }
-        self.component_labels = {
-            output_name: [
-                [labels.to(device) for labels in components_block]
-                for components_block in components_tmap
-            ]
-            for output_name, components_tmap in self.component_labels.items()
-        }
-        self.property_labels = {
-            output_name: [labels.to(device) for labels in properties_tmap]
-            for output_name, properties_tmap in self.property_labels.items()
-        }
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:

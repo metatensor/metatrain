@@ -77,6 +77,7 @@ class TestCheckpoints(CheckpointTests, CompositionTests):
     incompatible_trainer_checkpoints = [
         "checkpoints/model-v1_trainer-v1.ckpt.gz",
         "checkpoints/model-v1_trainer-v2.ckpt.gz",
+        "checkpoints/model-v2_trainer-v2.ckpt.gz",
     ]
 
 
