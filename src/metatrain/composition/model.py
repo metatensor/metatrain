@@ -1,5 +1,6 @@
 import logging
 import warnings
+from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional, Union
 
 import metatensor.torch as mts
@@ -14,7 +15,7 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.utils.abc import ModelInterface
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
@@ -199,7 +200,9 @@ class CompositionModel(ModelInterface[ModelHypers]):
         )
 
     def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
     ) -> "CompositionModel":
         """
         Update the model to continue training, possibly with new targets.
@@ -469,13 +472,9 @@ class CompositionModel(ModelInterface[ModelHypers]):
             weights = mts.load_buffer(buffer.to(device="cpu"))
             self.model.weights[k] = weights.to(device=buffer.device)
 
-    def get_checkpoint(self) -> Dict:
-        """
-        Get the checkpoint of the model.
-
-        :return: The model's checkpoint, containing all the information needed
-            by ``load_checkpoint`` to recreate the same model instance.
-        """
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> Dict:
         model_state_dict = self.state_dict()
         checkpoint = {
             "architecture_name": "composition",
@@ -488,7 +487,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
             "epoch": None,
             "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": model_state_dict,
+            "best_model_state_dict": best_model_state_dict or model_state_dict,
         }
         return checkpoint
 
@@ -533,52 +532,11 @@ class CompositionModel(ModelInterface[ModelHypers]):
 
     @classmethod
     def upgrade_checkpoint(
-        cls, checkpoint: Dict, version: Optional[int] = None
-    ) -> Dict:
-        """
-        Upgrade the checkpoint to the current version of the model.
-
-        :param checkpoint: Checkpoint's state dictionary.
-        :param version: Version to which the checkpoint should be upgraded. If ``None``,
-            the checkpoint will be upgraded to the current version of the model.
-
-        :return: The upgraded checkpoint.
-        """
-        if version is None:
-            version = cls.__checkpoint_version__
-        elif version > cls.__checkpoint_version__:
-            raise ValueError(
-                f"Was asked to upgrade checkpoint to version {version},"
-                "which is higher than the current model version:"
-                f" {cls.__checkpoint_version__}."
-            )
-        elif version < checkpoint["model_ckpt_version"]:
-            raise ValueError(
-                f"Was asked to upgrade checkpoint to version {version},"
-                "but the checkpoint is at a higher version:"
-                f" {checkpoint['model_ckpt_version']}."
-            )
-
-        for v in range(1, version):
-            if checkpoint["model_ckpt_version"] == v:
-                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
-
-        if checkpoint["model_ckpt_version"] != version:
-            if version == cls.__checkpoint_version__:
-                raise RuntimeError(
-                    f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                    f"version {checkpoint['model_ckpt_version']}, while the current model "
-                    f"version is {version}."
-                )
-            else:
-                raise RuntimeError(
-                    f"Unable to upgrade the checkpoint from version"
-                    f" {checkpoint['model_ckpt_version']} to version {version}."
-                )
-
-        return checkpoint
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         """

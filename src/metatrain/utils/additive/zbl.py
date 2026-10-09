@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
@@ -112,13 +113,9 @@ class ZBL(ModelInterface):
         largest_covalent_radius = float(torch.max(self.covalent_radii))
         self.cutoff_radius = 2.0 * largest_covalent_radius
 
-    def restart(self, dataset_info: DatasetInfo) -> "ZBL":
-        """Restart the model with a new dataset info.
-
-        :param dataset_info: New dataset information to be used.
-        :return: The restarted model.
-        """
-
+    def restart(
+        self, dataset_info: DatasetInfo, model_hypers: Mapping[str, Any] | None = None
+    ) -> "ZBL":
         for target_name, target_info in dataset_info.targets.items():
             if not self.is_valid_target(target_name, target_info):
                 raise ValueError(
@@ -338,13 +335,9 @@ class ZBL(ModelInterface):
             return False
         return True
 
-    def get_checkpoint(self) -> dict[str, Any]:
-        """
-        Get the checkpoint of the model. This should contain all the information
-        needed by `load_checkpoint` to recreate the same model instance.
-
-        :return: The model's checkpoint.
-        """
+    def get_checkpoint(
+        self, best_model_state_dict: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         model_state_dict = self.state_dict()
         checkpoint = {
             "architecture_name": "zbl",

@@ -5,19 +5,19 @@ from typing import Any, Dict, List, Literal, Union
 import metatensor.torch as mts
 import torch
 
-from metatrain.composition import train_or_load_composition_model, CompositionModel
+from metatrain.composition import CompositionModel, train_or_load_composition_model
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import remove_additive
-from metatrain.utils.data import Dataset, check_datasets, DatasetInfo
+from metatrain.utils.additive.zbl import ZBL
+from metatrain.utils.data import Dataset, DatasetInfo, check_datasets
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
 from metatrain.utils.wrapper import MetatrainModel
-from metatrain.utils.additive.zbl import ZBL
 
 from . import GAP
-from .documentation import TrainerHypers, ModelHypers
+from .documentation import ModelHypers, TrainerHypers
 
 
 class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
@@ -28,7 +28,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
     def setup(
         self, model_hypers: ModelHypers, dataset_info: DatasetInfo
-    ) -> MetatrainModel:
+    ) -> MetatrainModel[GAP]:
 
         model = GAP(hypers=model_hypers, dataset_info=dataset_info)
 
@@ -66,15 +66,15 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
     def restart(
         self,
-        model: MetatrainModel,
+        model: MetatrainModel[GAP],
         dataset_info: DatasetInfo,
         model_hypers: ModelHypers,
-    ) -> MetatrainModel:
+    ) -> MetatrainModel[GAP]:
         raise NotImplementedError("GAP does not allow restarting training")
 
     def train(
         self,
-        model: MetatrainModel,
+        model: MetatrainModel[GAP],
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -208,6 +208,6 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     ) -> "GAP":
         raise ValueError("GAP does not allow restarting training")
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict, version: int | None = None) -> Dict:
         raise NotImplementedError("checkpoint upgrade is not implemented for GAP")

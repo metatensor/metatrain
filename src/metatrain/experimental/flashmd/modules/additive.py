@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
@@ -62,7 +63,9 @@ class PositionAdditive(ModelInterface):
             )
 
     def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
     ) -> "PositionAdditive":
         """Restart the model with a new dataset info.
 
@@ -212,13 +215,16 @@ class PositionAdditive(ModelInterface):
             return True
         return False
 
-    def get_checkpoint(self) -> Dict[str, Any]:
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Get the checkpoint of the model. This should contain all the information
         needed by `load_checkpoint` to recreate the same model instance.
 
         :return: The model's checkpoint.
         """
+        model_state_dict = self.state_dict()
         checkpoint = {
             "architecture_name": "flashmd_position_additive",
             "model_ckpt_version": self.__checkpoint_version__,
@@ -226,7 +232,8 @@ class PositionAdditive(ModelInterface):
                 "hypers": self.hypers,
                 "dataset_info": self.dataset_info,
             },
-            "model_state_dict": self.state_dict(),
+            "model_state_dict": model_state_dict,
+            "best_model_state_dict": best_model_state_dict or model_state_dict,
         }
         return checkpoint
 

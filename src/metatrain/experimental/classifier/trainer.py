@@ -24,11 +24,11 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 
-from .documentation import TrainerHypers
+from .documentation import ModelHypers, TrainerHypers
 from .model import Classifier
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 1
 
     def train(
@@ -332,12 +332,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
         raise ValueError("Classifier does not allow restarting training")
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+    def upgrade_checkpoint(cls, checkpoint: Dict, version: int | None = None) -> Dict:
+        if version is None:
+            version = cls.__checkpoint_version__
         # Currently at version 1, no upgrades needed yet
-        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
+        if checkpoint["trainer_ckpt_version"] != version:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using "
                 f"trainer version {checkpoint['trainer_ckpt_version']}, while the "
-                f"current trainer version is {cls.__checkpoint_version__}."
+                f"desired trainer version is {version}."
             )
         return checkpoint

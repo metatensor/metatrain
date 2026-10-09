@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
@@ -124,7 +125,9 @@ class Classifier(ModelInterface[ModelHypers]):
         self.linear = torch.nn.Linear(current_size, num_classes, bias=False)
 
     def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
     ) -> "Classifier":
         raise ValueError("Restarting from a Classifier model is not supported.")
 
@@ -259,7 +262,9 @@ class Classifier(ModelInterface[ModelHypers]):
 
         return return_dict
 
-    def get_checkpoint(self) -> Dict[str, Any]:
+    def get_checkpoint(
+        self, best_model_state_dict: dict[str, Any] | None = None
+    ) -> Dict[str, Any]:
         if self.model is None:
             raise ValueError("Cannot get checkpoint: wrapped model not set")
 
@@ -342,13 +347,15 @@ class Classifier(ModelInterface[ModelHypers]):
         return AtomisticModel(self.eval(), metadata, self.capabilities)
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+    def upgrade_checkpoint(cls, checkpoint: Dict, version: int | None = None) -> Dict:
+        if version is None:
+            version = cls.__checkpoint_version__
         # Currently at version 1, no upgrades needed yet
-        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
+        if checkpoint["model_ckpt_version"] != version:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {checkpoint['model_ckpt_version']}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
+                f"version {checkpoint['model_ckpt_version']}, while the desired "
+                f"model version is {version}."
             )
 
         return checkpoint

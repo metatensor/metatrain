@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from metatrain.gap import GAP, Trainer
+from metatrain.gap import Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.readers.ase import read

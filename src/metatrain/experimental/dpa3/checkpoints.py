@@ -24,6 +24,7 @@ def model_update_v2_v3(checkpoint: dict) -> None:
     if "dpa3_model_branch" not in checkpoint["model_data"]["model_hypers"]:
         checkpoint["model_data"]["model_hypers"]["dpa3_model_branch"] = None
 
+
 def model_update_v3_v4(checkpoint: dict) -> None:
     """
     Update a v3 checkpoint to v4.
@@ -43,6 +44,7 @@ def model_update_v3_v4(checkpoint: dict) -> None:
                 for prefix in removed_prefixes:
                     if k.startswith(prefix):
                         state_dict.pop(k)
+
 
 ###########################
 # TRAINER #################

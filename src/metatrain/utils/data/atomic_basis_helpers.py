@@ -657,9 +657,10 @@ def get_prepare_atomic_basis_targets_transform(
     Get a function that prepares the atomic basis targets for batching by densifying and
     padding.
 
-    :param target_info_dict: Dictionary mapping target names to TargetInfo objects.
-    :param extra_data_info_dict: Dictionary mapping extra data names to TargetInfo
-        objects.
+    :param pre_dataset_info: DatasetInfo before the transform, specifying what is the
+        layout of the targets that the transform will receive.
+    :param post_dataset_info: DatasetInfo after the transform, specifying what is the
+        layout of the targets that the transform should return.
     :param nl_options: Options for the neighbor list used to enumerate edges for
         per-atom-pair targets. Required if any of the targets/extra data are
         per-atom-pair atomic basis targets.

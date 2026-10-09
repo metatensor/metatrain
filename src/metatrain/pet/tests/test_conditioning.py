@@ -539,10 +539,11 @@ def test_trainer_wires_conditioning_transform(tmp_path, monkeypatch):
 
     trainer = Trainer(train_hypers)
     model = trainer.setup(hypers, dataset_info=_dataset_info())
-    charge_weights_before = (
-        model.model.system_conditioning.charge_embedding.weight.detach().clone()
+    system_conditioning = model.model.system_conditioning
+    charge_weights_before = system_conditioning.charge_embedding.weight.detach().clone()
+    spin_weights_before = (
+        system_conditioning.spin_multiplicity_embedding.weight.detach().clone()
     )
-    spin_weights_before = model.model.system_conditioning.spin_multiplicity_embedding.weight.detach().clone()
 
     trainer.train(
         model=model,

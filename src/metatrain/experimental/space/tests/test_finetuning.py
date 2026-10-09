@@ -13,6 +13,7 @@ from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import model_from_checkpoint, trainer_from_checkpoint
 from metatrain.utils.loss import LossSpecification
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -263,7 +264,8 @@ def _two_target_setup():
         name: get_energy_target_info(name, {"quantity": "energy", "unit": "eV"})
         for name in ("energy", "mtt::U0")
     }
-    model = SPACE(
+    trainer = Trainer(DEFAULT_HYPERS["training"])
+    model = trainer.setup(
         MODEL_HYPERS,
         DatasetInfo(length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets),
     )
@@ -272,27 +274,38 @@ def _two_target_setup():
         atomic_types=[1, 6, 7, 8],
         targets={"mtt::U0": targets["mtt::U0"]},
     )
-    return model, new_dataset_info
+    return model, trainer, new_dataset_info
 
 
 def _assert_target_absent(model, target_name):
     assert target_name not in model.dataset_info.targets
-    assert target_name not in model.target_names
     assert target_name not in model.supported_outputs()
+    for additive_model in model.additive_models:
+        assert target_name not in additive_model.outputs
+    assert target_name not in model.scaler.outputs
+    if isinstance(model, MetatrainModel):
+        model = model.model
+        assert target_name not in model.dataset_info.targets
+        assert target_name not in model.supported_outputs()
+    assert target_name not in model.target_names
     assert target_name not in model.module.module.heads
     assert target_name not in model.module.module.last_layers
     assert target_name not in model.key_labels
     assert target_name not in model.component_labels
     assert target_name not in model.property_labels
-    for additive_model in model.additive_models:
-        assert target_name not in additive_model.outputs
-    assert target_name not in model.scaler.outputs
 
 
 def _assert_target_present(model, target_name):
     assert target_name in model.dataset_info.targets
-    assert target_name in model.target_names
     assert target_name in model.supported_outputs()
+    for additive_model in model.additive_models:
+        assert target_name in additive_model.outputs
+    assert target_name in model.scaler.outputs
+    if isinstance(model, MetatrainModel):
+        model = model.model
+        assert target_name in model.dataset_info.targets
+        assert target_name in model.supported_outputs()
+    assert target_name in model.target_names
     assert target_name in model.module.module.heads
     assert target_name in model.module.module.last_layers
     assert target_name in model.key_labels
@@ -308,12 +321,14 @@ def test_finetune_full_lora_prunes_stale_targets(method):
     training actually starts): ``restart`` alone must not remove it yet, since
     ``inherit_heads`` (applied within ``apply_finetuning_strategy``) may still need
     to copy weights from the stale target's head."""
-    model, new_dataset_info = _two_target_setup()
+    model, trainer, new_dataset_info = _two_target_setup()
 
     model.restart(new_dataset_info)
     _assert_target_present(model, "energy")
 
-    apply_finetuning_strategy(model, _finetune_strategy(method))
+    apply_finetuning_strategy(
+        model, _finetune_strategy(method), stale_targets=trainer._stale_finetune_targets
+    )
 
     _assert_target_absent(model, "energy")
     _assert_target_present(model, "mtt::U0")
@@ -322,7 +337,7 @@ def test_finetune_full_lora_prunes_stale_targets(method):
 def test_finetune_full_inherit_heads_then_prunes_source_target():
     """``inherit_heads`` can copy weights from a stale target's head into the new
     target's head; the stale target is only removed afterwards."""
-    model, new_dataset_info = _two_target_setup()
+    model, trainer, new_dataset_info = _two_target_setup()
 
     model.restart(new_dataset_info)
     apply_finetuning_strategy(
@@ -336,7 +351,7 @@ def test_finetune_full_inherit_heads_then_prunes_source_target():
 def test_finetune_heads_keeps_stale_targets():
     """With heads-only finetuning, the backbone is unchanged, so a target not part
     of the current run's dataset must be kept."""
-    model, new_dataset_info = _two_target_setup()
+    model, trainer, new_dataset_info = _two_target_setup()
 
     model.restart(new_dataset_info)
     apply_finetuning_strategy(model, _finetune_strategy("heads"))
@@ -347,7 +362,7 @@ def test_finetune_heads_keeps_stale_targets():
 
 def test_plain_restart_keeps_stale_targets():
     """A plain restart (not part of a finetuning run) must not prune any target."""
-    model, new_dataset_info = _two_target_setup()
+    model, trainer, new_dataset_info = _two_target_setup()
 
     model.restart(new_dataset_info)
 

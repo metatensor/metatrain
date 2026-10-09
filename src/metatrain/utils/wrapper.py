@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Optional
+from collections.abc import Mapping
+from typing import Any, Dict, Generic, List, Optional
 
 import metatensor.torch as mts
 import torch
@@ -12,6 +13,7 @@ from metatomic.torch import (
     NeighborListOptions,
     System,
 )
+from typing_extensions import TypeVar
 
 # from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
@@ -21,7 +23,11 @@ from metatrain.utils.data.match_tmaps import match_layout
 from metatrain.utils.dtype import dtype_to_str
 
 
-class MetatrainModel(torch.nn.Module):
+CoreModelClass = TypeVar("CoreModelClass", bound=ModelInterface)
+ScalerClass = TypeVar("ScalerClass", default=None, bound=Optional[ModelInterface])
+
+
+class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
     __checkpoint_version__ = 1
 
     # Dictionary storing the targets that need to be transformed at evaluation
@@ -29,9 +35,9 @@ class MetatrainModel(torch.nn.Module):
 
     def __init__(
         self,
-        model: ModelInterface,
+        model: CoreModelClass,
         additive_models: list[ModelInterface],
-        scaler: Optional[ModelInterface],  # Scaler,
+        scaler: ScalerClass,  # Scaler,
         dataset_info: DatasetInfo,
     ):
         super().__init__()
@@ -45,8 +51,14 @@ class MetatrainModel(torch.nn.Module):
 
     def _get_eval_transforms(self) -> dict[str, list[str]]:
         """Finds out which targets need to be transformed at evaluation time to
-        make sure that the outputs of the model, scaler and additive models are compatible."""
-        eval_transforms = {}
+        make sure that the outputs of the model, scaler and additive models
+        are compatible.
+
+        :return: A dictionary with the targets that need to be transformed at
+            evaluation time. There is a key for each step of the evaluation,
+            and the value is a list of targets that need to be transformed.
+        """
+        eval_transforms: dict[str, list[str]] = {}
 
         # Get targets of each model.
         model_targets = self.model.dataset_info.targets
@@ -58,7 +70,8 @@ class MetatrainModel(torch.nn.Module):
             for additive_model in self.additive_models
         ]
 
-        # Go through the steps of the evaluation and find out the required transformations.
+        # Go through the steps of the evaluation and find out
+        # the required transformations.
         current_targets = model_targets.copy()
         # Targets to transform before applying the scaler
         eval_transforms["pre_scaler"] = []
@@ -197,7 +210,7 @@ class MetatrainModel(torch.nn.Module):
     def requested_inputs(self) -> Dict[str, ModelOutput]:
         requested_inputs = {}
 
-        def _add_model_requested_inputs(model: ModelInterface):
+        def _add_model_requested_inputs(model: ModelInterface) -> None:
             if not hasattr(model, "requested_inputs"):
                 return
             for name, output in model.requested_inputs().items():
@@ -216,7 +229,7 @@ class MetatrainModel(torch.nn.Module):
     def requested_neighbor_lists(self) -> list[NeighborListOptions]:
         requested_neighbor_lists = []
 
-        def _add_model_requested_neighbor_lists(model: ModelInterface):
+        def _add_model_requested_neighbor_lists(model: ModelInterface) -> None:
             if not hasattr(model, "requested_neighbor_lists"):
                 return
             for nl in model.requested_neighbor_lists():
@@ -290,7 +303,7 @@ class MetatrainModel(torch.nn.Module):
         to_export = self.__class__(
             model=model.module,
             additive_models=[model.module for model in additive_models],
-            scaler=scaler.module if scaler is not None else None,
+            scaler=scaler.module if scaler is not None else None,  # type: ignore[arg-type]
             dataset_info=self.dataset_info,
         )
         # Some architectures have attributes that downstream code reads from the
@@ -344,7 +357,9 @@ class MetatrainModel(torch.nn.Module):
 
         return checkpoint
 
-    def get_checkpoint(self, best_model_state_dict: dict[str, Any] = None) -> dict[str, Any]:
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
         """
         Get the checkpoint of the model. This should contain all the information
         needed by `load_checkpoint` to recreate the same model instance.
@@ -356,42 +371,109 @@ class MetatrainModel(torch.nn.Module):
 
         :return: The model's checkpoint.
         """
-        model_best_state_dict = None
-        additive_models_best_state_dicts = [None] * len(self.additive_models)
-        scaler_best_state_dict = None
+        model_best_state_dict: dict[str, Any] | None = None
+        additive_models_best_state_dicts: list[dict[str, Any] | None] = [None] * len(
+            self.additive_models
+        )
+        scaler_best_state_dict: dict[str, Any] | None = None
 
         # Split the best_model_state_dict into the corresponding sub-models' state dicts
         if best_model_state_dict is not None:
-            model_best_state_dict = {k.replace("model.", ""): v for k, v in best_model_state_dict.items() if k.startswith("model.")}
+            model_best_state_dict = {
+                k.removeprefix("model."): v
+                for k, v in best_model_state_dict.items()
+                if k.startswith("model.")
+            }
             additive_models_best_state_dicts = [
-                {k.replace(f"additive_models.{i}.", ""): v for k, v in best_model_state_dict.items() if k.startswith(f"additive_models.{i}.")}
+                {
+                    k.removeprefix(f"additive_models.{i}."): v
+                    for k, v in best_model_state_dict.items()
+                    if k.startswith(f"additive_models.{i}.")
+                }
                 for i in range(len(self.additive_models))
             ]
-            scaler_best_state_dict = {k.replace("scaler.", ""): v for k, v in best_model_state_dict.items() if k.startswith("scaler.")}
+            scaler_best_state_dict = {
+                k.removeprefix("scaler."): v
+                for k, v in best_model_state_dict.items()
+                if k.startswith("scaler.")
+            }
 
         checkpoint = {
             "model_ckpt_version": self.__checkpoint_version__,
             "dataset_info": self.dataset_info,
             "model": self.model.get_checkpoint(model_best_state_dict),
-            "additive_models": [m.get_checkpoint(best_state) for best_state in zip(self.additive_models, additive_models_best_state_dicts, strict=True)],
-            "scaler": self.scaler.get_checkpoint(scaler_best_state_dict) if self.scaler is not None else None,
+            "additive_models": [
+                m.get_checkpoint(best_state)
+                for m, best_state in zip(
+                    self.additive_models, additive_models_best_state_dicts, strict=True
+                )
+            ],
+            "scaler": self.scaler.get_checkpoint(scaler_best_state_dict)
+            if self.scaler is not None
+            else None,
         }
         return checkpoint
 
+    @staticmethod
+    def get_state_dict_from_checkpoint(
+        checkpoint: dict[str, Any], key: str = "state_dict"
+    ) -> Optional[dict[str, Any]]:
+        """
+        Get the model's state dictionary from a checkpoint.
+
+        It loops through all the sub-models and extracts their state dicts,
+        then combines them into a single state dict.
+
+        :param checkpoint: The checkpoint to extract the state dict from.
+        :param key: The key in the sub-models checkpoints where the state
+           dict is stored.
+        :return: The model's state dict.
+        """
+        state_dict = {}
+        if (model_state_dict := checkpoint["model"][key]) is not None:
+            state_dict.update({f"model.{k}": v for k, v in model_state_dict.items()})
+        for i, additive_model_checkpoint in enumerate(checkpoint["additive_models"]):
+            if (
+                additive_model_state_dict := additive_model_checkpoint[key]
+            ) is not None:
+                state_dict.update(
+                    {
+                        f"additive_models.{i}.{k}": v
+                        for k, v in additive_model_state_dict.items()
+                    }
+                )
+        if (scaler_checkpoint := checkpoint["scaler"]) is not None:
+            if (scaler_state_dict := scaler_checkpoint[key]) is not None:
+                state_dict.update(
+                    {f"scaler.{k}": v for k, v in scaler_state_dict.items()}
+                )
+
+        if len(state_dict) == 0:
+            return None
+
+        return state_dict
+
     def restart(
         self,
-        dataset_info,
+        dataset_info: DatasetInfo,
         model_dataset_info: Optional[DatasetInfo] = None,
         additive_models_dataset_info: Optional[list[DatasetInfo]] = None,
         scaler_dataset_info: Optional[DatasetInfo] = None,
-        model_hypers=None,
-    ):
+        model_hypers: Optional[Mapping[str, Any]] = None,
+    ) -> None:
         """
         Restart the model with new dataset_info and model_hypers.
         This is used when the model is loaded from a checkpoint and the dataset_info
         has changed (e.g. when finetuning on a new dataset).
 
         :param dataset_info: The new dataset_info to use.
+        :param model_dataset_info: The new dataset_info to use for the main model.
+            If None, `dataset_info` will be used.
+        :param additive_models_dataset_info: The new dataset_info to use for the
+            additive models.
+            If None, `dataset_info` will be used for all additive models.
+        :param scaler_dataset_info: The new dataset_info to use for the scaler.
+            If None, `dataset_info` will be used.
         :param model_hypers: The new model_hypers to use. If None, the current
             hypers will be used.
         """

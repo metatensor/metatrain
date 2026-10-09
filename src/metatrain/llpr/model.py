@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping
 from typing import Any, Dict, Iterator, List, Literal, Optional, Union
 
 import metatensor.torch as mts
@@ -14,7 +15,7 @@ from metatomic.torch import (
 )
 from torch.utils.data import DataLoader
 
-from metatrain.utils.abc import ModelInterface
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
@@ -248,7 +249,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             )
 
     def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
     ) -> "LLPRUncertaintyModel":
 
         if model_hypers is not None:
@@ -1165,7 +1168,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             dtype=self.capabilities.dtype,
         )
 
-    def get_checkpoint(self) -> Dict[str, Any]:
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         wrapped_model_checkpoint = self.model.get_checkpoint()
         state_dict = {
             k: v for k, v in self.state_dict().items() if not k.startswith("model.")
@@ -1181,7 +1186,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             "epoch": None,
             "best_epoch": None,
             "model_state_dict": state_dict,
-            "best_model_state_dict": state_dict,
+            "best_model_state_dict": best_model_state_dict or state_dict,
             "wrapped_model_checkpoint": wrapped_model_checkpoint,
         }
         return checkpoint
@@ -1300,43 +1305,11 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
     @classmethod
     def upgrade_checkpoint(
-        cls, checkpoint: Dict, version: Optional[int] = None
-    ) -> Dict:
-        if version is None:
-            version = cls.__checkpoint_version__
-        elif version > cls.__checkpoint_version__:
-            raise ValueError(
-                f"Was asked to upgrade checkpoint to version {version},"
-                "which is higher than the current model version:"
-                f" {cls.__checkpoint_version__}."
-            )
-        elif version < checkpoint["model_ckpt_version"]:
-            raise ValueError(
-                f"Was asked to upgrade checkpoint to version {version},"
-                "but the checkpoint is at a higher version:"
-                f" {checkpoint['model_ckpt_version']}."
-            )
-
-        for v in range(1, version):
-            if checkpoint["model_ckpt_version"] == v:
-                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
-
-        if checkpoint["model_ckpt_version"] != version:
-            if version == cls.__checkpoint_version__:
-                raise RuntimeError(
-                    f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                    f"version {checkpoint['model_ckpt_version']}, while the current model "
-                    f"version is {version}."
-                )
-            else:
-                raise RuntimeError(
-                    f"Unable to upgrade the checkpoint from version"
-                    f" {checkpoint['model_ckpt_version']} to version {version}."
-                )
-
-        return checkpoint
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.capabilities.outputs

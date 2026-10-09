@@ -8,9 +8,12 @@ import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DistributedSampler
 
-from metatrain.composition import train_or_load_composition_model, CompositionModel
-from metatrain.scaler import train_or_load_scaler, Scaler
-from metatrain.utils.abc import ModelInterface, TrainerInterface
+from metatrain.composition import CompositionModel, train_or_load_composition_model
+from metatrain.scaler import Scaler, train_or_load_scaler
+from metatrain.utils.abc import (
+    TrainerInterface,
+    common_upgrade_checkpoint,
+)
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import (
@@ -46,7 +49,7 @@ from metatrain.utils.transfer import batch_to
 from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .documentation import TrainerHypers, ModelHypers
+from .documentation import ModelHypers, TrainerHypers
 from .model import LOREM
 
 
@@ -100,7 +103,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
     def setup(
         self, model_hypers: ModelHypers, dataset_info: DatasetInfo
-    ) -> MetatrainModel:
+    ) -> MetatrainModel[LOREM, Scaler]:
 
         model = LOREM(hypers=model_hypers, dataset_info=dataset_info)
 
@@ -125,10 +128,10 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
     def restart(
         self,
-        model: MetatrainModel,
+        model: MetatrainModel[LOREM, Scaler],
         dataset_info: DatasetInfo,
         model_hypers: ModelHypers,
-    ) -> MetatrainModel:
+    ) -> MetatrainModel[LOREM, Scaler]:
 
         # -------------------------------------------------
         #        Find out what are the new targets
@@ -164,7 +167,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
     def train(
         self,
-        model: LOREM,
+        model: MetatrainModel[LOREM, Scaler],
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -652,8 +655,12 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         if is_distributed:
             torch.distributed.destroy_process_group()
 
-    def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
-        checkpoint = model.get_checkpoint()
+    def save_checkpoint(
+        self, model: MetatrainModel[LOREM, Scaler], path: Union[str, Path]
+    ) -> None:
+        checkpoint = model.get_checkpoint(self.best_model_state_dict)
+        checkpoint["model"]["epoch"] = self.epoch
+        checkpoint["model"]["best_epoch"] = self.best_epoch
         checkpoint.update(
             {
                 "trainer_ckpt_version": self.__checkpoint_version__,
@@ -663,7 +670,6 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 "scheduler_state_dict": self.scheduler_state_dict,
                 "best_epoch": self.best_epoch,
                 "best_metric": self.best_metric,
-                "best_model_state_dict": self.best_model_state_dict,
                 "best_optimizer_state_dict": self.best_optimizer_state_dict,
             }
         )
@@ -689,23 +695,17 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             trainer.epoch = None  # interpreted as zero in the training loop
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
-        trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
+        trainer.best_model_state_dict = MetatrainModel.get_state_dict_from_checkpoint(
+            checkpoint, "best_model_state_dict"
+        )
         trainer.best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         return trainer
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["trainer_ckpt_version"] == v:
-                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["trainer_ckpt_version"] = v + 1
-
-        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using "
-                f"trainer version {checkpoint['trainer_ckpt_version']}, while the "
-                f"current trainer version is {cls.__checkpoint_version__}."
-            )
-        return checkpoint
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "trainer", checkpoints
+        )

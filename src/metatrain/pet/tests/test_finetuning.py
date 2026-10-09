@@ -739,7 +739,6 @@ def test_finetuning_restart_unit_aliases(
         return
 
     assert model.restart(other) is model
-    assert not model.has_new_targets
     assert model.dataset_info.length_unit == "A"
     assert model.dataset_info.targets["non_conservative_stress"] is other_stress
     for name, value in model.named_parameters():
