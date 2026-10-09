@@ -455,7 +455,7 @@ def common_upgrade_checkpoint(
     if checkpoint[version_key] != version:
         if version == current_version:
             raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using"
+                f"Unable to upgrade the checkpoint: the checkpoint is using "
                 f"{checkpoint_type} version {checkpoint[version_key]}, while the "
                 f"current {checkpoint_type} version is {version}."
             )
