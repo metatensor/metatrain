@@ -7,7 +7,7 @@ import random
 import re
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Literal, Optional, Union, cast
 
 import numpy as np
 import torch
@@ -654,8 +654,8 @@ def train_model(
                     )
                 except Exception as e:
                     raise ValueError(
-                        f"The file {restart_from} does not contain a valid checkpoint for "
-                        f"the '{architecture_name}' trainer state"
+                        f"The file {restart_from} does not contain a valid checkpoint"
+                        f"for the '{architecture_name}' trainer state"
                     ) from e
             else:
                 logging.info(f"Starting finetuning from '{restart_from}'")
@@ -663,6 +663,9 @@ def train_model(
 
             # Load the model from the checkpoint.
             try:
+                training_context = cast(
+                    Literal["restart", "finetune"], training_context
+                )  # for mypy
                 model = model_from_checkpoint(checkpoint, context=training_context)
             except Exception as e:
                 raise ValueError(

@@ -1,11 +1,11 @@
 import logging
 import warnings
+from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -15,7 +15,6 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.composition import CompositionModel
 from metatrain.experimental.space.documentation import ModelHypers
 from metatrain.experimental.space.modules.base_model import (
     BaseModel,
@@ -25,15 +24,9 @@ from metatrain.experimental.space.modules.base_model import (
 from metatrain.experimental.space.modules.cg_coefficients import ClebschGordanReal
 from metatrain.experimental.space.modules.finetuning import apply_finetuning_strategy
 from metatrain.experimental.space.utils import systems_to_batch
-from metatrain.scaler import Scaler
-from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
-from metatrain.utils.data.atomic_basis_helpers import (
-    densify_atomic_basis_dataset_info,
-    sparsify_atomic_basis_target,
-)
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
@@ -137,7 +130,9 @@ class SPACE(ModelInterface[ModelHypers]):
         return self.outputs
 
     def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
     ) -> "SPACE":
 
         if model_hypers is not None:
@@ -579,9 +574,19 @@ class SPACE(ModelInterface[ModelHypers]):
             )
         ]
 
-    def get_checkpoint(self) -> Dict:
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> Dict:
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
+        model_state_dict = self.state_dict()
+        model_state_dict["finetune_config"] = self.finetune_config
+
+        if best_model_state_dict is None:
+            best_model_state_dict = model_state_dict
+        else:
+            best_model_state_dict["finetune_config"] = self.finetune_config
+
         checkpoint = {
             "architecture_name": "experimental.space",
             "model_ckpt_version": self.__checkpoint_version__,
@@ -593,49 +598,17 @@ class SPACE(ModelInterface[ModelHypers]):
             "epoch": None,
             "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": self.state_dict(),
+            "best_model_state_dict": best_model_state_dict,
         }
         return checkpoint
 
     @classmethod
     def upgrade_checkpoint(
-        cls, checkpoint: Dict, version: Optional[int] = None
-    ) -> Dict:
-        if version is None:
-            version = cls.__checkpoint_version__
-        elif version > cls.__checkpoint_version__:
-            raise ValueError(
-                f"Was asked to upgrade checkpoint to version {version},"
-                "which is higher than the current model version:"
-                f" {cls.__checkpoint_version__}."
-            )
-        elif version < checkpoint["model_ckpt_version"]:
-            raise ValueError(
-                f"Was asked to upgrade checkpoint to version {version},"
-                "but the checkpoint is at a higher version:"
-                f" {checkpoint['model_ckpt_version']}."
-            )
-
-        for v in range(1, version):
-            if checkpoint["model_ckpt_version"] == v:
-                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
-
-        if checkpoint["model_ckpt_version"] != version:
-            if version == cls.__checkpoint_version__:
-                raise RuntimeError(
-                    f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                    f"version {checkpoint['model_ckpt_version']}, while the current model "
-                    f"version is {version}."
-                )
-            else:
-                raise RuntimeError(
-                    f"Unable to upgrade the checkpoint from version"
-                    f" {checkpoint['model_ckpt_version']} to version {version}."
-                )
-
-        return checkpoint
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
 
 
 def _to_cartesian_rank_2(tensor_map: TensorMap, W: torch.Tensor) -> TensorMap:

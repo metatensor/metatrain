@@ -26,6 +26,7 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import DATASET_WITH_FORCES_PATH, DEFAULT_HYPERS_LLPR, DEFAULT_HYPERS_PET
 
@@ -98,8 +99,8 @@ def wrapped_pet(tmp_path_factory):
         "val_datasets": [dataset],
         "checkpoint_dir": "",
     }
-    pet_model = PET(pet_hypers["model"], dataset_info)
     pet_trainer = PETTrainer(pet_hypers["training"])
+    pet_model = pet_trainer.setup(pet_hypers["model"], dataset_info)
     pet_trainer.train(pet_model, **train_kwargs)
 
     checkpoint_path = str(tmp_path_factory.mktemp("llpr") / "pet.ckpt")
@@ -115,8 +116,9 @@ def wrap_in_llpr(wrapped_pet, num_ensemble_members) -> LLPRUncertaintyModel:
     llpr_hypers = copy.deepcopy(DEFAULT_HYPERS_LLPR)
     llpr_hypers["model"]["num_ensemble_members"] = num_ensemble_members
     llpr_hypers["training"].update(model_checkpoint=checkpoint_path, batch_size=4)
-    model = LLPRUncertaintyModel(llpr_hypers["model"], dataset_info)
-    LLPRTrainer(llpr_hypers["training"]).train(model, **train_kwargs)
+    trainer = LLPRTrainer(llpr_hypers["training"])
+    model = trainer.setup(llpr_hypers["model"], dataset_info)
+    trainer.train(model, **train_kwargs)
 
     return model
 
@@ -262,7 +264,7 @@ def test_model_without_any_ensemble_can_be_exported(wrapped_pet, tmp_path):
     other test here configures an ensemble, so this is the only one that covers the
     plain uncertainty-only model, which is what the LLPR example trains."""
     model = wrap_in_llpr(wrapped_pet, {})
-    assert model.ensemble_gradient_outputs == []
+    assert model.model.ensemble_gradient_outputs == []
 
     model.export().save(str(tmp_path / "llpr_without_ensemble.pt"))
 
@@ -379,7 +381,14 @@ def untrained_llpr_model(target_name, quantity, num_subtargets=1):
     model = LLPRUncertaintyModel(
         {"num_ensemble_members": {target_name: 4}}, dataset_info
     )
-    model.set_wrapped_model(PET(pet_hypers, dataset_info).to(DTYPE))
+    model.set_wrapped_model(
+        MetatrainModel(
+            model=PET(pet_hypers, dataset_info).to(DTYPE),
+            additive_models=[],
+            scaler=None,
+            dataset_info=dataset_info,
+        )
+    )
     model = model.to(DTYPE)
 
     uncertainty_name = _get_uncertainty_name(target_name)

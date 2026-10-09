@@ -1,5 +1,6 @@
 """Checkpoint upgrade helpers for the LOREM architecture."""
 
+
 def model_update_v1_v2(checkpoint: dict) -> None:
     """
     Update a v1 checkpoint to v2.

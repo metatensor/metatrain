@@ -12,7 +12,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 from omegaconf import OmegaConf
 
-from metatrain.experimental.lorem import LOREM, Trainer
+from metatrain.experimental.lorem import Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -329,7 +329,7 @@ def test_force_step_with_isolated_atom_is_finite(tmp_path):
     trainer = Trainer(training)
     model = trainer.setup(
         _small_hypers(need_bec=False),
-        DatasetInfo(length_unit="Angstrom", atomic_types=[1, 6, 17], targets=targets)
+        DatasetInfo(length_unit="Angstrom", atomic_types=[1, 6, 17], targets=targets),
     )
     trainer.train(
         model=model,

@@ -1,22 +1,22 @@
 import copy
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
 import torch.distributed
 from torch.utils.data import DistributedSampler
 
-from metatrain.composition import train_or_load_composition_model, CompositionModel
-from metatrain.scaler import train_or_load_scaler, Scaler
-from metatrain.utils.abc import TrainerInterface
+from metatrain.composition import CompositionModel, train_or_load_composition_model
+from metatrain.scaler import Scaler, train_or_load_scaler
+from metatrain.utils.abc import TrainerInterface, common_upgrade_checkpoint
 from metatrain.utils.additive import remove_additive
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
-    DatasetInfo,
     Dataset,
+    DatasetInfo,
     _is_disk_dataset,
     build_train_dataloaders,
     build_val_dataloaders,
@@ -50,7 +50,7 @@ from metatrain.utils.transfer import (
 from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .documentation import TrainerHypers, ModelHypers
+from .documentation import ModelHypers, TrainerHypers
 from .model import DPA3
 
 
@@ -74,12 +74,12 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         self.epoch: int | None = None
         self.best_epoch: int | None = None
         self.best_metric: float | None = None
-        self.best_model_state_dict = None
+        self.best_model_state_dict: dict[str, Any] | None = None
         self.best_optimizer_state_dict = None
 
     def setup(
         self, model_hypers: ModelHypers, dataset_info: DatasetInfo
-    ) -> MetatrainModel:
+    ) -> MetatrainModel[DPA3, Scaler]:
 
         model = DPA3(hypers=model_hypers, dataset_info=dataset_info)
 
@@ -104,13 +104,13 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             scaler=scaler,
             dataset_info=dataset_info,
         )
-    
+
     def restart(
         self,
-        model: MetatrainModel,
+        model: MetatrainModel[DPA3, Scaler],
         dataset_info: DatasetInfo,
         model_hypers: ModelHypers,
-    ) -> MetatrainModel:
+    ) -> MetatrainModel[DPA3, Scaler]:
 
         # -------------------------------------------------
         #        Find out what are the new targets
@@ -150,7 +150,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
     def train(
         self,
-        model: MetatrainModel,
+        model: MetatrainModel[DPA3, Scaler],
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -666,8 +666,12 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         if is_distributed:
             torch.distributed.destroy_process_group()
 
-    def save_checkpoint(self, model, path: Union[str, Path]):
-        checkpoint = model.get_checkpoint()
+    def save_checkpoint(
+        self, model: MetatrainModel[DPA3, Scaler], path: Union[str, Path]
+    ):
+        checkpoint = model.get_checkpoint(self.best_model_state_dict)
+        checkpoint["model"]["epoch"] = self.epoch
+        checkpoint["model"]["best_epoch"] = self.best_epoch
         checkpoint.update(
             {
                 "train_hypers": self.hypers,
@@ -677,7 +681,6 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 "scheduler_state_dict": self.scheduler_state_dict,
                 "best_epoch": self.best_epoch,
                 "best_metric": self.best_metric,
-                "best_model_state_dict": self.best_model_state_dict,
                 "best_optimizer_state_dict": self.best_optimizer_state_dict,
             }
         )
@@ -703,23 +706,17 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             trainer.epoch = None
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
-        trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
+        trainer.best_model_state_dict = MetatrainModel.get_state_dict_from_checkpoint(
+            checkpoint, "best_model_state_dict"
+        )
         trainer.best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         return trainer
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["trainer_ckpt_version"] == v:
-                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["trainer_ckpt_version"] = v + 1
-
-        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using trainer "
-                f"version {checkpoint['trainer_ckpt_version']}, while the current "
-                f"trainer version is {cls.__checkpoint_version__}."
-            )
-        return checkpoint
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "trainer", checkpoints
+        )

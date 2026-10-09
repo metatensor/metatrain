@@ -1,6 +1,7 @@
 import itertools
 import logging
 import warnings
+from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional, Union
 
 import metatensor.torch as mts
@@ -15,7 +16,7 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.utils.abc import ModelInterface
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.data.atomic_basis_helpers import (
@@ -109,7 +110,9 @@ class Scaler(ModelInterface[ModelHypers]):
         )
 
     def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
     ) -> "Scaler":
         """
         Restart the model with a new dataset info.
@@ -492,7 +495,9 @@ class Scaler(ModelInterface[ModelHypers]):
             weights = mts.load_buffer(buffer.to(device="cpu"))
             self.model.per_property_scales[k] = weights.to(device=buffer.device)
 
-    def get_checkpoint(self) -> Dict:
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
         model_state_dict = self.state_dict()
         checkpoint = {
             "architecture_name": "scaler",
@@ -505,7 +510,7 @@ class Scaler(ModelInterface[ModelHypers]):
             "epoch": None,
             "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": model_state_dict,
+            "best_model_state_dict": best_model_state_dict or model_state_dict,
             "training_additive_models": getattr(self, "training_additive_models", []),
         }
 
@@ -548,43 +553,11 @@ class Scaler(ModelInterface[ModelHypers]):
 
     @classmethod
     def upgrade_checkpoint(
-        cls, checkpoint: Dict, version: Optional[int] = None
-    ) -> Dict:
-        if version is None:
-            version = cls.__checkpoint_version__
-        elif version > cls.__checkpoint_version__:
-            raise ValueError(
-                f"Was asked to upgrade checkpoint to version {version},"
-                "which is higher than the current model version:"
-                f" {cls.__checkpoint_version__}."
-            )
-        elif version < checkpoint["model_ckpt_version"]:
-            raise ValueError(
-                f"Was asked to upgrade checkpoint to version {version},"
-                "but the checkpoint is at a higher version:"
-                f" {checkpoint['model_ckpt_version']}."
-            )
-
-        for v in range(1, version):
-            if checkpoint["model_ckpt_version"] == v:
-                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
-
-        if checkpoint["model_ckpt_version"] != version:
-            if version == cls.__checkpoint_version__:
-                raise RuntimeError(
-                    f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                    f"version {checkpoint['model_ckpt_version']}, while the current model "
-                    f"version is {version}."
-                )
-            else:
-                raise RuntimeError(
-                    f"Unable to upgrade the checkpoint from version"
-                    f" {checkpoint['model_ckpt_version']} to version {version}."
-                )
-
-        return checkpoint
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = self.dummy_buffer.dtype

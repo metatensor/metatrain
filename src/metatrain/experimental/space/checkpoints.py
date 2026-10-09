@@ -28,6 +28,7 @@ def model_update_v2_v3(checkpoint: dict) -> None:
             if "finetune_config" not in state_dict:
                 state_dict["finetune_config"] = {}
 
+
 def model_update_v3_v4(checkpoint: dict) -> None:
     """
     Update a v3 checkpoint to v4.

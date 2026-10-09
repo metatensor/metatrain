@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
@@ -26,7 +27,7 @@ class MyTrainer(TrainerInterface):
         raise NotImplementedError()
 
     @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+    def upgrade_checkpoint(checkpoint: Dict, version: int | None = None) -> Dict:
         raise NotImplementedError()
 
     @classmethod
@@ -72,7 +73,9 @@ class MyModel(ModelInterface):
         raise NotImplementedError()
 
     def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
     ) -> ModelInterface:
         raise NotImplementedError()
 
@@ -91,10 +94,14 @@ class MyModel(ModelInterface):
         raise NotImplementedError()
 
     @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict["str", Any]) -> Dict["str", Any]:
+    def upgrade_checkpoint(
+        checkpoint: Dict["str", Any], version: int | None = None
+    ) -> Dict["str", Any]:
         raise NotImplementedError()
 
-    def get_checkpoint(self) -> Dict[str, Any]:
+    def get_checkpoint(
+        self, best_model_state_dict: dict[str, Any] | None = None
+    ) -> Dict[str, Any]:
         raise NotImplementedError()
 
 

@@ -1,13 +1,17 @@
 import copy
 import logging
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Sequence, Union, cast
+from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Union, cast
 
 import metatensor.torch as mts
 import torch
 from torch.utils.data import DataLoader
 
-from metatrain.utils.abc import ModelInterface, TrainerInterface
+from metatrain.utils.abc import (
+    ModelInterface,
+    TrainerInterface,
+    common_upgrade_checkpoint,
+)
 from metatrain.utils.additive import remove_additive
 from metatrain.utils.data import (
     CollateFn,
@@ -47,8 +51,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         super().__init__(hypers)
 
     def setup(
-        self, model_hypers: ModelHypers, dataset_info: Dict[str, Any]
-    ) -> MetatrainModel:
+        self, model_hypers: ModelHypers, dataset_info: DatasetInfo
+    ) -> MetatrainModel[Scaler]:
         if self.hypers["densify_atomic_basis"]:
             model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
         return MetatrainModel(
@@ -60,10 +64,10 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
     def restart(
         self,
-        model: MetatrainModel,
+        model: MetatrainModel[Scaler],
         dataset_info: DatasetInfo,
         model_hypers: ModelHypers,
-    ) -> MetatrainModel:
+    ) -> MetatrainModel[Scaler]:
         if self.hypers["densify_atomic_basis"]:
             model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
 
@@ -73,7 +77,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
     def train(
         self,
-        model: MetatrainModel,
+        model: MetatrainModel[Scaler],
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -440,17 +444,9 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         return cls(trainer_hypers)
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["trainer_ckpt_version"] == v:
-                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["trainer_ckpt_version"] = v + 1
-
-        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using trainer "
-                f"version {checkpoint['trainer_ckpt_version']}, while the current "
-                f"trainer version is {cls.__checkpoint_version__}."
-            )
-        return checkpoint
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "trainer", checkpoints
+        )

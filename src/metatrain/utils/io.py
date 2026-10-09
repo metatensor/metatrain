@@ -261,6 +261,17 @@ def _find_model_class(architecture_name: str) -> Any:
 def arch_model_from_checkpoint(
     checkpoint: Dict[str, Any], context: Literal["restart", "finetune", "export"]
 ) -> ModelInterface:
+    """
+    Load the architecture model from a checkpoint.
+
+    This function loads a "raw" ModelInterface, as opposed to ``model_from_checkpoint``,
+    which loads a full MetatrainModel.
+
+    :param checkpoint: checkpoint dictionary to load the model
+    :param context: context in which the model is loaded
+
+    :return: the loaded model instance
+    """
 
     checkpoint = upgrade_checkpoint(checkpoint)
     architecture_name = checkpoint["architecture_name"]
@@ -269,16 +280,18 @@ def arch_model_from_checkpoint(
     return model_cls.load_checkpoint(checkpoint, context=context)
 
 
+# For each architecture, versions of (model, trainer) at which the MetatrainModel
+# wrapper was introduced.
 _mtt_model_versions = {
-    "pet": 17,
-    "llpr": 5,
-    "soap_bpnn": 10,
-    "experimental.mace": 5,
-    "experimental.dpa3": 4,
-    "experimental.space": 4,
-    "experimental.flashmd": 6,
-    "experimental.flashmd_symplectic": 4,
-    "experimental.lorem": 2,
+    "pet": (17, 15),
+    "llpr": (5, 7),
+    "soap_bpnn": (10, 12),
+    "experimental.mace": (5, 4),
+    "experimental.dpa3": (4, 3),
+    "experimental.space": (4, 4),
+    "experimental.flashmd": (6, 7),
+    "experimental.flashmd_symplectic": (4, 3),
+    "experimental.lorem": (2, 1),
 }
 
 
@@ -289,45 +302,71 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
 
     This is specially useful for converting checkpoints that were generated
     before the introduction of the MetatrainModel class.
+
+    :param checkpoint: The architecture checkpoint to convert.
+
+    :return: The converted checkpoint that can be loaded by MetatrainModel.
     """
     architecture_name = checkpoint["architecture_name"]
     architecture = import_architecture(architecture_name)
-    try:
-        # Use the trainer to setup a MetatrainModel
-        trainer = trainer_from_checkpoint(checkpoint, context="restart", hypers={})
-    except RuntimeError:
-        # Create a new trainer.
-        default_hypers = get_default_hypers(architecture_name)["training"]
-        trainer = architecture.__trainer__(hypers=default_hypers)
 
     model_cls = architecture.__model__
     if architecture_name in _mtt_model_versions:
-        target_version = _mtt_model_versions[architecture_name] - 1
+        target_version = _mtt_model_versions[architecture_name][0] - 1
         if checkpoint["model_ckpt_version"] < target_version:
             checkpoint = model_cls.upgrade_checkpoint(
                 checkpoint, version=target_version
             )
-
     model_data = checkpoint["model_data"]
+
+    # Three different ways of trying to get a MetatrainModel to get the
+    # new checkpoint structure.
     try:
+        # 1. Updating the trainer checkpoint, until we get to the version
+        # where the MetatrainModel wrapper was introduced. Then initializing a
+        # trainer with the hypers from the checkpoint and using that trainer to
+        # setup the model.
+        trainer_cls = architecture.__trainer__
+        if architecture_name in _mtt_model_versions:
+            target_version = _mtt_model_versions[architecture_name][1] - 1
+            if checkpoint.get("trainer_ckpt_version", 0) < target_version:
+                checkpoint = trainer_cls.upgrade_checkpoint(
+                    checkpoint, version=target_version
+                )
+        trainer = architecture.__trainer__(checkpoint["train_hypers"])
+
         mtt_model = trainer.setup(
             model_hypers=model_data.get("hypers", model_data.get("model_hypers")),
             dataset_info=model_data["dataset_info"],
         )
-    except:
-        mtt_model = MetatrainModel(
-            model=arch_model_from_checkpoint(checkpoint, context="export"),
-            additive_models=[],
-            scaler=None,
-            dataset_info=model_data["dataset_info"],
-        )
+    except Exception:
+        try:
+            # 2. Similar to 1, but using a default trainer.
+            # Create a new trainer.
+            default_hypers = get_default_hypers(architecture_name)["training"]
+            trainer = architecture.__trainer__(hypers=default_hypers)
+
+            mtt_model = trainer.setup(
+                model_hypers=model_data.get("hypers", model_data.get("model_hypers")),
+                dataset_info=model_data["dataset_info"],
+            )
+        except Exception:
+            # 3. If everything fails, just wrap the architecture model in a
+            # MetatrainModel.
+            mtt_model = MetatrainModel(
+                model=arch_model_from_checkpoint(checkpoint, context="export"),
+                additive_models=[],
+                scaler=None,
+                dataset_info=model_data["dataset_info"],
+            )
 
     # Get the new checkpoint skeleton from the MetatrainModel
     new_ckpt = mtt_model.get_checkpoint()
 
     # Copy all the trainer keys.
+    trainer_keys = ["train", "epoch", "best_", "optimizer", "scheduler", "ema_"]
     for k in list(checkpoint):
-        if k not in new_ckpt["model"]:
+        if any(trainer_key in k for trainer_key in trainer_keys):
             new_ckpt[k] = checkpoint[k]
 
     # The checkpoint of the model now goes to the "model" key.
@@ -343,7 +382,7 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
         ("best_model_state_dict", "model_state_dict"),
     ]:
         scaler_state_dict = {}
-        additive_models_state_dict = [
+        additive_models_state_dict: list[dict[str, Any]] = [
             {} for _ in range(len(new_ckpt["additive_models"]))
         ]
 
@@ -428,7 +467,6 @@ def upgrade_checkpoint(checkpoint: dict) -> dict:
 
                 checkpoint = model_cls.upgrade_checkpoint(checkpoint)
             except Exception as e:
-                raise
                 raise RuntimeError(
                     f"Unable to load the model checkpoint for "
                     f"the '{architecture_name}' architecture: the checkpoint is using "
@@ -436,7 +474,6 @@ def upgrade_checkpoint(checkpoint: dict) -> dict:
                     f"{model_cls.__checkpoint_version__}; and trying to "
                     "upgrade the checkpoint failed."
                 ) from e
-        checkpoint = model_cls.upgrade_checkpoint(checkpoint)
 
     # Continue to recursively search for models in the checkpoint and upgrade them.
     if isinstance(checkpoint, dict):
@@ -473,10 +510,9 @@ def trainer_from_checkpoint(
 
     """
     if "architecture_name" in checkpoint:
-        # This is an old checkpoint
-        architecture_name = checkpoint["architecture_name"]
-    else:
-        architecture_name = checkpoint["model"]["architecture_name"]
+        checkpoint = _ckpt_from_arch_ckpt(checkpoint)
+
+    architecture_name = checkpoint["model"]["architecture_name"]
 
     if architecture_name not in find_all_architectures():
         raise ValueError(

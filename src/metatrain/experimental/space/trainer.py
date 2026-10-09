@@ -13,14 +13,17 @@ from torch.optim.lr_scheduler import LambdaLR
 from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 from torch.utils.data import DistributedSampler
 
-from metatrain.composition import train_or_load_composition_model, CompositionModel
-from metatrain.scaler import train_or_load_scaler, Scaler
-from metatrain.utils.wrapper import MetatrainModel
-from metatrain.utils.abc import ModelInterface, TrainerInterface
+from metatrain.composition import CompositionModel, train_or_load_composition_model
+from metatrain.pet.modules.finetuning import compute_stale_targets
+from metatrain.scaler import Scaler, train_or_load_scaler
+from metatrain.utils.abc import (
+    TrainerInterface,
+    common_upgrade_checkpoint,
+)
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.additive.zbl import ZBL
-from metatrain.utils.augmentation import O3Augmenter
 from metatrain.utils.architectures import get_default_hypers
+from metatrain.utils.augmentation import O3Augmenter
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
@@ -33,8 +36,8 @@ from metatrain.utils.data import (
     validate_num_workers,
 )
 from metatrain.utils.data.atomic_basis_helpers import (
-    get_prepare_atomic_basis_targets_transform,
     densify_atomic_basis_dataset_info,
+    get_prepare_atomic_basis_targets_transform,
 )
 from metatrain.utils.distributed.slurm import (
     initialize_slurm_nccl_process_group,
@@ -51,10 +54,10 @@ from metatrain.utils.neighbor_lists import (
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
-from metatrain.pet.modules.finetuning import compute_stale_targets
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .documentation import TrainerHypers, ModelHypers
+from .documentation import ModelHypers, TrainerHypers
 from .model import SPACE
 from .modules.finetuning import apply_finetuning_strategy
 from .utils import systems_to_batch
@@ -163,10 +166,11 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
         self.ema_state_dict: Optional[Dict[str, Any]] = None
         self.has_new_targets: bool = False
+        self._stale_finetune_targets: list[str] = []
 
     def setup(
         self, model_hypers: ModelHypers, dataset_info: DatasetInfo
-    ) -> MetatrainModel:
+    ) -> MetatrainModel[SPACE, Scaler]:
         model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
 
         model = SPACE(hypers=model_hypers, dataset_info=model_dataset_info)
@@ -209,10 +213,10 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
     def restart(
         self,
-        model: MetatrainModel,
+        model: MetatrainModel[SPACE, Scaler],
         dataset_info: DatasetInfo,
         model_hypers: ModelHypers,
-    ) -> MetatrainModel:
+    ) -> MetatrainModel[SPACE, Scaler]:
 
         # -------------------------------------------------
         #        Find out what are the new targets
@@ -267,7 +271,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
     def train(
         self,
-        model: MetatrainModel,
+        model: MetatrainModel[SPACE, Scaler],
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -319,6 +323,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 model,
                 self.hypers["finetune"],
                 apply_inherit_heads=is_fresh_finetune_start,
+                stale_targets=self._stale_finetune_targets,
             )
             method = self.hypers["finetune"]["method"]
             num_params = sum(p.numel() for p in model.parameters())
@@ -370,7 +375,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 model=model.additive_models[0],
                 additive_models=[],
                 scaler=None,
-                dataset_info=model.dataset_info
+                dataset_info=model.dataset_info,
             ),
             atomic_baseline=self.hypers["atomic_baseline"],
             train_datasets=train_datasets,
@@ -393,7 +398,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                     model=model.scaler,
                     additive_models=[],
                     scaler=None,
-                    dataset_info=model.dataset_info
+                    dataset_info=model.dataset_info,
                 ),
                 fixed_weights=self.hypers["fixed_scaling_weights"],
                 train_datasets=train_datasets,
@@ -876,10 +881,12 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         if is_distributed:
             torch.distributed.destroy_process_group()
 
-    def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
-        checkpoint = model.get_checkpoint()
-        if self.best_model_state_dict is not None:
-            self.best_model_state_dict["finetune_config"] = model.model.finetune_config
+    def save_checkpoint(
+        self, model: MetatrainModel[SPACE, Scaler], path: Union[str, Path]
+    ) -> None:
+        checkpoint = model.get_checkpoint(self.best_model_state_dict)
+        checkpoint["model"]["epoch"] = self.epoch
+        checkpoint["model"]["best_epoch"] = self.best_epoch
         checkpoint.update(
             {
                 "train_hypers": self.hypers,
@@ -889,7 +896,6 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 "scheduler_state_dict": self.scheduler_state_dict,
                 "best_epoch": self.best_epoch,
                 "best_metric": self.best_metric,
-                "best_model_state_dict": self.best_model_state_dict,
                 "best_optimizer_state_dict": self.best_optimizer_state_dict,
                 "ema_state_dict": self.ema_state_dict
                 if self.hypers["ema_decay"] is not None
@@ -911,7 +917,9 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         optimizer_state_dict = checkpoint["optimizer_state_dict"]
         scheduler_state_dict = checkpoint["scheduler_state_dict"]
         best_metric = checkpoint["best_metric"]
-        best_model_state_dict = checkpoint["best_model_state_dict"]
+        best_model_state_dict = MetatrainModel.get_state_dict_from_checkpoint(
+            checkpoint, "best_model_state_dict"
+        )
         best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
         ema_state_dict = checkpoint["ema_state_dict"]
 
@@ -931,17 +939,9 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         return trainer
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["trainer_ckpt_version"] == v:
-                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["trainer_ckpt_version"] = v + 1
-
-        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using trainer "
-                f"version {checkpoint['trainer_ckpt_version']}, while the current "
-                f"trainer version is {cls.__checkpoint_version__}."
-            )
-        return checkpoint
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "trainer", checkpoints
+        )

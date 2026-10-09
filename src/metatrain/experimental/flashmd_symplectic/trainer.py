@@ -15,7 +15,10 @@ from metatrain.pet.modules.finetuning import (
     compute_stale_targets,
 )
 from metatrain.scaler import Scaler, train_or_load_scaler
-from metatrain.utils.abc import ModelInterface, TrainerInterface
+from metatrain.utils.abc import (
+    TrainerInterface,
+    common_upgrade_checkpoint,
+)
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.augmentation import O3Augmenter
@@ -105,7 +108,7 @@ class Trainer(TrainerInterface):
 
     def setup(
         self, model_hypers: Dict[str, Any], dataset_info: DatasetInfo
-    ) -> MetatrainModel:
+    ) -> MetatrainModel[FlashMDSymplectic, Scaler]:
         model = FlashMDSymplectic(hypers=model_hypers, dataset_info=dataset_info)
 
         # Set up additive models
@@ -126,10 +129,10 @@ class Trainer(TrainerInterface):
 
     def restart(
         self,
-        model: MetatrainModel,
+        model: MetatrainModel[FlashMDSymplectic, Scaler],
         dataset_info: DatasetInfo,
         model_hypers: Dict[str, Any],
-    ) -> MetatrainModel:
+    ) -> MetatrainModel[FlashMDSymplectic, Scaler]:
         merged_info = model.dataset_info.union(dataset_info)
         self.has_new_targets = any(
             key not in model.dataset_info.targets for key in merged_info.targets
@@ -156,7 +159,7 @@ class Trainer(TrainerInterface):
 
     def train(
         self,
-        model: MetatrainModel,
+        model: MetatrainModel[FlashMDSymplectic, Scaler],
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -721,10 +724,12 @@ class Trainer(TrainerInterface):
         if is_distributed:
             torch.distributed.destroy_process_group()
 
-    def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
-        checkpoint = model.get_checkpoint()
-        if self.best_model_state_dict is not None:
-            self.best_model_state_dict["finetune_config"] = model.model.finetune_config
+    def save_checkpoint(
+        self, model: MetatrainModel[FlashMDSymplectic, Scaler], path: Union[str, Path]
+    ) -> None:
+        checkpoint = model.get_checkpoint(self.best_model_state_dict)
+        checkpoint["model"]["epoch"] = self.epoch
+        checkpoint["model"]["best_epoch"] = self.best_epoch
         checkpoint.update(
             {
                 "trainer_ckpt_version": self.__checkpoint_version__,
@@ -734,7 +739,6 @@ class Trainer(TrainerInterface):
                 "scheduler_state_dict": self.scheduler_state_dict,
                 "best_epoch": self.best_epoch,
                 "best_metric": self.best_metric,
-                "best_model_state_dict": self.best_model_state_dict,
                 "best_optimizer_state_dict": self.best_optimizer_state_dict,
             }
         )
@@ -756,23 +760,17 @@ class Trainer(TrainerInterface):
         trainer.epoch = checkpoint["epoch"]
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
-        trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
+        trainer.best_model_state_dict = MetatrainModel.get_state_dict_from_checkpoint(
+            checkpoint, "best_model_state_dict"
+        )
         trainer.best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         return trainer
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["trainer_ckpt_version"] == v:
-                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["trainer_ckpt_version"] = v + 1
-
-        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using "
-                f"trainer version {checkpoint['trainer_ckpt_version']}, while the "
-                f"current trainer version is {cls.__checkpoint_version__}."
-            )
-        return checkpoint
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "trainer", checkpoints
+        )

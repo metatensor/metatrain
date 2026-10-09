@@ -19,6 +19,8 @@ from metatrain.utils.data.target_info import (
     get_energy_target_info,
 )
 from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.hypers import init_with_defaults
+from metatrain.utils.loss import LossSpecification
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import DATASET_WITH_FORCES_PATH, DEFAULT_HYPERS, MODEL_HYPERS
@@ -83,7 +85,10 @@ def test_long_range_training(use_ewald):
     hypers["training"]["num_epochs"] = 2
     hypers["training"]["scheduler_patience"] = 1
     hypers["training"]["atomic_baseline"] = {}
+    loss_conf = {"energy": init_with_defaults(LossSpecification)}
+    loss_conf = OmegaConf.create(loss_conf)
 
+    hypers["training"]["loss"] = loss_conf
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[6], targets=target_info_dict
     )
@@ -91,9 +96,9 @@ def test_long_range_training(use_ewald):
     model_hypers = copy.deepcopy(MODEL_HYPERS)
     model_hypers["long_range"]["enable"] = True
     model_hypers["long_range"]["use_ewald"] = use_ewald
-    model = PET(model_hypers, dataset_info)
 
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(model_hypers, dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float32,
