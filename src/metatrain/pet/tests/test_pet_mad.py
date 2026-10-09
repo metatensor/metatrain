@@ -94,7 +94,7 @@ def test_pet_mad_consistency(version, monkeypatch, tmp_path):
             "ignore",
             category=UserWarning,
         )
-        pet_mad_model = load_model(path).model.core.eval()
+        pet_mad_model = load_model(path).core.model.eval()
 
     systems = read_systems(DATASET_WITH_FORCES_PATH)[:NUM_SYSTEMS]
     for system in systems:
