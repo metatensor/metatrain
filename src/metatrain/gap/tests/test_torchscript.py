@@ -55,9 +55,9 @@ def test_torchscript():
     )
     scripted_gap = torch.jit.script(gap)
 
-    ref_output = gap.forward(systems[:5], {"mtt::U0": gap.model.outputs["mtt::U0"]})
+    ref_output = gap.forward(systems[:5], {"mtt::U0": gap.core.outputs["mtt::U0"]})
     scripted_output = scripted_gap.forward(
-        systems[:5], {"mtt::U0": gap.model.outputs["mtt::U0"]}
+        systems[:5], {"mtt::U0": gap.core.outputs["mtt::U0"]}
     )
 
     assert torch.allclose(
@@ -132,9 +132,9 @@ def test_torchscript_integers():
     )
     scripted_gap = torch.jit.script(gap)
 
-    ref_output = gap.forward(systems[:5], {"mtt::U0": gap.model.outputs["mtt::U0"]})
+    ref_output = gap.forward(systems[:5], {"mtt::U0": gap.core.outputs["mtt::U0"]})
     scripted_output = scripted_gap.forward(
-        systems[:5], {"mtt::U0": gap.model.outputs["mtt::U0"]}
+        systems[:5], {"mtt::U0": gap.core.outputs["mtt::U0"]}
     )
 
     assert torch.allclose(
