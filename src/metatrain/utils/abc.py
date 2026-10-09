@@ -72,12 +72,12 @@ class ModelInterface(nn.Module, Generic[HypersType], metaclass=ABCMeta):
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        # TorchScript only reads the annotations defined on the class itself, and
-        # ignores the ones inherited from ``metatensor.torch.learn.nn.Module``.
-        # This allows us to not write the annotations in every model.
+        # TorchScript drops the attributes if they are unused, but metatensor-torch
+        # checks for the attribute presence to decide wether to send a warning or not.
+        # Adding these to the class annotations forces torchscript to keep them, and
+        # removes the warning until this is fixed in metatensor-torch.
         cls.__annotations__ = {
             "_mts_buffer_names": List[str],
-            "_mts_non_persistent_buffers": List[str],
             **cls.__annotations__,
         }
 
