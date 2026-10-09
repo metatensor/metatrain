@@ -82,25 +82,46 @@ def _densify_atomic_basis_target(
 
     :return: the densified per-atom/atom-pair atomic basis target TensorMap.
     """
-    # First ensure that the tensor has all keys present in the layout tensor (i.e. the
-    # global basis set definition). If any blocks aren't present, they are added as
-    # zero-sample blocks with the correct components and properties.
+    layout_is_dense = (
+        "atom_type" not in layout.keys.names
+        and "first_atom_type" not in layout.keys.names
+    )
+    # Before padding, we make sure that the tensor map contains blocks with
+    # the maximum number of properties for each irrep.
     blocks: list[TensorBlock] = []
-    for key, layout_block in layout.items():
-        if key in tensor.keys:
-            existing_block = tensor.block(key)
-            block = TensorBlock(
-                values=existing_block.values,
-                samples=existing_block.samples,
-                components=existing_block.components,
-                properties=existing_block.properties,
-            )
-        else:
-            block = layout_block.copy(deep=False)
-            assert len(block.samples) == 0
-        blocks.append(block)
+    if layout_is_dense:
+        # If the layout is passed as dense, this is easy, we can add a fake atomic
+        # species with the maximum number of properties for each irrep.
+        blocks += [block.copy(deep=False) for block in tensor.blocks()]
+        blocks += [block.copy(deep=False) for block in layout.blocks()]
+        type_ndims = len(tensor.keys.names) - len(layout.keys.names)
+        fake_Z = 567890
+        fake_species_keys = torch.concat(
+            [
+                layout.keys.values,
+                torch.full(
+                    (layout.keys.values.shape[0], type_ndims),
+                    fake_Z,
+                    device=layout.device,
+                ),
+            ],
+            dim=1,
+        )
+        keys_values = torch.concat([tensor.keys.values, fake_species_keys], dim=0)
+        keys = Labels(names=tensor.keys.names, values=keys_values)
+    else:
+        keys = layout.keys
+        # Otherwise, make sure that all blocks in the layout are present in the tensor,
+        # and if not, add them as zero-sample blocks.
+        for key, layout_block in layout.items():
+            if key in tensor.keys:
+                block = tensor.block(key).copy(deep=False)
+            else:
+                block = layout_block.copy(deep=False)
+                assert len(block.samples) == 0
+            blocks.append(block)
 
-    tensor = TensorMap(layout.keys, blocks)
+    tensor = TensorMap(keys, blocks)
 
     # Now densification can be done.
 
