@@ -18,8 +18,8 @@ from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 
-from .documentation import ModelHypers
 from . import checkpoints
+from .documentation import ModelHypers
 
 
 class Classifier(ModelInterface[ModelHypers]):
@@ -356,4 +356,7 @@ class Classifier(ModelInterface[ModelHypers]):
         )
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
-        return {k: ModelOutput(sample_kind=v.sample_kind) for k, v in self.dataset_info.targets.items()}
+        return {
+            k: ModelOutput(sample_kind=v.sample_kind)
+            for k, v in self.dataset_info.targets.items()
+        }

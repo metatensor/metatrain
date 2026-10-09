@@ -12,15 +12,14 @@ from metatomic_ase import MetatomicCalculator
 from omegaconf import OmegaConf
 
 from metatrain.experimental.classifier import Classifier
-from metatrain.pet import PET
 from metatrain.pet import Trainer as PETTrainer
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_generic_target_info
 from metatrain.utils.hypers import init_with_defaults
+from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.loss import LossSpecification
 from metatrain.utils.testing import ArchitectureTests, CheckpointTests
-from metatrain.utils.io import model_from_checkpoint
 
 
 HERE = Path(__file__).parent
