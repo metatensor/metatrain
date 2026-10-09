@@ -1463,15 +1463,10 @@ def test_composition_spherical_atomic_basis_dense():
         },
     )
 
-    layout = dataset_info.targets["spherical"].type.spherical.layout
-
     dataset = Dataset.from_dict(
         {
             "system": systems,
-            "spherical_atomic_basis": [
-                densify_atomic_basis_target(tensor_map_1, layout),
-                densify_atomic_basis_target(tensor_map_2, layout),
-            ],
+            "spherical": [tensor_map_1, tensor_map_2],
         }
     )
 
