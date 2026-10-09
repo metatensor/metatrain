@@ -215,6 +215,19 @@ def model_from_checkpoint(
 
     """
     if "architecture_name" in checkpoint:
+        architecture_name = checkpoint["architecture_name"]
+    else:
+        architecture_name = checkpoint["core"]["architecture_name"]
+
+    known_archs = find_all_architectures()
+    if architecture_name not in known_archs:
+        raise ValueError(
+            f"Checkpoint architecture '{architecture_name}' not found "
+            "in the available architectures. Available architectures are: "
+            f"{known_archs}"
+        )
+
+    if "architecture_name" in checkpoint:
         checkpoint = _ckpt_from_arch_ckpt(checkpoint)
 
     checkpoint = upgrade_checkpoint(checkpoint)
@@ -236,6 +249,7 @@ def model_from_checkpoint(
         if checkpoint["scaler"] is not None
         else None,
         dataset_info=checkpoint["dataset_info"],
+        metadata=checkpoint.get("metadata", None),
     )
 
 

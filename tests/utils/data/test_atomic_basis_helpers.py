@@ -4,7 +4,9 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
+from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_dataset_info,
     densify_atomic_basis_target,
     get_per_atom_sample_labels,
     get_prepare_atomic_basis_targets_transform,
@@ -517,8 +519,11 @@ def test_get_prepare_atomic_basis_targets_transform_batch_from_larger_dataset():
         ],
     )
 
+    dataset_info = DatasetInfo(
+        length_unit="angstrom", atomic_types=[1, 6], targets={"target": target_info}
+    )
     transform, reverse_transform = get_prepare_atomic_basis_targets_transform(
-        {"target": target_info}, {}
+        dataset_info, densify_atomic_basis_dataset_info(dataset_info)
     )
 
     _, prepared, _ = transform(
