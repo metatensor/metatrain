@@ -157,7 +157,7 @@ def test_restart_no_new_targets_preserves_weights():
     )
 
     torch.testing.assert_close(
-        model.model.model.weights["energy"].block().values, weights_before
+        model.core.model.weights["energy"].block().values, weights_before
     )
 
 
@@ -209,7 +209,7 @@ def test_multi_dataset_fixed_and_fitted_targets():
         checkpoint_dir="",
     )
 
-    fitted_weights = model.model.model.weights["energy_b"].block().values
+    fitted_weights = model.core.model.weights["energy_b"].block().values
     fitted = dict(zip([1, 6, 7, 8], fitted_weights.flatten().tolist(), strict=True))
     for species, expected in per_species_energies.items():
         assert fitted[species] == pytest.approx(expected, abs=1e-8)

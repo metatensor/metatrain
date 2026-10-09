@@ -106,7 +106,7 @@ def model_trainer_():
 
     trainer.train(
         model,
-        dtype=model.model.__supported_dtypes__[0],
+        dtype=model.core.__supported_dtypes__[0],
         devices=[torch.device("cpu")],
         train_datasets=[dataset],
         val_datasets=[dataset],
@@ -196,7 +196,7 @@ class TestCheckpoints(CheckpointTests):
 
         trainer.train(
             model,
-            dtype=model.model.__supported_dtypes__[0],
+            dtype=model.core.__supported_dtypes__[0],
             devices=[torch.device("cpu")],
             train_datasets=[dataset],
             val_datasets=[dataset],

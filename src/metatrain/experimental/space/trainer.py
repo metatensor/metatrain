@@ -205,7 +205,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         scaler = Scaler(hypers=scaler_hypers, dataset_info=model_dataset_info)
 
         return MetatrainModel(
-            model=model,
+            core=model,
             additive_models=additive_models,
             scaler=scaler,
             dataset_info=dataset_info,
@@ -280,8 +280,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     ) -> None:
         assert dtype in SPACE.__supported_dtypes__
         assert isinstance(model, MetatrainModel)
-        space = model.model
-        assert isinstance(model.model, SPACE)
+        space = model.core
+        assert isinstance(model.core, SPACE)
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
 
@@ -366,13 +366,13 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         atomic_basis_transform, atomic_basis_reverse_transform = (
             get_prepare_atomic_basis_targets_transform(
-                model.dataset_info, model.model.dataset_info
+                model.dataset_info, model.core.dataset_info
             )
         )
 
         train_or_load_composition_model(
             composition_model=MetatrainModel(
-                model=model.additive_models[0],
+                core=model.additive_models[0],
                 additive_models=[],
                 scaler=None,
                 dataset_info=model.dataset_info,
@@ -395,7 +395,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 )
             train_or_load_scaler(
                 scaler=MetatrainModel(
-                    model=model.scaler,
+                    core=model.scaler,
                     additive_models=[],
                     scaler=None,
                     dataset_info=model.dataset_info,
@@ -885,8 +885,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         self, model: MetatrainModel[SPACE, Scaler], path: Union[str, Path]
     ) -> None:
         checkpoint = model.get_checkpoint(self.best_model_state_dict)
-        checkpoint["model"]["epoch"] = self.epoch
-        checkpoint["model"]["best_epoch"] = self.best_epoch
+        checkpoint["core"]["epoch"] = self.epoch
+        checkpoint["core"]["best_epoch"] = self.best_epoch
         checkpoint.update(
             {
                 "train_hypers": self.hypers,

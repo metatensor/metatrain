@@ -180,7 +180,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     # Finetuning
     checkpoint = torch.load("tmp.ckpt", weights_only=False, map_location="cpu")
     model_finetune = model_from_checkpoint(checkpoint, context="finetune")
-    assert isinstance(model_finetune.model, SPACE)
+    assert isinstance(model_finetune.core, SPACE)
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
     hypers["training"]["num_epochs"] = 0
@@ -210,7 +210,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     # Finetuning restart
     checkpoint = torch.load("finetuned.ckpt", weights_only=False, map_location="cpu")
     model_finetune_restart = model_from_checkpoint(checkpoint, context="restart")
-    assert isinstance(model_finetune_restart.model, SPACE)
+    assert isinstance(model_finetune_restart.core, SPACE)
     trainer.restart(model_finetune_restart, dataset_info, model_hypers={})
 
     assert any("lora_" in name for name, _ in model_finetune_restart.named_parameters())
@@ -284,7 +284,7 @@ def _assert_target_absent(model, target_name):
         assert target_name not in additive_model.outputs
     assert target_name not in model.scaler.outputs
     if isinstance(model, MetatrainModel):
-        model = model.model
+        model = model.core
         assert target_name not in model.dataset_info.targets
         assert target_name not in model.supported_outputs()
     assert target_name not in model.target_names
@@ -302,7 +302,7 @@ def _assert_target_present(model, target_name):
         assert target_name in additive_model.outputs
     assert target_name in model.scaler.outputs
     if isinstance(model, MetatrainModel):
-        model = model.model
+        model = model.core
         assert target_name in model.dataset_info.targets
         assert target_name in model.supported_outputs()
     assert target_name in model.target_names

@@ -264,7 +264,7 @@ def test_model_without_any_ensemble_can_be_exported(wrapped_pet, tmp_path):
     other test here configures an ensemble, so this is the only one that covers the
     plain uncertainty-only model, which is what the LLPR example trains."""
     model = wrap_in_llpr(wrapped_pet, {})
-    assert model.model.ensemble_gradient_outputs == []
+    assert model.core.ensemble_gradient_outputs == []
 
     model.export().save(str(tmp_path / "llpr_without_ensemble.pt"))
 
@@ -383,7 +383,7 @@ def untrained_llpr_model(target_name, quantity, num_subtargets=1):
     )
     model.set_wrapped_model(
         MetatrainModel(
-            model=PET(pet_hypers, dataset_info).to(DTYPE),
+            core=PET(pet_hypers, dataset_info).to(DTYPE),
             additive_models=[],
             scaler=None,
             dataset_info=dataset_info,

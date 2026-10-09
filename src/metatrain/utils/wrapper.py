@@ -35,13 +35,13 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
     def __init__(
         self,
-        model: CoreModelClass,
+        core: CoreModelClass,
         additive_models: list[ModelInterface],
         scaler: ScalerClass,  # Scaler,
         dataset_info: DatasetInfo,
     ):
         super().__init__()
-        self.model = model
+        self.core = core
         self.additive_models = torch.nn.ModuleList(additive_models)
         self.scaler = scaler
         self.dataset_info = dataset_info
@@ -51,7 +51,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
     def _get_eval_transforms(self) -> dict[str, list[str]]:
         """Finds out which targets need to be transformed at evaluation time to
-        make sure that the outputs of the model, scaler and additive models
+        make sure that the outputs of the core model, scaler and additive models
         are compatible.
 
         :return: A dictionary with the targets that need to be transformed at
@@ -61,7 +61,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         eval_transforms: dict[str, list[str]] = {}
 
         # Get targets of each model.
-        model_targets = self.model.dataset_info.targets
+        core_targets = self.core.dataset_info.targets
         scaler_targets = (
             self.scaler.dataset_info.targets if self.scaler is not None else {}
         )
@@ -72,7 +72,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         # Go through the steps of the evaluation and find out
         # the required transformations.
-        current_targets = model_targets.copy()
+        current_targets = core_targets.copy()
         # Targets to transform before applying the scaler
         eval_transforms["pre_scaler"] = []
         for name, target in current_targets.items():
@@ -108,7 +108,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        return_dict = self.model(systems, outputs, selected_atoms=selected_atoms)
+        return_dict = self.core(systems, outputs, selected_atoms=selected_atoms)
 
         with torch.profiler.record_function("MTT_WRAPPER::post-processing"):
             if not self.training:
@@ -222,7 +222,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         if self.scaler is not None:
             _add_model_requested_inputs(self.scaler)
-        _add_model_requested_inputs(self.model)
+        _add_model_requested_inputs(self.core)
 
         return requested_inputs
 
@@ -241,12 +241,12 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         if self.scaler is not None:
             _add_model_requested_neighbor_lists(self.scaler)
-        _add_model_requested_neighbor_lists(self.model)
+        _add_model_requested_neighbor_lists(self.core)
 
         return requested_neighbor_lists
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
-        return self.model.supported_outputs()
+        return self.core.supported_outputs()
 
     def export(
         self,
@@ -265,8 +265,8 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         """
         # Export all models, making sure that the additive models and scaler have
         # the same dtype as the main model.
-        model = self.model.export(metadata)
-        dtype = getattr(torch, model.capabilities().dtype)
+        core = self.core.export(metadata)
+        dtype = getattr(torch, core.capabilities().dtype)
         additive_models = [
             model.to(dtype).export(metadata) for model in self.additive_models
         ]
@@ -276,7 +276,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             scaler = None
 
         # Get a list of the capabilities of each model
-        all_capabilities = [model.capabilities()] + [
+        all_capabilities = [core.capabilities()] + [
             model.capabilities() for model in additive_models
         ]
         if scaler is not None:
@@ -301,7 +301,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         # Build the wrapper model again with the exported modules.
         to_export = self.__class__(
-            model=model.module,
+            core=core.module,
             additive_models=[model.module for model in additive_models],
             scaler=scaler.module if scaler is not None else None,  # type: ignore[arg-type]
             dataset_info=self.dataset_info,
@@ -310,11 +310,13 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         # exported module (e.g. FlashMD's ``timestep``, read by the ``flashmd``
         # integrators and by LAMMPS' ``fix metatomic``). Expose them on the wrapper
         # too, so that they can still be found at the same place.
-        for name in getattr(model.module, "__exported_buffers__", []):
-            to_export.register_buffer(name, getattr(model.module, name))
+        # THIS IS TO BE REMOVED ASAP, when FlashMD puts the timestep in the metadata
+        # instead of having as an attribute.
+        for name in getattr(core.module, "__exported_buffers__", []):
+            to_export.register_buffer(name, getattr(core.module, name))
 
         if metadata is None:
-            metadata = model.metadata()
+            metadata = core.metadata()
 
         capabilities = ModelCapabilities(
             outputs=self.supported_outputs(),
@@ -371,7 +373,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         :return: The model's checkpoint.
         """
-        model_best_state_dict: dict[str, Any] | None = None
+        core_best_state_dict: dict[str, Any] | None = None
         additive_models_best_state_dicts: list[dict[str, Any] | None] = [None] * len(
             self.additive_models
         )
@@ -379,10 +381,10 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         # Split the best_model_state_dict into the corresponding sub-models' state dicts
         if best_model_state_dict is not None:
-            model_best_state_dict = {
-                k.removeprefix("model."): v
+            core_best_state_dict = {
+                k.removeprefix("core."): v
                 for k, v in best_model_state_dict.items()
-                if k.startswith("model.")
+                if k.startswith("core.")
             }
             additive_models_best_state_dicts = [
                 {
@@ -401,7 +403,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         checkpoint = {
             "model_ckpt_version": self.__checkpoint_version__,
             "dataset_info": self.dataset_info,
-            "model": self.model.get_checkpoint(model_best_state_dict),
+            "core": self.core.get_checkpoint(core_best_state_dict),
             "additive_models": [
                 m.get_checkpoint(best_state)
                 for m, best_state in zip(
@@ -430,8 +432,8 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         :return: The model's state dict.
         """
         state_dict = {}
-        if (model_state_dict := checkpoint["model"][key]) is not None:
-            state_dict.update({f"model.{k}": v for k, v in model_state_dict.items()})
+        if (core_state_dict := checkpoint["core"][key]) is not None:
+            state_dict.update({f"core.{k}": v for k, v in core_state_dict.items()})
         for i, additive_model_checkpoint in enumerate(checkpoint["additive_models"]):
             if (
                 additive_model_state_dict := additive_model_checkpoint[key]
@@ -456,7 +458,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
     def restart(
         self,
         dataset_info: DatasetInfo,
-        model_dataset_info: Optional[DatasetInfo] = None,
+        core_dataset_info: Optional[DatasetInfo] = None,
         additive_models_dataset_info: Optional[list[DatasetInfo]] = None,
         scaler_dataset_info: Optional[DatasetInfo] = None,
         model_hypers: Optional[Mapping[str, Any]] = None,
@@ -467,7 +469,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         has changed (e.g. when finetuning on a new dataset).
 
         :param dataset_info: The new dataset_info to use.
-        :param model_dataset_info: The new dataset_info to use for the main model.
+        :param core_dataset_info: The new dataset_info to use for the main model.
             If None, `dataset_info` will be used.
         :param additive_models_dataset_info: The new dataset_info to use for the
             additive models.
@@ -482,14 +484,14 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         self.dataset_info = merged_info
 
         # Get the dataset infos for each of the components.
-        model_dataset_info = model_dataset_info or dataset_info
+        core_dataset_info = core_dataset_info or dataset_info
         additive_models_dataset_info = additive_models_dataset_info or [
             dataset_info
         ] * len(self.additive_models)
         scaler_dataset_info = scaler_dataset_info or dataset_info
 
         # Update main model
-        self.model.restart(model_dataset_info, model_hypers)
+        self.core.restart(core_dataset_info, model_hypers)
 
         # Update additive models
         for info, additive_model in zip(
@@ -512,7 +514,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         :param target_name: Name of the target to remove.
         """
-        self.model.remove_output(target_name)
+        self.core.remove_output(target_name)
 
         for additive_model in self.additive_models:
             if target_name in additive_model.supported_outputs():

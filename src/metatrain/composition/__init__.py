@@ -28,7 +28,7 @@ __maintainers__ = [
 
 
 def train_or_load_composition_model(
-    composition_model: CompositionModel,
+    composition_model: Union[CompositionModel, MetatrainModel[CompositionModel]],
     atomic_baseline: FixedCompositionWeights | str,
     train_datasets: List[Union[Dataset, Subset]],
     other_additive_models: List[nn.Module],
@@ -53,20 +53,20 @@ def train_or_load_composition_model(
     """
     if isinstance(composition_model, CompositionModel):
         model = MetatrainModel(
-            model=composition_model,
+            core=composition_model,
             additive_models=[],
             scaler=None,
             dataset_info=composition_model.dataset_info,
         )
     else:
         model = composition_model
-        composition_model = model.model
+        composition_model = model.core
 
     if isinstance(atomic_baseline, str):
         logging.info(f"Loading composition model from {atomic_baseline}")
         loaded = load_model(atomic_baseline)
         if isinstance(loaded, MetatrainModel):
-            loaded = loaded.model
+            loaded = loaded.core
         if not isinstance(loaded, CompositionModel):
             raise ValueError(
                 f"The model loaded from {atomic_baseline} is a "

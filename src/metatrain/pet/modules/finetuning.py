@@ -176,8 +176,8 @@ def _add_backend_prefix(model: nn.Module, module_names: list[str]) -> list[str]:
     """
     prefix = ""
     if isinstance(model, MetatrainModel):
-        model = model.model
-        prefix = "model."
+        model = model.core
+        prefix = "core."
 
     if hasattr(model, "backend"):
         prefix = prefix + "backend."
@@ -305,7 +305,7 @@ def apply_finetuning_strategy(
     if hasattr(model, "finetune_config"):
         model.finetune_config = strategy
     else:
-        model.model.finetune_config = strategy
+        model.core.finetune_config = strategy
 
     inherit_heads_config = strategy["inherit_heads"]
     if apply_inherit_heads and inherit_heads_config:

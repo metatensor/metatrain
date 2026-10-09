@@ -56,7 +56,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         if self.hypers["densify_atomic_basis"]:
             model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
         return MetatrainModel(
-            model=Scaler(model_hypers, model_dataset_info),
+            core=Scaler(model_hypers, model_dataset_info),
             additive_models=[],
             scaler=None,
             dataset_info=dataset_info,
@@ -86,7 +86,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     ) -> None:
 
         assert isinstance(model, MetatrainModel)
-        scaler = model.model
+        scaler = model.core
         assert isinstance(scaler, Scaler)
 
         model = model.to(dtype=dtype, device=devices[0])

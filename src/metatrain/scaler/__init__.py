@@ -30,7 +30,7 @@ __maintainers__ = [
 
 
 def train_or_load_scaler(
-    scaler: Union[Scaler, MetatrainModel],
+    scaler: Union[Scaler, MetatrainModel[Scaler]],
     train_datasets: List[Union[Dataset, Subset]],
     additive_models: List[nn.Module],
     batch_size: int,
@@ -66,7 +66,7 @@ def train_or_load_scaler(
     """
     if isinstance(scaler, Scaler):
         scaler = MetatrainModel(
-            model=scaler,
+            core=scaler,
             additive_models=[],
             scaler=None,
             dataset_info=scaler.dataset_info,
@@ -75,19 +75,19 @@ def train_or_load_scaler(
     if isinstance(fixed_weights, str):
         logging.info(f"Loading scaler from {fixed_weights}")
         loaded = load_model(fixed_weights)
-        if not isinstance(loaded.model, Scaler):
+        if not isinstance(loaded.core, Scaler):
             raise ValueError(
                 f"The model loaded from {fixed_weights} is a "
                 f"{type(loaded).__name__}, not a Scaler."
             )
-        if loaded.model.atomic_types != scaler.model.atomic_types:
+        if loaded.core.atomic_types != scaler.core.atomic_types:
             raise ValueError(
                 "Scaler checkpoint atomic types "
-                f"({loaded.model.atomic_types}) do not match the current model's "
-                f"atomic types ({scaler.model.atomic_types})."
+                f"({loaded.core.atomic_types}) do not match the current model's "
+                f"atomic types ({scaler.core.atomic_types})."
             )
-        loaded_targets = loaded.model.dataset_info.targets
-        current_targets = scaler.model.dataset_info.targets
+        loaded_targets = loaded.core.dataset_info.targets
+        current_targets = scaler.core.dataset_info.targets
         if set(loaded_targets) != set(current_targets):
             raise ValueError(
                 "Scaler checkpoint targets "
@@ -107,11 +107,11 @@ def train_or_load_scaler(
                     f"quantity '{target_info.quantity}' and unit "
                     f"'{target_info.unit}'."
                 )
-        scaler.model.load_state_dict(loaded.model.state_dict())
-        scaler.model.sync_tensor_maps()
+        scaler.core.load_state_dict(loaded.core.state_dict())
+        scaler.core.sync_tensor_maps()
 
-        loaded.model.check_correct_additive_models(additive_models)
-        scaler.model.training_additive_models = loaded.model.training_additive_models
+        loaded.core.check_correct_additive_models(additive_models)
+        scaler.core.training_additive_models = loaded.core.training_additive_models
     else:
         hypers = deepcopy(get_default_hypers("scaler")["training"])
         if fixed_weights is None:
@@ -132,7 +132,7 @@ def train_or_load_scaler(
         trainer.train(
             model=scaler,
             dtype=torch.float64,
-            devices=[scaler.model.dummy_buffer.device],
+            devices=[scaler.core.dummy_buffer.device],
             train_datasets=train_datasets,
             val_datasets=train_datasets,
             checkpoint_dir=checkpoint_dir,

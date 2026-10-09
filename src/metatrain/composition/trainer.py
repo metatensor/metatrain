@@ -58,7 +58,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         if self.hypers["densify_atomic_basis"]:
             model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
         return MetatrainModel(
-            model=CompositionModel(model_hypers, model_dataset_info),
+            core=CompositionModel(model_hypers, model_dataset_info),
             additive_models=[],
             scaler=None,
             dataset_info=dataset_info,
@@ -87,7 +87,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         checkpoint_dir: str,
     ) -> None:
         assert isinstance(model, MetatrainModel)
-        composition_model = model.model
+        composition_model = model.core
         assert isinstance(composition_model, CompositionModel)
 
         additive_models = self._additive_models

@@ -58,7 +58,7 @@ class TestCheckpoints(CheckpointTests, LLPRTests):
 
         trainer.train(
             model,
-            dtype=model.model.__supported_dtypes__[0],
+            dtype=model.core.__supported_dtypes__[0],
             devices=[torch.device("cpu")],
             train_datasets=[dataset],
             val_datasets=[dataset],
@@ -79,7 +79,7 @@ class TestCheckpoints(CheckpointTests, LLPRTests):
             model = trainer.setup(model_hypers, dataset_info)
             trainer.train(
                 model,
-                dtype=model.model.__supported_dtypes__[0],
+                dtype=model.core.__supported_dtypes__[0],
                 devices=[torch.device("cpu")],
                 train_datasets=[dataset],
                 val_datasets=[dataset],
