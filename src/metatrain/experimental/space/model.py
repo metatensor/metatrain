@@ -299,9 +299,9 @@ class SPACE(ModelInterface[ModelHypers]):
                         components=[],
                         properties=Labels(
                             names=["feature"],
-                            values=torch.arange(features_tensor.shape[-1]).unsqueeze(
-                                -1
-                            ),
+                            values=torch.arange(
+                                features_tensor.shape[-1], device=device
+                            ).unsqueeze(-1),
                         ),
                     )
                 ],
