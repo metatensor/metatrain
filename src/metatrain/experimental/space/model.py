@@ -562,6 +562,8 @@ class SPACE(ModelInterface[ModelHypers]):
         self.property_labels.pop(target_name, None)
         if target_name in self.cartesian_rank2_targets:
             self.cartesian_rank2_targets.remove(target_name)
+        self.dataset_info.targets.pop(target_name, None)
+        self.target_names.remove(target_name)
 
     def requested_neighbor_lists(
         self,
