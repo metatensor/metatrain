@@ -20,6 +20,7 @@ from metatrain.utils.abc import ModelInterface
 from metatrain.utils.architectures import import_architecture
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.match_tmaps import match_layout
+from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.dtype import dtype_to_str
 
 
@@ -318,8 +319,15 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         if metadata is None:
             metadata = core.metadata()
 
+        outputs = self.supported_outputs()
+        # Clean deprecated names that ModelCapabilities add automatically for
+        # compatibility, to avoid warnings.
+        for k, v in DEPRECATED_METATOMIC_OUTPUT_NAMES.items():
+            if v in outputs and k in outputs:
+                outputs.pop(k)
+
         capabilities = ModelCapabilities(
-            outputs=self.supported_outputs(),
+            outputs=outputs,
             atomic_types=self.dataset_info.atomic_types,
             interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
