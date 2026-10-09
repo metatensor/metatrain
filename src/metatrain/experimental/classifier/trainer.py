@@ -13,6 +13,7 @@ from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    DatasetInfo,
     build_train_dataloaders,
     build_val_dataloaders,
     unpack_batch,
@@ -23,17 +24,53 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from metatrain.utils.wrapper import MetatrainModel
 
-from .documentation import TrainerHypers
+from .documentation import ModelHypers, TrainerHypers
 from .model import Classifier
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 1
+
+    def setup(
+        self, model_hypers: ModelHypers, dataset_info: DatasetInfo
+    ) -> MetatrainModel[Classifier]:
+
+        if self.hypers["model_checkpoint"] is None:
+            raise ValueError(
+                "A model checkpoint must be provided to train the LLPR "
+                "(model_checkpoint, under training, in the hypers)"
+            )
+
+        classifier = Classifier(model_hypers, dataset_info)
+
+        wrapped_model_checkpoint_path = self.hypers["model_checkpoint"]
+        checkpoint = torch.load(
+            wrapped_model_checkpoint_path, weights_only=False, map_location="cpu"
+        )
+        wrapped_model = model_from_checkpoint(checkpoint, "export")
+        classifier.set_wrapped_model(wrapped_model)
+
+        return MetatrainModel(
+            core=classifier,
+            additive_models=[],
+            scaler=None,
+            dataset_info=dataset_info,
+        )
+
+    def restart(
+        self,
+        model: MetatrainModel[Classifier],
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypers,
+    ) -> MetatrainModel[Classifier]:
+        model.restart(dataset_info, model_hypers=model_hypers)
+        return model
 
     def train(
         self,
-        model: Classifier,
+        model: MetatrainModel[Classifier],
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -47,24 +84,23 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 "A model checkpoint must be provided to train the Classifier "
                 "(model_checkpoint, under training, in the hypers)"
             )
-        wrapped_model_checkpoint_path = self.hypers["model_checkpoint"]
-        checkpoint = torch.load(
-            wrapped_model_checkpoint_path, weights_only=False, map_location="cpu"
-        )
-        wrapped_model = model_from_checkpoint(checkpoint, "export")
-        model.set_wrapped_model(wrapped_model)
+
+        # And get the wrapped model from the Classifier
+        wrapped_model = model.core.model
 
         device = devices[0]  # this trainer doesn't support multi-GPU training
         # check device and dtype against wrapped model class
-        if device.type not in wrapped_model.__class__.__supported_devices__:
+        supported_devices = wrapped_model.core.__class__.__supported_devices__
+        if device.type not in supported_devices:
             raise ValueError(
                 f"Device {device} not supported by the wrapped model. "
-                f"Supported devices are {wrapped_model.__class__.__supported_devices__}"
+                f"Supported devices are {supported_devices}"
             )
-        if dtype not in wrapped_model.__class__.__supported_dtypes__:
+        supported_dtypes = wrapped_model.core.__class__.__supported_dtypes__
+        if dtype not in supported_dtypes:
             raise ValueError(
                 f"dtype {dtype} not supported by the wrapped model. "
-                f"Supported dtypes are {wrapped_model.__class__.__supported_dtypes__}"
+                f"Supported dtypes are {supported_dtypes}"
             )
         logging.info(f"Training on device {device} with dtype {dtype}")
 
@@ -95,7 +131,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         sample = train_datasets[0][0]
         system = sample["system"].to(device=device, dtype=dtype)
         with torch.no_grad():
-            features_dict = model.model(
+            features_dict = model.core.model(
                 [system],
                 {"feature": ModelOutput(sample_kind="atom")},
             )
@@ -107,7 +143,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         logging.info(f"Feature size: {feature_size}")
 
         # Build the MLP
-        model.build_mlp(feature_size, num_classes)
+        model.core.build_mlp(feature_size, num_classes)
         model.to(device=device, dtype=dtype)
 
         logging.info("Setting up data loaders")
@@ -332,12 +368,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
         raise ValueError("Classifier does not allow restarting training")
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+    def upgrade_checkpoint(cls, checkpoint: Dict, version: int | None = None) -> Dict:
+        if version is None:
+            version = cls.__checkpoint_version__
         # Currently at version 1, no upgrades needed yet
-        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
+        if checkpoint["trainer_ckpt_version"] != version:
             raise RuntimeError(
                 f"Unable to upgrade the checkpoint: the checkpoint is using "
                 f"trainer version {checkpoint['trainer_ckpt_version']}, while the "
-                f"current trainer version is {cls.__checkpoint_version__}."
+                f"current trainer version is {version}."
             )
         return checkpoint

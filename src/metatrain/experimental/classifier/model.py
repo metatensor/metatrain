@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
@@ -11,17 +12,18 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.utils.abc import ModelInterface
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 
+from . import checkpoints
 from .documentation import ModelHypers
 
 
 class Classifier(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
 
     # all torch devices and dtypes are supported, if they are supported by the wrapped
     # model; the check is performed in the trainer
@@ -124,7 +126,9 @@ class Classifier(ModelInterface[ModelHypers]):
         self.linear = torch.nn.Linear(current_size, num_classes, bias=False)
 
     def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
     ) -> "Classifier":
         raise ValueError("Restarting from a Classifier model is not supported.")
 
@@ -259,7 +263,9 @@ class Classifier(ModelInterface[ModelHypers]):
 
         return return_dict
 
-    def get_checkpoint(self) -> Dict[str, Any]:
+    def get_checkpoint(
+        self, best_model_state_dict: dict[str, Any] | None = None
+    ) -> Dict[str, Any]:
         if self.model is None:
             raise ValueError("Cannot get checkpoint: wrapped model not set")
 
@@ -275,7 +281,7 @@ class Classifier(ModelInterface[ModelHypers]):
             "architecture_name": "experimental.classifier",
             "model_ckpt_version": self.__checkpoint_version__,
             "wrapped_model_checkpoint": wrapped_model_checkpoint,
-            "state_dict": state_dict,
+            "model_state_dict": state_dict,
         }
         return checkpoint
 
@@ -302,7 +308,7 @@ class Classifier(ModelInterface[ModelHypers]):
             classifier_model = cls(**checkpoint["model_data"])
             classifier_model.set_wrapped_model(model)
 
-            state_dict = checkpoint["state_dict"]
+            state_dict = checkpoint["model_state_dict"]
             input_feat_size = None
 
             # Check the first layer of the first block (mlp.0.0)
@@ -342,16 +348,15 @@ class Classifier(ModelInterface[ModelHypers]):
         return AtomisticModel(self.eval(), metadata, self.capabilities)
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        # Currently at version 1, no upgrades needed yet
-        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {checkpoint['model_ckpt_version']}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
-            )
-
-        return checkpoint
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
-        return self.dataset_info.targets
+        return {
+            k: ModelOutput(sample_kind=v.sample_kind)
+            for k, v in self.dataset_info.targets.items()
+        }

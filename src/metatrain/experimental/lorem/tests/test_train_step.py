@@ -12,7 +12,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 from omegaconf import OmegaConf
 
-from metatrain.experimental.lorem import LOREM, Trainer
+from metatrain.experimental.lorem import Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -246,7 +246,6 @@ def test_one_training_step_is_finite(setup, batch_size, tmp_path):
         atomic_types=[1, 6],
         targets=targets,
     )
-    model = LOREM(_small_hypers(need_bec="bec" in setup), dataset_info)
 
     training = copy.deepcopy(DEFAULT_HYPERS["training"])
     training["num_epochs"] = 1
@@ -268,6 +267,7 @@ def test_one_training_step_is_finite(setup, batch_size, tmp_path):
             }
 
     trainer = Trainer(training)
+    model = trainer.setup(_small_hypers(need_bec="bec" in setup), dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float32,
@@ -317,10 +317,7 @@ def test_force_step_with_isolated_atom_is_finite(tmp_path):
             add_position_gradients=True,
         )
     }
-    model = LOREM(
-        _small_hypers(need_bec=False),
-        DatasetInfo(length_unit="Angstrom", atomic_types=[1, 6, 17], targets=targets),
-    )
+
     training = copy.deepcopy(DEFAULT_HYPERS["training"])
     training["num_epochs"] = 1
     training["batch_size"] = 2
@@ -329,7 +326,12 @@ def test_force_step_with_isolated_atom_is_finite(tmp_path):
     training["loss"] = {
         "energy": _energy_loss(with_forces=True, with_stress=False),
     }
-    Trainer(training).train(
+    trainer = Trainer(training)
+    model = trainer.setup(
+        _small_hypers(need_bec=False),
+        DatasetInfo(length_unit="Angstrom", atomic_types=[1, 6, 17], targets=targets),
+    )
+    trainer.train(
         model=model,
         dtype=torch.float32,
         devices=[torch.device("cpu")],

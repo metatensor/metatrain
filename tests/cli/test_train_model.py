@@ -32,6 +32,7 @@ from metatrain.utils.logging import ROOT_LOGGER, setup_logging
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.pydantic import MetatrainValidationError
 from metatrain.utils.testing._utils import WANDB_AVAILABLE
+from metatrain.utils.wrapper import MetatrainModel
 
 from ..conftest import (
     DATASET_PATH_CARBON,
@@ -1056,7 +1057,14 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     m1 = torch.load("model1.ckpt", weights_only=False)
     m2 = torch.load("model2.ckpt", weights_only=False)
 
-    for tensor_name in m1["model_state_dict"]:
+    m1_state_dict = MetatrainModel.get_state_dict_from_checkpoint(
+        m1, "model_state_dict"
+    )
+    m2_state_dict = MetatrainModel.get_state_dict_from_checkpoint(
+        m2, "model_state_dict"
+    )
+
+    for tensor_name in m1_state_dict:
         if "type_to_index" in tensor_name or "spliner" in tensor_name:
             continue  # these are always the same for both models
 
@@ -1069,8 +1077,8 @@ def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
             # empty tensor
             continue
 
-        tensor1 = m1["model_state_dict"][tensor_name]
-        tensor2 = m2["model_state_dict"][tensor_name]
+        tensor1 = m1_state_dict[tensor_name]
+        tensor2 = m2_state_dict[tensor_name]
 
         # only compare tensors
         if isinstance(tensor1, torch.Tensor) and isinstance(tensor2, torch.Tensor):

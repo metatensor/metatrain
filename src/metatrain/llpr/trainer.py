@@ -9,12 +9,17 @@ from metatensor.torch import TensorBlock, TensorMap
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DistributedSampler
 
-from metatrain.utils.abc import ModelInterface, TrainerInterface
+from metatrain.utils.abc import (
+    ModelInterface,
+    TrainerInterface,
+    common_upgrade_checkpoint,
+)
 from metatrain.utils.augmentation import O3Augmenter
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    DatasetInfo,
     build_train_dataloaders,
     build_val_dataloaders,
     get_num_workers,
@@ -39,9 +44,10 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.transfer import batch_to
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .documentation import TrainerHypers
+from .documentation import ModelHypers, TrainerHypers
 from .model import LLPRUncertaintyModel
 
 
@@ -79,7 +85,7 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 7
 
     def __init__(self, hypers: TrainerHypers) -> None:
@@ -92,10 +98,61 @@ class Trainer(TrainerInterface[TrainerHypers]):
         self.best_metric: Optional[float] = None
         self.best_model_state_dict: Optional[Dict[str, Any]] = None
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
+        self.has_new_targets: bool = False
+
+    def setup(
+        self, model_hypers: ModelHypers, dataset_info: DatasetInfo
+    ) -> MetatrainModel[LLPRUncertaintyModel]:
+
+        if self.hypers["model_checkpoint"] is None:
+            raise ValueError(
+                "A model checkpoint must be provided to train the LLPR "
+                "(model_checkpoint, under training, in the hypers)"
+            )
+
+        llpr_model = LLPRUncertaintyModel(model_hypers, dataset_info)
+
+        wrapped_model_checkpoint_path = self.hypers["model_checkpoint"]
+        checkpoint = torch.load(
+            wrapped_model_checkpoint_path, weights_only=False, map_location="cpu"
+        )
+        wrapped_model = model_from_checkpoint(checkpoint, "export")
+        llpr_model.set_wrapped_model(wrapped_model)
+
+        return MetatrainModel(
+            core=llpr_model,
+            additive_models=[],
+            scaler=None,
+            dataset_info=dataset_info,
+        )
+
+    def restart(
+        self,
+        model: MetatrainModel[LLPRUncertaintyModel],
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypers,
+    ) -> MetatrainModel[LLPRUncertaintyModel]:
+        # -------------------------------------------------
+        #        Find out what are the new targets
+        # --------------------------------------------------
+        merged_info = model.dataset_info.union(dataset_info)
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in model.dataset_info.targets
+        }
+        self.has_new_targets = len(new_targets) > 0
+
+        # ------------------------------------------------------
+        #  Ask the model to restart with the new dataset info
+        # -------------------------------------------------------
+        model.restart(dataset_info, model_hypers=model_hypers)
+
+        return model
 
     def train(
         self,
-        model: LLPRUncertaintyModel,
+        model: MetatrainModel[LLPRUncertaintyModel],
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -105,19 +162,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # we begin by loading start_epoch to determine if restarting or not
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
-        # If LLPR training from scratch, load the wrapped model from checkpoint
-        if self.hypers["model_checkpoint"] is None:
-            raise ValueError(
-                "A model checkpoint must be provided to train the LLPR "
-                "(model_checkpoint, under training, in the hypers)"
-            )
-        wrapped_model_checkpoint_path = self.hypers["model_checkpoint"]
-        checkpoint = torch.load(
-            wrapped_model_checkpoint_path, weights_only=False, map_location="cpu"
-        )
-        wrapped_model = model_from_checkpoint(checkpoint, "export")
-        if start_epoch == 0:
-            model.set_wrapped_model(wrapped_model)
+        # Get LLPR model from the MetatrainModel class
+        model = model.core
+        # And get the wrapped model from the LLPR model
+        wrapped_model = model.model
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
 
@@ -139,15 +187,17 @@ class Trainer(TrainerInterface[TrainerHypers]):
             rank = 0
 
         # check device and dtype against wrapped model class
-        if device.type not in wrapped_model.__class__.__supported_devices__:
+        supported_devices = wrapped_model.core.__class__.__supported_devices__
+        if device.type not in supported_devices:
             raise ValueError(
-                f"Device {device} not supported by the wrapped model. "
-                f"Supported devices are {wrapped_model.__class__.__supported_devices__}"
+                f"Device {device} not supported. "
+                f"Supported devices are {supported_devices}"
             )
-        if dtype not in wrapped_model.__class__.__supported_dtypes__:
+        supported_types = wrapped_model.core.__class__.__supported_dtypes__
+        if dtype not in supported_types:
             raise ValueError(
                 f"dtype {dtype} not supported by the wrapped model. "
-                f"Supported dtypes are {wrapped_model.__class__.__supported_dtypes__}"
+                f"Supported dtypes are {supported_types}"
             )
 
         if is_distributed:
@@ -549,7 +599,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             torch.distributed.destroy_process_group()
 
     def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
-        checkpoint = model.get_checkpoint()
+        checkpoint = model.get_checkpoint(self.best_model_state_dict)
         checkpoint.update(
             {
                 "trainer_ckpt_version": self.__checkpoint_version__,
@@ -559,7 +609,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 "scheduler_state_dict": self.scheduler_state_dict,
                 "best_epoch": self.best_epoch,
                 "best_metric": self.best_metric,
-                "best_model_state_dict": self.best_model_state_dict,
                 "best_optimizer_state_dict": self.best_optimizer_state_dict,
             }
         )
@@ -585,25 +634,19 @@ class Trainer(TrainerInterface[TrainerHypers]):
             trainer.epoch = None  # interpreted as zero in the training loop
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
-        trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
+        trainer.best_model_state_dict = MetatrainModel.get_state_dict_from_checkpoint(
+            checkpoint, "best_model_state_dict"
+        )
         trainer.best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
         return trainer
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["trainer_ckpt_version"] == v:
-                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["trainer_ckpt_version"] = v + 1
-
-        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using "
-                f"trainer version {checkpoint['trainer_ckpt_version']}, while the "
-                f"current trainer version is {cls.__checkpoint_version__}."
-            )
-        return checkpoint
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "trainer", checkpoints
+        )
 
 
 def _drop_gradient_blocks(targets: Dict[str, Any]) -> Dict[str, Any]:

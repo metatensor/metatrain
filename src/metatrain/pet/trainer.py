@@ -8,15 +8,17 @@ import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DistributedSampler
 
-from metatrain.composition import train_or_load_composition_model
-from metatrain.scaler import train_or_load_scaler
-from metatrain.utils.abc import ModelInterface, TrainerInterface
-from metatrain.utils.additive import get_remove_additive_transform
+from metatrain.composition import CompositionModel, train_or_load_composition_model
+from metatrain.scaler import Scaler, train_or_load_scaler
+from metatrain.utils.abc import TrainerInterface, common_upgrade_checkpoint
+from metatrain.utils.additive import ZBL, get_remove_additive_transform
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.augmentation import O3Augmenter
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    DatasetInfo,
     build_train_dataloaders,
     build_val_dataloaders,
     get_num_workers,
@@ -24,6 +26,7 @@ from metatrain.utils.data import (
     validate_num_workers,
 )
 from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_dataset_info,
     get_prepare_atomic_basis_targets_transform,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
@@ -46,11 +49,12 @@ from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.system_data import get_system_data_transform
 from metatrain.utils.transfer import batch_to
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .documentation import TrainerHypers
+from .documentation import ModelHypers, TrainerHypers
 from .model import PET
-from .modules.finetuning import apply_finetuning_strategy
+from .modules.finetuning import apply_finetuning_strategy, compute_stale_targets
 
 
 def get_scheduler(
@@ -86,8 +90,11 @@ def get_scheduler(
     return scheduler
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 15
+
+    has_new_targets: bool
+    _stale_finetune_targets: list[str]
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -100,9 +107,112 @@ class Trainer(TrainerInterface[TrainerHypers]):
         self.best_model_state_dict: Optional[Dict[str, Any]] = None
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
 
+        self.has_new_targets = False
+        self._stale_finetune_targets = []
+
+    def setup(
+        self, model_hypers: ModelHypers, dataset_info: DatasetInfo
+    ) -> MetatrainModel[PET, Scaler]:
+        model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+
+        model = PET(hypers=model_hypers, dataset_info=model_dataset_info)
+
+        # Set up additive models
+        composition_model = CompositionModel.from_valid_targets(
+            model_dataset_info, model_dataset_info.atomic_types
+        )
+        additive_models = [composition_model]
+
+        # Adds the ZBL repulsion model if requested
+        if model_hypers["zbl"]:
+            zbl_targets = {
+                target_name: target_info
+                for target_name, target_info in model_dataset_info.targets.items()
+                if ZBL.is_valid_target(target_name, target_info)
+            }
+            additive_models.append(
+                ZBL(
+                    {},
+                    dataset_info=DatasetInfo(
+                        length_unit=model_dataset_info.length_unit,
+                        atomic_types=model_dataset_info.atomic_types,
+                        targets=zbl_targets,
+                    ),
+                )
+            )
+        additive_models = torch.nn.ModuleList(additive_models)
+
+        # Initialize scaler
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        scaler = Scaler(hypers=scaler_hypers, dataset_info=model_dataset_info)
+
+        return MetatrainModel(
+            core=model,
+            additive_models=additive_models,
+            scaler=scaler,
+            dataset_info=dataset_info,
+        )
+
+    def restart(
+        self,
+        model: MetatrainModel[PET, Scaler],
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypers,
+    ) -> MetatrainModel[PET, Scaler]:
+        # -------------------------------------------------
+        #        Find out what are the new targets
+        # --------------------------------------------------
+        merged_info = model.dataset_info.union(dataset_info)
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in model.dataset_info.targets
+        }
+        self.has_new_targets = len(new_targets) > 0
+
+        # Targets that were present before this run but are not part of the current
+        # run's dataset: with a backbone-altering finetuning method (full/lora), their
+        # heads are no longer meaningful and are dropped once training starts, by
+        # ``apply_finetuning_strategy`` (which decides based on the method).
+        stale_targets = compute_stale_targets(
+            model.dataset_info.targets, dataset_info.targets
+        )
+
+        # Actual removal (if any) is deferred to ``apply_finetuning_strategy``
+        # (called later, once training starts), since ``inherit_heads`` needs these
+        # stale targets' heads to still be around to copy weights from, and only
+        # backbone-altering methods (``full``/``lora``) actually drop them.
+        self._stale_finetune_targets = stale_targets
+
+        # ------------------------------------------------------
+        #  Ask the models to restart with the new dataset info
+        # -------------------------------------------------------
+        model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+
+        comp_model_info = DatasetInfo(
+            length_unit=model_dataset_info.length_unit,
+            atomic_types=model_dataset_info.atomic_types,
+            targets={
+                target_name: target_info
+                for target_name, target_info in model_dataset_info.targets.items()
+                if model.additive_models[0].is_valid_target(target_name, target_info)
+            },
+        )
+
+        model.restart(
+            dataset_info,
+            model_dataset_info,
+            additive_models_dataset_info=[comp_model_info]
+            + [model_dataset_info] * (len(model.additive_models) - 1),
+            scaler_dataset_info=model_dataset_info,
+            model_hypers=model_hypers,
+        )
+
+        return model
+
     def train(
         self,
-        model: PET,
+        model: MetatrainModel[PET, Scaler],
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -152,6 +262,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 model,
                 self.hypers["finetune"],
                 apply_inherit_heads=is_fresh_finetune_start,
+                stale_targets=self._stale_finetune_targets,
             )
             method = self.hypers["finetune"]["method"]
             num_params = sum(p.numel() for p in model.parameters())
@@ -190,11 +301,22 @@ class Trainer(TrainerInterface[TrainerHypers]):
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         max_atoms = self.hypers["max_atoms_per_batch"]
         atomic_basis_transform, atomic_basis_reverse_transform = (
-            get_prepare_atomic_basis_targets_transform(train_targets, extra_data_info)
+            get_prepare_atomic_basis_targets_transform(
+                model.dataset_info, model.core.dataset_info
+            )
         )
 
+        # Train the composition model.
+        # Before passing it to the trainer, we wrap it in a ``MetatrainModel``
+        # with the dataset_info of the raw dataset, so that the trainer
+        # can know which transforms to apply.
         train_or_load_composition_model(
-            composition_model=model.additive_models[0],
+            composition_model=MetatrainModel(
+                core=model.additive_models[0],
+                additive_models=[],
+                scaler=None,
+                dataset_info=model.dataset_info,
+            ),
             atomic_baseline=self.hypers["atomic_baseline"],
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
@@ -211,8 +333,18 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     "Can't use a checkpoint for the scaler without providing"
                     "a checkpoint also for the composition model."
                 )
+
+            # Train the scaler.
+            # Before passing it to the trainer, we wrap it in a ``MetatrainModel``
+            # with the dataset_info of the raw dataset, so that the trainer
+            # can know which transforms to apply.
             train_or_load_scaler(
-                scaler=model.scaler,
+                scaler=MetatrainModel(
+                    core=model.scaler,
+                    additive_models=[],
+                    scaler=None,
+                    dataset_info=model.dataset_info,
+                ),
                 fixed_weights=self.hypers["fixed_scaling_weights"],
                 train_datasets=train_datasets,
                 additive_models=model.additive_models,
@@ -378,7 +510,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not self.has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a learning rate scheduler
@@ -386,7 +518,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not self.has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         per_structure_targets = self.hypers["per_structure_targets"]
@@ -694,10 +826,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if is_distributed:
             torch.distributed.destroy_process_group()
 
-    def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
-        checkpoint = model.get_checkpoint()
-        if self.best_model_state_dict is not None:
-            self.best_model_state_dict["finetune_config"] = model.finetune_config
+    def save_checkpoint(
+        self, model: MetatrainModel[PET, Scaler], path: Union[str, Path]
+    ) -> None:
+        checkpoint = model.get_checkpoint(self.best_model_state_dict)
+        checkpoint["core"]["epoch"] = self.epoch
+        checkpoint["core"]["best_epoch"] = self.best_epoch
         checkpoint.update(
             {
                 "trainer_ckpt_version": self.__checkpoint_version__,
@@ -707,7 +841,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 "scheduler_state_dict": self.scheduler_state_dict,
                 "best_epoch": self.best_epoch,
                 "best_metric": self.best_metric,
-                "best_model_state_dict": self.best_model_state_dict,
                 "best_optimizer_state_dict": self.best_optimizer_state_dict,
             }
         )
@@ -733,23 +866,17 @@ class Trainer(TrainerInterface[TrainerHypers]):
             trainer.epoch = None  # interpreted as zero in the training loop
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
-        trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
+        trainer.best_model_state_dict = MetatrainModel.get_state_dict_from_checkpoint(
+            checkpoint, "best_model_state_dict"
+        )
         trainer.best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         return trainer
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["trainer_ckpt_version"] == v:
-                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["trainer_ckpt_version"] = v + 1
-
-        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using "
-                f"trainer version {checkpoint['trainer_ckpt_version']}, while the "
-                f"current trainer version is {cls.__checkpoint_version__}."
-            )
-        return checkpoint
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "trainer", checkpoints
+        )

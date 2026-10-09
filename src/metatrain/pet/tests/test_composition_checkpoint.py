@@ -6,7 +6,7 @@ import torch
 from omegaconf import OmegaConf
 
 from metatrain.composition import CompositionModel
-from metatrain.pet import PET, Trainer
+from metatrain.pet import Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.hypers import init_with_defaults
@@ -86,8 +86,8 @@ def test_composition_checkpoint_consistency(tmp_path):
     # ── 4. PET-A: atomic_baseline = checkpoint path ─────────────────
     training_hypers["atomic_baseline"] = str(checkpoint_path)
     os.makedirs(str(tmp_path / "a"), exist_ok=True)
-    model_a = PET(model_hypers, dataset_info)
     trainer_a = Trainer(training_hypers)
+    model_a = trainer_a.setup(model_hypers, dataset_info)
     trainer_a.train(
         model=model_a,
         dtype=torch.float32,
@@ -100,8 +100,8 @@ def test_composition_checkpoint_consistency(tmp_path):
     # ── 5. PET-B: atomic_baseline = {} (fit from data) ─────────────
     training_hypers["atomic_baseline"] = {}
     os.makedirs(str(tmp_path / "b"), exist_ok=True)
-    model_b = PET(model_hypers, dataset_info)
     trainer_b = Trainer(training_hypers)
+    model_b = trainer_b.setup(model_hypers, dataset_info)
     trainer_b.train(
         model=model_b,
         dtype=torch.float32,

@@ -1,11 +1,11 @@
 import logging
 import warnings
+from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -15,7 +15,6 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.composition import CompositionModel
 from metatrain.experimental.space.documentation import ModelHypers
 from metatrain.experimental.space.modules.base_model import (
     BaseModel,
@@ -25,16 +24,9 @@ from metatrain.experimental.space.modules.base_model import (
 from metatrain.experimental.space.modules.cg_coefficients import ClebschGordanReal
 from metatrain.experimental.space.modules.finetuning import apply_finetuning_strategy
 from metatrain.experimental.space.utils import systems_to_batch
-from metatrain.pet.modules.finetuning import compute_stale_targets
-from metatrain.scaler import Scaler
-from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
-from metatrain.utils.data.atomic_basis_helpers import (
-    densify_atomic_basis_dataset_info,
-    sparsify_atomic_basis_target,
-)
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
@@ -59,7 +51,7 @@ class SPACE(ModelInterface[ModelHypers]):
     """SPACE model: metatomic-based wrapper around ``BaseModel``
     and/or ``GradientModel``."""
 
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 4
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(references={})
@@ -80,13 +72,9 @@ class SPACE(ModelInterface[ModelHypers]):
         self.dataset_info = dataset_info
         self.hypers = hypers
 
-        # Modified dataset_info with the targets as they will be seen by
-        # the model during training.
-        train_dataset_info = self._train_dataset_info(dataset_info)
-
         # Two types of model wrapper: one with gradients (training) and one without
         # (torchscript-based export).
-        base_model = BaseModel(hypers, train_dataset_info)
+        base_model = BaseModel(hypers, dataset_info)
         self.fake_gradient_model = FakeGradientModel(base_model)
         self.gradient_model = GradientModel(base_model)
         self.module = self.fake_gradient_model
@@ -127,39 +115,11 @@ class SPACE(ModelInterface[ModelHypers]):
 
         self.mlp_head_num_layers = self.hypers["mlp_head_num_layers"]
         self.target_names: List[str] = []
-        for target_name, target_info in train_dataset_info.targets.items():
+        for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
 
         self.last_layer_feature_size = self.k_max_l[0]
-
-        # additive models: these are handled by the trainer at training
-        # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel.from_valid_targets(
-            dataset_info, self.atomic_types
-        )
-        additive_models = [composition_model]
-        if self.hypers["zbl"]:
-            zbl_targets = {
-                target_name: target_info
-                for target_name, target_info in train_dataset_info.targets.items()
-                if ZBL.is_valid_target(target_name, target_info)
-            }
-            additive_models.append(
-                ZBL(
-                    {},
-                    dataset_info=DatasetInfo(
-                        length_unit=train_dataset_info.length_unit,
-                        atomic_types=self.atomic_types,
-                        targets=zbl_targets,
-                    ),
-                )
-            )
-        self.additive_models = torch.nn.ModuleList(additive_models)
-
-        # scaler: this is also handled by the trainer at training time
-        scaler_hypers = get_default_hypers("scaler")["model"]
-        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
         self.single_label = Labels.single()
 
@@ -170,7 +130,9 @@ class SPACE(ModelInterface[ModelHypers]):
         return self.outputs
 
     def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
     ) -> "SPACE":
 
         if model_hypers is not None:
@@ -189,15 +151,6 @@ class SPACE(ModelInterface[ModelHypers]):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
-        self.has_new_targets = len(new_targets) > 0
-
-        # Targets that were present before this run but are not part of the current
-        # run's dataset: with a backbone-altering finetuning method (full/lora), their
-        # heads are no longer meaningful and are dropped once training starts, by
-        # ``apply_finetuning_strategy`` (which decides based on the method).
-        stale_targets = compute_stale_targets(
-            self.dataset_info.targets, dataset_info.targets
-        )
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -205,36 +158,12 @@ class SPACE(ModelInterface[ModelHypers]):
                 "The SPACE model does not support adding new atomic types."
             )
 
-        # Modified dataset_info with the targets as they will be seen by
-        # the model during training.
-        train_dataset_info = self._train_dataset_info(dataset_info)
-
         # register new outputs as new last layers
         for target_name in new_targets:
             self.target_names.append(target_name)
-            self._add_output(target_name, train_dataset_info.targets[target_name])
+            self._add_output(target_name, dataset_info.targets[target_name])
 
         self.dataset_info = merged_info
-
-        # restart the composition and scaler models
-        self.additive_models[0].restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        self.scaler.restart(dataset_info)
-
-        # Actual removal (if any) is deferred to ``apply_finetuning_strategy``
-        # (called later, once training starts), since ``inherit_heads`` needs these
-        # stale targets' heads to still be around to copy weights from, and only
-        # backbone-altering methods (``full``/``lora``) actually drop them.
-        self._stale_finetune_targets = stale_targets
 
         return self
 
@@ -497,66 +426,6 @@ class SPACE(ModelInterface[ModelHypers]):
                 return_dict[output_name], self.final_scaling
             )
 
-        if not self.training:
-            # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler.apply_scales(
-                systems,
-                return_dict,
-                selected_atoms=selected_atoms,
-                use_per_target_scales=True,
-                use_per_property_scales=True,
-            )
-
-            # For atomic basis targets, sparsify to create blocks with "atom_type"
-            # in the key dimensions, and ensure properties are unpadded. This is
-            # done before adding the additive contributions, which are also
-            # sparsified (by the additive models themselves, in eval mode).
-            targets = self.dataset_info.targets
-            for k, v in return_dict.items():
-                if k in targets and targets[k].is_atomic_basis:
-                    return_dict[k] = sparsify_atomic_basis_target(
-                        systems,
-                        v,
-                        targets[k].layout,
-                    )
-
-            for additive_model in self.additive_models:
-                outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                for name, output in outputs.items():
-                    if name in additive_model.outputs:
-                        outputs_for_additive_model[name] = output
-                additive_contributions = additive_model(
-                    systems,
-                    outputs_for_additive_model,
-                    selected_atoms,
-                )
-                for name in additive_contributions:
-                    # TODO: uncomment this after metatensor.torch.add
-                    # is updated to handle sparse sums
-                    # return_dict[name] = metatensor.torch.add(
-                    #     return_dict[name],
-                    #     additive_contributions[name].to(
-                    #         device=return_dict[name].device,
-                    #         dtype=return_dict[name].dtype
-                    #         ),
-                    # )
-                    # TODO: "manual" sparse sum: update to metatensor.torch.add
-                    # after sparse sum is implemented in metatensor.operations
-                    output_blocks: List[TensorBlock] = []
-                    for k, b in return_dict[name].items():
-                        if k in additive_contributions[name].keys:
-                            output_blocks.append(
-                                _add_block_block(
-                                    b,
-                                    additive_contributions[name]
-                                    .block(k)
-                                    .to(device=b.device, dtype=b.dtype),
-                                )
-                            )
-                        else:
-                            output_blocks.append(b.copy(deep=False))
-                    return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
-
         return return_dict
 
     @classmethod
@@ -590,8 +459,6 @@ class SPACE(ModelInterface[ModelHypers]):
         next(state_dict_iterator)  # skip another int tensor
         dtype = next(state_dict_iterator).dtype
         model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -613,24 +480,12 @@ class SPACE(ModelInterface[ModelHypers]):
             raise ValueError(f"unsupported dtype {dtype} for PET")
 
         # Make sure the model is all in the same dtype
-        # For example, after training, the additive models could still be in
-        # float64
         self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
-
-        interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
-        for additive_model in self.additive_models:
-            if hasattr(additive_model, "cutoff_radius"):
-                interaction_ranges.append(additive_model.cutoff_radius)
-        interaction_range = max(interaction_ranges)
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=self.atomic_types,
-            interaction_range=interaction_range,
+            interaction_range=self.hypers["num_gnn_layers"] * self.hypers["cutoff"],
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
             dtype=dtype_to_str(dtype),
@@ -639,18 +494,6 @@ class SPACE(ModelInterface[ModelHypers]):
         metadata = merge_metadata(self.metadata, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
-
-    def _train_dataset_info(self, dataset_info: DatasetInfo) -> DatasetInfo:
-        """Converts the original dataset info to one corresponding to what the
-        model will see during training, which depends on transforms applied to
-        the targets during data loading.
-
-        :param dataset_info: Original dataset info describing the targets as
-            they are in the raw data.
-        :return: Modified dataset info describing the targets as they will be
-            seen by the model during training.
-        """
-        return densify_atomic_basis_dataset_info(dataset_info)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         self.outputs[target_name] = ModelOutput(
@@ -719,6 +562,8 @@ class SPACE(ModelInterface[ModelHypers]):
         self.property_labels.pop(target_name, None)
         if target_name in self.cartesian_rank2_targets:
             self.cartesian_rank2_targets.remove(target_name)
+        self.dataset_info.targets.pop(target_name, None)
+        self.target_names.remove(target_name)
 
     def requested_neighbor_lists(
         self,
@@ -731,9 +576,19 @@ class SPACE(ModelInterface[ModelHypers]):
             )
         ]
 
-    def get_checkpoint(self) -> Dict:
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> Dict:
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
+        model_state_dict = self.state_dict()
+        model_state_dict["finetune_config"] = self.finetune_config
+
+        if best_model_state_dict is None:
+            best_model_state_dict = model_state_dict
+        else:
+            best_model_state_dict["finetune_config"] = self.finetune_config
+
         checkpoint = {
             "architecture_name": "experimental.space",
             "model_ckpt_version": self.__checkpoint_version__,
@@ -745,26 +600,17 @@ class SPACE(ModelInterface[ModelHypers]):
             "epoch": None,
             "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": self.state_dict(),
+            "best_model_state_dict": best_model_state_dict,
         }
         return checkpoint
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["model_ckpt_version"] == v:
-                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
-
-        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {checkpoint['model_ckpt_version']}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
-            )
-
-        return checkpoint
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
 
 
 def _to_cartesian_rank_2(tensor_map: TensorMap, W: torch.Tensor) -> TensorMap:

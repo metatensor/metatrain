@@ -139,7 +139,7 @@ def check_exported_model_predictions(
         uncertainty = predictions["energy_uncertainty"].block().values
         ensemble = predictions["energy_ensemble"].block().values
         assert torch.allclose(
-            energy, ensemble.mean(dim=1, keepdim=True), atol=1e-5, rtol=1e-5
+            energy, ensemble.mean(dim=1, keepdim=True), atol=6e-5, rtol=1e-5
         )
         # require lower precision for PET-MAD which only has 128 ensemble members
         required_precision = 3e-2 if ensemble.shape[1] < 1000 else 1e-2

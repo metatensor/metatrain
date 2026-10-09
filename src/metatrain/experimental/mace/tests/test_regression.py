@@ -7,7 +7,7 @@ import torch
 from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
-from metatrain.experimental.mace import MetaMACE, Trainer
+from metatrain.experimental.mace import Trainer
 from metatrain.utils.data import DatasetInfo, get_dataset
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
@@ -71,12 +71,11 @@ def test_regression_train_spherical(device):
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
     model_hypers = copy.deepcopy(MODEL_HYPERS)
-    model = MetaMACE(model_hypers, dataset_info)
-    requested_neighbor_lists = get_requested_neighbor_lists(model)
 
     hypers["training"]["num_epochs"] = 1
     hypers["training"]["num_workers"] = 0  # for reproducibility
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(model_hypers, dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float32,
@@ -87,6 +86,7 @@ def test_regression_train_spherical(device):
     )
 
     # Predict on the first five systems
+    requested_neighbor_lists = get_requested_neighbor_lists(model)
     systems = [sample["system"] for sample in dataset]
     systems = [system.to(torch.float32, device) for system in systems]
     systems = [

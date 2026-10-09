@@ -1,4 +1,5 @@
 import warnings
+from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import featomic.torch
@@ -169,7 +170,9 @@ class GAP(ModelInterface[ModelHypers]):
         return self.outputs
 
     def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
     ) -> "GAP":
         raise NotImplementedError("GAP does not allow restarting training")
 
@@ -181,11 +184,13 @@ class GAP(ModelInterface[ModelHypers]):
     ) -> "GAP":
         raise NotImplementedError("GAP does not allow loading checkpoints")
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict, version: int | None = None) -> Dict:
         raise NotImplementedError("checkpoint upgrade is not implemented for GAP")
 
-    def get_checkpoint(self) -> Dict[str, Any]:
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         raise NotImplementedError("GAP does not support checkpointing")
 
     def forward(

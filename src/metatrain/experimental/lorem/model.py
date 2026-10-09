@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
@@ -13,9 +14,7 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.composition import CompositionModel
-from metatrain.scaler import Scaler
-from metatrain.utils.abc import ModelInterface
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
@@ -48,7 +47,7 @@ def _tensor_map(values: torch.Tensor, samples: Labels, layout: TensorMap) -> Ten
 
 
 class LOREM(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -120,14 +119,6 @@ class LOREM(ModelInterface[ModelHypers]):
         self.layouts: Dict[str, TensorMap] = {}
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
-
-        composition_model = CompositionModel.from_valid_targets(
-            dataset_info, self.atomic_types
-        )
-        self.additive_models = torch.nn.ModuleList([composition_model])
-
-        scaler_hypers = get_default_hypers("scaler")["model"]
-        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
     def _add_output(self, target_name: str, target: TargetInfo) -> None:
         n_properties = len(target.layout.block().properties)
@@ -275,35 +266,12 @@ class LOREM(ModelInterface[ModelHypers]):
             else:
                 return_dict[target_name] = sum_over_atoms(atomic_property)
 
-        if not self.training:
-            return_dict = self.scaler.apply_scales(
-                systems,
-                return_dict,
-                selected_atoms=selected_atoms,
-                use_per_target_scales=True,
-                use_per_property_scales=True,
-            )
-            for additive_model in self.additive_models:
-                outputs_for_additive: Dict[str, ModelOutput] = {}
-                for name, output in outputs.items():
-                    if name in additive_model.outputs:
-                        outputs_for_additive[name] = output
-                additive_contributions = additive_model(
-                    systems,
-                    outputs_for_additive,
-                    selected_atoms,
-                )
-                for name in additive_contributions:
-                    return_dict[name] = mts.add(
-                        return_dict[name], additive_contributions[name]
-                    )
-
         return return_dict
 
     def restart(
         self,
         dataset_info: DatasetInfo,
-        model_hypers: Optional[Dict[str, Any]] = None,
+        model_hypers: Optional[Mapping[str, Any]] = None,
     ) -> "LOREM":
         if model_hypers is not None:
             raise_if_hypers_mismatch(
@@ -321,7 +289,6 @@ class LOREM(ModelInterface[ModelHypers]):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
-        self.has_new_targets = len(new_targets) > 0
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -333,18 +300,6 @@ class LOREM(ModelInterface[ModelHypers]):
             self._add_output(target_name, target)
 
         self.dataset_info = merged_info
-        self.additive_models[0].restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        self.scaler.restart(dataset_info)
         return self
 
     @classmethod
@@ -378,8 +333,6 @@ class LOREM(ModelInterface[ModelHypers]):
             if torch.is_tensor(tensor) and tensor.is_floating_point()
         )
         model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         metadata = checkpoint.get("metadata", None)
         if metadata is not None:
@@ -393,7 +346,6 @@ class LOREM(ModelInterface[ModelHypers]):
             raise ValueError(f"unsupported dtype {dtype} for LOREM")
 
         self.to(dtype)
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         # Long-range Coulomb interactions are always on, so the interaction
         # range is unbounded.
@@ -415,22 +367,17 @@ class LOREM(ModelInterface[ModelHypers]):
         return AtomisticModel(self.eval(), metadata, capabilities)
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["model_ckpt_version"] == v:
-                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
 
-        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {checkpoint['model_ckpt_version']}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
-            )
-        return checkpoint
-
-    def get_checkpoint(self) -> Dict[str, Any]:
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> Dict:
+        model_state_dict = self.state_dict()
         return {
             "architecture_name": "experimental.lorem",
             "model_ckpt_version": self.__checkpoint_version__,
@@ -441,6 +388,6 @@ class LOREM(ModelInterface[ModelHypers]):
             },
             "epoch": None,
             "best_epoch": None,
-            "model_state_dict": self.state_dict(),
-            "best_model_state_dict": None,
+            "model_state_dict": model_state_dict,
+            "best_model_state_dict": best_model_state_dict or model_state_dict,
         }

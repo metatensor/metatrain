@@ -11,3 +11,15 @@ def trainer_update_v1_v2(checkpoint: dict) -> None:
     checkpoint["train_hypers"]["distributed_port"] = checkpoint["train_hypers"].get(
         "distributed_port", 39591
     )
+
+
+def trainer_update_v2_v3(checkpoint: dict) -> None:
+    """
+    Update a v2 Trainer checkpoint to v3.
+
+    The densify_atomic_basis hyperparameter was added in v3, and it
+    defaults to True, which keeps the old behavior.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["densify_atomic_basis"] = True

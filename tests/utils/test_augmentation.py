@@ -9,6 +9,7 @@ from metatomic.torch.o3 import O3Transformations, random_transformations
 from metatrain.utils.augmentation import O3Augmenter
 from metatrain.utils.data import DatasetInfo, DiskDataset
 from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_dataset_info,
     get_prepare_atomic_basis_targets_transform,
 )
 from metatrain.utils.data.target_info import get_generic_target_info
@@ -787,7 +788,9 @@ def test_rotation_after_atomic_basis_prepare_transform():
     )
 
     atomic_basis_transform, atomic_basis_reverse_transform = (
-        get_prepare_atomic_basis_targets_transform(dataset_info.targets, {})
+        get_prepare_atomic_basis_targets_transform(
+            dataset_info, densify_atomic_basis_dataset_info(dataset_info)
+        )
     )
     rotational_augmenter = O3Augmenter(dataset_info.targets, {})
 

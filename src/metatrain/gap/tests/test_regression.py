@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from metatrain.gap import GAP, Trainer
+from metatrain.gap import Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.readers.ase import read
@@ -51,8 +51,8 @@ def test_regression_train():
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
 
-    gap = GAP(DEFAULT_HYPERS["model"], dataset_info)
     trainer = Trainer(DEFAULT_HYPERS["training"])
+    gap = trainer.setup(DEFAULT_HYPERS["model"], dataset_info)
     trainer.train(
         model=gap,
         dtype=torch.float64,
@@ -64,7 +64,7 @@ def test_regression_train():
     gap.eval()
 
     # Predict on the first five systems
-    output = gap(systems[:5], {"mtt::U0": gap.outputs["mtt::U0"]})
+    output = gap(systems[:5], {"mtt::U0": gap.core.outputs["mtt::U0"]})
 
     expected_output = torch.tensor(
         [[-40.5891], [-56.7122], [-76.4146], [-77.3364], [-93.4905]]
@@ -113,7 +113,8 @@ def test_invariance():
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
 
-    gap = GAP(hypers["model"], dataset_info)
+    trainer = Trainer(hypers["training"])
+    gap = trainer.setup(hypers["model"], dataset_info)
     trainer = Trainer(hypers["training"])
     trainer.train(
         model=gap,
@@ -126,7 +127,7 @@ def test_invariance():
     gap.eval()
 
     # Predict on the first five systems
-    output = gap(systems[:5], {"energy": gap.outputs["energy"]})
+    output = gap(systems[:5], {"energy": gap.core.outputs["energy"]})
     data = read(DATASET_ETHANOL_PATH, ":5", format="extxyz")
 
     expected_output = torch.tensor([[i.info["energy"]] for i in data])
@@ -143,11 +144,11 @@ def test_invariance():
 
     original_output = gap(
         [metatomic.torch.systems_to_torch(original_system)],
-        {"energy": gap.outputs["energy"]},
+        {"energy": gap.core.outputs["energy"]},
     )
     rotated_output = gap(
         [metatomic.torch.systems_to_torch(system)],
-        {"energy": gap.outputs["energy"]},
+        {"energy": gap.core.outputs["energy"]},
     )
 
     assert torch.allclose(

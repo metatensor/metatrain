@@ -110,3 +110,52 @@ def test_forward():
     # 2+3=5 atoms in total, both outputs are 3D vectors per atom
     assert result_dict["position"][0].values.shape == (5, 3, 1)
     assert result_dict["momentum"][0].values.shape == (5, 3, 1)
+
+
+def test_exported_timestep(tmpdir):
+    """The timestep can be read from the exported model's module, where the
+    ``flashmd`` integrators and LAMMPS' ``fix metatomic`` look for it."""
+    from metatomic.torch import load_atomistic_model
+
+    from metatrain.experimental.flashmd import Trainer
+
+    from . import MODEL_HYPERS
+
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 6],
+        targets={
+            name: TargetInfo(
+                layout=TensorMap(
+                    keys=Labels.single(),
+                    blocks=[
+                        TensorBlock(
+                            values=torch.empty((0, 3, 1), dtype=torch.float64),
+                            samples=Labels(
+                                names=["system", "atom"],
+                                values=torch.empty((0, 2), dtype=int),
+                            ),
+                            components=[Labels.range("xyz", 3)],
+                            properties=Labels.range(name, 1),
+                        )
+                    ],
+                ),
+                quantity=quantity,
+                unit=unit,
+            )
+            for name, quantity, unit in [
+                ("position", "length", "angstrom"),
+                ("momentum", "momentum", "(eV*u)^(1/2)"),
+            ]
+        },
+    )
+
+    trainer = Trainer(get_default_hypers("experimental.flashmd")["training"])
+    model = trainer.setup(MODEL_HYPERS, dataset_info)
+    model.core.set_timestep(16.0)
+
+    with tmpdir.as_cwd():
+        model.export().save("model.pt")
+        exported = load_atomistic_model("model.pt")
+
+    assert float(exported.module.timestep) == 16.0
