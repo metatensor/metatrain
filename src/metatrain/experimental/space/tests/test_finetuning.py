@@ -323,7 +323,7 @@ def test_finetune_full_lora_prunes_stale_targets(method):
     to copy weights from the stale target's head."""
     model, trainer, new_dataset_info = _two_target_setup()
 
-    model.restart(new_dataset_info)
+    trainer.restart(model, new_dataset_info, {})
     _assert_target_present(model, "energy")
 
     apply_finetuning_strategy(
@@ -339,9 +339,11 @@ def test_finetune_full_inherit_heads_then_prunes_source_target():
     target's head; the stale target is only removed afterwards."""
     model, trainer, new_dataset_info = _two_target_setup()
 
-    model.restart(new_dataset_info)
+    trainer.restart(model, new_dataset_info, {})
     apply_finetuning_strategy(
-        model, _finetune_strategy("full", inherit_heads={"mtt::U0": "energy"})
+        model,
+        _finetune_strategy("full", inherit_heads={"mtt::U0": "energy"}),
+        stale_targets=trainer._stale_finetune_targets,
     )
 
     _assert_target_absent(model, "energy")
@@ -353,8 +355,12 @@ def test_finetune_heads_keeps_stale_targets():
     of the current run's dataset must be kept."""
     model, trainer, new_dataset_info = _two_target_setup()
 
-    model.restart(new_dataset_info)
-    apply_finetuning_strategy(model, _finetune_strategy("heads"))
+    trainer.restart(model, new_dataset_info, {})
+    apply_finetuning_strategy(
+        model,
+        _finetune_strategy("heads"),
+        stale_targets=trainer._stale_finetune_targets,
+    )
 
     _assert_target_present(model, "energy")
     _assert_target_present(model, "mtt::U0")
@@ -364,7 +370,7 @@ def test_plain_restart_keeps_stale_targets():
     """A plain restart (not part of a finetuning run) must not prune any target."""
     model, trainer, new_dataset_info = _two_target_setup()
 
-    model.restart(new_dataset_info)
+    trainer.restart(model, new_dataset_info, {})
 
     _assert_target_present(model, "energy")
     _assert_target_present(model, "mtt::U0")
