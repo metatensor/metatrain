@@ -12,6 +12,39 @@ from metatrain.utils.data import Dataset, DatasetInfo
 
 
 class MyTrainer(TrainerInterface):
+    def setup(
+        self, model_hypers: dict, dataset_info: DatasetInfo
+    ) -> Any:  # "MetatrainModel"
+        """
+        Setup the trainer and return an initialized model ready for training.
+
+        :param model_hypers: The hyper-parameters of the model to be trained.
+        :param dataset_info: Information about the dataset to be used for training.
+
+        :return: An initialized MetatrainModel ready for training.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support the `setup` method. "
+        )
+
+    def restart(
+        self,
+        model: Any,  # MetatrainModel
+        dataset_info: DatasetInfo,
+        model_hypers: dict,
+    ) -> Any:  # MetatrainModel
+        """Restart a model for training with a new dataset info.
+
+        :param model: The model to be restarted.
+        :param dataset_info: Information about the new dataset to be used for training.
+        :param model_hypers: The new hyperparameters to set for the model.
+
+        :return: The restarted model, ready for training with the new dataset info.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support the `restart` method. "
+        )
+
     def train(
         self,
         model: ModelInterface,

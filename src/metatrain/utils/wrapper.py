@@ -22,6 +22,7 @@ from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.match_tmaps import match_layout
 from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.metadata import merge_metadata
 
 
 CoreModelClass = TypeVar("CoreModelClass", bound=ModelInterface)
@@ -40,12 +41,14 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         additive_models: list[ModelInterface],
         scaler: ScalerClass,  # Scaler,
         dataset_info: DatasetInfo,
+        metadata: Optional[ModelMetadata] = None,
     ):
         super().__init__()
         self.core = core
         self.additive_models = torch.nn.ModuleList(additive_models)
         self.scaler = scaler
         self.dataset_info = dataset_info
+        self.metadata = metadata if metadata is not None else ModelMetadata()
 
         # Compute transformations needed at evaluation time.
         self._eval_transforms = self._get_eval_transforms()
@@ -266,13 +269,11 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         """
         # Export all models, making sure that the additive models and scaler have
         # the same dtype as the main model.
-        core = self.core.export(metadata)
+        core = self.core.export()
         dtype = getattr(torch, core.capabilities().dtype)
-        additive_models = [
-            model.to(dtype).export(metadata) for model in self.additive_models
-        ]
+        additive_models = [model.to(dtype).export() for model in self.additive_models]
         if self.scaler is not None:
-            scaler = self.scaler.to(dtype).export(metadata)
+            scaler = self.scaler.to(dtype).export()
         else:
             scaler = None
 
@@ -316,8 +317,9 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         for name in getattr(core.module, "__exported_buffers__", []):
             to_export.register_buffer(name, getattr(core.module, name))
 
-        if metadata is None:
-            metadata = core.metadata()
+        exported_metadata = merge_metadata(core.metadata(), self.metadata)
+        if metadata is not None:
+            exported_metadata = merge_metadata(exported_metadata, metadata)
 
         outputs = self.supported_outputs()
         # Clean deprecated names that ModelCapabilities add automatically for
@@ -335,7 +337,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             dtype=dtype_to_str(dtype),
         )
 
-        return AtomisticModel(to_export.eval(), metadata, capabilities)
+        return AtomisticModel(to_export.eval(), exported_metadata, capabilities)
 
     @classmethod
     def upgrade_checkpoint(cls, checkpoint: Dict["str", Any]) -> Dict["str", Any]:
@@ -421,6 +423,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             "scaler": self.scaler.get_checkpoint(scaler_best_state_dict)
             if self.scaler is not None
             else None,
+            "metadata": self.metadata,
         }
         return checkpoint
 
