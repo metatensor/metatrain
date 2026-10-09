@@ -19,6 +19,7 @@ DEPRECATED_METATOMIC_TARGET_NAMES = {
     "masses": "mass",
     "velocities": "velocity",
     "charges": "charge",
+    "non_conservative_forces": "non_conservative_force",
 }
 
 

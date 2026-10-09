@@ -42,6 +42,7 @@ from metatrain.utils.data.target_info import (
     TargetInfo,
     get_energy_target_info,
     get_generic_target_info,
+    property_label_name,
 )
 from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.units import get_gradient_units, units_are_equivalent
@@ -66,6 +67,42 @@ def _set(values: List[int]) -> List[int]:
             unique_values.append(at_type)
 
     return unique_values
+
+
+@torch.jit.unused
+def _layout_metadata_diff(left: TensorMap, right: TensorMap) -> str:
+    """Describe sample, component, and property label names that differ.
+
+    :param left: The first layout.
+    :param right: The second layout.
+    :return: A short description of the differing label names, or an empty string
+        when the names match.
+    """
+    parts = []
+    if left.keys.names != right.keys.names:
+        parts.append(f"keys {list(left.keys.names)} vs {list(right.keys.names)}")
+    if len(left) != len(right):
+        parts.append(f"{len(left)} blocks vs {len(right)} blocks")
+    for index in range(min(len(left), len(right))):
+        block = left.block(index)
+        other = right.block(index)
+        if block.samples.names != other.samples.names:
+            parts.append(
+                f"block {index} samples {list(block.samples.names)} vs "
+                f"{list(other.samples.names)}"
+            )
+        left_components = [list(component.names) for component in block.components]
+        right_components = [list(component.names) for component in other.components]
+        if left_components != right_components:
+            parts.append(
+                f"block {index} components {left_components} vs {right_components}"
+            )
+        if block.properties.names != other.properties.names:
+            parts.append(
+                f"block {index} properties {list(block.properties.names)} vs "
+                f"{list(other.properties.names)}"
+            )
+    return "; ".join(parts)
 
 
 class DatasetInfo:
@@ -199,12 +236,16 @@ class DatasetInfo:
         intersecting_target_keys = self.targets.keys() & other.targets.keys()
         for key in intersecting_target_keys:
             if not self.targets[key].is_compatible_with(other.targets[key]):
+                mismatch = _layout_metadata_diff(
+                    self.targets[key].layout, other.targets[key].layout
+                )
                 raise ValueError(
                     f"Can't update DatasetInfo with different target information for "
                     f"target '{key}': {self.targets[key]} is not compatible with "
                     f"{other.targets[key]}. If the units, quantity and keys of the two "
                     "targets are the same, this must be due to a mismatch in the "
                     "internal metadata of the layout."
+                    + (f" Layout metadata differs: {mismatch}." if mismatch else "")
                 )
         self.targets.update(other.targets)
 
@@ -1661,7 +1702,7 @@ class MemmapDataset(TorchDataset):
                         samples=extra_samples,
                         components=[],
                         properties=Labels.range(
-                            key.replace("mtt::", ""), arr.shape[-1]
+                            property_label_name(key), arr.shape[-1]
                         ),
                     )
                 ],
