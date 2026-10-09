@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Union
 
 import metatensor.torch as mts
-from metatrain.utils.wrapper import MetatrainModel
 import torch
 from metatomic.torch import ModelOutput
 
@@ -25,6 +24,7 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from metatrain.utils.wrapper import MetatrainModel
 
 from .documentation import ModelHypers, TrainerHypers
 from .model import Classifier

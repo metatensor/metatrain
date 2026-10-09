@@ -1,5 +1,6 @@
 from metatrain.utils.io import _ckpt_from_arch_ckpt
 
+
 def model_update_v1_v2(checkpoint: dict) -> None:
     """
     Update a v4 checkpoint to v5.
