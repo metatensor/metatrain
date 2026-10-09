@@ -1468,7 +1468,10 @@ def test_composition_spherical_atomic_basis_dense():
     dataset = Dataset.from_dict(
         {
             "system": systems,
-            "spherical_atomic_basis": [densify_atomic_basis_target(tensor_map_1, layout), densify_atomic_basis_target(tensor_map_2, layout)],
+            "spherical_atomic_basis": [
+                densify_atomic_basis_target(tensor_map_1, layout),
+                densify_atomic_basis_target(tensor_map_2, layout),
+            ],
         }
     )
 
@@ -1631,7 +1634,10 @@ def test_composition_spherical_atomic_basis_dense_nan_weights():
     dataset = Dataset.from_dict(
         {
             "system": systems,
-            "spherical_atomic_basis": [densify_atomic_basis_target(tensor_map_1, layout), densify_atomic_basis_target(tensor_map_2, layout)],
+            "spherical_atomic_basis": [
+                densify_atomic_basis_target(tensor_map_1, layout),
+                densify_atomic_basis_target(tensor_map_2, layout),
+            ],
             "mtt::aux::system_index": system_indices,
         }
     )
