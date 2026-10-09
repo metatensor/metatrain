@@ -183,7 +183,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         scaler = Scaler(hypers=scaler_hypers, dataset_info=model_dataset_info)
 
         return MetatrainModel(
-            model=model,
+            core=model,
             additive_models=additive_models,
             scaler=scaler,
             dataset_info=dataset_info,
@@ -244,7 +244,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     ) -> None:
         assert dtype in MetaMACE.__supported_dtypes__
         assert isinstance(model, MetatrainModel)
-        mace_model = model.model
+        mace_model = model.core
         assert isinstance(mace_model, MetaMACE)
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
@@ -322,7 +322,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             }
         train_or_load_composition_model(
             composition_model=MetatrainModel(
-                model=model.additive_models[0],
+                core=model.additive_models[0],
                 additive_models=[],
                 scaler=None,
                 dataset_info=model.dataset_info,
@@ -359,7 +359,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 )
             train_or_load_scaler(
                 scaler=MetatrainModel(
-                    model=model.scaler,
+                    core=model.scaler,
                     additive_models=[],
                     scaler=None,
                     dataset_info=model.dataset_info,
@@ -802,8 +802,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         self, model: MetatrainModel[MetaMACE], path: Union[str, Path]
     ) -> None:
         checkpoint = model.get_checkpoint(self.best_model_state_dict)
-        checkpoint["model"]["epoch"] = self.epoch
-        checkpoint["model"]["best_epoch"] = self.best_epoch
+        checkpoint["core"]["epoch"] = self.epoch
+        checkpoint["core"]["best_epoch"] = self.best_epoch
         checkpoint.update(
             {
                 "trainer_ckpt_version": self.__checkpoint_version__,

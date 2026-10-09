@@ -58,7 +58,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         additive_models = torch.nn.ModuleList(additive_models)
 
         return MetatrainModel(
-            model=model,
+            core=model,
             additive_models=additive_models,
             scaler=None,
             dataset_info=dataset_info,
@@ -85,7 +85,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         assert dtype in GAP.__supported_dtypes__
         assert devices == [torch.device("cpu")]
         assert isinstance(model, MetatrainModel)
-        gap_model = model.model
+        gap_model = model.core
         assert isinstance(gap_model, GAP)
 
         target_name = next(iter(model.dataset_info.targets.keys()))

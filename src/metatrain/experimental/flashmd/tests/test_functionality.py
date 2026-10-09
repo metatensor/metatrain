@@ -152,7 +152,7 @@ def test_exported_timestep(tmpdir):
 
     trainer = Trainer(get_default_hypers("experimental.flashmd")["training"])
     model = trainer.setup(MODEL_HYPERS, dataset_info)
-    model.model.set_timestep(16.0)
+    model.core.set_timestep(16.0)
 
     with tmpdir.as_cwd():
         model.export().save("model.pt")

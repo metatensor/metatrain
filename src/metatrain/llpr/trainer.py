@@ -120,7 +120,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         llpr_model.set_wrapped_model(wrapped_model)
 
         return MetatrainModel(
-            model=llpr_model,
+            core=llpr_model,
             additive_models=[],
             scaler=None,
             dataset_info=dataset_info,
@@ -163,7 +163,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
         # Get LLPR model from the MetatrainModel class
-        model = model.model
+        model = model.core
         # And get the wrapped model from the LLPR model
         wrapped_model = model.model
 
@@ -187,13 +187,13 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             rank = 0
 
         # check device and dtype against wrapped model class
-        supported_devices = wrapped_model.model.__class__.__supported_devices__
+        supported_devices = wrapped_model.core.__class__.__supported_devices__
         if device.type not in supported_devices:
             raise ValueError(
                 f"Device {device} not supported. "
                 f"Supported devices are {supported_devices}"
             )
-        supported_types = wrapped_model.model.__class__.__supported_dtypes__
+        supported_types = wrapped_model.core.__class__.__supported_dtypes__
         if dtype not in supported_types:
             raise ValueError(
                 f"dtype {dtype} not supported by the wrapped model. "

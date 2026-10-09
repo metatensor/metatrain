@@ -186,7 +186,7 @@ def test_finetune_full_lora_prunes_stale_targets(method):
     new_dataset_info = _get_single_target_dataset_info("momentum")
 
     model = trainer.restart(model, new_dataset_info, model_hypers={})
-    assert "position" in model.model.node_heads
+    assert "position" in model.core.node_heads
 
     apply_finetuning_strategy(
         model,
@@ -196,12 +196,12 @@ def test_finetune_full_lora_prunes_stale_targets(method):
 
     assert "position" not in model.dataset_info.targets
     assert "position" not in model.supported_outputs()
-    assert "position" not in model.model.node_heads
-    assert "position" not in model.model.edge_heads
-    assert "position" not in model.model.node_last_layers
-    assert "position" not in model.model.edge_last_layers
+    assert "position" not in model.core.node_heads
+    assert "position" not in model.core.edge_heads
+    assert "position" not in model.core.node_last_layers
+    assert "position" not in model.core.edge_last_layers
     assert "momentum" in model.dataset_info.targets
-    assert "momentum" in model.model.node_heads
+    assert "momentum" in model.core.node_heads
 
 
 def test_finetune_heads_keeps_stale_targets():

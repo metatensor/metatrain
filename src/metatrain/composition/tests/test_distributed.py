@@ -74,7 +74,7 @@ def _fit(is_distributed):
         val_datasets=datasets,
         checkpoint_dir="",
     )
-    comp_model = model.model
+    comp_model = model.core
     assert isinstance(comp_model, CompositionModel)
     return {
         target_name: comp_model.model.weights[target_name].block().values

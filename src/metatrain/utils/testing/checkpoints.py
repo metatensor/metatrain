@@ -121,7 +121,7 @@ class CheckpointTests(ArchitectureTests):
         # Train the model.
         trainer.train(
             model,
-            dtype=model.model.__supported_dtypes__[0],
+            dtype=model.core.__supported_dtypes__[0],
             devices=[torch.device("cpu")],
             train_datasets=[dataset],
             val_datasets=[dataset],
@@ -196,7 +196,7 @@ class CheckpointTests(ArchitectureTests):
         checkpoint = torch.load("checkpoint.ckpt", weights_only=False)
         monkeypatch.chdir(cwd)
 
-        model_version = model.model.__checkpoint_version__
+        model_version = model.core.__checkpoint_version__
         trainer_version = trainer.__checkpoint_version__
 
         ckpt_name = f"model-v{model_version}_trainer-v{trainer_version}.ckpt.gz"

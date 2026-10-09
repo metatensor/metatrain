@@ -121,7 +121,7 @@ class Trainer(TrainerInterface):
         scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
         return MetatrainModel(
-            model=model,
+            core=model,
             additive_models=[composition_model],
             scaler=scaler,
             dataset_info=dataset_info,
@@ -180,7 +180,7 @@ class Trainer(TrainerInterface):
                 "details, see the FlashMD tutorial in the documentation."
             )
         else:
-            model.model.set_timestep(self.hypers["timestep"])
+            model.core.set_timestep(self.hypers["timestep"])
 
         # Set masses for the model
         if len(self.hypers["masses"]) == 0:
@@ -194,7 +194,7 @@ class Trainer(TrainerInterface):
             )
             for atomic_number in model.dataset_info.atomic_types
         }
-        model.model.set_masses(atomic_mass_dict)
+        model.core.set_masses(atomic_mass_dict)
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
         is_finetune = "finetune" in self.hypers
@@ -282,7 +282,7 @@ class Trainer(TrainerInterface):
                 )
             train_or_load_scaler(
                 scaler=MetatrainModel(
-                    model=model.scaler,
+                    core=model.scaler,
                     additive_models=[],
                     scaler=None,
                     dataset_info=model.dataset_info,
@@ -728,8 +728,8 @@ class Trainer(TrainerInterface):
         self, model: MetatrainModel[FlashMDSymplectic, Scaler], path: Union[str, Path]
     ) -> None:
         checkpoint = model.get_checkpoint(self.best_model_state_dict)
-        checkpoint["model"]["epoch"] = self.epoch
-        checkpoint["model"]["best_epoch"] = self.best_epoch
+        checkpoint["core"]["epoch"] = self.epoch
+        checkpoint["core"]["best_epoch"] = self.best_epoch
         checkpoint.update(
             {
                 "trainer_ckpt_version": self.__checkpoint_version__,

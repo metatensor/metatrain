@@ -152,9 +152,9 @@ def test_regression_train():
     for system in systems:
         get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
-    model.model.module = model.model.fake_gradient_model
-    del model.model.gradient_model
-    del model.model.fake_gradient_model
+    model.core.module = model.core.fake_gradient_model
+    del model.core.gradient_model
+    del model.core.fake_gradient_model
     model = torch.jit.script(model)
     output = model(
         systems[:5],

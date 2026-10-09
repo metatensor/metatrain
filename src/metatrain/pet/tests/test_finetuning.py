@@ -298,7 +298,7 @@ def _assert_target_absent(model, target_name):
         assert target_name not in additive_model.outputs
     assert target_name not in model.scaler.outputs
     if isinstance(model, MetatrainModel):
-        model = model.model
+        model = model.core
         assert target_name not in model.dataset_info.targets
         assert target_name not in model.supported_outputs()
     assert target_name not in model.backend.node_heads
@@ -314,7 +314,7 @@ def _assert_target_present(model, target_name):
         assert target_name in additive_model.outputs
     assert target_name in model.scaler.outputs
     if isinstance(model, MetatrainModel):
-        model = model.model
+        model = model.core
         assert target_name in model.dataset_info.targets
         assert target_name in model.supported_outputs()
     assert target_name in model.backend.node_heads

@@ -99,7 +99,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
         return MetatrainModel(
-            model=model,
+            core=model,
             additive_models=additive_models,
             scaler=scaler,
             dataset_info=dataset_info,
@@ -159,7 +159,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     ):
         assert dtype in DPA3.__supported_dtypes__
         assert isinstance(model, MetatrainModel)
-        dpa3 = model.model
+        dpa3 = model.core
         assert isinstance(dpa3, DPA3)
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
@@ -670,8 +670,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         self, model: MetatrainModel[DPA3, Scaler], path: Union[str, Path]
     ):
         checkpoint = model.get_checkpoint(self.best_model_state_dict)
-        checkpoint["model"]["epoch"] = self.epoch
-        checkpoint["model"]["best_epoch"] = self.best_epoch
+        checkpoint["core"]["epoch"] = self.epoch
+        checkpoint["core"]["best_epoch"] = self.best_epoch
         checkpoint.update(
             {
                 "train_hypers": self.hypers,

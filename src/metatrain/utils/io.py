@@ -219,15 +219,15 @@ def model_from_checkpoint(
 
     checkpoint = upgrade_checkpoint(checkpoint)
 
-    if checkpoint["model"]["architecture_name"] == "llpr" and context == "finetune":
+    if checkpoint["core"]["architecture_name"] == "llpr" and context == "finetune":
         # LLPR returns the wrapped model instead of itself when loading
         # with context="finetune". The wrapped model is already a MetatrainModel.
         # LLPR should not behave like this, but for now we just hack around the hack.
-        return arch_model_from_checkpoint(checkpoint["model"], context=context)
+        return arch_model_from_checkpoint(checkpoint["core"], context=context)
 
     # The normal loading.
     return MetatrainModel(
-        model=arch_model_from_checkpoint(checkpoint["model"], context=context),
+        core=arch_model_from_checkpoint(checkpoint["core"], context=context),
         additive_models=[
             arch_model_from_checkpoint(additive_model_checkpoint, context=context)
             for additive_model_checkpoint in checkpoint["additive_models"]
@@ -354,7 +354,7 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
             # 3. If everything fails, just wrap the architecture model in a
             # MetatrainModel.
             mtt_model = MetatrainModel(
-                model=arch_model_from_checkpoint(checkpoint, context="export"),
+                core=arch_model_from_checkpoint(checkpoint, context="export"),
                 additive_models=[],
                 scaler=None,
                 dataset_info=model_data["dataset_info"],
@@ -372,7 +372,7 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
     # The checkpoint of the model now goes to the "model" key.
     # (here we replace completely the model in new_ckpt, since that one
     # is simply an untrained model)
-    new_ckpt["model"] = checkpoint
+    new_ckpt["core"] = checkpoint
 
     # Fill the state dicts of the scaler and additive models by finding
     # them in the state dicts of the original checkpoint. Some checkpoints only
@@ -512,7 +512,7 @@ def trainer_from_checkpoint(
     if "architecture_name" in checkpoint:
         checkpoint = _ckpt_from_arch_ckpt(checkpoint)
 
-    architecture_name = checkpoint["model"]["architecture_name"]
+    architecture_name = checkpoint["core"]["architecture_name"]
 
     if architecture_name not in find_all_architectures():
         raise ValueError(

@@ -120,7 +120,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
         return MetatrainModel(
-            model=model,
+            core=model,
             additive_models=additive_models,
             scaler=scaler,
             dataset_info=dataset_info,
@@ -659,8 +659,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         self, model: MetatrainModel[LOREM, Scaler], path: Union[str, Path]
     ) -> None:
         checkpoint = model.get_checkpoint(self.best_model_state_dict)
-        checkpoint["model"]["epoch"] = self.epoch
-        checkpoint["model"]["best_epoch"] = self.best_epoch
+        checkpoint["core"]["epoch"] = self.epoch
+        checkpoint["core"]["best_epoch"] = self.best_epoch
         checkpoint.update(
             {
                 "trainer_ckpt_version": self.__checkpoint_version__,
