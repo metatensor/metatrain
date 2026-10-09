@@ -37,6 +37,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
 )
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hooks import restart_hooks, setup_hooks
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
 
@@ -86,7 +87,18 @@ class SPACE(ModelInterface[ModelHypers]):
 
         # Two types of model wrapper: one with gradients (training) and one without
         # (torchscript-based export).
-        base_model = BaseModel(hypers, train_dataset_info)
+        # The hooks may replace some targets with the per-atom inputs they
+        # consume, so they are set up before the heads are built.
+        forward_hooks, model_outs = setup_hooks(train_dataset_info)
+        self.forward_hooks = torch.nn.ModuleList(forward_hooks)
+        hooked_dataset_info = DatasetInfo(
+            length_unit=train_dataset_info.length_unit,
+            atomic_types=train_dataset_info.atomic_types,
+            targets=model_outs,
+            extra_data=train_dataset_info.extra_data,
+        )
+
+        base_model = BaseModel(hypers, hooked_dataset_info)
         self.fake_gradient_model = FakeGradientModel(base_model)
         self.gradient_model = GradientModel(base_model)
         self.module = self.fake_gradient_model
@@ -127,9 +139,23 @@ class SPACE(ModelInterface[ModelHypers]):
 
         self.mlp_head_num_layers = self.hypers["mlp_head_num_layers"]
         self.target_names: List[str] = []
-        for target_name, target_info in train_dataset_info.targets.items():
+        for target_name, target_info in model_outs.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
+
+        # Register outputs that are produced only by post-processing hooks (i.e.
+        # those removed from ``model_outs`` because SPACE does not predict them
+        # directly).
+        targets = dataset_info.targets
+        for target_name in train_dataset_info.targets:
+            if target_name not in model_outs:
+                self.outputs[target_name] = ModelOutput(
+                    quantity=targets[target_name].quantity
+                    if target_name in targets
+                    else "",
+                    unit=targets[target_name].unit if target_name in targets else "",
+                    sample_kind="atom",
+                )
 
         self.last_layer_feature_size = self.k_max_l[0]
 
@@ -209,10 +235,19 @@ class SPACE(ModelInterface[ModelHypers]):
         # the model during training.
         train_dataset_info = self._train_dataset_info(dataset_info)
 
-        # register new outputs as new last layers
-        for target_name in new_targets:
-            self.target_names.append(target_name)
-            self._add_output(target_name, train_dataset_info.targets[target_name])
+        if dataset_info.targets != self.dataset_info.targets:
+            # Only re-run the hook setup when the targets changed; ``restart_hooks``
+            # does not support rebuilding already-instantiated hooks.
+            forward_hooks, model_outs = restart_hooks(
+                list(self.forward_hooks), train_dataset_info
+            )
+            self.forward_hooks = torch.nn.ModuleList(forward_hooks)
+
+            # register new outputs as new last layers
+            for target_name in new_targets:
+                if target_name in model_outs:
+                    self.target_names.append(target_name)
+                    self._add_output(target_name, model_outs[target_name])
 
         self.dataset_info = merged_info
 
@@ -244,6 +279,11 @@ class SPACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
+        # Add the inputs that the post-processing hooks consume to the outputs
+        # the model is asked to produce.
+        for hook in self.forward_hooks:
+            outputs.update(hook.requested_inputs())
+
         # transfer labels, if needed
         device = systems[0].device
         if self.single_label.values.device != device:
@@ -370,7 +410,11 @@ class SPACE(ModelInterface[ModelHypers]):
 
         # remaining outputs (main outputs)
         for output_name in outputs.keys():
-            if output_name == "feature" or output_name.startswith("mtt::aux::"):
+            if output_name == "feature" or output_name.endswith("_last_layer_features"):
+                continue
+            if output_name not in predictions:
+                # Produced by a post-processing hook rather than by the model
+                # itself, so there is nothing to read from the heads here.
                 continue
             output_as_tensor_dict = predictions[output_name]
             return_dict[output_name] = TensorMap(
@@ -496,6 +540,10 @@ class SPACE(ModelInterface[ModelHypers]):
             return_dict[output_name] = metatensor.torch.multiply(
                 return_dict[output_name], self.final_scaling
             )
+
+        # Apply the post-processing hooks
+        for hook in self.forward_hooks:
+            return_dict.update(hook(systems, outputs, return_dict, selected_atoms))
 
         if not self.training:
             # at evaluation, we also introduce the scaler and additive contributions
