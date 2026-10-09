@@ -124,9 +124,9 @@ def default_llpr_ensemble_scoring_rule() -> str:
 
 
 # Register custom resolvers
-OmegaConf.register_new_resolver("default_device", default_device)
-OmegaConf.register_new_resolver("default_precision", default_precision)
-OmegaConf.register_new_resolver("default_random_seed", lambda: RANDOM_SEED)
+OmegaConf.register_resolver("default_device", default_device)
+OmegaConf.register_resolver("default_precision", default_precision)
+OmegaConf.register_resolver("default_random_seed", lambda: RANDOM_SEED)
 
 
 def _resolve_single_str(config: str) -> DictConfig:
