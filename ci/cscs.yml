@@ -256,6 +256,7 @@ llpr-tests:
     SLURM_NTASKS: 1
     SLURM_TIMELIMIT: '00:08:00'
     GIT_STRATEGY: fetch
+    NVIDIA_TF32_OVERRIDE: 0 # For gradient stability in llpr-tests
 
 soap-bpnn-tests:
   stage: test
