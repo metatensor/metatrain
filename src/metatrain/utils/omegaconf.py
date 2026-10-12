@@ -2,6 +2,7 @@ import warnings
 from typing import Any, Union
 
 import torch
+import omegaconf
 from omegaconf import DictConfig, ListConfig, OmegaConf
 from omegaconf.basecontainer import BaseContainer
 
