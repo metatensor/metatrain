@@ -239,7 +239,7 @@ class TrainingTests(ArchitectureTests):
 
         checkpoint = torch.load("tmp.ckpt", weights_only=False, map_location="cpu")
         model_after = model_from_checkpoint(checkpoint, context="restart")
-        # assert isinstance(model_after, self.model_cls)
+        assert isinstance(model_after.core, self.model_cls)
         model_after.restart(model.dataset_info)
 
         hypers["training"]["num_epochs"] = 0
@@ -350,7 +350,7 @@ class TrainingTests(ArchitectureTests):
 
         checkpoint = torch.load("tmp.ckpt", weights_only=False, map_location="cpu")
         model_after = model_from_checkpoint(checkpoint, context="restart")
-        # assert isinstance(model_after, self.model_cls)
+        assert isinstance(model_after.core, self.model_cls)
         model_after.restart(model.dataset_info)
 
         hypers["training"]["num_epochs"] = 4  # modify max num epochs to 4
@@ -417,7 +417,7 @@ class TrainingTests(ArchitectureTests):
 
         checkpoint = torch.load("tmp.ckpt", weights_only=False, map_location="cpu")
         model_after = model_from_checkpoint(checkpoint, context="finetune")
-        # assert isinstance(model_after, self.model_cls)
+        assert isinstance(model_after.core, self.model_cls)
         model_after.restart(model.dataset_info)
 
         hypers["training"]["num_epochs"] = 1  # modify max num epochs to 1

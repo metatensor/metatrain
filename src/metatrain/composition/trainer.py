@@ -55,6 +55,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     def setup(
         self, model_hypers: ModelHypers, dataset_info: DatasetInfo
     ) -> MetatrainModel[CompositionModel]:
+        model_dataset_info = dataset_info
         if self.hypers["densify_atomic_basis"]:
             model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
         return MetatrainModel(

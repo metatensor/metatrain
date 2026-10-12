@@ -163,9 +163,9 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         start_epoch = 0 if self.epoch is None else self.epoch + 1
 
         # Get LLPR model from the MetatrainModel class
-        model = model.core
+        llpr_model = model.core
         # And get the wrapped model from the LLPR model
-        wrapped_model = model.model
+        wrapped_model = llpr_model.model
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
 
@@ -210,20 +210,20 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
         if start_epoch == 0:
             logging.info("Computing LLPR covariance matrix")
-            model.compute_covariance(
+            llpr_model.compute_covariance(
                 train_datasets, self.hypers["batch_size"], is_distributed
             )
             logging.info("Computing Cholesky decomposition of the covariance matrix")
-            model.compute_cholesky_decomposition(self.hypers["regularizer"])
+            llpr_model.compute_cholesky_decomposition(self.hypers["regularizer"])
             logging.info("Calibrating LLPR uncertainties")
-            model.calibrate(
+            llpr_model.calibrate(
                 val_datasets,
                 self.hypers["batch_size"],
                 is_distributed,
                 self.hypers["calibration_method"],
             )
             logging.info("Generating LLPR ensemble members")
-            model.generate_ensemble()
+            llpr_model.generate_ensemble()
             logging.info("LLPR complete!")
 
         if self.hypers["num_epochs"] is None:
@@ -363,7 +363,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not self.has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a learning rate scheduler
@@ -371,7 +371,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
-            if not (model.module if is_distributed else model).has_new_targets:
+            if not self.has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         per_structure_targets = self.hypers["per_structure_targets"]

@@ -39,8 +39,9 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
         if self.hypers["model_checkpoint"] is None:
             raise ValueError(
-                "A model checkpoint must be provided to train the LLPR "
-                "(model_checkpoint, under training, in the hypers)"
+                "A model checkpoint must be provided to train the "
+                "classifier (`model_checkpoint` hyper in the `training` "
+                "section)"
             )
 
         classifier = Classifier(model_hypers, dataset_info)

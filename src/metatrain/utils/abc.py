@@ -436,7 +436,7 @@ def common_upgrade_checkpoint(
     elif version > current_version:
         raise ValueError(
             f"Was asked to upgrade checkpoint to version {version},"
-            "which is higher than the current {checkpoint_type} version:"
+            f"which is higher than the current {checkpoint_type} version:"
             f" {current_version}."
         )
     elif version < checkpoint[version_key]:

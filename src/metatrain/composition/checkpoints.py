@@ -22,4 +22,4 @@ def trainer_update_v2_v3(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to update.
     """
-    checkpoint["densify_atomic_basis"] = True
+    checkpoint["train_hypers"]["densify_atomic_basis"] = True

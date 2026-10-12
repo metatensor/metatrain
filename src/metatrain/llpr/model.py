@@ -270,9 +270,8 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
-        self.has_new_targets = len(new_targets) > 0
 
-        if self.has_new_targets:
+        if len(new_targets) > 0:
             raise ValueError(
                 f"New targets found in the dataset: {new_targets}. "
                 "The LLPR ensemble calibration does not support adding new targets."
