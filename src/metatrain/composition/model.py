@@ -46,7 +46,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
         model.
     """
 
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64]
     __default_metadata__ = ModelMetadata(

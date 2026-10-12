@@ -1,4 +1,5 @@
 from metatrain.scaler.checkpoints import update_per_property_scales
+from metatrain.utils.data.atomic_basis_helpers import densify_atomic_basis_dataset_info
 
 
 ###########################
@@ -48,6 +49,14 @@ def model_update_v3_v4(checkpoint: dict) -> None:
                 for prefix in removed_prefixes:
                     if k.startswith(prefix):
                         state_dict.pop(k)
+
+    # Before this update, the model stored the dataset_info in a sparse format
+    # for atomic basis targets but worked in the dense format. After this update,
+    # the model works in whatever format the dataset_info is stored in,
+    # so to keep the checkpoint compatible we need to densify the stored dataset_info.
+    checkpoint["model_data"]["dataset_info"] = densify_atomic_basis_dataset_info(
+        checkpoint["model_data"]["dataset_info"]
+    )
 
 
 #############################

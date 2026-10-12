@@ -384,7 +384,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             self.best_metric = float("inf")
 
         requested_outputs = {}
-        model_unwrapped = model.module if is_distributed else model
+        model_unwrapped = (model.module if is_distributed else model).core
         for key, value in model_unwrapped.dataset_info.targets.items():
             requested_outputs[key] = model_unwrapped.capabilities.outputs[key]
             requested_outputs[key].sample_kind = value.sample_kind
@@ -671,9 +671,9 @@ def _drop_gradient_blocks(targets: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _apply_ensemble_training_strategy(
-    model: torch.nn.Module,
+    model: MetatrainModel[LLPRUncertaintyModel],
     train_all_parameters: bool,
-) -> torch.nn.Module:
+) -> MetatrainModel[LLPRUncertaintyModel]:
     """
     Apply the user-specified ensemble training strategy to the LLPR-wrapped
     model. This function modifies the model in place based on the provided
@@ -691,7 +691,7 @@ def _apply_ensemble_training_strategy(
 
     if not train_all_parameters:
         # Freeze all parameters of the base model
-        for param in model.model.parameters():
+        for param in model.core.model.parameters():
             param.requires_grad = False
 
     return model

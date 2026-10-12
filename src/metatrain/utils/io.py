@@ -328,7 +328,7 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
     if architecture_name in _mtt_model_versions:
         target_version = _mtt_model_versions[architecture_name][0] - 1
         if "model_ckpt_version" not in checkpoint:
-            checkpoint = {**checkpoint, "model_ckpt_version": 1}
+            checkpoint["model_ckpt_version"] = 1
         if checkpoint["model_ckpt_version"] < target_version:
             checkpoint = model_cls.upgrade_checkpoint(
                 checkpoint, version=target_version
@@ -346,7 +346,7 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
         if architecture_name in _mtt_model_versions:
             target_version = _mtt_model_versions[architecture_name][1] - 1
             if "trainer_ckpt_version" not in checkpoint:
-                checkpoint = {**checkpoint, "trainer_ckpt_version": 1}
+                checkpoint["trainer_ckpt_version"] = 1
             if checkpoint["trainer_ckpt_version"] < target_version:
                 checkpoint = trainer_cls.upgrade_checkpoint(
                     checkpoint, version=target_version
