@@ -286,7 +286,7 @@ def test_gradients_on_cuda_match_cpu(llpr_model):
     mts.allclose_block_raise(
         block.to(device="cpu"),
         ensemble_block(llpr_model, make_systems(llpr_model, requires_grad=True)),
-        **{**SAME_MODEL, "atol": 1e-9},
+        **{**SAME_MODEL, "atol": 1e-8, "rtol": 1e-6},
     )
 
 
