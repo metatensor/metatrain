@@ -43,6 +43,10 @@ _sparse_layout = _sparse_target_info.layout
 _dense_layout = _dense_target_info.layout
 
 
+def test_jit_script():
+    torch.jit.script(match_layout)
+
+
 @pytest.mark.parametrize("target_info_layout", ["sparse", "dense", None])
 def test_sparse_to_dense(target_info_layout):
 

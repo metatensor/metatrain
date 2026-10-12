@@ -53,14 +53,14 @@ def match_layout(
             # we just need to make sure that the blocks of tmap2 are empty.
             blocks: list[TensorBlock] = []
             for block in tmap2.blocks():
-                shape = torch.tensor(block.values.shape)
+                shape = list(block.values.shape)
                 shape[0] = 0
                 device = block.values.device
                 blocks.append(
                     TensorBlock(
                         values=torch.tensor(
                             [], dtype=block.values.dtype, device=device
-                        ).reshape(tuple(shape)),
+                        ).reshape(shape),
                         samples=Labels(
                             names=block.samples.names,
                             values=torch.tensor(
