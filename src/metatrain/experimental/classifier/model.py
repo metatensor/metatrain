@@ -356,7 +356,4 @@ class Classifier(ModelInterface[ModelHypers]):
         )
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
-        return {
-            k: ModelOutput(sample_kind=v.sample_kind)
-            for k, v in self.dataset_info.targets.items()
-        }
+        return self.capabilities.outputs
