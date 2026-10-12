@@ -1234,8 +1234,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         dtype = next(self.parameters()).dtype
 
         # Make sure the model is all in the same dtype
-        # For example, after training, the additive models could still be in
-        # float64
         self.to(dtype)
 
         metadata = merge_metadata(
