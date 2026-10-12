@@ -1,6 +1,7 @@
 from typing import Optional
 
-from metatensor.torch import TensorMap
+import torch
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
 from .atomic_basis_helpers import (
@@ -45,12 +46,36 @@ def match_layout(
     # Check whether the two tensormaps are dense or sparse in atom types,
     # and possibly convert tmap1 to match tmap2.
     if not tmap1_isdense and tmap2_isdense:
+        # We need to densify tmap1.
+
         if target_info_layout is None:
-            raise ValueError(
-                "Cannot densify atomic basis target without target_info_layout."
-            )
+            # If no target_info_layout is provided, we take the layout of tmap2,
+            # we just need to make sure that the blocks of tmap2 are empty.
+            blocks: list[TensorBlock] = []
+            for block in tmap2.blocks():
+                shape = torch.tensor(block.values.shape)
+                shape[0] = 0
+                device = block.values.device
+                blocks.append(
+                    TensorBlock(
+                        values=torch.tensor(
+                            [], dtype=block.values.dtype, device=device
+                        ).reshape(tuple(shape)),
+                        samples=Labels(
+                            names=block.samples.names,
+                            values=torch.tensor(
+                                [], device=device, dtype=torch.int64
+                            ).reshape(0, len(block.samples.names)),
+                        ),
+                        components=block.components,
+                        properties=block.properties,
+                    )
+                )
+            target_info_layout = TensorMap(keys=tmap2.keys, blocks=blocks)
+
         tmap1 = densify_atomic_basis_target(tmap1, target_info_layout, fill_value=0.0)
     elif tmap1_isdense and not tmap2_isdense:
+        # We need to sparsify tmap1.
         if systems is None:
             raise ValueError("Cannot sparsify atomic basis target without systems.")
         tmap1 = sparsify_atomic_basis_target(

@@ -17,7 +17,6 @@ from typing_extensions import TypeVar
 
 # from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.architectures import import_architecture
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.match_tmaps import match_layout
 from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
@@ -153,9 +152,11 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
                                 ].layout,
                                 systems=systems,
                             )
+
+                    additive_supported_outputs = additive_model.supported_outputs()
                     outputs_for_additive_model: Dict[str, ModelOutput] = {}
                     for name, output in outputs.items():
-                        if name in additive_model.outputs:
+                        if name in additive_supported_outputs:
                             outputs_for_additive_model[name] = output
                     additive_contributions = additive_model(
                         systems,
@@ -295,11 +296,16 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             max(all_interaction_ranges) if all_interaction_ranges else None
         )
 
+        # The supported devices of the model are the supported devices that are
+        # common to all the models involved. We have also have to keep the priority
+        # of the devices in the core model, so don't change this to use set
+        # intersection here!
         all_supported_devices = [cap.supported_devices for cap in all_capabilities]
-        # Get the intersection of all supported devices
-        supported_devices = set(all_supported_devices[0])
-        for devices in all_supported_devices[1:]:
-            supported_devices.intersection_update(devices)
+        supported_devices = [
+            d
+            for d in all_supported_devices[0]
+            if all(d in devices for devices in all_supported_devices[1:])
+        ]
 
         # Build the wrapper model again with the exported modules.
         to_export = self.__class__(
@@ -338,36 +344,6 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         )
 
         return AtomisticModel(to_export.eval(), exported_metadata, capabilities)
-
-    @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict["str", Any]) -> Dict["str", Any]:
-        """
-        Upgrade the checkpoint to the current version of the model.
-
-        :param checkpoint: Checkpoint's state dictionary.
-
-        :raises RuntimeError: if the checkpoint cannot be upgraded to the current
-            version of the model.
-
-        :return: The upgraded checkpoint.
-        """
-        for k in ["model", "scaler"]:
-            subcheckpoint = checkpoint[k]
-            if k == "scaler" and subcheckpoint is None:
-                continue
-
-            architecture_name = subcheckpoint["architecture_name"]
-            model_cls = import_architecture(architecture_name).__model__
-            checkpoint[k] = model_cls.upgrade_checkpoint(subcheckpoint)
-
-        for i, additive_model_checkpoint in enumerate(checkpoint["additive_models"]):
-            architecture_name = additive_model_checkpoint["architecture_name"]
-            model_cls = import_architecture(architecture_name).__model__
-            checkpoint["additive_models"][i] = model_cls.upgrade_checkpoint(
-                additive_model_checkpoint
-            )
-
-        return checkpoint
 
     def get_checkpoint(
         self, best_model_state_dict: Optional[dict[str, Any]] = None
