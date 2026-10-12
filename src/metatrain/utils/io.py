@@ -428,6 +428,22 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
         for i, additive_model_state_dict in enumerate(additive_models_state_dict):
             new_ckpt["additive_models"][i][key] = additive_model_state_dict
 
+    # If there was no state dicts for the scaler or additive models, this means that
+    # the model checkpoint did not contain them. We might have initialized them
+    # when we created the model that we used to get the new checkpoint skeleton,
+    # so here we make sure they are not present.
+    if (
+        new_ckpt["scaler"] is not None
+        and len(new_ckpt["scaler"]["model_state_dict"]) == 0
+    ):
+        new_ckpt["scaler"] = None
+
+    if all(
+        len(additive_model["model_state_dict"]) == 0
+        for additive_model in new_ckpt["additive_models"]
+    ):
+        new_ckpt["additive_models"] = []
+
     return new_ckpt
 
 

@@ -80,6 +80,18 @@ def test_load_model_checkpoint(load_path_ckpt):
     # currently weights of the `"export"` and the `"restart"` context are the same...
 
 
+def test_load_model_from_arch(monkeypatch, tmp_path, MODEL_PATH):
+    """Tests that a checkpoint containing only the 'core' architecture
+    can be loaded into a full MetatrainModel."""
+    monkeypatch.chdir(tmp_path)
+    path = MODEL_PATH.with_suffix(".ckpt")
+    ckpt = torch.load(path, weights_only=False, map_location="cpu")
+    model = model_from_checkpoint(ckpt["core"], context="restart")
+
+    assert isinstance(model, MetatrainModel)
+    assert isinstance(model.core, SoapBpnn)
+
+
 def test_load_model_checkpoint_newer_version(monkeypatch, tmp_path, MODEL_PATH_64_BIT):
     """A checkpoint version newer than the installed architecture should tell the
     user to upgrade metatrain, instead of trying (and failing) to upgrade the

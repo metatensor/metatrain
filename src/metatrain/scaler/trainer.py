@@ -223,7 +223,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             if is_distributed:
                 torch.distributed.barrier()
                 # All-reduce the accumulated TensorMaps across all processes
-                for target_name in model.new_outputs:
+                for target_name in scaler.new_outputs:
                     for N_block, Y2_block in zip(
                         scaler.model.N[target_name],
                         scaler.model.Y2[target_name],

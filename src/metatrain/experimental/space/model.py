@@ -65,7 +65,6 @@ class SPACE(ModelInterface[ModelHypers]):
         super().__init__(hypers, dataset_info, self.__default_metadata__)
         check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
 
-        self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = sorted(dataset_info.atomic_types)
 
         self.cutoff_radius = float(hypers["cutoff"])
