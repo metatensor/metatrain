@@ -3,6 +3,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatrain.scaler.checkpoints import update_per_property_scales
+from metatrain.utils.data.legacy_names import upgrade_legacy_non_conservative_force
 
 
 ###########################
@@ -372,6 +373,20 @@ def model_update_v15_v16(checkpoint: dict) -> None:
                 else:
                     updated[name] = value
             checkpoint[key] = updated
+
+
+def model_update_v16_v17(checkpoint: dict) -> None:
+    """
+    Update a v16 checkpoint to v17.
+
+    Rename the legacy ``non_conservative_forces`` property label (and target key,
+    when still plural) to ``non_conservative_force``. Checkpoints saved before
+    metatrain #1153 keep the plural name, which no longer matches layouts built
+    for fine-tuning.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    upgrade_legacy_non_conservative_force(checkpoint)
 
 
 ###########################

@@ -11,6 +11,7 @@ from metatomic.torch import check_atomistic_model, load_atomistic_model
 
 from .. import __version__
 from .architectures import find_all_architectures, import_architecture
+from .data.legacy_names import upgrade_legacy_non_conservative_force
 
 
 hf_pattern = re.compile(
@@ -251,6 +252,11 @@ def model_from_checkpoint(
                 f"{architecture.__model__.__checkpoint_version__}; and trying to "
                 "upgrade the checkpoint failed."
             ) from e
+
+    # #1153 renamed the target without a checkpoint migration. Apply the rename
+    # even when the checkpoint version already matches, and for architectures
+    # other than PET and LLPR.
+    upgrade_legacy_non_conservative_force(checkpoint)
 
     return architecture.__model__.load_checkpoint(checkpoint, context=context)
 

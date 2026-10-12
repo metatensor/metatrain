@@ -970,6 +970,20 @@ def test_check_dataset_options_extra_data_unit(list_conf):
         check_dataset_options(list_conf)
 
 
+def test_rename_deprecated_non_conservative_forces():
+    """Old fine-tuning configs still name the target ``non_conservative_forces``."""
+    targets = OmegaConf.create(
+        {"non_conservative_forces": {"quantity": "force", "unit": "eV/A"}}
+    )
+    with pytest.warns(
+        DeprecationWarning, match="'non_conservative_forces' target name is deprecated"
+    ):
+        renamed = omegaconf._rename_deprecated_target_names(targets)
+
+    assert "non_conservative_forces" not in renamed
+    assert "non_conservative_force" in renamed
+
+
 def test_rename_deprecated_target_names_renames_with_warning():
     """Plural target keys are renamed to singular form with a DeprecationWarning"""
     targets = OmegaConf.create({"momenta": {"unit": "eV"}, "energy": {"unit": "eV"}})

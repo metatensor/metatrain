@@ -1,5 +1,7 @@
 import torch
 
+from metatrain.utils.data.legacy_names import upgrade_legacy_non_conservative_force
+
 
 def model_update_v1_v2(checkpoint: dict) -> None:
     """
@@ -90,6 +92,19 @@ def model_update_v3_v4(checkpoint: dict) -> None:
         else:
             new_state_dict[key] = value
     checkpoint["model_state_dict"] = new_state_dict
+
+
+def model_update_v4_v5(checkpoint: dict) -> None:
+    """
+    Update a v4 checkpoint to v5.
+
+    Rename the legacy ``non_conservative_forces`` property label to
+    ``non_conservative_force`` in this wrapper's dataset info and in the wrapped
+    model checkpoint.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    upgrade_legacy_non_conservative_force(checkpoint)
 
 
 def trainer_update_v1_v2(checkpoint: dict) -> None:
