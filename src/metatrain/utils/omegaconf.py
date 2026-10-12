@@ -1,6 +1,7 @@
 import warnings
 from typing import Any, Union
 
+import omegaconf
 import torch
 from omegaconf import DictConfig, ListConfig, OmegaConf
 from omegaconf.basecontainer import BaseContainer
@@ -122,6 +123,15 @@ def default_llpr_ensemble_scoring_rule() -> str:
     """
     return "gaussian_nll_ensemble"
 
+
+# Check the version of omegaconf and give a nice error message
+# if it is too old (otherwise the resolvers registry below
+# will raise a much more obscure error)
+if tuple(map(int, omegaconf.__version__.split("."))) < (2, 4, 0):
+    raise ImportError(
+        "metatrain requires omegaconf >= 2.4.0, but found "
+        f"{omegaconf.__version__}. Please upgrade omegaconf."
+    )
 
 # Register custom resolvers
 OmegaConf.register_resolver("default_device", default_device)
