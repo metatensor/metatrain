@@ -209,7 +209,7 @@ def test_independent_of_batching(outputs, generator, origin):
 
     one_at_a_time = []
     start = 0
-    for index, system in enumerate(systems):
+    for _, system in enumerate(systems):
         block = inputs[INPUT_NAME]
         stop = start + len(system)
         single = {

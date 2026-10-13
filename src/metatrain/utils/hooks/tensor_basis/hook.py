@@ -343,9 +343,7 @@ class TensorBasis(HookInterface[Hypers]):
         }
 
     @classmethod
-    def load_checkpoint(
-        cls, checkpoint: dict[str, Any], context: str
-    ) -> "GlobalMultipole":
+    def load_checkpoint(cls, checkpoint: dict[str, Any], context: str) -> "TensorBasis":
         """
         Load the checkpoint of the hook.
 

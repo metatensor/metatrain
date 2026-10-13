@@ -93,7 +93,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
-    __checkpoint_version__ = 15
+    __checkpoint_version__ = 16
 
     has_new_targets: bool
     _stale_finetune_targets: list[str]
