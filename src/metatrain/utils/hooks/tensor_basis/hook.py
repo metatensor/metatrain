@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -331,3 +331,44 @@ class TensorBasis(HookInterface[Hypers]):
                 return_dict[target_name] = tmap
 
         return return_dict
+
+    def get_checkpoint(self, best_state_dict: Optional[dict[str, Any]] = None) -> dict:
+        """
+        Get the checkpoint of the hook.
+
+        :return: A dictionary containing the state of the hook.
+        """
+        state_dict = self.state_dict()
+        return {
+            "hook_name": "tensor_basis",
+            "hook_ckpt_version": self.__checkpoint_version__,
+            "hook_data": {
+                "hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "model_state_dict": state_dict,
+        }
+
+    @classmethod
+    def load_checkpoint(
+        cls, checkpoint: dict[str, Any], context: str
+    ) -> "GlobalMultipole":
+        """
+        Load the checkpoint of the hook.
+
+        :param checkpoint: A dictionary containing the state of the hook.
+        """
+        if checkpoint["hook_ckpt_version"] != cls.__checkpoint_version__:
+            raise ValueError(
+                f"Invalid checkpoint version for the hook: "
+                f"expected {cls.__checkpoint_version__}, got "
+                f"{checkpoint['hook_ckpt_version']}"
+            )
+
+        hook = cls(
+            hypers=checkpoint["hook_data"]["hypers"],
+            dataset_info=checkpoint["hook_data"]["dataset_info"],
+        )
+
+        hook.load_state_dict(checkpoint["model_state_dict"])
+        return hook
