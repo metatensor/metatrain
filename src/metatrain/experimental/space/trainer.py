@@ -153,7 +153,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 5
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -185,7 +185,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             extra_data=dense_dataset_info.extra_data,
         )
 
-        model = SPACE(hypers=model_hypers, dataset_info=dense_dataset_info)
+        model = SPACE(hypers=model_hypers, dataset_info=core_dataset_info)
 
         # Set up additive models
         composition_model = CompositionModel.from_valid_targets(
