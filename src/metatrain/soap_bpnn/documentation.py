@@ -249,3 +249,7 @@ class TrainerHypers(TypedDict):
     """Minimum total number of atoms required to keep a batch when
     ``max_atoms_per_batch`` is set. Batches whose total atom count falls below this
     threshold are discarded during packing. Defaults to ``0`` (no minimum)."""
+    forward_hooks: dict = {}
+    """Hooks that the model needs to apply at the end of forward to
+    produce the final outputs.
+    """
