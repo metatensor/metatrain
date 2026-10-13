@@ -8,6 +8,7 @@ from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset
 from metatrain.utils.data.dataset import Subset
 from metatrain.utils.io import load_model
+from metatrain.utils.wrapper import MetatrainModel
 
 from ._base_composition import FixedCompositionWeights
 from .model import CompositionModel
@@ -27,7 +28,7 @@ __maintainers__ = [
 
 
 def train_or_load_composition_model(
-    composition_model: CompositionModel,
+    composition_model: Union[CompositionModel, MetatrainModel[CompositionModel]],
     atomic_baseline: FixedCompositionWeights | str,
     train_datasets: List[Union[Dataset, Subset]],
     other_additive_models: List[nn.Module],
@@ -50,9 +51,22 @@ def train_or_load_composition_model(
     :param is_distributed: Whether training is distributed
     :param checkpoint_dir: Directory to save the composition model checkpoint
     """
+    if isinstance(composition_model, CompositionModel):
+        model = MetatrainModel(
+            core=composition_model,
+            additive_models=[],
+            scaler=None,
+            dataset_info=composition_model.dataset_info,
+        )
+    else:
+        model = composition_model
+        composition_model = model.core
+
     if isinstance(atomic_baseline, str):
         logging.info(f"Loading composition model from {atomic_baseline}")
         loaded = load_model(atomic_baseline)
+        if isinstance(loaded, MetatrainModel):
+            loaded = loaded.core
         if not isinstance(loaded, CompositionModel):
             raise ValueError(
                 f"The model loaded from {atomic_baseline} is a "
@@ -101,7 +115,7 @@ def train_or_load_composition_model(
         # The trainer fits on devices[0]; pass the model's current device so
         # embedded training stays where the parent architecture put the model.
         trainer.train(
-            model=composition_model,
+            model=model,
             dtype=torch.float64,
             devices=[composition_model.dummy_buffer.device],
             train_datasets=train_datasets,

@@ -2,7 +2,7 @@ import torch
 from metatomic.torch import ModelMetadata
 from omegaconf import OmegaConf
 
-from metatrain.gap import GAP, Trainer
+from metatrain.gap import Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.data.target_info import get_energy_target_info
@@ -49,10 +49,10 @@ def test_export():
             )
         },
     )
-    model = GAP(DEFAULT_HYPERS["model"], dataset_info)
 
     # we have to train gap before we can export...
     trainer = Trainer(DEFAULT_HYPERS["training"])
+    model = trainer.setup(DEFAULT_HYPERS["model"], dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float64,

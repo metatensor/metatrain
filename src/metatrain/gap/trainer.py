@@ -5,28 +5,76 @@ from typing import Any, Dict, List, Literal, Union
 import metatensor.torch as mts
 import torch
 
-from metatrain.composition import train_or_load_composition_model
+from metatrain.composition import CompositionModel, train_or_load_composition_model
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import remove_additive
-from metatrain.utils.data import Dataset, check_datasets
+from metatrain.utils.additive.zbl import ZBL
+from metatrain.utils.data import Dataset, DatasetInfo, check_datasets
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
 )
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import GAP
-from .documentation import TrainerHypers
+from .documentation import ModelHypers, TrainerHypers
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 1
 
     def __init__(self, hypers: TrainerHypers):
         super().__init__(hypers)
 
+    def setup(
+        self, model_hypers: ModelHypers, dataset_info: DatasetInfo
+    ) -> MetatrainModel[GAP]:
+
+        model = GAP(hypers=model_hypers, dataset_info=dataset_info)
+
+        # Set up additive models
+        composition_model = CompositionModel.from_valid_targets(
+            dataset_info, dataset_info.atomic_types
+        )
+        additive_models = [composition_model]
+
+        # Adds the ZBL repulsion model if requested
+        if model_hypers["zbl"]:
+            zbl_targets = {
+                target_name: target_info
+                for target_name, target_info in dataset_info.targets.items()
+                if ZBL.is_valid_target(target_name, target_info)
+            }
+            additive_models.append(
+                ZBL(
+                    {},
+                    dataset_info=DatasetInfo(
+                        length_unit=dataset_info.length_unit,
+                        atomic_types=dataset_info.atomic_types,
+                        targets=zbl_targets,
+                    ),
+                )
+            )
+        additive_models = torch.nn.ModuleList(additive_models)
+
+        return MetatrainModel(
+            core=model,
+            additive_models=additive_models,
+            scaler=None,
+            dataset_info=dataset_info,
+        )
+
+    def restart(
+        self,
+        model: MetatrainModel[GAP],
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypers,
+    ) -> MetatrainModel[GAP]:
+        raise NotImplementedError("GAP does not allow restarting training")
+
     def train(
         self,
-        model: GAP,
+        model: MetatrainModel[GAP],
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -36,6 +84,10 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # checks
         assert dtype in GAP.__supported_dtypes__
         assert devices == [torch.device("cpu")]
+        assert isinstance(model, MetatrainModel)
+        gap_model = model.core
+        assert isinstance(gap_model, GAP)
+
         target_name = next(iter(model.dataset_info.targets.keys()))
         if len(train_datasets) != 1:
             raise ValueError("GAP only supports a single training dataset")
@@ -72,7 +124,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         train_y = mts.join(
             [sample[output_name] for sample in train_dataset], axis="samples"
         )
-        model._keys = train_y.keys
+        gap_model._keys = train_y.keys
         train_structures = [sample["system"] for sample in train_dataset]
 
         logging.info("Calculating neighbor lists for the datasets")
@@ -97,12 +149,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         logging.info("Calculating SOAP features")
         if len(train_y[0].gradients_list()) > 0:
-            train_tensor = model._soap_torch_calculator.compute(
+            train_tensor = gap_model._soap_torch_calculator.compute(
                 train_structures, gradients=["positions"]
             )
         else:
-            train_tensor = model._soap_torch_calculator.compute(train_structures)
-        model._species_labels = train_tensor.keys
+            train_tensor = gap_model._soap_torch_calculator.compute(train_structures)
+        gap_model._species_labels = train_tensor.keys
         train_tensor = train_tensor.keys_to_samples("center_type")
         # here, we move to properties to use metatensor operations to aggregate
         # later on. Perhaps we could retain the sparsity all the way to the kernels
@@ -113,13 +165,13 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
         logging.info("Selecting sparse points")
         lens = len(train_tensor[0].values)
-        assert model._sampler._n_to_select is not None
-        if model._sampler._n_to_select > lens:
+        assert gap_model._sampler._n_to_select is not None
+        if gap_model._sampler._n_to_select > lens:
             raise ValueError(
-                f"Number of sparse points ({model._sampler._n_to_select}) "
+                f"Number of sparse points ({gap_model._sampler._n_to_select}) "
                 f"should be smaller than the number of environments ({lens})"
             )
-        sparse_points = model._sampler.fit_transform(train_tensor)
+        sparse_points = gap_model._sampler.fit_transform(train_tensor)
         sparse_points = mts.remove_gradients(sparse_points)
         alpha_energy = self.hypers["regularizer"]
         if self.hypers["regularizer_forces"] is None:
@@ -128,7 +180,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             alpha_forces = self.hypers["regularizer_forces"]
 
         logging.info("Fitting GAP model")
-        model._subset_of_regressors.fit(
+        gap_model._subset_of_regressors.fit(
             train_tensor,
             sparse_points,
             train_y,
@@ -136,8 +188,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
             alpha_forces=alpha_forces,
         )
 
-        model._subset_of_regressors_torch = (
-            model._subset_of_regressors.export_torch_script_model()
+        gap_model._subset_of_regressors_torch = (
+            gap_model._subset_of_regressors.export_torch_script_model()
         )
 
     def save_checkpoint(
@@ -156,6 +208,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
     ) -> "GAP":
         raise ValueError("GAP does not allow restarting training")
 
-    @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+    @classmethod
+    def upgrade_checkpoint(cls, checkpoint: Dict, version: int | None = None) -> Dict:
         raise NotImplementedError("checkpoint upgrade is not implemented for GAP")

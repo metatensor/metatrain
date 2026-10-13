@@ -5,7 +5,6 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from metatrain.pet import PET
 from metatrain.pet import Trainer as PETTrainer
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
@@ -46,8 +45,6 @@ class TestCheckpoints(CheckpointTests, LLPRTests):
         pet_model_hypers["num_attention_layers"] = 1
         pet_model_hypers["num_gnn_layers"] = 1
 
-        model = PET(pet_model_hypers, dataset_info)
-
         hypers = copy.deepcopy(hypers)
         hypers["training"]["num_epochs"] = 1
         loss_hypers = OmegaConf.create(
@@ -57,10 +54,11 @@ class TestCheckpoints(CheckpointTests, LLPRTests):
         hypers["training"]["loss"] = loss_hypers
 
         trainer = PETTrainer(hypers["training"])
+        model = trainer.setup(pet_model_hypers, dataset_info)
 
         trainer.train(
             model,
-            dtype=model.__supported_dtypes__[0],
+            dtype=model.core.__supported_dtypes__[0],
             devices=[torch.device("cpu")],
             train_datasets=[dataset],
             val_datasets=[dataset],
@@ -71,18 +69,17 @@ class TestCheckpoints(CheckpointTests, LLPRTests):
             trainer.save_checkpoint(model, f"{tmpdir}/pet_checkpoint.ckpt")
 
             # train LLPR model
-            hypers = copy.deepcopy(model_hypers)
-            hypers["num_ensemble_members"] = {"energy": 8}
-
-            model = self.model_cls(hypers, dataset_info)
+            model_hypers = copy.deepcopy(model_hypers)
+            model_hypers["num_ensemble_members"] = {"energy": 8}
 
             hypers = copy.deepcopy(default_hypers)
             hypers["training"]["model_checkpoint"] = f"{tmpdir}/pet_checkpoint.ckpt"
 
             trainer = self.trainer_cls(hypers["training"])
+            model = trainer.setup(model_hypers, dataset_info)
             trainer.train(
                 model,
-                dtype=model.__supported_dtypes__[0],
+                dtype=model.core.__supported_dtypes__[0],
                 devices=[torch.device("cpu")],
                 train_datasets=[dataset],
                 val_datasets=[dataset],

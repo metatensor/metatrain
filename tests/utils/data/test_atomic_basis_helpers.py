@@ -4,7 +4,9 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
+from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_dataset_info,
     densify_atomic_basis_target,
     get_per_atom_sample_labels,
     get_prepare_atomic_basis_targets_transform,
@@ -375,7 +377,10 @@ def sample_kind(request):
     return request.param
 
 
-def test_densify_sparsify_round_trip_(sample_kind):
+@pytest.mark.parametrize(
+    "dense_layout", [True, False], ids=["dense_layout", "sparse_layout"]
+)
+def test_densify_sparsify_round_trip_(sample_kind, dense_layout):
     """
     Densifying and then sparsifying (in atom type) an atomic basis spherical
     target should exactly recover the original TensorMap.
@@ -389,13 +394,19 @@ def test_densify_sparsify_round_trip_(sample_kind):
         layout = _make_layout_per_atom_pair()
         sparse = _make_sparse_tensor_atompair(layout)
 
-    dense = densify_atomic_basis_target(sparse, layout)
+    layout_for_densify = (
+        layout if not dense_layout else densify_atomic_basis_target(layout, layout)
+    )
+    dense = densify_atomic_basis_target(sparse, layout_for_densify)
     recovered = sparsify_atomic_basis_target(systems, dense, layout)
 
     mts.allclose_raise(recovered, sparse, atol=0.0, rtol=0.0)
 
 
-def test_densify_nan_padding_structure():
+@pytest.mark.parametrize(
+    "dense_layout", [True, False], ids=["dense_layout", "sparse_layout"]
+)
+def test_densify_nan_padding_structure(dense_layout):
     """
     Tests that an intermediate densified TensorMap must has the correct NaN-padded
     structure: property slots belonging to an atom type carry the original values, while
@@ -420,6 +431,9 @@ def test_densify_nan_padding_structure():
     """
     layout = _make_layout_coupled_per_atom()
     sparse = _make_sparse_tensor()
+
+    if dense_layout:
+        layout = densify_atomic_basis_target(layout, layout)
 
     dense = densify_atomic_basis_target(sparse, layout)
 
@@ -517,8 +531,11 @@ def test_get_prepare_atomic_basis_targets_transform_batch_from_larger_dataset():
         ],
     )
 
+    dataset_info = DatasetInfo(
+        length_unit="angstrom", atomic_types=[1, 6], targets={"target": target_info}
+    )
     transform, reverse_transform = get_prepare_atomic_basis_targets_transform(
-        {"target": target_info}, {}
+        dataset_info, densify_atomic_basis_dataset_info(dataset_info)
     )
 
     _, prepared, _ = transform(

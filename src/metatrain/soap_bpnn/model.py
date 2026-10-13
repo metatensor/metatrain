@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 import metatensor.torch as mts
@@ -6,7 +7,6 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatensor.torch.learn.nn import Linear as LinearMap
 from metatensor.torch.learn.nn import ModuleMap
-from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -16,17 +16,10 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.composition import CompositionModel
-from metatrain.scaler import Scaler
-from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
-from metatrain.utils.data.atomic_basis_helpers import (
-    densify_atomic_basis_dataset_info,
-    sparsify_atomic_basis_target,
-)
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
@@ -191,7 +184,7 @@ def concatenate_structures(
 
 
 class SoapBpnn(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 9
+    __checkpoint_version__ = 10
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -362,10 +355,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             values=torch.arange(self.n_inputs_last_layer).unsqueeze(1),
         )
 
-        # Modified dataset_info with the targets as they will be seen by
-        # the model during training.
-        train_dataset_info = self._train_dataset_info(dataset_info)
-
         self.num_properties: Dict[str, Dict[str, int]] = {}  # by target and block
         self.basis_calculators = torch.nn.ModuleDict({})
         self.heads = torch.nn.ModuleDict({})
@@ -377,7 +366,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         self.cartesian_rank1_targets: List[str] = []
         self.cartesian_rank2_targets: List[str] = []
-        for target_name, target in train_dataset_info.targets.items():
+        for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
 
         # Pre-compute spherical→Cartesian conversion matrix for rank-2 tensors.
@@ -395,39 +384,13 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             offset += 2 * L + 1
         self._sph_to_cart_rank2 = W
 
-        # additive models: these are handled by the trainer at training
-        # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel.from_valid_targets(
-            dataset_info, self.atomic_types
-        )
-        additive_models = [composition_model]
-        if self.hypers["zbl"]:
-            zbl_targets = {
-                target_name: target_info
-                for target_name, target_info in train_dataset_info.targets.items()
-                if ZBL.is_valid_target(target_name, target_info)
-            }
-            additive_models.append(
-                ZBL(
-                    {},
-                    dataset_info=DatasetInfo(
-                        length_unit=train_dataset_info.length_unit,
-                        atomic_types=self.atomic_types,
-                        targets=zbl_targets,
-                    ),
-                )
-            )
-        self.additive_models = torch.nn.ModuleList(additive_models)
-
-        # scaler: this is also handled by the trainer at training time
-        scaler_hypers = get_default_hypers("scaler")["model"]
-        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
-
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
     def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
     ) -> "SoapBpnn":
 
         if model_hypers is not None:
@@ -446,7 +409,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
-        self.has_new_targets = len(new_targets) > 0
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -454,29 +416,11 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 "The SOAP-BPNN model does not support adding new atomic types."
             )
 
-        # Modified dataset_info with the targets as they will be seen by
-        # the model during training.
-        train_dataset_info = self._train_dataset_info(dataset_info)
-
         # register new outputs as new last layers
         for target_name in new_targets:
-            self._add_output(target_name, train_dataset_info.targets[target_name])
+            self._add_output(target_name, dataset_info.targets[target_name])
 
         self.dataset_info = merged_info
-
-        # restart the composition and scaler models
-        self.additive_models[0] = self.additive_models[0].restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        self.scaler = self.scaler.restart(dataset_info)
 
         return self
 
@@ -827,67 +771,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 # sum the atomic property to get the total property
                 return_dict[output_name] = sum_over_atoms(atomic_property)
 
-        if not self.training:
-            # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler.apply_scales(
-                systems,
-                return_dict,
-                selected_atoms=selected_atoms,
-                use_per_target_scales=True,
-                use_per_property_scales=True,
-            )
-
-            # For atomic basis targets, sparsify to create blocks with "atom_type"
-            # in the key dimensions, and ensure properties are unpadded. This is
-            # done before adding the additive contributions, which are also
-            # sparsified (by the additive models themselves, in eval mode).
-            targets = self.dataset_info.targets
-            for k, v in return_dict.items():
-                if k in targets and targets[k].is_atomic_basis:
-                    return_dict[k] = sparsify_atomic_basis_target(
-                        systems,
-                        v,
-                        targets[k].layout,
-                    )
-
-            for additive_model in self.additive_models:
-                outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                for name, output in outputs.items():
-                    if name in additive_model.outputs:
-                        outputs_for_additive_model[name] = output
-                additive_contributions = additive_model(
-                    systems,
-                    outputs_for_additive_model,
-                    selected_atoms,
-                )
-                for name in additive_contributions:
-                    # # TODO: uncomment this after metatensor.torch.add is updated to
-                    # # handle sparse sums
-                    # return_dict[name] = metatensor.torch.add(
-                    #     return_dict[name],
-                    #     additive_contributions[name].to(
-                    #         device=return_dict[name].device,
-                    #         dtype=return_dict[name].dtype
-                    #         ),
-                    # )
-
-                    # TODO: "manual" sparse sum: update to metatensor.torch.add after
-                    # sparse sum is implemented in metatensor.operations
-                    output_blocks: List[TensorBlock] = []
-                    for k, b in return_dict[name].items():
-                        if k in additive_contributions[name].keys:
-                            output_blocks.append(
-                                _add_block_block(
-                                    b,
-                                    additive_contributions[name]
-                                    .block(k)
-                                    .to(device=b.device, dtype=b.dtype),
-                                )
-                            )
-                        else:
-                            output_blocks.append(b.copy(deep=False))
-                    return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
-
         return return_dict
 
     def _format_features_output(
@@ -979,8 +862,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         next(iterator)  # skip types buffer (int dtype)
         dtype = next(iterator).dtype
         model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -993,21 +874,12 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             raise ValueError(f"unsupported dtype {self.dtype} for SoapBpnn")
 
         # Make sure the model is all in the same dtype
-        # For example, after training, the additive models could still be in
-        # float64
         self.to(dtype)
 
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This funciton moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
-
-        interaction_ranges = [self.hypers["soap"]["cutoff"]["radius"]]
-        for additive_model in self.additive_models:
-            if hasattr(additive_model, "cutoff_radius"):
-                interaction_ranges.append(additive_model.cutoff_radius)
-            if self.long_range:
-                interaction_ranges.append(torch.inf)
-        interaction_range = max(interaction_ranges)
+        if self.long_range:
+            interaction_range = torch.inf
+        else:
+            interaction_range = self.hypers["soap"]["cutoff"]["radius"]
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
@@ -1021,18 +893,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         metadata = merge_metadata(self.metadata, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
-
-    def _train_dataset_info(self, dataset_info: DatasetInfo) -> DatasetInfo:
-        """Converts the original dataset info to one corresponding to what the
-        model will see during training, which depends on transforms applied to
-        the targets during data loading.
-
-        :param dataset_info: Original dataset info describing the targets as
-            they are in the raw data.
-        :return: Modified dataset info describing the targets as they will be
-            seen by the model during training.
-        """
-        return densify_atomic_basis_dataset_info(dataset_info)
 
     def _add_output(self, target_name: str, target: TargetInfo) -> None:
         # register bases of spherical tensors (TensorBasis)
@@ -1248,22 +1108,17 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         )
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["model_ckpt_version"] == v:
-                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
+    def upgrade_checkpoint(
+        cls, checkpoint: Dict, version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
 
-        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {checkpoint['model_ckpt_version']}, while the current "
-                f"model version is {cls.__checkpoint_version__}."
-            )
-        return checkpoint
-
-    def get_checkpoint(self) -> Dict:
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
+        model_state_dict = self.state_dict()
         checkpoint = {
             "architecture_name": "soap_bpnn",
             "model_ckpt_version": self.__checkpoint_version__,
@@ -1274,8 +1129,8 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             },
             "epoch": None,
             "best_epoch": None,
-            "model_state_dict": self.state_dict(),
-            "best_model_state_dict": self.state_dict(),
+            "model_state_dict": model_state_dict,
+            "best_model_state_dict": best_model_state_dict or model_state_dict,
         }
         return checkpoint
 

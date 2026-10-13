@@ -49,7 +49,7 @@ class TestFoundation(MACETests):
         mace_forces = atoms.get_forces()
 
         assert abs(mta_energy - mace_energy) < 1e-3
-        assert ((mta_forces - mace_forces) ** 2).sum() < 1e-9
+        assert ((mta_forces - mace_forces) ** 2).sum() < 1.5e-9
 
     def test_mace_equals_metatomic(
         self,

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, cast
+from typing import Any, Dict, List, Optional, cast
 
 import torch.nn as nn
 
@@ -22,7 +22,10 @@ LAST_LAYER_MODULES: List[str] = []
 
 
 def apply_finetuning_strategy(
-    model: nn.Module, strategy: FinetuneHypers, apply_inherit_heads: bool = True
+    model: nn.Module,
+    strategy: FinetuneHypers,
+    apply_inherit_heads: bool = True,
+    stale_targets: Optional[list[str]] = None,
 ) -> nn.Module:
     """
     Apply the specified finetuning strategy to a SPACE model.
@@ -40,6 +43,9 @@ def apply_finetuning_strategy(
         :func:`metatrain.pet.modules.finetuning.apply_finetuning_strategy`.
     :return: The modified model with the finetuning strategy applied.
     """
+    if stale_targets is None:
+        stale_targets = []
+
     resolved: Dict[str, Any] = {**strategy}
     config: Dict[str, Any] = {**(resolved.get("config") or {})}
 
@@ -51,5 +57,8 @@ def apply_finetuning_strategy(
 
     resolved["config"] = config
     return _apply_finetuning_strategy(
-        model, cast(FinetuneHypers, resolved), apply_inherit_heads=apply_inherit_heads
+        model,
+        cast(FinetuneHypers, resolved),
+        apply_inherit_heads=apply_inherit_heads,
+        stale_targets=stale_targets,
     )
