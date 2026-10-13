@@ -864,7 +864,11 @@ class PET(ModelInterface[ModelHypers]):
         if self.long_range:
             interaction_range = torch.inf
         else:
-            interaction_range = self.num_gnn_layers * self.cutoff
+            # feedforward also combines reversed messages after the last layer
+            num_message_passing_steps = self.num_gnn_layers
+            if self.featurizer_type == "feedforward":
+                num_message_passing_steps += 1
+            interaction_range = num_message_passing_steps * self.cutoff
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
