@@ -419,11 +419,11 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         :return: The model's state dict.
         """
         state_dict = {}
-        if (core_state_dict := checkpoint["core"][key]) is not None:
+        if (core_state_dict := checkpoint["core"].get(key)) is not None:
             state_dict.update({f"core.{k}": v for k, v in core_state_dict.items()})
         for i, additive_model_checkpoint in enumerate(checkpoint["additive_models"]):
             if (
-                additive_model_state_dict := additive_model_checkpoint[key]
+                additive_model_state_dict := additive_model_checkpoint.get(key)
             ) is not None:
                 state_dict.update(
                     {
@@ -432,7 +432,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
                     }
                 )
         if (scaler_checkpoint := checkpoint["scaler"]) is not None:
-            if (scaler_state_dict := scaler_checkpoint[key]) is not None:
+            if (scaler_state_dict := scaler_checkpoint.get(key)) is not None:
                 state_dict.update(
                     {f"scaler.{k}": v for k, v in scaler_state_dict.items()}
                 )
