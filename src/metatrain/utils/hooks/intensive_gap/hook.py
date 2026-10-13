@@ -465,7 +465,7 @@ class IntensiveGap(HookInterface[Hypers]):
     @classmethod
     def load_checkpoint(
         cls, checkpoint: dict[str, Any], context: str
-    ) -> "GlobalMultipole":
+    ) -> "IntensiveGap":
         """
         Load the checkpoint of the hook.
 
