@@ -153,9 +153,7 @@ class Identity(HookInterface[Hypers]):
         }
 
     @classmethod
-    def load_checkpoint(
-        cls, checkpoint: dict[str, Any], context: str
-    ) -> "GlobalMultipole":
+    def load_checkpoint(cls, checkpoint: dict[str, Any], context: str) -> "Identity":
         """
         Load the checkpoint of the hook.
 
