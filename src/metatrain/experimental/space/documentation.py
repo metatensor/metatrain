@@ -428,3 +428,7 @@ class TrainerHypers(TypedDict):
             rank: 8
             alpha: 16
     """
+    forward_hooks: dict = {}
+    """Hooks that the model needs to apply at the end of forward to
+    produce the final outputs.
+    """

@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from typing import Generic, Optional, TypeVar
+from typing import Any, Generic, Optional, TypeVar
 
 import torch
 from metatensor.torch import Labels, TensorMap
@@ -100,9 +100,19 @@ class HookInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def supported_outputs(self) -> dict[str, ModelOutput]:
+    def supported_outputs(self) -> dict[str, TargetInfo]:
         """
         Get the outputs currently supported by this hook.
 
         :return: A dictionary of the supported outputs by this hook.
+        """
+
+    @abstractmethod
+    def get_checkpoint(
+        self, best_state_dict: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
+        """
+        Get the checkpoint of the hook.
+
+        :return: A dictionary containing the state of the hook.
         """

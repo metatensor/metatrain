@@ -692,6 +692,9 @@ def get_prepare_atomic_basis_targets_transform(
     """
     to_densify = []
     for name, post_info in post_dataset_info.targets.items():
+        if name not in pre_dataset_info.targets:
+            continue
+
         if (
             pre_dataset_info.targets[name].is_atomic_basis
             and not post_info.is_atomic_basis
@@ -709,6 +712,9 @@ def get_prepare_atomic_basis_targets_transform(
 
     extra_to_densify = []
     for name, post_info in post_dataset_info.extra_data.items():
+        if name not in pre_dataset_info.targets:
+            continue
+
         if (
             pre_dataset_info.extra_data[name].is_atomic_basis
             and not post_info.is_atomic_basis
