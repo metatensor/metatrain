@@ -19,9 +19,6 @@ from metatomic.torch import (
 from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
-from metatrain.utils.data.atomic_basis_helpers import (
-    densify_atomic_basis_dataset_info,
-)
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
@@ -131,16 +128,8 @@ class Scaler(ModelInterface[ModelHypers]):
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
 
-        dense_new_targets = densify_atomic_basis_dataset_info(
-            DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=merged_info.atomic_types,
-                targets=merged_info.targets,
-            )
-        ).targets
-
         self.target_infos = {
-            target_name: dense_new_targets[target_name]
+            target_name: merged_info.targets[target_name]
             for target_name in merged_info.targets
         }
 
