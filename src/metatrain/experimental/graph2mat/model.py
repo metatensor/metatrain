@@ -23,14 +23,11 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.abc import ModelInterface
-from metatrain.composition.model import CompositionModel
 from metatrain.utils.architectures import get_default_hypers, import_architecture
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
-from metatrain.scaler.model import Scaler
-from metatrain.utils.io import model_from_checkpoint
 
 from .documentation import ModelHypers
 from .modules.edge_embedding import RadialEmbeddingBlock
@@ -211,39 +208,6 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
             for k, target_info in all_targets.items()
         }
 
-        # ---------------------------
-        # Data preprocessing modules
-        # ---------------------------
-
-        # For now we don't have additive contributions or scaling.
-        # The composition model and scaler are handled by the trainer during training.
-        # Their purpose is to adapt the data for optimal training.
-        # At evaluation time, the model applies them on forward.
-        composition_model = CompositionModel(
-            hypers={},
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-
-        self.additive_models = torch.nn.ModuleList([composition_model])
-
-        if self.hypers.get("edge_composition"):
-            ckpt = torch.load(self.hypers["edge_composition"], map_location="cpu", weights_only=False)
-            self.additive_models.append(
-                model_from_checkpoint(ckpt, "export")
-            )
-
-        scaler_hypers = get_default_hypers("scaler")["model"]
-        scaler_hypers["densify_atomic_basis"] = False
-        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=self.dataset_info)
-
         self.finetune_config: Dict[str, Any] = {}
 
     def restart(
@@ -282,20 +246,6 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
             self._add_output(target_name, target)
 
         self.dataset_info = merged_info
-
-        # restart the composition and scaler models
-        self.additive_models[0] = self.additive_models[0].restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.dataset_info.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        self.scaler = self.scaler.restart(dataset_info)
 
         return self
 
@@ -477,7 +427,6 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
 
         with torch.profiler.record_function("G2M::eval_postprocessing"):
 
-            # At evaluation, we also introduce the scaler and additive contributions
             if not self.training:
                 for matrix_name in graph2mat_returns.keys():
                     node_target = self.hypers["matrices"][matrix_name]["nodes"]
@@ -493,82 +442,7 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
                         )
                     )
 
-                return_dict = self.scaler.apply_scales(
-                    systems,
-                    return_dict,
-                    selected_atoms=selected_atoms,
-                    use_per_target_scales=True,
-                    use_per_property_scales=True,
-                )
-                self.add_additive_contributions(
-                    return_dict, systems, outputs, selected_atoms
-                )
-
         return return_dict
-
-    def add_additive_contributions(
-        self,
-        values: Dict[str, TensorMap],
-        systems: List[System],
-        outputs: Dict[str, ModelOutput],
-        selected_atoms: Optional[Labels] = None,
-    ) -> None:
-        """Adds the contributions from all additive models to the passed values.
-
-        :param values: Dictionary of TensorMaps containing the current outputs
-          (without additive contributions). The additive contributions will be added
-          in place to this dictionary.
-        :param systems: List of systems that have been evaluated to produce the outputs.
-        :param outputs: Dictionary of requested ModelOutputs.
-        :param selected_atoms: Optional Labels selecting a subset of atoms.
-        """
-        for additive_model in self.additive_models:
-            outputs_for_additive_model: Dict[str, ModelOutput] = {}
-            for name, output in outputs.items():
-                if name in additive_model.outputs:
-                    outputs_for_additive_model[name] = output
-            additive_contributions = additive_model.forward(
-                systems,
-                outputs_for_additive_model,
-                selected_atoms,
-            )
-            for name in additive_contributions:
-                # # TODO: uncomment this after metatensor.torch.add is updated to
-                # # handle sparse sums
-                # return_dict[name] = metatensor.torch.add(
-                #     return_dict[name],
-                #     additive_contributions[name].to(
-                #         device=return_dict[name].device,
-                #         dtype=return_dict[name].dtype
-                #         ),
-                # )
-
-                # TODO: "manual" sparse sum: update to metatensor.torch.add after
-                # sparse sum is implemented in metatensor.operations
-                output_blocks: List[TensorBlock] = []
-                for k, b in values[name].items():
-                    search_k = k
-                    if len(k) != additive_contributions[name].keys.values.shape[-1]:
-                        search_k = (k["o3_lambda_1"], k["o3_lambda_2"], k["first_atom_type"], k["second_atom_type"])
-                        k = dict(o3_lambda_1=k["o3_lambda_1"], o3_lambda_2=k["o3_lambda_2"], first_atom_type=k["first_atom_type"], second_atom_type=k["second_atom_type"])
-                    if search_k in additive_contributions[name].keys:
-                        additive_block = additive_contributions[name].block(k)
-                        
-                        if "first_atom_type" in values[name].keys.names:
-                            # Sort samples in both blocks to make sure they are in the same order
-                            b = sort_block(b, axes="samples")
-                            additive_block = sort_block(additive_block, axes="samples")
-                            assert torch.all(b.samples.values == additive_block.samples.values)
-
-                        output_blocks.append(
-                            _add_block_block(
-                                b,
-                                additive_block
-                            )
-                        )
-                    else:
-                        output_blocks.append(b.copy())
-                values[name] = TensorMap(values[name].keys, output_blocks)
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
@@ -576,16 +450,7 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
     def requested_neighbor_lists(
         self,
     ) -> List[NeighborListOptions]:
-        if len(self.additive_models) > 1:
-            edge_comp_neighbor_lists = self.additive_models[1].requested_neighbor_lists()
-        else:
-            edge_comp_neighbor_lists = []
-
-        return [
-            *self.featurizer_model.requested_neighbor_lists(),
-            *edge_comp_neighbor_lists,
-            # *list(self.graph2mat_nls.values())
-        ]
+        return self.featurizer_model.requested_neighbor_lists()
 
     @classmethod
     def load_checkpoint(
@@ -607,14 +472,8 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
         # Create the model
         model_data = checkpoint["model_data"]
         model = cls(**model_data)
-        # Infer dtype
-        dtype = None
 
         model.load_state_dict(model_state_dict)
-
-        # Set up composition and scaler models
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -628,13 +487,7 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
             raise ValueError(f"unsupported dtype {dtype} for MACE")
 
         # Make sure the model is all in the same dtype
-        # For example, after training, the additive models could still be in
-        # float64
         self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         interaction_range = self.hypers["num_interactions"] * self.cutoff
 
@@ -662,7 +515,7 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
 
         return checkpoint
 
-    def get_checkpoint(self) -> Dict:
+    def get_checkpoint(self, best_model_state_dict: Optional[dict[str, Any]] = None) -> Dict:
         model_state_dict = self.state_dict()
 
         # If the MACE model was passed as part of the hypers, we store it
@@ -680,7 +533,7 @@ class MetaGraph2Mat(ModelInterface[ModelHypers]):
             "epoch": None,
             "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": model_state_dict,
+            "best_model_state_dict": best_model_state_dict or model_state_dict,
         }
         return checkpoint
 

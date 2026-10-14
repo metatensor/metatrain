@@ -4,11 +4,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
 import metatensor.torch as mts
+from metatrain.utils.architectures import get_default_hypers
+from metatrain.utils.data.atomic_basis_helpers import densify_atomic_basis_dataset_info
+from metatrain.utils.data.dataset import DatasetInfo
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
 
-from metatrain.composition import train_or_load_composition_model
-from metatrain.scaler import train_or_load_scaler
+from metatrain.composition import train_or_load_composition_model, CompositionModel
+from metatrain.scaler import train_or_load_scaler, Scaler
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.data import (
@@ -26,9 +29,8 @@ from metatrain.utils.distributed.slurm import (
     initialize_slurm_nccl_process_group,
     resolve_distributed,
 )
-from metatrain.utils.distributed.slurm import DistributedEnvironment
 from metatrain.utils.evaluate_model import evaluate_model
-from metatrain.utils.io import check_file_extension
+from metatrain.utils.io import check_file_extension, model_from_checkpoint
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
@@ -39,9 +41,10 @@ from metatrain.utils.neighbor_lists import (
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .documentation import TrainerHypers
+from .documentation import TrainerHypers, ModelHypers
 from .model import MetaGraph2Mat
 from .utils.dataset import get_graph2mat_transform, graph2mat_to_tensormap
 
@@ -145,7 +148,7 @@ def scale_targets(scaler, systems, targets, extra, per_property: bool = False) -
     return scaled
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 1
 
     def __init__(self, hypers: TrainerHypers) -> None:
@@ -159,15 +162,89 @@ class Trainer(TrainerInterface[TrainerHypers]):
         self.best_model_state_dict: Optional[Dict[str, Any]] = None
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
 
+    def setup(
+        self, model_hypers: ModelHypers, dataset_info: DatasetInfo
+    ) -> MetatrainModel[MetaGraph2Mat, Scaler]:
+        model = MetaGraph2Mat(hypers=model_hypers, dataset_info=dataset_info)
+
+        # Set up additive models
+        composition_model = CompositionModel.from_valid_targets(
+            dataset_info, dataset_info.atomic_types
+        )
+        additive_models = [composition_model]
+
+        if model_hypers.get("edge_composition"):
+            ckpt = torch.load(self.hypers["edge_composition"], map_location="cpu", weights_only=False)
+            additive_models.append(
+                model_from_checkpoint(ckpt, "export")
+            )
+
+        additive_models = torch.nn.ModuleList(additive_models)
+
+        # Initialize scaler
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
+
+        return MetatrainModel(
+            core=model,
+            additive_models=additive_models,
+            scaler=scaler,
+            dataset_info=dataset_info,
+        )
+    
+    def restart(
+        self,
+        model: MetatrainModel[MetaGraph2Mat, Scaler],
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypers,
+    ) -> MetatrainModel[MetaGraph2Mat, Scaler]:
+        # -------------------------------------------------
+        #        Find out what are the new targets
+        # --------------------------------------------------
+        merged_info = model.dataset_info.union(dataset_info)
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in model.dataset_info.targets
+        }
+        self.has_new_targets = len(new_targets) > 0
+
+        # ------------------------------------------------------
+        #  Ask the models to restart with the new dataset info
+        # -------------------------------------------------------
+
+        comp_model_info = DatasetInfo(
+            length_unit=dataset_info.length_unit,
+            atomic_types=dataset_info.atomic_types,
+            targets={
+                target_name: target_info
+                for target_name, target_info in dataset_info.targets.items()
+                if model.additive_models[0].is_valid_target(target_name, target_info)
+            },
+        )
+
+        model.restart(
+            dataset_info,
+            dataset_info,
+            additive_models_dataset_info=[comp_model_info]
+            + [dataset_info] * (len(model.additive_models) - 1),
+            scaler_dataset_info=dataset_info,
+            model_hypers=model_hypers,
+        )
+
+        return model
+
     def train(
         self,
-        model: MetaGraph2Mat,
+        model: MetatrainModel[MetaGraph2Mat, Scaler],
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
         checkpoint_dir: str,
     ) -> None:
+        assert isinstance(model, MetatrainModel)
+        assert isinstance(model.core, MetaGraph2Mat)
         assert dtype in MetaGraph2Mat.__supported_dtypes__
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
@@ -225,6 +302,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 is_distributed=is_distributed,
                 checkpoint_dir=checkpoint_dir,
                 per_structure_targets=self.hypers["per_structure_targets"],
+                trainer_hypers={"densify_atomic_basis": False}
             )
 
         logging.info("Setting up data loaders")
@@ -278,9 +356,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 get_remove_additive_transform(additive_models, train_targets),
                 get_remove_scale_transform(scaler),
                 get_graph2mat_transform(
-                    model.graph2mat_processors,
-                    model.graph2mat_nls,
-                    model.hypers["matrices"],
+                    model.core.graph2mat_processors,
+                    model.core.graph2mat_nls,
+                    model.core.hypers["matrices"],
                     train_targets,
                 ),
             ],
@@ -383,7 +461,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             )
 
         per_structure_targets = [
-            *(model.module if is_distributed else model).graph2mat_dataset_info.targets,
+            *(model.module if is_distributed else model).core.graph2mat_dataset_info.targets,
             *self.hypers["per_structure_targets"],
         ]
 
@@ -449,7 +527,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         per_property=True,
                     )
 
-                    extra_data["model"] = model.module if is_distributed else model
+                    extra_data["model"] = (model.module if is_distributed else model).core
                     extra_data["systems"] = systems
 
                 with torch.profiler.record_function("G2M_trainer::loss_computation"):
@@ -488,7 +566,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                         extra_data,
                     )
                     if self.hypers["log_separate_blocks"]:
-                        for matrix_name, matrix_spec in model.hypers["matrices"].items():
+                        for matrix_name, matrix_spec in model.core.hypers["matrices"].items():
                             scaled_predictions.update(
                                 graph2mat_to_tensormap(
                                     batch=model.datas[matrix_name],
@@ -501,11 +579,11 @@ class Trainer(TrainerInterface[TrainerHypers]):
                                 )
                             )
                             scaled_targets = graph2mat_to_tensormap(
-                                batch=model.datas[matrix_name],
+                                batch=model.core.datas[matrix_name],
                                 out=scaled_targets,
                                 processor=(
                                     model.module if is_distributed else model
-                                ).graph2mat_processors[matrix_name],
+                                ).core.graph2mat_processors[matrix_name],
                                 node_labels_name=matrix_spec["nodes"],
                                 edge_labels_name=matrix_spec["edges"],
                             )
@@ -585,24 +663,24 @@ class Trainer(TrainerInterface[TrainerHypers]):
                     extra_data,
                 )
                 if self.hypers["log_separate_blocks"]:
-                    for matrix_name, matrix_spec in model.hypers["matrices"].items():
+                    for matrix_name, matrix_spec in model.core.hypers["matrices"].items():
                         scaled_predictions.update(
                             graph2mat_to_tensormap(
                                 batch=model.datas[matrix_name],
                                 out=scaled_predictions,
                                 processor=(
                                     model.module if is_distributed else model
-                                ).graph2mat_processors[matrix_name],
+                                ).core.graph2mat_processors[matrix_name],
                                 node_labels_name=matrix_spec["nodes"],
                                 edge_labels_name=matrix_spec["edges"],
                             )
                         )
                         scaled_targets = graph2mat_to_tensormap(
-                            batch=model.datas[matrix_name],
+                            batch=model.core.datas[matrix_name],
                             out=scaled_targets,
                             processor=(
                                 model.module if is_distributed else model
-                            ).graph2mat_processors[matrix_name],
+                            ).core.graph2mat_processors[matrix_name],
                             node_labels_name=matrix_spec["nodes"],
                             edge_labels_name=matrix_spec["edges"],
                         )
@@ -709,8 +787,8 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if is_distributed:
             torch.distributed.destroy_process_group()
 
-    def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
-        checkpoint = model.get_checkpoint()
+    def save_checkpoint(self, model: MetatrainModel[MetaGraph2Mat, Scaler], path: Union[str, Path]) -> None:
+        checkpoint = model.get_checkpoint(self.best_model_state_dict)
         checkpoint.update(
             {
                 "trainer_ckpt_version": self.__checkpoint_version__,
@@ -720,7 +798,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 "scheduler_state_dict": self.scheduler_state_dict,
                 "best_epoch": self.best_epoch,
                 "best_metric": self.best_metric,
-                "best_model_state_dict": self.best_model_state_dict,
                 "best_optimizer_state_dict": self.best_optimizer_state_dict,
             }
         )
@@ -742,7 +819,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
         trainer.epoch = checkpoint["epoch"]
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
-        trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
+        trainer.best_model_state_dict = MetatrainModel.get_state_dict_from_checkpoint(
+            checkpoint, "best_model_state_dict"
+        )
         trainer.best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         return trainer
