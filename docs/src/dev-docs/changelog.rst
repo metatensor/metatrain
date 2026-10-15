@@ -27,6 +27,13 @@ Unreleased
 Fixed
 #####
 
+- PET models with ``featurizer_type: feedforward`` (the default) now export an
+  ``interaction_range`` of ``(num_gnn_layers + 1) * cutoff`` instead of
+  ``num_gnn_layers * cutoff``. The feedforward featurizer performs one more
+  message passing step after the last GNN layer, so the previous value was too
+  small by one cutoff, which could lead to truncated atomic environments in
+  simulation engines relying on ``interaction_range`` (e.g. for domain
+  decomposition) (#1296).
 - Ensemble losses (``gaussian_nll_ensemble``, ``gaussian_crps_ensemble`` and
   ``empirical_crps_ensemble``) now work for targets with components, such as
   ``non_conservative_force``, instead of failing when the mean and variance
