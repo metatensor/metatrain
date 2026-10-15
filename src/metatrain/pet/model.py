@@ -109,9 +109,6 @@ class PET(ModelInterface[ModelHypers]):
         self.backend = PETBackend(self.hypers, self.atomic_types)
         self.num_readout_layers = self.backend.num_readout_layers
         self.system_conditioning = self.backend.system_conditioning
-        self.last_layer_feature_size = (
-            self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
-        )  # for LLPR
 
         # the model is always capable of outputting the internal features
         self.outputs = {
@@ -131,7 +128,6 @@ class PET(ModelInterface[ModelHypers]):
         self.property_labels: Dict[str, List[Labels]] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
-        self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
@@ -906,18 +902,6 @@ class PET(ModelInterface[ModelHypers]):
         # The learnable heads and last layers live on the pure-PyTorch backend.
         self.backend.add_output(target_name, self.output_shapes[target_name])
 
-        # Register last-layer parameters, in the same order as they are returned as
-        # last-layer features in the model (the modules live on ``self.backend``).
-        self.last_layer_parameter_names[target_name] = []
-        for layer_index in range(self.num_readout_layers):
-            for key in self.output_shapes[target_name].keys():
-                self.last_layer_parameter_names[target_name].append(
-                    f"backend.node_last_layers.{target_name}.{layer_index}.{key}.weight"
-                )
-                self.last_layer_parameter_names[target_name].append(
-                    f"backend.edge_last_layers.{target_name}.{layer_index}.{key}.weight"
-                )
-
         ll_features_name = get_last_layer_features_name(target_name)
         self.outputs[ll_features_name] = ModelOutput(
             sample_kind="atom", description=f"last layer features for {target_name}"
@@ -943,7 +927,6 @@ class PET(ModelInterface[ModelHypers]):
         self.outputs.pop(target_name, None)
         self.outputs.pop(get_last_layer_features_name(target_name), None)
         self.backend.remove_output(target_name)
-        self.last_layer_parameter_names.pop(target_name, None)
         self.key_labels.pop(target_name, None)
         self.component_labels.pop(target_name, None)
         self.property_labels.pop(target_name, None)

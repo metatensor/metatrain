@@ -14,7 +14,6 @@ from omegaconf import OmegaConf
 
 from metatrain.llpr import LLPRUncertaintyModel
 from metatrain.llpr import Trainer as LLPRTrainer
-from metatrain.llpr.model import _get_uncertainty_name
 from metatrain.pet import PET
 from metatrain.pet import Trainer as PETTrainer
 from metatrain.utils.data import DatasetInfo, get_atomic_types, get_dataset
@@ -393,13 +392,12 @@ def untrained_llpr_model(target_name, quantity, num_subtargets=1):
     )
     model = model.to(DTYPE)
 
-    uncertainty_name = _get_uncertainty_name(target_name)
-    model._get_cholesky(uncertainty_name)[:] = torch.eye(
-        model.ll_feat_size, dtype=DTYPE
-    )
+    target = model.targets[target_name]
+    cholesky = target.feature_blocks[0].cholesky
+    cholesky[:] = torch.eye(cholesky.shape[0], dtype=DTYPE)
     model.generate_ensemble()
 
-    return model, uncertainty_name.replace("_uncertainty", "_ensemble")
+    return model, target.ensemble_name
 
 
 @pytest.mark.parametrize(
