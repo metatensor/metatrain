@@ -64,7 +64,8 @@ Added
 Changed
 #######
 
-- The last-layer features of MACE have the keys and components of their target.
+- The last-layer features of MACE and SPACE have the keys and components of their
+  target.
 
 Removed
 #######
