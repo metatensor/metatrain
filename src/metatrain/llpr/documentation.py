@@ -4,7 +4,7 @@ LLPR
 
 The LLPR architecture is a "wrapper" architecture that enables cheap uncertainty
 quantification via the last-layer prediction rigidity (LLPR) approach proposed by Bigi
-et al:footcite:p:`bigi_mlst_2024`. It is compatible with the following ``metatrain``
+et al. :footcite:p:`bigi_mlst_2024`. It is compatible with the following ``metatrain``
 models constructed from NN-based architectures: :ref:`arch-pet` and
 :ref:`arch-soap_bpnn`.
 
