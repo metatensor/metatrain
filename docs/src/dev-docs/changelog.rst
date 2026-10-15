@@ -49,6 +49,8 @@ Fixed
 - SPACE's per-block validation errors (``log_separate_blocks``) are now correct for
   atomic-basis targets.
 - LLPR uncertainties of SPACE models trained on several targets are now correct.
+- Training with rotational augmentation no longer fails on targets split by atomic
+  type when some batches have no atomic type in common.
 
 Added
 #####
