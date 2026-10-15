@@ -284,7 +284,8 @@ class BaseModel(torch.nn.Module):
 
         last_layer_feature_dict: Dict[str, List[torch.Tensor]] = {}
         for output_name, layer in self.heads.items():
-            last_layer_features = features
+            # copied, as `features` is shared between the targets
+            last_layer_features = list(features)
             last_layer_features[0] = layer(last_layer_features[0])  # only L=0
             last_layer_feature_dict[output_name] = last_layer_features
 

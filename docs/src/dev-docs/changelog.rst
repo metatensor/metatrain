@@ -44,10 +44,17 @@ Fixed
   penalising them with ``log(1e-15)``.
 - SPACE now creates the property labels of the ``feature`` output on the device of the
   systems.
+- Continuing training from a SPACE checkpoint fine-tuned with ``inherit_heads`` no
+  longer copies the inherited weights again.
+- SPACE's per-block validation errors (``log_separate_blocks``) are now correct for
+  atomic-basis targets.
+- LLPR uncertainties of SPACE models trained on several targets are now correct.
 
 Added
 #####
 
+- SPACE models can now be fine-tuned on targets they were not trained on, optionally
+  initializing the new heads from existing ones with ``inherit_heads``.
 - Added ``experimental.lorem`` architecture (*Learning Long-Range
   Representations with Equivariant Messages*, https://arxiv.org/abs/2507.19382).
 
