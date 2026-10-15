@@ -1,3 +1,4 @@
+import copy
 import logging
 import warnings
 from collections.abc import Mapping
@@ -469,16 +470,18 @@ class SPACE(ModelInterface[ModelHypers]):
         #   the functional way they're used in the GradientModel)
         # - delete the other models: even if the forward function doesn't use them,
         #   torchscript will try to compile them anyway
-        self.module = self.fake_gradient_model
-        del self.gradient_model
-        del self.fake_gradient_model
+        # This is done on a copy, so that the model itself stays usable.
+        model = copy.deepcopy(self)
+        model.module = model.fake_gradient_model
+        del model.gradient_model
+        del model.fake_gradient_model
 
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for PET")
+            raise ValueError(f"unsupported dtype {dtype} for SPACE")
 
         # Make sure the model is all in the same dtype
-        self.to(dtype)
+        model.to(dtype)
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
@@ -491,7 +494,7 @@ class SPACE(ModelInterface[ModelHypers]):
 
         metadata = merge_metadata(self.metadata, metadata)
 
-        return AtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(model.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         self.outputs[target_name] = ModelOutput(
