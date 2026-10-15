@@ -1007,12 +1007,16 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 f"for target {target_name}"
             )
 
-        ll_features_name = (
-            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
-        )
-        self.outputs[ll_features_name] = ModelOutput(
-            sample_kind="atom", description=f"last layer features for {target_name}"
-        )
+        # the other targets are not linear in the features, which are contracted
+        # with a geometry-dependent basis
+        if target.is_scalar:
+            ll_features_name = (
+                f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
+            )
+            self.outputs[ll_features_name] = ModelOutput(
+                sample_kind="atom",
+                description=f"last layer features for {target_name}",
+            )
 
         # For rank-2 Cartesian targets, construct an internal spherical layout
         # so the last-layer/label setup matches the spherical decomposition.

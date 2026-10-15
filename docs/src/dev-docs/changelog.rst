@@ -70,6 +70,9 @@ Changed
 Removed
 #######
 
+- SOAP-BPNN no longer exposes last-layer features for its spherical and Cartesian
+  targets, so LLPR is not available for them.
+
 Version 2026.4.1 - 2026-09-25
 -----------------------------
 
