@@ -73,17 +73,6 @@ class ModelInterface(nn.Module, Generic[ModelHypersType], metaclass=ABCMeta):
     ``architecture`` key should contain references about the general architecture.
     """
 
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
-        # TorchScript drops the attributes if they are unused, but metatensor-torch
-        # checks for the attribute presence to decide wether to send a warning or not.
-        # Adding these to the class annotations forces torchscript to keep them, and
-        # removes the warning until this is fixed in metatensor-torch.
-        cls.__annotations__ = {
-            "_mts_buffer_names": List[str],
-            **cls.__annotations__,
-        }
-
     def __init__(
         self,
         hypers: ModelHypersType,
