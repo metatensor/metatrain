@@ -169,6 +169,8 @@ class ModelInterface(nn.Module, Generic[ModelHypersType], metaclass=ABCMeta):
         :param dataset_info: Information about the new dataset, including the targets
             that will be used for training.
 
+        :param model_hypers: The new hyperparameters for the model.
+
         :return: The updated model, or a new instance of the model, that is able to
             handle the new dataset.
         """
