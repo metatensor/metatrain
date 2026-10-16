@@ -144,7 +144,9 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
         # Initialize scaler
         scaler_hypers = get_default_hypers("scaler")["model"]
-        scaler = Scaler(hypers=scaler_hypers, dataset_info=model_dataset_info)
+        scaler = Scaler.from_valid_targets(
+            hypers=scaler_hypers, dataset_info=model_dataset_info
+        )
 
         return MetatrainModel(
             core=model,
@@ -199,12 +201,23 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             },
         )
 
+        scaler_info = DatasetInfo(
+            length_unit=model_dataset_info.length_unit,
+            atomic_types=model_dataset_info.atomic_types,
+            targets={
+                target_name: target_info
+                for target_name, target_info in model_dataset_info.targets.items()
+                if model.scaler.is_valid_target(target_name, target_info)
+            },
+            extra_data=model_dataset_info.extra_data,
+        )
+
         model.restart(
             dataset_info,
             model_dataset_info,
             additive_models_dataset_info=[comp_model_info]
             + [model_dataset_info] * (len(model.additive_models) - 1),
-            scaler_dataset_info=model_dataset_info,
+            scaler_dataset_info=scaler_info,
             model_hypers=model_hypers,
         )
 
