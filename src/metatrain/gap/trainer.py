@@ -84,6 +84,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         # checks
         assert dtype in GAP.__supported_dtypes__
         assert devices == [torch.device("cpu")]
+        model.to(device=devices[0], dtype=dtype)
         assert isinstance(model, MetatrainModel)
         gap_model = model.core
         assert isinstance(gap_model, GAP)
