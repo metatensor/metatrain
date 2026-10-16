@@ -542,7 +542,12 @@ class MetaMACE(ModelInterface[ModelHypers]):
             to_export = copy.copy(to_export.to(device="cpu"))
             to_export.mace_model = copy.deepcopy(to_export.mace_model)
 
-        model = AtomisticModel(jit.compile(to_export), metadata, capabilities)
+        with warnings.catch_warnings():
+            # Don't show torch.jit warnings to user
+            warnings.filterwarnings("ignore", "`torch.jit.*` is deprecated")
+            compiled = jit.compile(to_export)
+
+        model = AtomisticModel(compiled, metadata, capabilities)
 
         return model
 
