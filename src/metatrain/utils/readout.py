@@ -113,8 +113,14 @@ class LinearReadout(torch.nn.Module):
         present_groups: Optional[torch.Tensor] = None,
         bias_scale: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """One GEMM against every group's weights, then keep the group each row needs;
-        see :meth:`forward`."""
+        """One GEMM against every group's weights, then keep the group each row needs.
+
+        :param features: See :meth:`forward`.
+        :param group_idx: See :meth:`forward`.
+        :param present_groups: See :meth:`forward`.
+        :param bias_scale: See :meth:`forward`.
+        :return: See :meth:`forward`.
+        """
         # Promote 2-D features to 3-D so that both cases are handled uniformly, and
         # undo it on the way out.
         is_2d = features.dim() == 2
@@ -166,8 +172,13 @@ class LinearReadout(torch.nn.Module):
         group_idx: torch.Tensor,
         bias_scale: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Sort the rows by group and run one matmul per non-empty group; see
-        :meth:`forward`."""
+        """Sort the rows by group and run one matmul per non-empty group.
+
+        :param features: See :meth:`forward`, 2-D only.
+        :param group_idx: See :meth:`forward`.
+        :param bias_scale: See :meth:`forward`.
+        :return: See :meth:`forward`.
+        """
         order = torch.argsort(group_idx)
         counts: List[int] = torch.bincount(group_idx, minlength=self.n_groups).tolist()
         sorted_features = features.index_select(0, order)
