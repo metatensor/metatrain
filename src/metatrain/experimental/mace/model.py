@@ -544,9 +544,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         with warnings.catch_warnings():
             # Don't show torch.jit warnings to user
-            warnings.filterwarnings(
-                "ignore", "`torch.jit.*` is deprecated"
-            )
+            warnings.filterwarnings("ignore", "`torch.jit.*` is deprecated")
             compiled = jit.compile(to_export)
 
         model = AtomisticModel(compiled, metadata, capabilities)
