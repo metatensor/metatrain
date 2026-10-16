@@ -129,7 +129,6 @@ class PET(ModelInterface[ModelHypers]):
             ),
         }
 
-
         self.register_buffer("key_labels", {}, persistent=False)
         self.register_buffer("property_labels", {}, persistent=False)
         self.register_buffer("component_labels", {}, persistent=False)

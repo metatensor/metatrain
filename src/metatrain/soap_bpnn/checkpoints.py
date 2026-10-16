@@ -299,9 +299,7 @@ def model_update_v10_v11(checkpoint: dict) -> None:
             continue
 
         reference = next(v for v in state_dict.values() if isinstance(v, torch.Tensor))
-        empty_tensor = torch.zeros(
-            0, dtype=reference.dtype, device=reference.device
-        )
+        empty_tensor = torch.zeros(0, dtype=reference.dtype, device=reference.device)
         for prefix in [
             "",
             "soap_calculator.",

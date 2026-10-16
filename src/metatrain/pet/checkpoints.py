@@ -1,6 +1,7 @@
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+
 from metatrain.scaler.checkpoints import update_per_property_scales
 from metatrain.utils.data.atomic_basis_helpers import densify_atomic_basis_dataset_info
 
@@ -418,9 +419,7 @@ def model_update_v17_v18(checkpoint: dict) -> None:
         if "_mts_helper" in state_dict:
             continue
         reference = next(v for v in state_dict.values() if isinstance(v, torch.Tensor))
-        empty_tensor = torch.zeros(
-            0, dtype=reference.dtype, device=reference.device
-        )
+        empty_tensor = torch.zeros(0, dtype=reference.dtype, device=reference.device)
 
         state_dict["_mts_helper"] = empty_tensor
         state_dict["_extra_state"] = {}

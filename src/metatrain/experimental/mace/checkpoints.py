@@ -91,9 +91,7 @@ def model_update_v5_v6(checkpoint: dict) -> None:
             continue
 
         reference = next(v for v in state_dict.values() if isinstance(v, torch.Tensor))
-        empty_tensor = torch.zeros(
-            0, dtype=reference.dtype, device=reference.device
-        )
+        empty_tensor = torch.zeros(0, dtype=reference.dtype, device=reference.device)
 
         state_dict["_mts_helper"] = empty_tensor
         state_dict["_extra_state"] = {}

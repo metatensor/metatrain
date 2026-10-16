@@ -386,7 +386,6 @@ class CompositionModel(ModelInterface[ModelHypers]):
 
         return True
 
-
     def get_checkpoint(
         self, best_model_state_dict: Optional[dict[str, Any]] = None
     ) -> Dict:

@@ -247,7 +247,6 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             fixed_weights, targets_to_fit=composition_model._new_outputs
         )
 
-
         if checkpoint_dir and (not is_distributed or torch.distributed.get_rank() == 0):
             ckpt_path = Path(checkpoint_dir) / "composition_model.ckpt"
             self.save_checkpoint(model, ckpt_path)
