@@ -3,6 +3,8 @@ from typing import Dict, List, Optional, Tuple
 
 import torch
 
+from ...utils.hypers import resolve_per_target
+from ...utils.readout import LinearReadout
 from ..documentation import ModelHypers
 from .conditioning import SystemConditioningEmbedding
 from .structures import compute_batch_tensors
@@ -47,7 +49,20 @@ class PETBackend(torch.nn.Module):
         self.adaptive_cutoff_method = hypers["adaptive_cutoff_method"]
         self.d_pet = hypers["d_pet"]
         self.d_node = hypers["d_node"]
-        self.d_head = hypers["d_head"]
+        d_head = hypers["d_head"]
+        if isinstance(d_head, dict):
+            self.d_head_node = d_head["node"]
+            self.d_head_edge = d_head["edge"]
+        else:
+            self.d_head_node = d_head
+            self.d_head_edge = d_head
+        self.head_type = hypers["head_type"]
+        self.num_head_layers = hypers["num_head_layers"]
+        if self.num_head_layers < 1:
+            raise ValueError(
+                f"num_head_layers must be >= 1, got {self.num_head_layers}"
+            )
+        self.atom_type_gating = hypers["readout_type"]["atom_type_gating"]
         self.d_feedforward = hypers["d_feedforward"]
         self.num_heads = hypers["num_heads"]
         self.num_gnn_layers = hypers["num_gnn_layers"]
@@ -59,6 +74,7 @@ class PETBackend(torch.nn.Module):
         self.featurizer_type = hypers["featurizer_type"]
 
         num_atomic_species = len(atomic_types)
+        self.num_atomic_species = num_atomic_species
 
         # ``species_to_species_index`` is registered first so that it remains the first
         # entry of the ``state_dict`` (an integer buffer), which the checkpoint dtype
@@ -134,6 +150,12 @@ class PETBackend(torch.nn.Module):
         self.edge_heads = torch.nn.ModuleDict()
         self.node_last_layers = torch.nn.ModuleDict()
         self.edge_last_layers = torch.nn.ModuleDict()
+        # Number of heads per readout layer for each output: 1 for
+        # ``head_type="per_target"``, the number of blocks for ``"per_block"``.
+        self.heads_per_layer: Dict[str, int] = {}
+        # Whether any last layer is gated by the atomic type, in which case
+        # ``predict`` finds the atomic types present in the batch once for all of them
+        self.has_gated_last_layers = False
 
         # ===== BEGIN DIAGNOSTIC-RELATED ATTRIBUTES
         # These are used to capture the node and edge features from each GNN layer post
@@ -168,35 +190,31 @@ class PETBackend(torch.nn.Module):
             component sizes followed by the number of properties), as computed by
             :meth:`metatrain.pet.model.PET._add_output`.
         """
-        self.node_heads[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.Sequential(
-                    torch.nn.Linear(self.d_node, self.d_head),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(self.d_head, self.d_head),
-                    torch.nn.SiLU(),
-                )
-                for _ in range(self.num_readout_layers)
-            ]
+        head_type = resolve_per_target(self.head_type, target_name, "per_target")
+        gating = resolve_per_target(self.atom_type_gating, target_name, default=False)
+
+        # one head per block with "per_block", shared by all blocks otherwise
+        heads_per_layer = len(output_shapes) if head_type == "per_block" else 1
+        self.heads_per_layer[target_name] = heads_per_layer
+        self.node_heads[target_name] = self._make_heads(
+            self.d_node, self.d_head_node, heads_per_layer
+        )
+        self.edge_heads[target_name] = self._make_heads(
+            self.d_pet, self.d_head_edge, heads_per_layer
         )
 
-        self.edge_heads[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.Sequential(
-                    torch.nn.Linear(self.d_pet, self.d_head),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(self.d_head, self.d_head),
-                    torch.nn.SiLU(),
-                )
-                for _ in range(self.num_readout_layers)
-            ]
-        )
+        n_groups: Optional[int] = None
+        if gating == "one-hot":
+            n_groups = self.num_atomic_species
+            self.has_gated_last_layers = True
 
         self.node_last_layers[target_name] = torch.nn.ModuleList(
             [
                 torch.nn.ModuleDict(
                     {
-                        key: torch.nn.Linear(self.d_head, prod(shape), bias=True)
+                        key: LinearReadout(
+                            self.d_head_node, prod(shape), n_groups, bias=True
+                        )
                         for key, shape in output_shapes.items()
                     }
                 )
@@ -208,13 +226,43 @@ class PETBackend(torch.nn.Module):
             [
                 torch.nn.ModuleDict(
                     {
-                        key: torch.nn.Linear(self.d_head, prod(shape), bias=True)
+                        key: LinearReadout(
+                            self.d_head_edge, prod(shape), n_groups, bias=True
+                        )
                         for key, shape in output_shapes.items()
                     }
                 )
                 for _ in range(self.num_readout_layers)
             ]
         )
+
+    def _make_heads(
+        self, d_in: int, d_out: int, heads_per_layer: int
+    ) -> torch.nn.ModuleList:
+        """
+        Build the heads of one target, for all readout layers.
+
+        Each head is made of ``num_head_layers`` Linear+SiLU layers, mapping
+        ``d_in`` to ``d_out`` and then ``d_out`` to ``d_out``.
+
+        :param d_in: Input dimension of the heads.
+        :param d_out: Output dimension of the heads.
+        :param heads_per_layer: Number of heads per readout layer.
+        :return: A flat list of ``num_readout_layers * heads_per_layer`` heads, where
+            head ``j`` of readout layer ``i`` is at index ``i * heads_per_layer + j``.
+            Block ``j`` of a target reads head ``j % heads_per_layer``, i.e. its own
+            head with ``head_type="per_block"`` and the shared head otherwise.
+        """
+        heads: List[torch.nn.Module] = []
+        for _ in range(self.num_readout_layers * heads_per_layer):
+            layers: List[torch.nn.Module] = [
+                torch.nn.Linear(d_in, d_out),
+                torch.nn.SiLU(),
+            ]
+            for _ in range(self.num_head_layers - 1):
+                layers += [torch.nn.Linear(d_out, d_out), torch.nn.SiLU()]
+            heads.append(torch.nn.Sequential(*layers))
+        return torch.nn.ModuleList(heads)
 
     def remove_output(self, target_name: str) -> None:
         """
@@ -234,6 +282,12 @@ class PETBackend(torch.nn.Module):
             del self.node_last_layers[target_name]
         if target_name in self.edge_last_layers:
             del self.edge_last_layers[target_name]
+        self.heads_per_layer.pop(target_name, None)
+        self.has_gated_last_layers = any(
+            module.gated
+            for module in self.node_last_layers.modules()
+            if isinstance(module, LinearReadout)
+        )
 
     def preprocess(
         self,
@@ -425,6 +479,7 @@ class PETBackend(torch.nn.Module):
         cells: torch.Tensor,
         system_indices: torch.Tensor,
         requested_output_names: List[str],
+        per_edge_last_layers: bool = False,
     ) -> Tuple[
         Dict[str, List[torch.Tensor]],
         Dict[str, List[torch.Tensor]],
@@ -442,6 +497,8 @@ class PETBackend(torch.nn.Module):
             normalize non-conservative stress predictions by cell volume.
         :param system_indices: System index for each atom, shape ``(num_nodes,)``.
         :param requested_output_names: Names of the target outputs to compute.
+        :param per_edge_last_layers: Whether to apply the edge last layers per edge,
+            see :meth:`_calculate_atomic_predictions`.
         :return: A tuple ``(atomic_predictions, node_ll_features, edge_ll_features)``
             where ``atomic_predictions`` maps each requested output to a list of
             per-block flat prediction tensors, and the last-layer feature dictionaries
@@ -449,6 +506,10 @@ class PETBackend(torch.nn.Module):
         """
         padding_mask = batch_data["padding_mask"]
         cutoff_factors = batch_data["cutoff_factors"]
+        element_indices_nodes = batch_data["element_indices_nodes"]
+        present_types: Optional[torch.Tensor] = None
+        if self.has_gated_last_layers:
+            present_types = torch.unique(element_indices_nodes)
 
         node_ll_features, edge_ll_features = self._calculate_last_layer_features(
             node_features_list,
@@ -462,6 +523,9 @@ class PETBackend(torch.nn.Module):
                 padding_mask,
                 cutoff_factors,
                 requested_output_names,
+                element_indices_nodes,
+                present_types,
+                per_edge_last_layers,
             )
         )
 
@@ -657,6 +721,8 @@ class PETBackend(torch.nn.Module):
         Apply output-specific heads to node and edge features from each GNN layer.
         Returns dictionaries mapping output names to lists of head-transformed features.
 
+        The lists are indexed as the heads, see :meth:`_make_heads`.
+
         :param node_features_list: List of node feature tensors from each GNN layer.
         :param edge_features_list: List of edge feature tensors from each GNN layer.
         :return: Tuple of two dictionaries:
@@ -670,18 +736,20 @@ class PETBackend(torch.nn.Module):
         for output_name, node_heads in self.node_heads.items():
             if output_name not in node_last_layer_features_dict:
                 node_last_layer_features_dict[output_name] = []
+            heads_per_layer = self.heads_per_layer[output_name]
             for i, node_head in enumerate(node_heads):
                 node_last_layer_features_dict[output_name].append(
-                    node_head(node_features_list[i])
+                    node_head(node_features_list[i // heads_per_layer])
                 )
 
         # Calculating edge last layer features
         for output_name, edge_heads in self.edge_heads.items():
             if output_name not in edge_last_layer_features_dict:
                 edge_last_layer_features_dict[output_name] = []
+            heads_per_layer = self.heads_per_layer[output_name]
             for i, edge_head in enumerate(edge_heads):
                 edge_last_layer_features_dict[output_name].append(
-                    edge_head(edge_features_list[i])
+                    edge_head(edge_features_list[i // heads_per_layer])
                 )
 
         return node_last_layer_features_dict, edge_last_layer_features_dict
@@ -693,6 +761,9 @@ class PETBackend(torch.nn.Module):
         padding_mask: torch.Tensor,
         cutoff_factors: torch.Tensor,
         requested_output_names: List[str],
+        element_indices_nodes: torch.Tensor,
+        present_types: Optional[torch.Tensor] = None,
+        per_edge_last_layers: bool = False,
     ) -> Tuple[
         Dict[str, List[List[torch.Tensor]]], Dict[str, List[List[torch.Tensor]]]
     ]:
@@ -700,6 +771,22 @@ class PETBackend(torch.nn.Module):
         Apply final linear layers to last layer features to produce
         per-atom predictions. Handles multiple blocks per output and sums
         edge contributions with cutoff weighting.
+
+        Each block reads the last layer features of its head, see :meth:`_make_heads`.
+        Last layers gated by atomic type are conditioned on the type of the central
+        atom, for both the node and edge features.
+
+        For the edge last layers gated by atomic type, the cutoff-weighted sum over
+        neighbors is taken *before* them. Since they are linear and conditioned on the
+        central atom only, this is exactly equal to summing the per-edge predictions:
+
+            sum_j c_ij (W_t(i) f_ij + b_t(i)) = W_t(i) (sum_j c_ij f_ij)
+                                                + b_t(i) (sum_j c_ij)
+
+        This avoids evaluating the weights of every atomic type on every edge, whose
+        cost grows with the number of atomic types. The ungated edge last layers, and
+        all of them when ``per_edge_last_layers`` is set (i.e. when diagnostic hooks
+        capture their outputs), are applied to each edge.
 
         :param node_last_layer_features_dict: Dictionary mapping output names to
             lists of node last layer features.
@@ -710,6 +797,12 @@ class PETBackend(torch.nn.Module):
         :param cutoff_factors: Tensor of cutoff factors for edge distances
             [n_atoms, max_num_neighbors].
         :param requested_output_names: Names of the target outputs to compute.
+        :param element_indices_nodes: Index of the atomic type of each atom
+            [n_atoms].
+        :param present_types: Sorted indices of the atomic types present in the
+            batch, used to speed up the last layers gated by atomic type.
+        :param per_edge_last_layers: Whether to apply the edge last layers to each
+            edge before pooling over neighbors, including the gated ones.
         :return: Tuple of two dictionaries:
             - Dictionary mapping output names to lists of lists of node atomic
               prediction tensors (one list per GNN layer, one tensor per block)
@@ -728,14 +821,21 @@ class PETBackend(torch.nn.Module):
                 node_atomic_predictions_dict[output_name] = torch.jit.annotate(
                     List[List[torch.Tensor]], []
                 )
+                heads_per_layer = self.heads_per_layer[output_name]
                 for i, node_last_layer in enumerate(node_last_layers):
-                    node_last_layer_features = node_last_layer_features_dict[
-                        output_name
-                    ][i]
                     node_atomic_predictions_by_block: List[torch.Tensor] = []
-                    for node_last_layer_by_block in node_last_layer.values():
+                    for j, node_last_layer_by_block in enumerate(
+                        node_last_layer.values()
+                    ):
+                        node_last_layer_features = node_last_layer_features_dict[
+                            output_name
+                        ][i * heads_per_layer + j % heads_per_layer]
                         node_atomic_predictions_by_block.append(
-                            node_last_layer_by_block(node_last_layer_features)
+                            node_last_layer_by_block(
+                                node_last_layer_features,
+                                element_indices_nodes,
+                                present_types,
+                            )
                         )
                     node_atomic_predictions_dict[output_name].append(
                         node_atomic_predictions_by_block
@@ -744,32 +844,57 @@ class PETBackend(torch.nn.Module):
         # Computing edge atomic predictions. Following the same logic as above,
         # we (1) iterate over the last layer features and last layer blocks, and (2)
         # sum the edge features with cutoff factors to get their per-node contribution.
+        # The cutoff factors of padded neighbors are zero, so pooling needs no mask.
+        pool_gated_edges = not per_edge_last_layers
 
         for output_name, edge_last_layers in self.edge_last_layers.items():
             if output_name in requested_output_names:
                 edge_atomic_predictions_dict[output_name] = torch.jit.annotate(
                     List[List[torch.Tensor]], []
                 )
+                heads_per_layer = self.heads_per_layer[output_name]
+                # pooled edge features, by index in the list of last layer features
+                pooled_edge_last_layer_features: Dict[int, torch.Tensor] = {}
                 for i, edge_last_layer in enumerate(edge_last_layers):
-                    edge_last_layer_features = edge_last_layer_features_dict[
-                        output_name
-                    ][i]
                     edge_atomic_predictions_by_block: List[torch.Tensor] = []
-                    for edge_last_layer_by_block in edge_last_layer.values():
-                        edge_atomic_predictions = edge_last_layer_by_block(
-                            edge_last_layer_features
-                        )
-                        expanded_padding_mask = padding_mask[..., None].repeat(
-                            1, 1, edge_atomic_predictions.shape[2]
-                        )
-                        edge_atomic_predictions = torch.where(
-                            ~expanded_padding_mask, 0.0, edge_atomic_predictions
-                        )
-                        edge_atomic_predictions_by_block.append(
-                            (edge_atomic_predictions * cutoff_factors[:, :, None]).sum(
-                                dim=1
+                    for j, edge_last_layer_by_block in enumerate(
+                        edge_last_layer.values()
+                    ):
+                        k = i * heads_per_layer + j % heads_per_layer
+                        edge_last_layer_features = edge_last_layer_features_dict[
+                            output_name
+                        ][k]
+                        if pool_gated_edges and edge_last_layer_by_block.gated:
+                            if k not in pooled_edge_last_layer_features:
+                                pooled_edge_last_layer_features[k] = torch.bmm(
+                                    cutoff_factors.unsqueeze(1),
+                                    edge_last_layer_features,
+                                ).squeeze(1)
+                            edge_atomic_predictions_by_block.append(
+                                edge_last_layer_by_block(
+                                    pooled_edge_last_layer_features[k],
+                                    element_indices_nodes,
+                                    present_types,
+                                    cutoff_factors.sum(dim=1, keepdim=True),
+                                )
                             )
-                        )
+                        else:
+                            edge_atomic_predictions = edge_last_layer_by_block(
+                                edge_last_layer_features,
+                                element_indices_nodes,
+                                present_types,
+                            )
+                            expanded_padding_mask = padding_mask[..., None].repeat(
+                                1, 1, edge_atomic_predictions.shape[2]
+                            )
+                            edge_atomic_predictions = torch.where(
+                                ~expanded_padding_mask, 0.0, edge_atomic_predictions
+                            )
+                            edge_atomic_predictions_by_block.append(
+                                (
+                                    edge_atomic_predictions * cutoff_factors[:, :, None]
+                                ).sum(dim=1)
+                            )
                     edge_atomic_predictions_dict[output_name].append(
                         edge_atomic_predictions_by_block
                     )
