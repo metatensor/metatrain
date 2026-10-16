@@ -190,10 +190,10 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         )
 
         dense_dataset_info = DatasetInfo(
-            length_unit=dataset_info.length_unit,
+            length_unit=dense_dataset_info.length_unit,
             atomic_types=core_dataset_info.atomic_types,
-            targets=dataset_info.targets,
-            extra_data=dataset_info.extra_data,
+            targets=dense_dataset_info.targets,
+            extra_data=dense_dataset_info.extra_data,
         )
 
         # Set up additive models
@@ -353,7 +353,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         atomic_basis_transform, atomic_basis_reverse_transform = (
             get_prepare_atomic_basis_targets_transform(
-                model.dataset_info, mace_model.dataset_info
+                model.dataset_info, model.scaler.dataset_info, nl_options=requested_neighbor_lists[0]
             )
         )
 
@@ -464,10 +464,10 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         collate_fn = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
-                atomic_basis_transform,
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                atomic_basis_transform,
                 get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
+                #get_remove_scale_transform(scaler),
             ],
         )
 
