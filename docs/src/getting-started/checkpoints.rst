@@ -37,6 +37,25 @@ of the current directory. If no checkpoint is found, the training will start
 from scratch.
 
 
+Inspecting a model
+------------------
+
+The ``info`` command prints a summary of a saved model without need to write any Python
+code. This shows quick info about targets and atomic types the model supports, its
+number of parameters, metadata and, for checkpoints, the architecture hypers and
+training state.
+
+.. code-block:: bash
+
+    mtt info model.ckpt
+    mtt info model.pt
+
+As for the other sub-commands, a URL can be provided instead of a file path.
+
+The summary is printed as YAML. The ``architecture`` section of a checkpoint has the
+same layout as in the options file, so it can be copied to train a new model with the
+same hypers.
+
 Exporting models
 ----------------
 

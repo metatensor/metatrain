@@ -64,6 +64,7 @@ Added
   initializing the new heads from existing ones with ``inherit_heads``.
 - Added ``experimental.lorem`` architecture (*Learning Long-Range
   Representations with Equivariant Messages*, https://arxiv.org/abs/2507.19382).
+- Added ``mtt info`` command to print a summary of a checkpoint or exported model
 
 Changed
 #######
