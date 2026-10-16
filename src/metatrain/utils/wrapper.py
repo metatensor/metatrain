@@ -265,6 +265,9 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             _add_model_requested_inputs(self.scaler)
         _add_model_requested_inputs(self.core)
 
+        for hook in self.forward_hooks:
+            _add_model_requested_inputs(hook)
+
         return requested_inputs
 
     def requested_neighbor_lists(self) -> list[NeighborListOptions]:
@@ -283,6 +286,9 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         if self.scaler is not None:
             _add_model_requested_neighbor_lists(self.scaler)
         _add_model_requested_neighbor_lists(self.core)
+
+        for hook in self.forward_hooks:
+            _add_model_requested_neighbor_lists(hook)
 
         return requested_neighbor_lists
 
@@ -355,6 +361,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             core=core.module,
             additive_models=[model.module for model in additive_models],
             scaler=scaler.module if scaler is not None else None,  # type: ignore[arg-type]
+            forward_hooks=[hook for hook in self.forward_hooks],
             dataset_info=self.dataset_info,
         )
         # Some architectures have attributes that downstream code reads from the
