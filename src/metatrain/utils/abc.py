@@ -15,6 +15,7 @@ from typing import (
 
 import torch
 from metatensor.torch import Labels, TensorMap
+from metatensor.torch.learn import nn
 from metatomic.torch import (
     AtomisticModel,
     ModelMetadata,
@@ -29,7 +30,7 @@ ModelHypersType = TypeVar("ModelHypersType")
 TrainerHypersType = TypeVar("TrainerHypersType")
 
 
-class ModelInterface(torch.nn.Module, Generic[ModelHypersType], metaclass=ABCMeta):
+class ModelInterface(nn.Module, Generic[ModelHypersType], metaclass=ABCMeta):
     """
     Abstract base class for a machine learning model in metatrain.
 

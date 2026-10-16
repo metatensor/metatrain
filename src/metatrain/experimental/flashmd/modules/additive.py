@@ -15,10 +15,12 @@ from metatomic.torch import (
 from pydantic import TypeAdapter
 from typing_extensions import TypedDict
 
-from metatrain.utils.abc import ModelInterface
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
+
+from . import additive_checkpoints as checkpoints
 
 
 class PositionAdditiveHypers(TypedDict):
@@ -33,7 +35,7 @@ class PositionAdditive(ModelInterface):
     Optionally, it can also do the same with momenta.
     """
 
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata()
@@ -271,14 +273,9 @@ class PositionAdditive(ModelInterface):
 
         :return: The upgraded checkpoint.
         """
-        if version is None:
-            version = cls.__checkpoint_version__
-        if checkpoint["model_ckpt_version"] != version:
-            raise NotImplementedError(
-                "PositionAdditive does not support checkpoint upgrading. "
-                "There is only one checkpoint version."
-            )
-        return checkpoint
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         """

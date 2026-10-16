@@ -279,6 +279,37 @@ def model_update_v9_v10(checkpoint: dict) -> None:
     )
 
 
+def model_update_v10_v11(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 9 to version 10.
+
+    The embedded composition model and scaler now use
+    ``metatensor.torch.learn.nn.Module`` with ``register_buffer`` instead of
+    manually tracked buffers.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is None:
+            continue
+
+        # If both model_state_dict and best_model_state_dict point to the same
+        # dict, the upgrade was already applied in the first iteration.
+        if "_mts_helper" in state_dict:
+            continue
+
+        reference = next(v for v in state_dict.values() if isinstance(v, torch.Tensor))
+        empty_tensor = torch.zeros(0, dtype=reference.dtype, device=reference.device)
+        for prefix in [
+            "",
+            "soap_calculator.",
+            "basis_calculators.energy.energy___0.",
+            "basis_calculators.energy.energy___0.lambda_basis_module.",
+        ]:
+            state_dict[f"{prefix}_mts_helper"] = empty_tensor
+            state_dict[f"{prefix}_extra_state"] = {}
+
+
 ###########################
 # TRAINER #################
 ###########################

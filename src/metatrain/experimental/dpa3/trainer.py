@@ -232,13 +232,6 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 f"descriptor.precision."
             )
 
-        # Move the model to the device (dtype already matches construction):
-        model.to(device=device)
-        # The additive models are always kept in float64 to avoid numerical
-        # errors in the composition weights, which can be very large.
-        for additive_model in model.additive_models:
-            additive_model.to(dtype=torch.float64)
-
         atomic_baseline = self.hypers["fixed_composition_weights"]
         if isinstance(atomic_baseline, str):
             if dpa3.get_fixed_composition_weights():
@@ -259,6 +252,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             atomic_baseline=atomic_baseline,
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
+            device=device,
             batch_size=self.hypers["batch_size"],
             is_distributed=is_distributed,
             checkpoint_dir=checkpoint_dir,
@@ -270,11 +264,16 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 fixed_weights=dpa3.get_fixed_scaling_weights(),
                 train_datasets=train_datasets,
                 additive_models=model.additive_models,
+                device=device,
                 batch_size=self.hypers["batch_size"],
                 is_distributed=is_distributed,
-                checkpoint_dir=checkpoint_dir,
                 per_structure_targets=self.hypers["per_structure_targets"],
+                checkpoint_dir=checkpoint_dir,
             )
+
+        # Now move the whole model (including the composition model and scaler,
+        # which were trained in float64 above) to the training device and dtype.
+        model.to(device=device, dtype=dtype)
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -418,16 +417,13 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
+                    systems, targets, extra_data, device=device, dtype=dtype
                 )
                 for additive_model in raw_model.additive_models:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(systems, targets, raw_model.scaler)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
-                )
 
                 predictions = evaluate_model(
                     model,
@@ -505,16 +501,13 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             for batch in val_dataloader:
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
+                    systems, targets, extra_data, device=device, dtype=dtype
                 )
                 for additive_model in raw_model.additive_models:
                     targets = remove_additive(
                         systems, targets, additive_model, train_targets
                     )
                 targets = remove_scale(systems, targets, raw_model.scaler)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
-                )
 
                 predictions = evaluate_model(
                     model,

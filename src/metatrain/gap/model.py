@@ -8,6 +8,7 @@ import numpy as np
 import scipy
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch.learn import nn
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -28,7 +29,7 @@ from .documentation import ModelHypers
 
 
 class GAP(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
     __supported_devices__ = ["cpu"]
     __supported_dtypes__ = [torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -42,6 +43,7 @@ class GAP(ModelInterface[ModelHypers]):
             ],
         }
     )
+    _species_labels: Labels
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -124,7 +126,7 @@ class GAP(ModelInterface[ModelHypers]):
         self._sampler = _FPS(n_to_select=self.hypers["krr"]["num_sparse_points"])
 
         # set it do dummy keys, these are properly set during training
-        self._keys = Labels.empty("_")
+        self.register_buffer("_keys", Labels.empty("_"), persistent=False)
 
         dummy_weights = TensorMap(
             Labels(["_"], torch.tensor([[0]])),
@@ -141,7 +143,7 @@ class GAP(ModelInterface[ModelHypers]):
                 "aggregate_names": ["atom", "center_type"],
             },
         )
-        self._species_labels: Labels = Labels.empty("_")
+        self.register_buffer("_species_labels", Labels.empty("_"))
 
         # additive models: these are handled by the trainer at training
         # time, and they are added to the output at evaluation time
@@ -202,9 +204,6 @@ class GAP(ModelInterface[ModelHypers]):
         soap_features = self._soap_torch_calculator(
             systems, selected_samples=selected_atoms
         )
-        # move keys and species labels to device
-        self._keys = self._keys.to(systems[0].device)
-        self._species_labels = self._species_labels.to(systems[0].device)
 
         new_blocks: List[TensorBlock] = []
         # HACK: to add a block of zeros if there are missing species
@@ -298,10 +297,6 @@ class GAP(ModelInterface[ModelHypers]):
                 interaction_ranges.append(additive_model.cutoff_radius)
         interaction_range = max(interaction_ranges)
 
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This funciton moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
-
         capabilities = ModelCapabilities(
             outputs=self.outputs,
             atomic_types=sorted(self.dataset_info.atomic_types),
@@ -315,7 +310,7 @@ class GAP(ModelInterface[ModelHypers]):
         # that is used in the forward path
         self._subset_of_regressors_torch = (
             self._subset_of_regressors.export_torch_script_model()
-        )
+        ).to(dtype=torch.float64)
 
         metadata = merge_metadata(self.metadata, metadata)
 
@@ -823,7 +818,7 @@ class SubsetOfRegressors:
         )
 
 
-class TorchSubsetofRegressors(torch.nn.Module):
+class TorchSubsetofRegressors(nn.Module):
     def __init__(
         self,
         weights: TensorMap,
@@ -831,8 +826,8 @@ class TorchSubsetofRegressors(torch.nn.Module):
         kernel_kwargs: Optional[dict] = None,
     ):
         super().__init__()
-        self._weights = weights
-        self._X_pseudo = X_pseudo
+        self.register_buffer("_weights", weights, persistent=False)
+        self.register_buffer("_X_pseudo", X_pseudo, persistent=False)
         if kernel_kwargs is None:
             kernel_kwargs = {}
 
@@ -848,9 +843,5 @@ class TorchSubsetofRegressors(torch.nn.Module):
         :return:
             TensorMap with the predictions
         """
-        # move weights and X_pseudo to the same device as T
-        self._weights = self._weights.to(T.device)
-        self._X_pseudo = self._X_pseudo.to(T.device)
-
         k_tm = self._kernel(T, self._X_pseudo, are_pseudo_points=(False, True))
         return mts.dot(k_tm, self._weights)

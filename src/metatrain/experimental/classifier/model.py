@@ -23,7 +23,7 @@ from .documentation import ModelHypers
 
 
 class Classifier(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
 
     # all torch devices and dtypes are supported, if they are supported by the wrapped
     # model; the check is performed in the trainer

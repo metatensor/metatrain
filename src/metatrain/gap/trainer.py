@@ -84,6 +84,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         # checks
         assert dtype in GAP.__supported_dtypes__
         assert devices == [torch.device("cpu")]
+        model.to(device=devices[0], dtype=dtype)
         assert isinstance(model, MetatrainModel)
         gap_model = model.core
         assert isinstance(gap_model, GAP)
@@ -109,6 +110,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             atomic_baseline={},
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
+            device=devices[0],
             batch_size=1,
             is_distributed=False,
             checkpoint_dir=checkpoint_dir,
@@ -190,7 +192,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
         gap_model._subset_of_regressors_torch = (
             gap_model._subset_of_regressors.export_torch_script_model()
-        )
+        ).to(device=devices[0], dtype=dtype)
 
     def save_checkpoint(
         self, model: ModelInterface, checkpoint_dir: Union[str, Path]

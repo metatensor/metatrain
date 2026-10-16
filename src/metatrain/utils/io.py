@@ -300,6 +300,8 @@ _mtt_model_versions = {
     "pet": (17, 15),
     "llpr": (5, 7),
     "soap_bpnn": (10, 12),
+    "composition": (1, 3),
+    "scaler": (1, 2),
     "experimental.mace": (5, 4),
     "experimental.dpa3": (4, 3),
     "experimental.space": (4, 4),
@@ -325,6 +327,7 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
     architecture = import_architecture(architecture_name)
 
     model_cls = architecture.__model__
+    print(f"Upgrading checkpoint for architecture '{architecture_name}'")
     if architecture_name in _mtt_model_versions:
         target_version = _mtt_model_versions[architecture_name][0] - 1
         if "model_ckpt_version" not in checkpoint:
@@ -424,9 +427,12 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
                 )
         else:
             new_ckpt["scaler"][key] = scaler_state_dict
-
+            new_ckpt["scaler"]["model_ckpt_version"] = _mtt_model_versions["scaler"][0]
         for i, additive_model_state_dict in enumerate(additive_models_state_dict):
             new_ckpt["additive_models"][i][key] = additive_model_state_dict
+            new_ckpt["additive_models"][i]["model_ckpt_version"] = _mtt_model_versions[
+                "composition"
+            ][0]
 
     # If there was no state dicts for the scaler or additive models, this means that
     # the model checkpoint did not contain them. We might have initialized them

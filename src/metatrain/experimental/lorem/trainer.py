@@ -201,14 +201,6 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         else:
             logging.info(f"Training on device {device} with dtype {dtype}")
 
-        # Move the model to the device and dtype:
-        model.to(device=device, dtype=dtype)
-        # The additive models are always in float64 (to avoid numerical errors in
-        # the composition weights, which can be very large).
-        for additive_model in model.additive_models:
-            additive_model.to(dtype=torch.float64)
-        model.scaler.to(dtype=torch.float64)
-
         # Set up transformations
         train_targets = model.dataset_info.targets
         requested_neighbor_lists = get_requested_neighbor_lists(model)
@@ -219,6 +211,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             atomic_baseline=self.hypers["atomic_baseline"],
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
+            device=device,
             batch_size=self.hypers["batch_size"],
             is_distributed=is_distributed,
             checkpoint_dir=checkpoint_dir,
@@ -237,6 +230,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 fixed_weights=self.hypers["fixed_scaling_weights"],
                 train_datasets=train_datasets,
                 additive_models=model.additive_models,
+                device=device,
                 batch_size=self.hypers["batch_size"],
                 is_distributed=is_distributed,
                 checkpoint_dir=checkpoint_dir,
@@ -272,16 +266,10 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
         # Extract additive models and scaler and move them to CPU/float64 so they
         # can be used in the collate function
-        model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
-        additive_models = copy.deepcopy(
-            model.additive_models.to(dtype=torch.float64, device="cpu")
+        additive_models = copy.deepcopy(model.additive_models).to(
+            dtype=torch.float64, device="cpu"
         )
-        model.additive_models.to(device)
-        model.additive_models[0].weights_to(device=device, dtype=torch.float64)
-        model.scaler.scales_to(device="cpu", dtype=torch.float64)
-        scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
-        model.scaler.to(device)
-        model.scaler.scales_to(device=device, dtype=torch.float64)
+        scaler = copy.deepcopy(model.scaler).to(dtype=torch.float64, device="cpu")
 
         # Create the collate function. LOREM is equivariant by construction, so
         # there is no rotational augmentation and training and validation share it
@@ -293,6 +281,10 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 get_remove_scale_transform(scaler),
             ],
         )
+
+        # Now move the whole model (including the composition model and scaler,
+        # which were trained in float64 above) to the training device and dtype.
+        model.to(device=device, dtype=dtype)
 
         if self.hypers["num_workers"] is None:
             num_workers = get_num_workers()

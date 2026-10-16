@@ -45,7 +45,7 @@ from .documentation import ModelHypers
 
 
 class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 5
+    __checkpoint_version__ = 6
 
     ensemble_gradient_outputs: List[str]
 
@@ -1225,7 +1225,11 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
         state_dict_iter = iter(model_state_dict.values())
         next(state_dict_iter)
-        dtype = next(state_dict_iter).dtype
+        while True:
+            item = next(state_dict_iter)
+            if hasattr(item, "dtype"):
+                break
+        dtype = item.dtype
         # TODO: find a way to refactor this to avoid strict=False
         llpr_model.to(dtype).load_state_dict(model_state_dict, strict=False)
         return llpr_model
