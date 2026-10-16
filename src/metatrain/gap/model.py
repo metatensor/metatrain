@@ -249,8 +249,7 @@ class GAP(ModelInterface[ModelHypers]):
         return return_dict
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
-        interaction_ranges = [self.hypers["soap"]["cutoff"]["radius"]]
-        interaction_range = max(interaction_ranges)
+        interaction_range = self.hypers["soap"]["cutoff"]["radius"]
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
