@@ -2,12 +2,6 @@ import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from metatrain.composition.checkpoints import (
-    model_update_v1_v2 as composition_update_v1_v2,
-)
-from metatrain.scaler.checkpoints import (
-    model_update_v1_v2 as scaler_update_v1_v2,
-)
 from metatrain.scaler.checkpoints import update_per_property_scales
 from metatrain.utils.data.target_info import TargetInfo
 from metatrain.utils.omegaconf import DEPRECATED_METATOMIC_TARGET_NAMES
@@ -141,7 +135,28 @@ def model_update_v2_v3(checkpoint: dict) -> None:
 
 def model_update_v3_v4(checkpoint: dict) -> None:
     """
-    Update model checkpoint from version 3 to version 4.
+    Update a v3 checkpoint to v4.
+
+    It removes the additive models and scaler from the model checkpoint,
+    as this is now handled by the MetatrainModel wrapper.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    removed_prefixes = (
+        "additive_models.",
+        "scaler.",
+    )
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            for k in list(state_dict):
+                for prefix in removed_prefixes:
+                    if k.startswith(prefix):
+                        state_dict.pop(k)
+
+
+def model_update_v4_v5(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 4 to version 5.
 
     The embedded composition model and scaler now use
     ``metatensor.torch.learn.nn.Module`` with ``register_buffer`` instead of
@@ -149,8 +164,6 @@ def model_update_v3_v4(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to update.
     """
-    composition_update_v1_v2(checkpoint, prefix="additive_models.0.")
-    scaler_update_v1_v2(checkpoint, prefix="scaler.")
     for key in ["model_state_dict", "best_model_state_dict"]:
         if (state_dict := checkpoint.get(key)) is None:
             continue
@@ -160,9 +173,9 @@ def model_update_v3_v4(checkpoint: dict) -> None:
         if "_mts_helper" in state_dict:
             continue
 
-        dummy_buffer = state_dict["additive_models.0.dummy_buffer"]
+        reference = next(v for v in state_dict.values() if isinstance(v, torch.Tensor))
         empty_tensor = torch.zeros(
-            0, dtype=dummy_buffer.dtype, device=dummy_buffer.device
+            0, dtype=reference.dtype, device=reference.device
         )
 
         state_dict["_mts_helper"] = empty_tensor

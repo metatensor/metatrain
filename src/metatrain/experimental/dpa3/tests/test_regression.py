@@ -102,8 +102,8 @@ def test_regression_energies_forces_train():
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[6], targets=target_info_dict
     )
-    model = DPA3(MODEL_HYPERS, dataset_info).to("cpu")
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(MODEL_HYPERS, dataset_info).to("cpu")
     trainer.train(
         model=model,
         dtype=torch.float32,

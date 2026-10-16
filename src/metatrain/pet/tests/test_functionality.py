@@ -10,7 +10,7 @@ from metatomic.torch import ModelOutput, System
 from metatomic_ase import MetatomicCalculator
 
 from metatrain.composition import Trainer as CompositionTrainer
-from metatrain.pet import PET
+from metatrain.pet import PET, Trainer
 from metatrain.pet.modules.transformer import AttentionBlock
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo
@@ -19,6 +19,7 @@ from metatrain.utils.data.target_info import (
     get_generic_target_info,
 )
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import MODEL_HYPERS
 
@@ -354,12 +355,6 @@ def test_composition_contribution_in_eval_atomic_basis():
         },
     )
 
-    model = PET(MODEL_HYPERS, dataset_info)
-    # Identical PET weights, but its composition model stays unfitted (zero
-    # weights): the difference between the two eval outputs must be exactly
-    # the composition contribution.
-    model_no_composition = copy.deepcopy(model)
-
     # Fit the composition model of ``model`` on two synthetic structures:
     # - O atom, with an invariant of 1.0
     # - H2O molecule, with invariants of 1.0, 1.5, 2.0
@@ -447,6 +442,13 @@ def test_composition_contribution_in_eval_atomic_basis():
             "mtt::aux::system_index": system_indices,
         }
     )
+
+    trainer = Trainer(get_default_hypers("composition")["training"])
+    model = trainer.setup(MODEL_HYPERS, dataset_info)
+    # Identical PET weights, but its composition model stays unfitted (zero
+    # weights): the difference between the two eval outputs must be exactly
+    # the composition contribution.
+    model_no_composition = copy.deepcopy(model)
     composition_trainer = CompositionTrainer(
         hypers={
             **get_default_hypers("composition")["training"],
@@ -454,8 +456,14 @@ def test_composition_contribution_in_eval_atomic_basis():
             "batch_size": 1,
         }
     )
+    composition_model = model.additive_models[0]
     composition_trainer.train(
-        model=model.additive_models[0],
+        model=MetatrainModel(
+            composition_model,
+            additive_models=[],
+            scaler=None,
+            dataset_info=model.dataset_info,
+        ),
         dtype=torch.float64,
         devices=[torch.device("cpu")],
         train_datasets=[dataset],

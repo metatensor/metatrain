@@ -37,10 +37,24 @@ Fixed
 - ``MemmapDataset`` can now load generic targets with a variant (e.g.
   ``non_conservative_stress/<variant>``), instead of failing with
   ``'<name>/<variant>' is not a valid label name``.
+- Dataset merging and training restarts now accept equivalent unit spellings
+  such as ``A`` and ``angstrom`` or ``eV/A^3`` and
+  ``eV/angstrom^3``, avoiding false unit incompatibility errors.
+- PET attention now excludes keys with a zero cutoff factor with ``-inf`` instead of
+  penalising them with ``log(1e-15)``.
+- SPACE now creates the property labels of the ``feature`` output on the device of the
+  systems.
+- Continuing training from a SPACE checkpoint fine-tuned with ``inherit_heads`` no
+  longer copies the inherited weights again.
+- SPACE's per-block validation errors (``log_separate_blocks``) are now correct for
+  atomic-basis targets.
+- LLPR uncertainties of SPACE models trained on several targets are now correct.
 
 Added
 #####
 
+- SPACE models can now be fine-tuned on targets they were not trained on, optionally
+  initializing the new heads from existing ones with ``inherit_heads``.
 - Added ``experimental.lorem`` architecture (*Learning Long-Range
   Representations with Equivariant Messages*, https://arxiv.org/abs/2507.19382).
 

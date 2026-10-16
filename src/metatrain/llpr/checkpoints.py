@@ -1,5 +1,7 @@
 import torch
 
+from metatrain.utils.io import _ckpt_from_arch_ckpt
+
 
 def model_update_v1_v2(checkpoint: dict) -> None:
     """
@@ -98,10 +100,21 @@ def model_update_v4_v5(checkpoint: dict) -> None:
 
     :param checkpoint: The checkpoint to update.
     """
+    checkpoint["wrapped_model_checkpoint"] = _ckpt_from_arch_ckpt(
+        checkpoint["wrapped_model_checkpoint"]
+    )
+
+
+def model_update_v5_v6(checkpoint: dict) -> None:
+    """
+    Update a v5 checkpoint to v6.
+
+    :param checkpoint: The checkpoint to update.
+    """
     # added _mts_helper and _extra_state buffers
     state_dict = checkpoint["model_state_dict"]
-    dummy_buffer = next(iter(state_dict.values()))
-    empty_tensor = torch.zeros(0, dtype=dummy_buffer.dtype, device=dummy_buffer.device)
+    reference = next(iter(state_dict.values()))
+    empty_tensor = torch.zeros(0, dtype=reference.dtype, device=reference.device)
     state_dict["_mts_helper"] = empty_tensor
     state_dict["_extra_state"] = {}
 

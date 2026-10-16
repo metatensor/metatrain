@@ -12,12 +12,12 @@ from metatomic_ase import MetatomicCalculator
 from omegaconf import OmegaConf
 
 from metatrain.experimental.classifier import Classifier
-from metatrain.pet import PET
 from metatrain.pet import Trainer as PETTrainer
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_generic_target_info
 from metatrain.utils.hypers import init_with_defaults
+from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.loss import LossSpecification
 from metatrain.utils.testing import ArchitectureTests, CheckpointTests
 
@@ -51,8 +51,6 @@ class TestCheckpoints(CheckpointTests, ClassifierTests):
         pet_model_hypers["num_attention_layers"] = 1
         pet_model_hypers["num_gnn_layers"] = 1
 
-        pet_model = PET(pet_model_hypers, dataset_info)
-
         hypers = copy.deepcopy(hypers)
         hypers["training"]["num_epochs"] = 1
         loss_hypers = OmegaConf.create(
@@ -62,10 +60,10 @@ class TestCheckpoints(CheckpointTests, ClassifierTests):
         hypers["training"]["loss"] = loss_hypers
 
         trainer = PETTrainer(hypers["training"])
-
+        pet_model = trainer.setup(pet_model_hypers, dataset_info)
         trainer.train(
             pet_model,
-            dtype=pet_model.__supported_dtypes__[0],
+            dtype=pet_model.core.__supported_dtypes__[0],
             devices=[torch.device("cpu")],
             train_datasets=[dataset],
             val_datasets=[dataset],
@@ -76,17 +74,16 @@ class TestCheckpoints(CheckpointTests, ClassifierTests):
             trainer.save_checkpoint(pet_model, f"{tmpdir}/pet_checkpoint.ckpt")
 
             # train Classifier model
-            hypers = copy.deepcopy(model_hypers)
-
-            model = self.model_cls(hypers, dataset_info)
+            model_hypers = copy.deepcopy(model_hypers)
 
             hypers = copy.deepcopy(default_hypers)
             hypers["training"]["model_checkpoint"] = f"{tmpdir}/pet_checkpoint.ckpt"
 
             trainer = self.trainer_cls(hypers["training"])
+            model = trainer.setup(model_hypers, dataset_info)
             trainer.train(
                 model,
-                dtype=model.__supported_dtypes__[0],
+                dtype=model.core.__supported_dtypes__[0],
                 devices=[torch.device("cpu")],
                 train_datasets=[dataset],
                 val_datasets=[dataset],
@@ -122,7 +119,7 @@ class TestCheckpoints(CheckpointTests, ClassifierTests):
         checkpoint = model.get_checkpoint()
 
         with pytest.raises(NotImplementedError):
-            self.model_cls.load_checkpoint(checkpoint, context)
+            model_from_checkpoint(checkpoint, context)
 
     def test_get_checkpoint_export(self, model_trainer, caplog):
         """Test that checkpoints can be loaded in export context."""
@@ -132,7 +129,7 @@ class TestCheckpoints(CheckpointTests, ClassifierTests):
         checkpoint = model.get_checkpoint()
 
         caplog.set_level(logging.INFO)
-        self.model_cls.load_checkpoint(checkpoint, "export")
+        model_from_checkpoint(checkpoint, "export")
 
         assert "Using best model from epoch None" in caplog.text
 

@@ -20,7 +20,7 @@ dependencies = [
     "jsonschema",
     "pydantic >= 2.12", # Because of passing arguments to validator functions
     "typing_extensions", # For python < 3.12 typing.TypedDict has limited functionality
-    "omegaconf >= 2.3.0",
+    "omegaconf >= 2.4.0",
     "python-hostlist",
     "tqdm",
     "vesin >=0.6.1,<0.7",

@@ -2,8 +2,9 @@ import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from metatrain.experimental.flashmd_symplectic import FlashMDSymplectic
+from metatrain.experimental.flashmd_symplectic import FlashMDSymplectic, Trainer
 from metatrain.pet.modules.finetuning import apply_finetuning_strategy
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import TargetInfo
 
@@ -181,22 +182,27 @@ def test_finetune_full_lora_prunes_stale_targets(method):
     training actually starts): ``restart`` alone must not remove it yet, since
     ``inherit_heads`` (applied within ``apply_finetuning_strategy``) may still need
     to copy weights from the stale target's head."""
-    model = FlashMDSymplectic(MODEL_HYPERS, _get_dataset_info())
+    trainer = Trainer(get_default_hypers("experimental.flashmd_symplectic")["training"])
+    model = trainer.setup(MODEL_HYPERS, _get_dataset_info())
     new_dataset_info = _get_single_target_dataset_info("momentum")
 
-    model.restart(new_dataset_info)
-    assert "position" in model.node_heads
+    model = trainer.restart(model, new_dataset_info, model_hypers={})
+    assert "position" in model.core.node_heads
 
-    apply_finetuning_strategy(model, _finetuning_strategy(method))
+    apply_finetuning_strategy(
+        model,
+        _finetuning_strategy(method),
+        stale_targets=trainer._stale_finetune_targets,
+    )
 
     assert "position" not in model.dataset_info.targets
     assert "position" not in model.supported_outputs()
-    assert "position" not in model.node_heads
-    assert "position" not in model.edge_heads
-    assert "position" not in model.node_last_layers
-    assert "position" not in model.edge_last_layers
+    assert "position" not in model.core.node_heads
+    assert "position" not in model.core.edge_heads
+    assert "position" not in model.core.node_last_layers
+    assert "position" not in model.core.edge_last_layers
     assert "momentum" in model.dataset_info.targets
-    assert "momentum" in model.node_heads
+    assert "momentum" in model.core.node_heads
 
 
 def test_finetune_heads_keeps_stale_targets():

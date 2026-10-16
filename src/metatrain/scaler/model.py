@@ -1,5 +1,6 @@
 import logging
 import warnings
+from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional, Union
 
 import torch
@@ -13,16 +14,13 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.utils.abc import ModelInterface
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
-from metatrain.utils.data.atomic_basis_helpers import (
-    densify_atomic_basis_dataset_info,
-    sparsify_atomic_basis_target,
-)
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
 from ._base_scaler import BaseScaler
@@ -31,7 +29,7 @@ from .utils.samples import get_samples_labels
 
 
 class Scaler(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -53,10 +51,6 @@ class Scaler(ModelInterface[ModelHypers]):
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.atomic_types = sorted(dataset_info.atomic_types)
-        self.densify_atomic_basis = self.hypers.get("densify_atomic_basis", True)
-
-        if self.densify_atomic_basis:
-            dataset_info = densify_atomic_basis_dataset_info(dataset_info)
 
         self.target_infos = {
             target_name: target_info
@@ -100,7 +94,9 @@ class Scaler(ModelInterface[ModelHypers]):
             datasets = [datasets]
 
         train_or_load_scaler(
-            scaler=self,
+            scaler=MetatrainModel(
+                self, additive_models=[], scaler=None, dataset_info=self.dataset_info
+            ),
             train_datasets=datasets,
             additive_models=additive_models,
             device=self.dummy_buffer.device,
@@ -110,7 +106,9 @@ class Scaler(ModelInterface[ModelHypers]):
         )
 
     def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
     ) -> "Scaler":
         """
         Restart the model with a new dataset info.
@@ -129,30 +127,21 @@ class Scaler(ModelInterface[ModelHypers]):
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
 
-        dense_new_targets = densify_atomic_basis_dataset_info(
-            DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=merged_info.atomic_types,
-                targets=dataset_info.targets,
-            )
-        ).targets
-
         self.target_infos = {
-            target_name: dense_new_targets[target_name]
+            target_name: merged_info.targets[target_name]
             for target_name in merged_info.targets
-            if target_name not in self.dataset_info.targets
         }
-
-        self.dataset_info = merged_info
 
         # register new outputs
         self.new_outputs = []
         for target_name, target_info in self.target_infos.items():
-            if target_name in self.model.scales:
+            if target_name in self.dataset_info.targets:
                 continue
             self.new_outputs.append(target_name)
             self.model.add_output(target_name, target_info.layout)
             self._add_output(target_name, target_info)
+
+        self.dataset_info = merged_info
 
         return self
 
@@ -177,20 +166,6 @@ class Scaler(ModelInterface[ModelHypers]):
             outputs,
             selected_atoms=selected_atoms,
         )
-
-        if not self.training and self.densify_atomic_basis:
-            # For atomic basis targets, sparsify to create blocks with "atom_type"
-            # in the key dimensions, and ensure properties are unpadded. In training
-            # mode, predictions stay dense: remove_additive subtracts them from
-            # transform-densified targets.
-            targets = self.dataset_info.targets
-            for k, v in scales.items():
-                if k in targets and targets[k].is_atomic_basis:
-                    scales[k] = sparsify_atomic_basis_target(
-                        systems,
-                        v,
-                        targets[k].layout,
-                    )
 
         return scales
 
@@ -348,7 +323,9 @@ class Scaler(ModelInterface[ModelHypers]):
         self.dataset_info.targets.pop(target_name, None)
         self.model.remove_output(target_name)
 
-    def get_checkpoint(self) -> Dict:
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
         model_state_dict = self.state_dict()
         checkpoint = {
             "architecture_name": "scaler",
@@ -361,7 +338,7 @@ class Scaler(ModelInterface[ModelHypers]):
             "epoch": None,
             "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": model_state_dict,
+            "best_model_state_dict": best_model_state_dict or model_state_dict,
             "training_additive_models": getattr(self, "training_additive_models", []),
         }
 
@@ -399,27 +376,15 @@ class Scaler(ModelInterface[ModelHypers]):
         return model
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint.get("model_ckpt_version") == v:
-                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
-
-        version = checkpoint.get("model_ckpt_version")
-        if version != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {version}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
-            )
-
-        return checkpoint
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = self.dummy_buffer.dtype
-        if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for scaler")
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,

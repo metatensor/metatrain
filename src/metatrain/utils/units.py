@@ -1,5 +1,7 @@
 from typing import Tuple
 
+from metatomic.torch import unit_conversion_factor
+
 
 def get_gradient_units(base_unit: str, gradient_name: str, length_unit: str) -> str:
     """
@@ -44,3 +46,25 @@ def ev_to_mev(value: float, unit: str) -> Tuple[float, str]:
         )
     else:
         return value, unit
+
+
+def units_are_equivalent(unit: str, other_unit: str) -> bool:
+    """Check whether two unit expressions represent the same numerical unit.
+
+    Equivalent units have a conversion factor of exactly one, so their data can
+    be combined without rescaling. Unknown units (empty strings) are only
+    equivalent to other unknown units.
+
+    :param unit: The first unit expression.
+    :param other_unit: The second unit expression.
+    :return: Whether the units are equivalent without rescaling.
+    """
+    if unit == other_unit:
+        return True
+    if unit == "" or other_unit == "":
+        return False
+
+    try:
+        return unit_conversion_factor(unit, other_unit) == 1.0
+    except ValueError:
+        return False

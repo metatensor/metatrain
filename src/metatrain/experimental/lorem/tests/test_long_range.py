@@ -254,9 +254,9 @@ def test_long_range_training(tmp_path):
         length_unit="Angstrom", atomic_types=[6], targets=target_info_dict
     )
     model_hypers = _small_lr_hypers()
-    model = LOREM(model_hypers, dataset_info)
 
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(model_hypers, dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float32,

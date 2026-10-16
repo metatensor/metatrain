@@ -8,6 +8,7 @@ import torch.nn as nn
 from typing_extensions import Literal, NotRequired, TypedDict
 
 from metatrain.utils.data.target_info import TargetInfo
+from metatrain.utils.wrapper import MetatrainModel
 
 
 class LoRaFinetuneConfig(TypedDict):
@@ -173,16 +174,24 @@ def _add_backend_prefix(model: nn.Module, module_names: list[str]) -> list[str]:
     :param module_names: List of module name prefixes as specified by the user.
     :return: The module name prefixes, prefixed with ``backend.`` if applicable.
     """
-    if not hasattr(model, "backend"):
-        return module_names
+    prefix = ""
+    if isinstance(model, MetatrainModel):
+        model = model.core
+        prefix = "core."
+
+    if hasattr(model, "backend"):
+        prefix = prefix + "backend."
+
     return [
-        name if name.startswith("backend.") else f"backend.{name}"
-        for name in module_names
+        name if name.startswith(prefix) else f"{prefix}{name}" for name in module_names
     ]
 
 
 def apply_finetuning_strategy(
-    model: nn.Module, strategy: FinetuneHypers, apply_inherit_heads: bool = True
+    model: nn.Module,
+    strategy: FinetuneHypers,
+    apply_inherit_heads: bool = True,
+    stale_targets: Optional[list[str]] = None,
 ) -> nn.Module:
     """
     Apply the specified finetuning strategy to the model.
@@ -208,6 +217,11 @@ def apply_finetuning_strategy(
         ``False``: by then, any inherited-from source target may already have been
         pruned, so redoing the copy would fail (or silently clobber trained
         weights if the source were still around).
+    :param stale_targets: List of targets that were present in the model before
+        but will not be a part of the dataset in the next training run. These
+        targets will be removed from the model unless the finetuning strategy
+        is "heads", in which case the backbone is frozen and therefore the outputs
+        for the targets are still meaningful.
     :return: The modified model with the finetuning strategy applied.
     """
 
@@ -288,7 +302,10 @@ def apply_finetuning_strategy(
             "are: 'full', 'lora', 'heads'."
         )
 
-    model.finetune_config = strategy
+    if hasattr(model, "finetune_config"):
+        model.finetune_config = strategy
+    else:
+        model.core.finetune_config = strategy
 
     inherit_heads_config = strategy["inherit_heads"]
     if apply_inherit_heads and inherit_heads_config:
@@ -302,19 +319,9 @@ def apply_finetuning_strategy(
     # than removing right away, since it runs before this function (and before
     # ``inherit_heads`` above needs the stale heads to still be present); with
     # ``heads`` the backbone is unchanged, so stale targets are left alone here.
-    stale_targets = getattr(model, "_stale_finetune_targets", None)
     if stale_targets and strategy["method"] in ("full", "lora"):
         for target_name in stale_targets:
             model.remove_output(target_name)
-            if target_name in model.target_names:
-                model.target_names.remove(target_name)
-            model.dataset_info.targets.pop(target_name, None)
-            for additive_model in model.additive_models:
-                if target_name in additive_model.outputs:
-                    additive_model.remove_output(target_name)
-            if target_name in model.scaler.outputs:
-                model.scaler.remove_output(target_name)
-        model._stale_finetune_targets = []
 
     return model
 

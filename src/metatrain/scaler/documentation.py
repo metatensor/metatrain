@@ -20,17 +20,14 @@ FixedScalerWeights = Dict[str, Union[float, Dict[int, float]]]
 class ModelHypers(TypedDict):
     """Hyperparameters for the scaler."""
 
-    densify_atomic_basis: bool = True
-    """Whether to densify the atomic basis targets when computing the scaling
-    weights. This can only be done if the target is loaded from a DiskDataset.
-
-    Most models will require the scaler to work with the densified atomic basis.
-    """
-
 
 class TrainerHypers(TypedDict):
     """Hyperparameters for the scaler trainer."""
 
+    densify_atomic_basis: bool = True
+    """Whether to atomic basis targets should be densified before being passed to the
+    scaler.
+    """
     fixed_weights: FixedScalerWeights = {}
     """Weights for target scaling.
 

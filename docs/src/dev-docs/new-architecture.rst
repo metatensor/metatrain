@@ -17,7 +17,7 @@ similar to these lines
 
 .. code-block:: python
 
-    from architecture import __model__ as Model
+    from metatrain.utils.io import model_from_checkpoint
     from architecture import __trainer__ as Trainer
 
     hypers = {...}
@@ -28,16 +28,16 @@ similar to these lines
 
         trainer = Trainer.load_checkpoint(
             checkpoint, hypers=hypers["training"], context="restart")
-        model = Model.load_checkpoint(checkpoint, context="restart")
-        model = model.restart(dataset_info)
+        model = model_from_checkpoint(checkpoint, context="restart")
+        model = trainer.restart(model, dataset_info)
     else:
         trainer = Trainer(hypers["training"])
 
         if hasattr(hypers["training"], "finetune"):
             checkpoint = hypers["training"]["finetune"]["read_from"]
-            model = Model.load_checkpoint(path=checkpoint, context="finetune")
+            model = model_from_checkpoint(checkpoint, context="finetune")
         else:
-            model = Model(hypers["model"], dataset_info)
+            model = trainer.setup(hypers["model"], dataset_info)
 
     trainer.train(
         model=model,

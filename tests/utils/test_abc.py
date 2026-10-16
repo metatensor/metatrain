@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
@@ -11,6 +12,39 @@ from metatrain.utils.data import Dataset, DatasetInfo
 
 
 class MyTrainer(TrainerInterface):
+    def setup(
+        self, model_hypers: dict, dataset_info: DatasetInfo
+    ) -> Any:  # "MetatrainModel"
+        """
+        Setup the trainer and return an initialized model ready for training.
+
+        :param model_hypers: The hyper-parameters of the model to be trained.
+        :param dataset_info: Information about the dataset to be used for training.
+
+        :return: An initialized MetatrainModel ready for training.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support the `setup` method. "
+        )
+
+    def restart(
+        self,
+        model: Any,  # MetatrainModel
+        dataset_info: DatasetInfo,
+        model_hypers: dict,
+    ) -> Any:  # MetatrainModel
+        """Restart a model for training with a new dataset info.
+
+        :param model: The model to be restarted.
+        :param dataset_info: Information about the new dataset to be used for training.
+        :param model_hypers: The new hyperparameters to set for the model.
+
+        :return: The restarted model, ready for training with the new dataset info.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support the `restart` method. "
+        )
+
     def train(
         self,
         model: ModelInterface,
@@ -26,7 +60,7 @@ class MyTrainer(TrainerInterface):
         raise NotImplementedError()
 
     @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict) -> Dict:
+    def upgrade_checkpoint(checkpoint: Dict, version: int | None = None) -> Dict:
         raise NotImplementedError()
 
     @classmethod
@@ -72,7 +106,9 @@ class MyModel(ModelInterface):
         raise NotImplementedError()
 
     def restart(
-        self, dataset_info: DatasetInfo, model_hypers: Optional[dict[str, Any]] = None
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
     ) -> ModelInterface:
         raise NotImplementedError()
 
@@ -91,10 +127,14 @@ class MyModel(ModelInterface):
         raise NotImplementedError()
 
     @staticmethod
-    def upgrade_checkpoint(checkpoint: Dict["str", Any]) -> Dict["str", Any]:
+    def upgrade_checkpoint(
+        checkpoint: Dict["str", Any], version: int | None = None
+    ) -> Dict["str", Any]:
         raise NotImplementedError()
 
-    def get_checkpoint(self) -> Dict[str, Any]:
+    def get_checkpoint(
+        self, best_model_state_dict: dict[str, Any] | None = None
+    ) -> Dict[str, Any]:
         raise NotImplementedError()
 
 
