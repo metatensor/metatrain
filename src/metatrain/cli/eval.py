@@ -10,12 +10,13 @@ from typing import Dict, List, Optional, Union
 import numpy as np
 import torch
 import tqdm
-from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import AtomisticModel, ModelOutput
+from metatensor.torch import Labels, TensorBlock, TensorMap, remove_gradients
+from metatomic.torch import AtomisticModel, ModelOutput, System
+from metatomic.torch.o3 import SymmetrizedModel
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import Subset
 
-from metatrain.share.base_hypers import EvalDatasetDictHypers
+from metatrain.share.base_hypers import EquivarianceHypers, EvalDatasetDictHypers
 from metatrain.utils.data import (
     CollateFn,
     Dataset,
@@ -39,13 +40,17 @@ from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import load_model
 from metatrain.utils.logging import MetricLogger
-from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator
+from metatrain.utils.metrics import (
+    EquivarianceAccumulator,
+    MAEAccumulator,
+    RMSEAccumulator,
+)
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists_transform,
 )
 from metatrain.utils.omegaconf import expand_dataset_config
-from metatrain.utils.per_atom import average_by_num_atoms
+from metatrain.utils.per_atom import average_by_num_atoms, divide_by_num_atoms
 from metatrain.utils.pydantic import validate_eval_options
 from metatrain.utils.system_data import get_system_data_transform
 from metatrain.utils.transfer import batch_to
@@ -147,6 +152,254 @@ def _prepare_eval_model_args(args: argparse.Namespace) -> None:
     )
 
 
+def _indexed_filename(output: Union[str, Path], idx_suffix: str) -> str:
+    """Insert the index of a dataset in an output path.
+
+    :param output: The output path given by the user.
+    :param idx_suffix: Suffix identifying the dataset, empty if there is one.
+
+    :return: The output path for this dataset.
+    """
+    # a trailing separator signals a memmap dataset directory, and has to be
+    # detected on the raw string, since Path() silently drops it
+    is_memmap = isinstance(output, str) and output.endswith(("/", os.sep))
+    path = Path(output)
+    return f"{path.stem}{idx_suffix}{path.suffix}" + ("/" if is_memmap else "")
+
+
+def _max_angular_momentum(targets: Dict[str, TargetInfo]) -> int:
+    """Largest angular momentum among the targets.
+
+    This sizes the Wigner matrices of the symmetrized model, which has to be
+    able to rotate every target back to the frame of the input system.
+
+    :param targets: Dictionary containing the target information.
+
+    :return: The largest angular momentum among the targets.
+    """
+    max_angular_momentum = 0
+    for target in targets.values():
+        if target.is_spherical:
+            o3_lambda = target.layout.keys.column("o3_lambda")
+            max_angular_momentum = max(max_angular_momentum, int(o3_lambda.max()))
+        elif target.is_cartesian:
+            # a Cartesian tensor of rank n decomposes into terms up to o3_lambda=n
+            rank = len(target.layout.block(0).components)
+            max_angular_momentum = max(max_angular_momentum, rank)
+    return max_angular_momentum
+
+
+class _EquivarianceEvaluation:
+    """Measures the O(3) equivariance error of a model alongside its accuracy.
+
+    Every batch is also evaluated by a metatomic ``SymmetrizedModel``, giving the
+    variance of the back-rotated predictions over a rotation grid (the
+    equivariance error) and their O(3) average, whose accuracy is measured too.
+
+    :param model: The model being evaluated.
+    :param targets: The targets to evaluate the model on.
+    :param options: The ``EquivarianceHypers``, with their defaults.
+    :param separate_blocks: Whether to report the metrics for each block.
+    :param writer: Optional writer for the outputs of the symmetrized model.
+    """
+
+    def __init__(
+        self,
+        model: Union[AtomisticModel, torch.jit.RecursiveScriptModule],
+        targets: Dict[str, TargetInfo],
+        options: Dict,
+        separate_blocks: bool,
+        writer: Optional[Writer],
+    ) -> None:
+        gradients = sorted(
+            {
+                gradient
+                for target in targets.values()
+                for gradient in target.gradients  # type: ignore[union-attr]
+            }
+        )
+        if len(gradients) > 0:
+            logging.warning(
+                f"the equivariance error of the {gradients} gradients is not "
+                "supported and will not be reported; only the equivariance of the "
+                "target values themselves is measured"
+            )
+
+        self.model = model
+        self.writer = writer
+        self.separate_blocks = separate_blocks
+        self.symmetrized_model = SymmetrizedModel(
+            model.module,
+            max_angular_momentum_target=_max_angular_momentum(targets),
+            max_angular_momentum_grid=options["max_angular_momentum_grid"],
+            batch_size=options["batch_size"],
+        )
+        # atom-pair targets are excluded from the metrics, as for the accuracy
+        self.names = [
+            name
+            for name, target in targets.items()
+            if target.sample_kind != "atom_pair"
+        ]
+        self.outputs: Dict[str, ModelOutput] = {}
+        for name in self.names:
+            for key in (name, f"o3::variance::{name}"):
+                self.outputs[key] = ModelOutput(
+                    unit=targets[name].unit, sample_kind=targets[name].sample_kind
+                )
+
+        self.equivariance_acc = EquivarianceAccumulator(separate_blocks)
+        self.averaged_rmse_acc = RMSEAccumulator(separate_blocks)
+        self.averaged_mae_acc = MAEAccumulator(separate_blocks)
+        self.checked_grid_convergence = False
+        logging.info(
+            "Equivariance error evaluation enabled: every system is additionally "
+            "evaluated on many rotated and inverted copies, on a quadrature grid "
+            f"of degree {self.symmetrized_model.max_angular_momentum_grid}"
+        )
+
+    def _per_atom_variances(
+        self, symmetrized: Dict[str, TensorMap], systems: List[System]
+    ) -> Dict[str, TensorMap]:
+        """The variances of the targets, normalized per atom like the predictions.
+
+        :param symmetrized: Outputs of the symmetrized model.
+        :param systems: The systems of the batch.
+
+        :return: The variance of each target, keyed by the name of the target.
+        """
+        num_atoms = torch.tensor([len(s) for s in systems], device=systems[0].device)
+        # a variance scales as the square of the predictions
+        return {
+            name: divide_by_num_atoms(
+                divide_by_num_atoms(symmetrized[f"o3::variance::{name}"], num_atoms),
+                num_atoms,
+            )
+            for name in self.names
+        }
+
+    def update(
+        self,
+        systems: List[System],
+        targets_per_atom: Dict[str, TensorMap],
+        extra_data: Dict[str, TensorMap],
+        not_per_atom: List[str],
+    ) -> None:
+        """Evaluate the symmetrized model on a batch and accumulate its metrics.
+
+        :param systems: The systems of the batch.
+        :param targets_per_atom: The targets of the batch, normalized per atom.
+        :param extra_data: The extra data of the batch.
+        :param not_per_atom: Keys containing one of these strings are not labeled
+            as "(per atom)".
+        """
+        symmetrized = self.symmetrized_model(systems, self.outputs, None)
+        self.equivariance_acc.update(self._per_atom_variances(symmetrized, systems))
+        averaged = average_by_num_atoms(
+            {name: symmetrized[name] for name in self.names},
+            systems,
+            per_structure_keys=[],
+        )
+        # the symmetrized model does not predict gradients, so the reference ones
+        # have to go as well: the accumulators pair up the gradients of the target
+        # with those of the prediction
+        averaged_targets = {
+            name: remove_gradients(targets_per_atom[name]) for name in self.names
+        }
+        self.averaged_rmse_acc.update(averaged, averaged_targets, extra_data)
+        self.averaged_mae_acc.update(averaged, averaged_targets, extra_data)
+
+        if self.writer:
+            # the averaged prediction is written under the name of the target, so
+            # that the result reads back as a normal dataset, and the variance next
+            # to it under its metatomic name
+            self.writer.write(systems, {key: symmetrized[key] for key in self.outputs})
+
+        if not self.checked_grid_convergence:
+            self._check_grid_convergence(systems, not_per_atom)
+            self.checked_grid_convergence = True
+
+    def _check_grid_convergence(
+        self, systems: List[System], not_per_atom: List[str], tolerance: float = 0.01
+    ) -> None:
+        """Warn if re-measuring the equivariance error of a batch on a finer
+        quadrature grid changes it by more than ``tolerance`` (relative).
+
+        :param systems: The systems of the batch, the only one measured so far.
+        :param not_per_atom: Keys containing one of these strings are not labeled
+            as "(per atom)".
+        :param tolerance: Largest acceptable relative change.
+        """
+        reference = self.equivariance_acc.finalize(not_per_atom=not_per_atom)
+        scales = self.averaged_rmse_acc.finalize(not_per_atom=not_per_atom)
+        coarse_grid = self.symmetrized_model.max_angular_momentum_grid
+        finer_model = SymmetrizedModel(
+            self.model.module,
+            max_angular_momentum_target=self.symmetrized_model.max_angular_momentum_target,
+            max_angular_momentum_grid=coarse_grid + 2,
+            batch_size=self.symmetrized_model.batch_size,
+        )
+        finer_acc = EquivarianceAccumulator(self.separate_blocks)
+        finer_acc.update(
+            self._per_atom_variances(finer_model(systems, self.outputs, None), systems)
+        )
+
+        for key, finer_value in finer_acc.finalize(not_per_atom=not_per_atom).items():
+            coarse_value = reference.get(key)
+            if coarse_value is None:
+                continue
+            largest = max(abs(coarse_value), abs(finer_value))
+            # ignore equivariance errors a million times smaller than the model's
+            # own error
+            scale = scales.get(key.replace(" equivariance RMSE", " RMSE"), 0.0)
+            if largest <= 1e-6 * abs(scale):
+                continue
+            change = abs(finer_value - coarse_value) / largest
+            if change > tolerance:
+                logging.warning(
+                    f"the {key} is not converged with respect to the quadrature "
+                    f"grid: {coarse_value:.4g} at max_angular_momentum_grid="
+                    f"{coarse_grid} against {finer_value:.4g} at "
+                    f"{coarse_grid + 2} ({100 * change:.0f}% change). "
+                    "The reported equivariance error is unreliable; increase "
+                    "`max_angular_momentum_grid` until it stops changing."
+                )
+
+    def finalize(self, not_per_atom: List[str]) -> Dict[str, float]:
+        """Finish the writer and finalize the metrics.
+
+        The equivariance and O(3)-averaged errors are also reported combined as
+        ``sqrt(equivariance^2 + averaged^2)``, the RMSE the model would have on
+        randomly oriented copies of every system.
+
+        :param not_per_atom: Keys containing one of these strings are not labeled
+            as "(per atom)".
+
+        :return: The equivariance, O(3)-averaged and oriented metrics.
+        """
+        if self.writer:
+            self.writer.finish()
+
+        equivariance = self.equivariance_acc.finalize(not_per_atom=not_per_atom)
+        averaged_rmse = self.averaged_rmse_acc.finalize(not_per_atom=not_per_atom)
+        averaged_mae = self.averaged_mae_acc.finalize(not_per_atom=not_per_atom)
+
+        metrics = dict(equivariance)
+        for key, value in averaged_rmse.items():
+            metrics[key.replace(" RMSE", " O3-averaged RMSE")] = value
+        for key, value in averaged_mae.items():
+            metrics[key.replace(" MAE", " O3-averaged MAE")] = value
+
+        for key, equivariance_value in equivariance.items():
+            averaged_key = key.replace(" equivariance RMSE", " RMSE")
+            if averaged_key in averaged_rmse:
+                combined = (
+                    equivariance_value**2 + averaged_rmse[averaged_key] ** 2
+                ) ** 0.5
+                metrics[key.replace(" equivariance RMSE", " oriented RMSE")] = combined
+
+        return metrics
+
+
 def _eval_targets(
     model: Union[AtomisticModel, torch.jit.RecursiveScriptModule],
     dataset: Dataset,
@@ -155,6 +408,8 @@ def _eval_targets(
     check_consistency: bool = False,
     writer: Optional[Writer] = None,
     warm_up: bool = True,
+    equivariance: Optional[Dict] = None,
+    equivariance_writer: Optional[Writer] = None,
     log_separate_blocks: bool = False,
 ) -> None:
     """
@@ -168,6 +423,12 @@ def _eval_targets(
     :param check_consistency: Whether to run consistency checks during model evaluation.
     :param writer: Optional writer to write out per-sample predictions.
     :param warm_up: Whether to do a warm-up of the model before evaluation.
+    :param equivariance: If not :obj:`python:None`, also measure the O(3)
+        equivariance error of the model and the accuracy of its O(3)-averaged
+        predictions, with these ``EquivarianceHypers`` (defaults included).
+    :param equivariance_writer: Optional writer for the outputs of the
+        symmetrized model, i.e. the O(3)-averaged predictions and their
+        variance over the orientations.
     :param log_separate_blocks: Report metrics separately for each block of each
         target, instead of aggregated over the whole target.
     """
@@ -220,6 +481,16 @@ def _eval_targets(
 
     rmse_acc = RMSEAccumulator(separate_blocks=log_separate_blocks)
     mae_acc = MAEAccumulator(separate_blocks=log_separate_blocks)
+
+    not_per_atom = ["positions_gradients"]
+
+    equivariance_evaluation = (
+        _EquivarianceEvaluation(
+            model, options, equivariance, log_separate_blocks, equivariance_writer
+        )
+        if equivariance is not None
+        else None
+    )
 
     # Warm-up
     if warm_up:
@@ -282,6 +553,13 @@ def _eval_targets(
         rmse_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
         mae_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
 
+        # Equivariance error, deliberately outside of the timed region above so
+        # that it does not pollute the reported evaluation timings
+        if equivariance_evaluation is not None:
+            equivariance_evaluation.update(
+                systems, targ_per_atom, batch_extra_data, not_per_atom
+            )
+
         # Write out each sample if a writer is configured
         if writer:
             writer.write(systems, batch_predictions)
@@ -296,9 +574,11 @@ def _eval_targets(
         writer.finish()
 
     # Finalize metrics and log
-    rmse_vals = rmse_acc.finalize(not_per_atom=["positions_gradients"])
-    mae_vals = mae_acc.finalize(not_per_atom=["positions_gradients"])
+    rmse_vals = rmse_acc.finalize(not_per_atom=not_per_atom)
+    mae_vals = mae_acc.finalize(not_per_atom=not_per_atom)
     metrics = {**rmse_vals, **mae_vals}
+    if equivariance_evaluation is not None:
+        metrics.update(equivariance_evaluation.finalize(not_per_atom))
     metric_logger = MetricLogger(
         log_obj=logger, dataset_info=model.capabilities(), initial_metrics=metrics
     )
@@ -342,11 +622,6 @@ def eval_model(
     :param warm_up: Whether to do a warm-up of the model before evaluation.
     """
     logging.info("Setting up evaluation set.")
-    # a trailing path separator signals a memmap dataset directory; this has to be
-    # detected on the raw string, since Path() silently drops trailing separators
-    is_memmap_output = isinstance(output, str) and output.endswith(("/", os.sep))
-    output = Path(output) if isinstance(output, str) else output
-
     options = validate_eval_options(OmegaConf.to_container(options))
     options = OmegaConf.create(options)
     options_list = expand_dataset_config(options)
@@ -355,9 +630,7 @@ def eval_model(
         idx_suffix = f"_{i}" if len(options_list) > 1 else ""
         extra_log_message = f" with index {i}" if len(options_list) > 1 else ""
         logging.info(f"Evaluating dataset{extra_log_message}")
-        filename = f"{output.stem}{idx_suffix}{output.suffix}"
-        if is_memmap_output:
-            filename = filename + "/"
+        filename = _indexed_filename(output, idx_suffix)
 
         # pick the right writer
         writer = get_writer(filename, capabilities=model.capabilities(), append=append)
@@ -370,6 +643,11 @@ def eval_model(
                 raise ValueError(
                     "Writing to DiskDataset or MemmapDataset is not allowed without"
                     " explicitly defining targets in the input file."
+                )
+            if "equivariance" in options:
+                raise ValueError(
+                    "measuring the equivariance error requires a `targets` section in "
+                    "the eval options file"
                 )
             eval_systems = read_systems(
                 filename=options["systems"]["read_from"],
@@ -403,6 +681,20 @@ def eval_model(
                 eval_indices = load_indices(eval_indices)
             eval_dataset = Subset(eval_dataset, eval_indices)
 
+        equivariance_options: Optional[Dict] = None
+        if "equivariance" in options:
+            equivariance_options = {
+                **init_with_defaults(EquivarianceHypers),
+                **OmegaConf.to_container(options["equivariance"]),  # type: ignore[dict-item]
+            }
+        equivariance_writer: Optional[Writer] = None
+        if equivariance_options is not None and equivariance_options["output"]:
+            equivariance_writer = get_writer(
+                _indexed_filename(equivariance_options["output"], idx_suffix),
+                capabilities=model.capabilities(),
+                append=append,
+            )
+
         # run evaluation & writing
         try:
             # we always let the writer handle I/O, so we never need return_predictions
@@ -415,6 +707,8 @@ def eval_model(
                 check_consistency=check_consistency,
                 writer=writer,
                 warm_up=warm_up,
+                equivariance=equivariance_options,
+                equivariance_writer=equivariance_writer,
                 log_separate_blocks=options["log_separate_blocks"],
             )
         except Exception as e:

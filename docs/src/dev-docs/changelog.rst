@@ -64,6 +64,9 @@ Added
   initializing the new heads from existing ones with ``inherit_heads``.
 - Added ``experimental.lorem`` architecture (*Learning Long-Range
   Representations with Equivariant Messages*, https://arxiv.org/abs/2507.19382).
+- ``mtt eval`` can measure the O(3) equivariance error of a model (``equivariance``
+  section of the eval options), optionally saving the O(3)-averaged predictions and
+  their variance.
 - ``mtt eval`` options gained a ``log_separate_blocks`` flag, matching the training
   hyperparameter of the same name, to report all metrics separately for each block of
   each target instead of aggregated over the whole target.
