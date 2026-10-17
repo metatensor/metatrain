@@ -43,6 +43,7 @@ from metatrain.utils.distributed.slurm import (
     resolve_distributed,
 )
 from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.hooks.helpers import restart_hooks
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator, LossSpecification
@@ -64,7 +65,7 @@ from .modules.finetuning import apply_finetuning_strategy
 
 def get_optimizer_and_scheduler(
     trainer_hypers: TrainerHypers,
-    model: MetaMACE,
+    model: MetatrainModel[MetaMACE, Scaler],
     has_new_targets: bool,
     optimizer_state_dict: Optional[dict[str, Any]] = None,
     scheduler_state_dict: Optional[dict[str, Any]] = None,
@@ -99,13 +100,13 @@ def get_optimizer_and_scheduler(
     # Take into account distributed training
     model = model.module if is_distributed else model
 
-    opt_options = get_params_options(opt_args, model.mace_model)
+    opt_options = get_params_options(opt_args, model.core.mace_model)
 
     # Add the heads' parameters to the optimizer.
     # Get them for all heads except the wrapper for the internal MACE head
     head_parameters = []
-    for k, v in model.heads.items():
-        if k != model.hypers["mace_head_target"]:
+    for k, v in model.core.heads.items():
+        if k != model.core.hypers["mace_head_target"]:
             head_parameters.extend(v.parameters())
 
     opt_options["params"].extend(
@@ -113,6 +114,10 @@ def get_optimizer_and_scheduler(
             {
                 "name": "heads",
                 "params": head_parameters,
+            },
+            {
+                "name": "forward_hooks",
+                "params": model.forward_hooks.parameters(),
             },
         ]
     )
@@ -138,7 +143,7 @@ def get_optimizer_and_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 5
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -155,38 +160,58 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     def setup(
         self, model_hypers: ModelHypers, dataset_info: DatasetInfo
     ) -> MetatrainModel[MetaMACE]:
+        dense_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
 
-        model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+        from metatrain.utils.hooks import setup_hooks
 
-        model = MetaMACE(hypers=model_hypers, dataset_info=model_dataset_info)
+        forward_hooks, model_targets = setup_hooks(
+            dense_dataset_info, self.hypers["forward_hooks"]
+        )
+
+        core_dataset_info = DatasetInfo(
+            length_unit=dense_dataset_info.length_unit,
+            atomic_types=dense_dataset_info.atomic_types,
+            targets=model_targets,
+            extra_data=dense_dataset_info.extra_data,
+        )
+
+        model = MetaMACE(hypers=model_hypers, dataset_info=core_dataset_info)
 
         # If a MACE model has been loaded from a checkpoint, the atomic types
         # that it supports have been loaded from the checkpoint. So get back
         # the dataset info from the model.
-        model_dataset_info = model.dataset_info
+        core_dataset_info = model.dataset_info
         # Also update the atomic types for the wrapper
         dataset_info = DatasetInfo(
             length_unit=dataset_info.length_unit,
-            atomic_types=model_dataset_info.atomic_types,
+            atomic_types=core_dataset_info.atomic_types,
             targets=dataset_info.targets,
             extra_data=dataset_info.extra_data,
         )
 
+        dense_dataset_info = DatasetInfo(
+            length_unit=dense_dataset_info.length_unit,
+            atomic_types=core_dataset_info.atomic_types,
+            targets=dense_dataset_info.targets,
+            extra_data=dense_dataset_info.extra_data,
+        )
+
         # Set up additive models
         composition_model = CompositionModel.from_valid_targets(
-            model_dataset_info, model_dataset_info.atomic_types
+            dense_dataset_info, dense_dataset_info.atomic_types
         )
         additive_models = [composition_model]
 
         # Initialize scaler
         scaler_hypers = get_default_hypers("scaler")["model"]
-        scaler = Scaler(hypers=scaler_hypers, dataset_info=model_dataset_info)
+        scaler = Scaler(hypers=scaler_hypers, dataset_info=dense_dataset_info)
 
         return MetatrainModel(
             core=model,
             additive_models=additive_models,
             scaler=scaler,
             dataset_info=dataset_info,
+            forward_hooks=forward_hooks,
         )
 
     def restart(
@@ -210,24 +235,44 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         # ------------------------------------------------------
         #  Ask the models to restart with the new dataset info
         # -------------------------------------------------------
-        model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+        dense_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+
+        if self.has_new_targets:
+            # Only re-run the hook setup when the targets changed; ``restart_hooks``
+            # does not support rebuilding already-instantiated hooks.
+            forward_hooks, model_outs, new_hooks_hypers = restart_hooks(
+                list(model.forward_hooks),
+                dense_dataset_info,
+                self.hypers["forward_hooks"],
+            )
+            self.hypers["forward_hooks"] = new_hooks_hypers
+
+            model.forward_hooks = torch.nn.ModuleList(forward_hooks)
+            core_dataset_info = DatasetInfo(
+                length_unit=dense_dataset_info.length_unit,
+                atomic_types=dense_dataset_info.atomic_types,
+                targets=model_outs,
+                extra_data=dense_dataset_info.extra_data,
+            )
+        else:
+            core_dataset_info = model.core.dataset_info
 
         comp_model_info = DatasetInfo(
-            length_unit=model_dataset_info.length_unit,
-            atomic_types=model_dataset_info.atomic_types,
+            length_unit=dense_dataset_info.length_unit,
+            atomic_types=dense_dataset_info.atomic_types,
             targets={
                 target_name: target_info
-                for target_name, target_info in model_dataset_info.targets.items()
+                for target_name, target_info in dense_dataset_info.targets.items()
                 if model.additive_models[0].is_valid_target(target_name, target_info)
             },
         )
 
         model.restart(
             dataset_info,
-            model_dataset_info,
+            core_dataset_info,
             additive_models_dataset_info=[comp_model_info]
-            + [model_dataset_info] * (len(model.additive_models) - 1),
-            scaler_dataset_info=model_dataset_info,
+            + [dense_dataset_info] * (len(model.additive_models) - 1),
+            scaler_dataset_info=dense_dataset_info,
             model_hypers=model_hypers,
         )
 
@@ -302,7 +347,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         atomic_basis_transform, atomic_basis_reverse_transform = (
             get_prepare_atomic_basis_targets_transform(
-                model.dataset_info, mace_model.dataset_info
+                model.dataset_info, model.scaler.dataset_info, nl_options=requested_neighbor_lists[0]
             )
         )
 
@@ -417,10 +462,10 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         collate_fn = CollateFn(
             target_keys=list(train_targets.keys()),
             callables=[
-                atomic_basis_transform,
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
+                atomic_basis_transform,
                 get_remove_additive_transform(additive_models, train_targets),
-                get_remove_scale_transform(scaler),
+                #get_remove_scale_transform(scaler),
             ],
         )
 
@@ -487,7 +532,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
         optimizer, lr_scheduler = get_optimizer_and_scheduler(
             self.hypers,
-            mace_model,
+            model,
             self.has_new_targets,
             self.optimizer_state_dict,
             self.scheduler_state_dict,

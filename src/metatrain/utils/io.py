@@ -17,6 +17,7 @@ from .architectures import (
     get_default_hypers,
     import_architecture,
 )
+from .hooks.helpers import load_hook
 from .wrapper import MetatrainModel
 
 
@@ -249,6 +250,10 @@ def model_from_checkpoint(
         if checkpoint["scaler"] is not None
         else None,
         dataset_info=checkpoint["dataset_info"],
+        forward_hooks=[
+            hook_from_checkpoint(hook_checkpoint, context=context)
+            for hook_checkpoint in checkpoint.get("forward_hooks", [])
+        ],
         metadata=checkpoint.get("metadata", None),
     )
 
@@ -290,6 +295,25 @@ def arch_model_from_checkpoint(
     checkpoint = upgrade_checkpoint(checkpoint)
     architecture_name = checkpoint["architecture_name"]
     model_cls = _find_model_class(architecture_name)
+
+    return model_cls.load_checkpoint(checkpoint, context=context)
+
+
+def hook_from_checkpoint(
+    checkpoint: Dict[str, Any], context: Literal["restart", "finetune", "export"]
+) -> ModelInterface:
+    """
+    Load a hook from a checkpoint.
+
+    :param checkpoint: checkpoint dictionary to load the model
+    :param context: context in which the model is loaded
+
+    :return: the loaded model instance
+    """
+
+    # checkpoint = upgrade_checkpoint(checkpoint)
+    hook_name = checkpoint["hook_name"]
+    model_cls = load_hook(hook_name)
 
     return model_cls.load_checkpoint(checkpoint, context=context)
 

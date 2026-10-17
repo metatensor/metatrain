@@ -21,6 +21,7 @@ from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.match_tmaps import match_layout
 from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hooks.abc import HookInterface
 from metatrain.utils.metadata import merge_metadata
 
 
@@ -40,6 +41,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         additive_models: list[ModelInterface],
         scaler: ScalerClass,  # Scaler,
         dataset_info: DatasetInfo,
+        forward_hooks: Optional[list[HookInterface]] = None,
         metadata: Optional[ModelMetadata] = None,
     ):
         super().__init__()
@@ -47,6 +49,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         self.additive_models = torch.nn.ModuleList(additive_models)
         self.scaler = scaler
         self.dataset_info = dataset_info
+        self.forward_hooks = torch.nn.ModuleList(forward_hooks or [])
         self.metadata = metadata if metadata is not None else ModelMetadata()
 
         # Compute transformations needed at evaluation time.
@@ -111,8 +114,41 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        return_dict = self.core(systems, outputs, selected_atoms=selected_atoms)
+        # -----------------------------------
+        #     Add outputs needed by hooks
+        # -----------------------------------
+        aux_outputs = outputs.copy()
+        for hook in self.forward_hooks:
+            requested_inputs = hook.requested_hook_inputs(aux_outputs)
+            aux_outputs.update(requested_inputs)
 
+        # -----------------------------------
+        #         Run the core model
+        # -----------------------------------
+        with torch.profiler.record_function("MTT_WRAPPER::forward_core"):
+            return_dict = self.core(systems, aux_outputs, selected_atoms=selected_atoms)
+
+        # -----------------------------------
+        #            Apply hooks
+        # -----------------------------------
+        with torch.profiler.record_function("MTT_WRAPPER::apply_hooks"):
+            for hook in self.forward_hooks:
+                return_dict.update(
+                    hook(
+                        systems,
+                        aux_outputs,
+                        return_dict,
+                        selected_atoms,
+                    )
+                )
+
+            # Remove intermediate outputs that were not requested by the user.
+            # (they were needed by other hooks)
+            return_dict = {k: return_dict[k] for k in outputs}
+
+        # ----------------------------------------------------------------
+        #     Add post-processing contributions (scaler, additive models)
+        # ----------------------------------------------------------------
         with torch.profiler.record_function("MTT_WRAPPER::post-processing"):
             if not self.training:
                 # at evaluation, we also introduce the scaler and additive contributions
@@ -229,6 +265,9 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             _add_model_requested_inputs(self.scaler)
         _add_model_requested_inputs(self.core)
 
+        for hook in self.forward_hooks:
+            _add_model_requested_inputs(hook)
+
         return requested_inputs
 
     def requested_neighbor_lists(self) -> list[NeighborListOptions]:
@@ -248,10 +287,20 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             _add_model_requested_neighbor_lists(self.scaler)
         _add_model_requested_neighbor_lists(self.core)
 
+        for hook in self.forward_hooks:
+            _add_model_requested_neighbor_lists(hook)
+
         return requested_neighbor_lists
 
     def supported_outputs(self) -> Dict[str, ModelOutput]:
-        return self.core.supported_outputs()
+
+        supported_outputs = self.core.supported_outputs().copy()
+
+        for hook in self.forward_hooks:
+            for name, output in hook.supported_outputs().items():
+                supported_outputs[name] = output
+
+        return supported_outputs
 
     def export(
         self,
@@ -312,6 +361,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             core=core.module,
             additive_models=[model.module for model in additive_models],
             scaler=scaler.module if scaler is not None else None,  # type: ignore[arg-type]
+            forward_hooks=[hook for hook in self.forward_hooks],
             dataset_info=self.dataset_info,
         )
         # Some architectures have attributes that downstream code reads from the
@@ -364,6 +414,9 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             self.additive_models
         )
         scaler_best_state_dict: dict[str, Any] | None = None
+        hook_best_state_dicts: list[dict[str, Any] | None] = [None] * len(
+            self.forward_hooks
+        )
 
         # Split the best_model_state_dict into the corresponding sub-models' state dicts
         if best_model_state_dict is not None:
@@ -385,7 +438,14 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
                 for k, v in best_model_state_dict.items()
                 if k.startswith("scaler.")
             }
-
+            hook_best_state_dicts = [
+                {
+                    k.removeprefix(f"forward_hooks.{i}."): v
+                    for k, v in best_model_state_dict.items()
+                    if k.startswith(f"forward_hooks.{i}.")
+                }
+                for i in range(len(self.forward_hooks))
+            ]
         checkpoint = {
             "model_ckpt_version": self.__checkpoint_version__,
             "dataset_info": self.dataset_info,
@@ -399,6 +459,12 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             "scaler": self.scaler.get_checkpoint(scaler_best_state_dict)
             if self.scaler is not None
             else None,
+            "forward_hooks": [
+                h.get_checkpoint(best_state)
+                for h, best_state in zip(
+                    self.forward_hooks, hook_best_state_dicts, strict=True
+                )
+            ],
             "metadata": self.metadata,
         }
         return checkpoint
@@ -435,6 +501,17 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             if (scaler_state_dict := scaler_checkpoint.get(key)) is not None:
                 state_dict.update(
                     {f"scaler.{k}": v for k, v in scaler_state_dict.items()}
+                )
+
+        for i, forward_hook_checkpoint in enumerate(checkpoint["forward_hooks"]):
+            if (
+                forward_hook_state_dict := forward_hook_checkpoint.get(key)
+            ) is not None:
+                state_dict.update(
+                    {
+                        f"forward_hooks.{i}.{k}": v
+                        for k, v in forward_hook_state_dict.items()
+                    }
                 )
 
         if len(state_dict) == 0:
