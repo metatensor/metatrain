@@ -15,6 +15,7 @@ from metatomic.torch import AtomisticModel, ModelOutput
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import Subset
 
+from metatrain.share.base_hypers import EvalDatasetDictHypers
 from metatrain.utils.data import (
     CollateFn,
     Dataset,
@@ -35,6 +36,7 @@ from metatrain.utils.data.writers import (
 from metatrain.utils.devices import pick_devices
 from metatrain.utils.errors import ArchitectureError
 from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import load_model
 from metatrain.utils.logging import MetricLogger
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator
@@ -153,6 +155,7 @@ def _eval_targets(
     check_consistency: bool = False,
     writer: Optional[Writer] = None,
     warm_up: bool = True,
+    log_separate_blocks: bool = False,
 ) -> None:
     """
     Evaluate `model` on `dataset`, accumulate RMSE/MAE, and (if `writer` is provided)
@@ -165,6 +168,8 @@ def _eval_targets(
     :param check_consistency: Whether to run consistency checks during model evaluation.
     :param writer: Optional writer to write out per-sample predictions.
     :param warm_up: Whether to do a warm-up of the model before evaluation.
+    :param log_separate_blocks: Report metrics separately for each block of each
+        target, instead of aggregated over the whole target.
     """
     # Disable static fusion. Besides the fact that atomistic batches have variable
     # sizes, statically fused CUDA kernels cannot allocate new tensors at runtime,
@@ -213,8 +218,8 @@ def _eval_targets(
         dataset, batch_size=batch_size, collate_fn=collate_fn, shuffle=False
     )
 
-    rmse_acc = RMSEAccumulator()
-    mae_acc = MAEAccumulator()
+    rmse_acc = RMSEAccumulator(separate_blocks=log_separate_blocks)
+    mae_acc = MAEAccumulator(separate_blocks=log_separate_blocks)
 
     # Warm-up
     if warm_up:
@@ -346,6 +351,7 @@ def eval_model(
     options = OmegaConf.create(options)
     options_list = expand_dataset_config(options)
     for i, options in enumerate(options_list):
+        options = OmegaConf.merge(init_with_defaults(EvalDatasetDictHypers), options)
         idx_suffix = f"_{i}" if len(options_list) > 1 else ""
         extra_log_message = f" with index {i}" if len(options_list) > 1 else ""
         logging.info(f"Evaluating dataset{extra_log_message}")
@@ -409,6 +415,7 @@ def eval_model(
                 check_consistency=check_consistency,
                 writer=writer,
                 warm_up=warm_up,
+                log_separate_blocks=options["log_separate_blocks"],
             )
         except Exception as e:
             raise ArchitectureError(e)

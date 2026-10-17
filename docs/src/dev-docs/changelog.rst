@@ -64,6 +64,9 @@ Added
   initializing the new heads from existing ones with ``inherit_heads``.
 - Added ``experimental.lorem`` architecture (*Learning Long-Range
   Representations with Equivariant Messages*, https://arxiv.org/abs/2507.19382).
+- ``mtt eval`` options gained a ``log_separate_blocks`` flag, matching the training
+  hyperparameter of the same name, to report all metrics separately for each block of
+  each target instead of aggregated over the whole target.
 
 Changed
 #######

@@ -462,6 +462,15 @@ class EvalDatasetDictHypers(TypedDict):
     text file containing one index per line. When specified, only the structures
     at these indices will be used from the dataset.
     """
+    log_separate_blocks: NotRequired[bool] = False
+    """Report metrics separately for each block of each target, instead of
+    aggregated over the whole target.
+
+    Each per-block metric is labeled with the block's key, e.g. for a spherical
+    target decomposed by ``o3_lambda``/``o3_sigma``/``atom_type``:
+    ``"<target> (o3_lambda=1,o3_sigma=1,atom_type=6) RMSE"``. Matches the
+    ``log_separate_blocks`` training hyperparameter.
+    """
 
 
 EvalHypers = EvalDatasetDictHypers | list[EvalDatasetDictHypers]
