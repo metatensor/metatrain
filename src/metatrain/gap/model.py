@@ -17,9 +17,7 @@ from metatomic.torch import (
 )
 from skmatter._selection import _FPS as _FPS_skmatter
 
-from metatrain.composition import CompositionModel
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.dataset import DatasetInfo
 from metatrain.utils.metadata import merge_metadata
@@ -143,29 +141,6 @@ class GAP(ModelInterface[ModelHypers]):
         )
         self._species_labels: Labels = Labels.empty("_")
 
-        # additive models: these are handled by the trainer at training
-        # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel.from_valid_targets(
-            dataset_info, dataset_info.atomic_types
-        )
-        additive_models = [composition_model]
-        if self.hypers["zbl"]:
-            additive_models.append(
-                ZBL(
-                    {},
-                    dataset_info=DatasetInfo(
-                        length_unit=dataset_info.length_unit,
-                        atomic_types=self.atomic_types,
-                        targets={
-                            target_name: target_info
-                            for target_name, target_info in dataset_info.targets.items()
-                            if ZBL.is_valid_target(target_name, target_info)
-                        },
-                    ),
-                )
-            )
-        self.additive_models = torch.nn.ModuleList(additive_models)
-
     def supported_outputs(self) -> Dict[str, ModelOutput]:
         return self.outputs
 
@@ -271,36 +246,10 @@ class GAP(ModelInterface[ModelHypers]):
         energies = self._subset_of_regressors_torch(soap_features)
         return_dict = {output_key: energies}
 
-        if not self.training:
-            # at evaluation, we also add the additive contributions
-            for additive_model in self.additive_models:
-                outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                for name, output in outputs.items():
-                    if name in additive_model.outputs:
-                        outputs_for_additive_model[name] = output
-                additive_contributions = additive_model(
-                    systems,
-                    outputs_for_additive_model,
-                    selected_atoms,
-                )
-                for name in additive_contributions:
-                    return_dict[name] = mts.add(
-                        return_dict[name],
-                        additive_contributions[name],
-                    )
-
         return return_dict
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
-        interaction_ranges = [self.hypers["soap"]["cutoff"]["radius"]]
-        for additive_model in self.additive_models:
-            if hasattr(additive_model, "cutoff_radius"):
-                interaction_ranges.append(additive_model.cutoff_radius)
-        interaction_range = max(interaction_ranges)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This funciton moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
+        interaction_range = self.hypers["soap"]["cutoff"]["radius"]
 
         capabilities = ModelCapabilities(
             outputs=self.outputs,
