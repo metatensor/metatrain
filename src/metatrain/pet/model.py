@@ -58,14 +58,13 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 17
+    __checkpoint_version__ = 18
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
     component_labels: Dict[str, List[List[Labels]]]
-    NUM_FEATURE_TYPES: int = 2  # node + edge features
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -85,7 +84,6 @@ class PET(ModelInterface[ModelHypers]):
         self.adaptive_cutoff_method = self.hypers["adaptive_cutoff_method"]
         self.d_pet = self.hypers["d_pet"]
         self.d_node = self.hypers["d_node"]
-        self.d_head = self.hypers["d_head"]
         self.num_gnn_layers = self.hypers["num_gnn_layers"]
         self.featurizer_type = self.hypers["featurizer_type"]
 
@@ -109,8 +107,8 @@ class PET(ModelInterface[ModelHypers]):
         self.backend = PETBackend(self.hypers, self.atomic_types)
         self.num_readout_layers = self.backend.num_readout_layers
         self.system_conditioning = self.backend.system_conditioning
-        self.last_layer_feature_size = (
-            self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
+        self.last_layer_feature_size = self.num_readout_layers * (
+            self.backend.d_head_node + self.backend.d_head_edge
         )  # for LLPR
 
         # the model is always capable of outputting the internal features
@@ -366,7 +364,13 @@ class PET(ModelInterface[ModelHypers]):
         # optional diagnostic token capture by registering temporary module hooks
         _diagnostic_pair_labels: Optional[Labels] = None
         _diagnostic_handles: List[Any] = []
+        # Hooks on the edge last layers capture their per-edge outputs, so these
+        # layers must then be applied before pooling over neighbors.
+        _per_edge_last_layers = False
         if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
+            _per_edge_last_layers = any(
+                k.startswith(DIAGNOSTIC_PREFIX + "edge_last_layers") for k in outputs
+            )
             if any(k.startswith(DIAGNOSTIC_PREFIX) for k in outputs):
                 _diagnostic_pair_labels = get_pair_sample_labels(
                     sample_labels,
@@ -471,6 +475,7 @@ class PET(ModelInterface[ModelHypers]):
                 cells,
                 system_indices,
                 requested_target_names,
+                _per_edge_last_layers,
             )
 
         # **Stage 2: Intermediate Feature Output (Optional)**

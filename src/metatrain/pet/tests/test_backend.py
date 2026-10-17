@@ -6,6 +6,7 @@ runs on plain tensors and is ``torch.compile``-able, matching eager execution.
 """
 
 import contextlib
+import copy
 import warnings
 
 import metatensor.torch as mts
@@ -16,7 +17,10 @@ from metatomic.torch import ModelOutput, System, register_autograd_neighbors
 from metatrain.pet import PET
 from metatrain.pet.modules.structures import concatenate_structures
 from metatrain.utils.data import DatasetInfo
-from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.data.target_info import (
+    get_energy_target_info,
+    get_generic_target_info,
+)
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import MODEL_HYPERS
@@ -171,6 +175,91 @@ def test_backend_predictions_match_full_model():
     )
 
     torch.testing.assert_close(atomic_predictions["energy"][0], wrapped)
+
+
+@pytest.mark.parametrize("num_neighbors_adaptive", [None, 4])
+def test_pooled_edge_last_layers_match_per_edge(num_neighbors_adaptive):
+    """Pooled gated edge readouts equal per-edge readouts then pooling, values and
+    gradients, for scalar, spherical and Cartesian targets."""
+    # fixed seed: the random geometry below must give padded neighbor lists
+    torch.manual_seed(0)
+    hypers = copy.deepcopy(MODEL_HYPERS)
+    hypers["num_neighbors_adaptive"] = num_neighbors_adaptive
+    hypers["readout_type"] = {"atom_type_gating": "one-hot"}
+    dataset_info = _make_dataset_info()
+    dataset_info.targets["spherical"] = get_generic_target_info(
+        "spherical",
+        {
+            "quantity": "",
+            "unit": "",
+            "type": {
+                "spherical": {
+                    "irreps": [
+                        {"o3_lambda": 0, "o3_sigma": 1},
+                        {"o3_lambda": 1, "o3_sigma": 1},
+                        {"o3_lambda": 2, "o3_sigma": 1},
+                    ]
+                }
+            },
+            "sample_kind": "atom",
+            "num_subtargets": 3,
+        },
+    )
+    for name, rank, sample_kind in [
+        ("mtt::vector", 1, "atom"),
+        ("non_conservative_stress", 2, "system"),
+    ]:
+        dataset_info.targets[name] = get_generic_target_info(
+            name,
+            {
+                "quantity": "",
+                "unit": "",
+                "type": {"cartesian": {"rank": rank}},
+                "sample_kind": sample_kind,
+                "num_subtargets": 2,
+            },
+        )
+    target_names = list(dataset_info.targets)
+    model = PET(hypers, dataset_info).to(torch.float64).eval()
+
+    # A distorted periodic system, so that atoms have different numbers of neighbors
+    # and the neighbor lists are padded
+    system = System(
+        types=torch.tensor([1, 6, 7, 8, 8]),
+        positions=4.0 * torch.rand(5, 3, dtype=torch.float64),
+        cell=4.0 * torch.eye(3, dtype=torch.float64),
+        pbc=torch.tensor([True, True, True]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    positions, *inputs = _backend_inputs(model, system)
+    cells, system_indices = inputs[3], inputs[5]
+
+    def predictions_and_gradients(per_edge_last_layers):
+        positions_ = positions.clone().requires_grad_(True)
+        batch_data = model.backend.preprocess(positions_, *inputs)
+        assert not batch_data["padding_mask"].all()
+        node_list, edge_list = model.backend.calculate_features(batch_data)
+        predictions, _, _ = model.backend.predict(
+            node_list,
+            edge_list,
+            batch_data,
+            cells,
+            system_indices,
+            target_names,
+            per_edge_last_layers,
+        )
+        blocks = [block for name in target_names for block in predictions[name]]
+        (gradient,) = torch.autograd.grad(sum(b.sum() for b in blocks), positions_)
+        return blocks, gradient
+
+    pooled_blocks, pooled_gradient = predictions_and_gradients(False)
+    per_edge_blocks, per_edge_gradient = predictions_and_gradients(True)
+
+    for pooled, per_edge in zip(pooled_blocks, per_edge_blocks, strict=True):
+        torch.testing.assert_close(pooled, per_edge, rtol=1e-12, atol=1e-12)
+    torch.testing.assert_close(
+        pooled_gradient, per_edge_gradient, rtol=1e-12, atol=1e-12
+    )
 
 
 @pytest.mark.parametrize("fullgraph", [True, False])
