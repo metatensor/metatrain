@@ -56,6 +56,10 @@ Fixed
 - SPACE's per-block validation errors (``log_separate_blocks``) are now correct for
   atomic-basis targets.
 - LLPR uncertainties of SPACE models trained on several targets are now correct.
+- LLPR uncertainties and ensembles of per-atom targets now include the scales of each
+  atomic type, instead of using the same scale for all of them.
+- Training with rotational augmentation no longer fails on targets split by atomic
+  type when some batches have no atomic type in common.
 
 Added
 #####
@@ -64,12 +68,22 @@ Added
   initializing the new heads from existing ones with ``inherit_heads``.
 - Added ``experimental.lorem`` architecture (*Learning Long-Range
   Representations with Equivariant Messages*, https://arxiv.org/abs/2507.19382).
+- LLPR uncertainties and ensembles for targets with several blocks, such as spherical
+  targets and targets in an atomic basis, and for SPACE and MACE.
+- Ensemble losses for targets with several blocks.
 
 Changed
 #######
 
+- LLPR calibrates one factor for each property of each block of the targets.
+- The last-layer features of MACE and SPACE have the keys and components of their
+  target.
+
 Removed
 #######
+
+- SOAP-BPNN no longer exposes last-layer features for its spherical and Cartesian
+  targets, so LLPR is not available for them.
 
 Version 2026.4.1 - 2026-09-25
 -----------------------------

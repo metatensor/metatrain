@@ -338,12 +338,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             self.long_range = False
             self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
 
-        self.last_layer_feature_size = (
-            self.n_inputs_last_layer
-            if not self.legacy
-            else self.n_inputs_last_layer * len(self.atomic_types)
-        )
-
         # the model is always capable of outputting the internal features
         self.outputs = {
             "feature": ModelOutput(sample_kind="atom", description="internal features")
@@ -363,7 +357,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         self.key_labels: Dict[str, Labels] = {}
         self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.property_labels: Dict[str, List[Labels]] = {}
-        self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         self.cartesian_rank1_targets: List[str] = []
         self.cartesian_rank2_targets: List[str] = []
         for target_name, target in dataset_info.targets.items():
@@ -1007,12 +1000,16 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 f"for target {target_name}"
             )
 
-        ll_features_name = (
-            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
-        )
-        self.outputs[ll_features_name] = ModelOutput(
-            sample_kind="atom", description=f"last layer features for {target_name}"
-        )
+        # the other targets are not linear in the features, which are contracted
+        # with a geometry-dependent basis
+        if target.is_scalar:
+            ll_features_name = (
+                f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
+            )
+            self.outputs[ll_features_name] = ModelOutput(
+                sample_kind="atom",
+                description=f"last layer features for {target_name}",
+            )
 
         # For rank-2 Cartesian targets, construct an internal spherical layout
         # so the last-layer/label setup matches the spherical decomposition.
@@ -1087,11 +1084,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 bias=False,
                 out_properties=out_properties_list,
             )
-            self.last_layer_parameter_names[target_name] = [
-                f"last_layers.{target_name}.{dict_key}." + n
-                for n in self.last_layers[target_name][dict_key].state_dict().keys()
-                if n.endswith("weight")
-            ]
 
         self.key_labels[target_name] = layout_for_layers.keys
         self.component_labels[target_name] = [

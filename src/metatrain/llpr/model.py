@@ -1,6 +1,7 @@
+import copy
 import logging
 from collections.abc import Mapping
-from typing import Any, Dict, Iterator, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import metatensor.torch as mts
 import torch
@@ -13,41 +14,46 @@ from metatomic.torch import (
     System,
     register_autograd_neighbors,
 )
-from torch.utils.data import DataLoader
 
 from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
-from metatrain.utils.data import (
-    CollateFn,
-    CombinedDataLoader,
-    Dataset,
-    DatasetInfo,
-    unpack_batch,
-)
+from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
-from metatrain.utils.data.target_info import (
-    is_auxiliary_output,
-)
+from metatrain.utils.data.target_info import is_auxiliary_output
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.neighbor_lists import (
-    get_requested_neighbor_lists,
-    get_system_with_neighbor_lists_transform,
-)
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .calibration import (
-    GaussianCRPSCalibrator,
-    RatioCalibrator,
-)
 from .documentation import ModelHypers
 
 
 class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 5
+    """A wrapper that adds LLPR uncertainties to a model.
+
+    In order to be compatible with this class, the core of a ``MetatrainModel`` needs
+    to be capable of returning the last-layer features of its targets (see
+    :ref:`mtt-aux-target-last-layer-features`), optionally per atom to calculate LPRs
+    (per-atom uncertainties) with the LLPR method.
+
+    Uncertainties and ensembles are computed in the layout and units of the core, and
+    brought to those of the targets with
+    :py:meth:`metatrain.utils.wrapper.MetatrainModel.scale_outputs`.
+
+    All uncertainties provided by this class are standard deviations (as opposed to
+    variances). Prediction rigidities (local and total) can be calculated, according to
+    their definition, as the inverse of the square of the standard deviations returned
+    by this class.
+
+    :param hypers: The hypers of the model.
+    :param dataset_info: The dataset info of the targets to wrap.
+    """
+
+    __checkpoint_version__ = 6
 
     ensemble_gradient_outputs: List[str]
+    llpr_outputs: List[str]
 
     # all torch devices and dtypes are supported, if they are supported by the wrapped
     # the check is performed in the trainer
@@ -64,32 +70,6 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         }
     )
 
-    """A wrapper that adds LLPR uncertainties to a model.
-
-    In order to be compatible with this class, a model needs to have the last-layer
-    feature size available as an attribute (with the ``last_layer_feature_size`` name)
-    and be capable of returning last-layer features (see auxiliary outputs in
-    metatrain), optionally per atom to calculate LPRs (per-atom uncertainties)
-    with the LLPR method.
-
-    Optionally, in order to be compatible with the LLPR ensemble capabilities of this
-    class, the wrapped model also needs to have last-layer weights accessible for each
-    target. These should be provided as a dictionary mapping target names to lists of
-    parameter names in the ``last_layer_parameter_names`` attribute of the wrapped
-    model. If multiple parameters constitute the last-layer weights for a target, then
-    these should be provided in the same order that corresponds to the order of the
-    last-layer features.
-
-    All uncertainties provided by this class are standard deviations (as opposed to
-    variances). Prediction rigidities (local and total) can be calculated, according to
-    their definition, as the inverse of the square of the standard deviations returned
-    by this class.
-
-    :param model: The model to wrap.
-    :param ensemble_weight_sizes: The sizes of the ensemble weights, only used
-        internally when reloading checkpoints.
-    """
-
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
         check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
@@ -98,35 +78,32 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         self.dataset_info = dataset_info
 
     def set_wrapped_model(self, model: MetatrainModel) -> None:
-        # this function is called after initialization, as well as
+        """Wrap ``model``, and set up the LLPR state of each of its targets.
 
-        hypers = self.hypers
-        dataset_info = self.dataset_info
-
-        # ensemble weight sizes need to be extracted from the hypers
-
+        :param model: the model to wrap.
+        """
         self.model = model
-        self.ll_feat_size = self.model.core.last_layer_feature_size
 
-        # we need the capabilities of the model to be able to infer the capabilities
-        # of the LLPR model. Here, we do a trick: we call export on the model to to make
-        # it handle the conversion from dataset_info to capabilities, as well as to
-        # get its dtype
+        # the export of the core converts its dataset info to capabilities, and
+        # gives its dtype
         old_capabilities = self.model.core.export().capabilities()
         dtype = getattr(torch, old_capabilities.dtype)
 
-        # checks between dataset_info and model outputs
-        if dataset_info.length_unit != old_capabilities.length_unit:
+        # covariance, calibration and uncertainties need inference-mode predictions
+        # (with scaler and additive contributions)
+        self.model.eval()
+
+        if self.dataset_info.length_unit != old_capabilities.length_unit:
             raise ValueError(
                 "The length unit in the dataset info is different from the "
                 "length unit of the wrapped model"
             )
-        for atomic_type in dataset_info.atomic_types:
+        for atomic_type in self.dataset_info.atomic_types:
             if atomic_type not in old_capabilities.atomic_types:
                 raise ValueError(
                     f"Atomic type {atomic_type} not supported by the wrapped model"
                 )
-        for target_name, target in dataset_info.targets.items():
+        for target_name, target in self.dataset_info.targets.items():
             if target_name not in old_capabilities.outputs:
                 raise ValueError(
                     f"Target {target_name} not supported by the wrapped model"
@@ -138,33 +115,71 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     f"{old_capabilities.outputs[target_name].unit}"
                 )
 
-        # Build the LLPR capabilities from the wrapped model's *native* outputs rather
-        # than from its export-time capabilities. The latter additionally contain the
-        # new-name aliases that metatomic injects for deprecated output names (e.g.
-        # `non_conservative_force` for `non_conservative_forces`), while the wrapped
-        # model's `forward` only responds to the native names. Building on the native
-        # names keeps this wrapper transparent: it requests from and returns to the
-        # wrapped model under the names the model actually understands, and metatomic's
-        # `AtomisticModel` re-adds the new-name aliases (and bridges engine requests to
-        # them) when this wrapper is itself exported.
+        # native outputs only, metatomic re-adds the deprecated aliases at export
         backbone_outputs = self.model.core.supported_outputs()
+        num_ensemble_members = self.hypers["num_ensemble_members"]
 
-        # update capabilities: now we have additional outputs for the uncertainty
-        additional_capabilities = {}
-        self.outputs_list = []
-        for name, output in backbone_outputs.items():
+        names: List[str] = []
+        for name in backbone_outputs:
             if is_auxiliary_output(name):
-                continue  # auxiliary output
-            self.outputs_list.append(name)
-            uncertainty_name = _get_uncertainty_name(name)
-            additional_capabilities[uncertainty_name] = ModelOutput(
+                continue
+            if _get_last_layer_features_name(name) not in backbone_outputs:
+                logging.warning(
+                    f"The wrapped model exposes no last-layer features for '{name}'; "
+                    "LLPR uncertainties for it are unavailable."
+                )
+                continue
+            names.append(name)
+        if len(names) == 0:
+            raise ValueError(
+                "The wrapped model exposes no last-layer features, so LLPR can not "
+                "compute any uncertainty"
+            )
+        features = self._last_layer_features(names)
+
+        self.targets = torch.nn.ModuleDict()
+        self.llpr_outputs = []
+        self.ensemble_gradient_outputs = []
+        outputs = dict(backbone_outputs)
+        for name in names:
+            output = backbone_outputs[name]
+            target = _TargetLLPR(
+                name,
+                features[_get_last_layer_features_name(name)],
+                self.model.core.dataset_info.targets[name].layout,
+                self.model.dataset_info.targets[name].layout,
+                num_ensemble_members.get(name, 0),
+                dtype,
+            )
+            self.targets[name] = target
+
+            outputs[target.uncertainty_name] = ModelOutput(
                 unit=output.unit,
                 sample_kind=output.sample_kind,
                 description=output.description,
             )
+            self.llpr_outputs.append(target.uncertainty_name)
+            if target.has_ensemble:
+                explicit_gradients = self._ensemble_explicit_gradients(name)
+                if len(explicit_gradients) > 0:
+                    self.ensemble_gradient_outputs.append(target.ensemble_name)
+                outputs[target.ensemble_name] = ModelOutput(
+                    unit=output.unit,
+                    sample_kind=output.sample_kind,
+                    explicit_gradients=explicit_gradients,
+                    description=f"ensemble of {name}",
+                )
+                self.llpr_outputs.append(target.ensemble_name)
+
+        for name in num_ensemble_members:
+            if name not in self.targets:
+                raise ValueError(
+                    f"Output '{name}' in ensembles section is not supported by "
+                    "the model"
+                )
 
         self.capabilities = ModelCapabilities(
-            outputs={**backbone_outputs, **additional_capabilities},
+            outputs=outputs,
             atomic_types=old_capabilities.atomic_types,
             interaction_range=old_capabilities.interaction_range,
             length_unit=old_capabilities.length_unit,
@@ -172,82 +187,42 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             dtype=old_capabilities.dtype,
         )
 
-        # register covariance, inverse covariance and multiplier buffers
-        for name in self.outputs_list:
-            uncertainty_name = _get_uncertainty_name(name)
-            self.register_buffer(
-                f"covariance_{uncertainty_name}",
-                torch.zeros(
-                    (self.ll_feat_size, self.ll_feat_size),
-                    dtype=dtype,
-                ),
-            )
-            self.register_buffer(
-                f"cholesky_{uncertainty_name}",
-                torch.zeros(
-                    (self.ll_feat_size, self.ll_feat_size),
-                    dtype=dtype,
-                ),
-            )
-            self.register_buffer(
-                f"multiplier_{uncertainty_name}",
-                torch.tensor([1.0], dtype=dtype),
-            )
+    def _last_layer_features(self, names: List[str]) -> Dict[str, TensorMap]:
+        """The last-layer features of the targets ``names``, computed by the wrapped
+        model on a chain with one atom of each atomic type, which gives their layout.
 
-        self.ensemble_weight_sizes = hypers["num_ensemble_members"]
-
-        # register buffers for ensemble weights and ensemble outputs
-        ensemble_outputs = {}
-        # ensemble outputs `forward` is able to attach explicit gradients to, resolved
-        # here from the wrapped model's outputs so that `forward` does not have to
-        # re-derive it (and cannot disagree with the advertised capabilities)
-        self.ensemble_gradient_outputs: List[str] = []
-        for name in self.ensemble_weight_sizes:
-            if name not in self.outputs_list:
-                raise ValueError(
-                    f"Output '{name}' in ensembles section is not supported by "
-                    "the model"
-                )
-            ensemble_weights_name = (
-                "mtt::aux::" + name.replace("mtt::", "") + "_ensemble_weights"
-            )
-            if ensemble_weights_name == "mtt::aux::energy_ensemble_weights":
-                ensemble_weights_name = "energy_ensemble_weights"
-            ensemble_output_name = (
-                "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
-            )
-            if ensemble_output_name == "mtt::aux::energy_ensemble":
-                ensemble_output_name = "energy_ensemble"
-            explicit_gradients = self._ensemble_explicit_gradients(name)
-            if len(explicit_gradients) > 0:
-                self.ensemble_gradient_outputs.append(ensemble_output_name)
-            ensemble_outputs[ensemble_output_name] = ModelOutput(
-                unit=old_capabilities.outputs[name].unit,
-                sample_kind=old_capabilities.outputs[name].sample_kind,
-                explicit_gradients=explicit_gradients,
-                description=f"ensemble of '{name}'",
-            )
-        self.capabilities = ModelCapabilities(
-            outputs={**self.capabilities.outputs, **ensemble_outputs},
-            atomic_types=self.capabilities.atomic_types,
-            interaction_range=self.capabilities.interaction_range,
-            length_unit=self.capabilities.length_unit,
-            supported_devices=self.capabilities.supported_devices,
-            dtype=self.capabilities.dtype,
+        :param names: names of the targets.
+        :return: the last-layer features, by name of the output.
+        """
+        parameter = next(self.model.parameters())
+        atomic_types = self.model.dataset_info.atomic_types
+        system = System(
+            types=torch.tensor(atomic_types, device=parameter.device),
+            positions=torch.tensor(
+                [[2.0 * i, 0.0, 0.0] for i in range(len(atomic_types))],
+                device=parameter.device,
+                dtype=parameter.dtype,
+            ),
+            cell=torch.zeros((3, 3), device=parameter.device, dtype=parameter.dtype),
+            pbc=torch.tensor([False, False, False], device=parameter.device),
         )
-        self.llpr_ensemble_layers = torch.nn.ModuleDict()
-        for name, value in self.ensemble_weight_sizes.items():
-            # create the linear layer for ensemble members
-            tensor_names = self.model.core.last_layer_parameter_names[name]
-            n_properties = torch.concatenate(
-                [self.model.core.state_dict()[tn] for tn in tensor_names],
-                axis=-1,
-            ).shape[0]  # type: ignore
-            self.llpr_ensemble_layers[name] = torch.nn.Linear(
-                self.ll_feat_size,
-                value * n_properties,
-                bias=False,
+        system = get_system_with_neighbor_lists(
+            system, self.model.requested_neighbor_lists()
+        )
+        requests = {
+            _get_last_layer_features_name(name): ModelOutput(
+                sample_kind=self.model.dataset_info.targets[name].sample_kind
             )
+            for name in names
+        }
+        try:
+            with torch.no_grad():
+                return self.model([system], requests)
+        except Exception as error:
+            raise RuntimeError(
+                "LLPR runs the wrapped model on a chain of atoms to find the layout of "
+                "its last-layer features, and this failed"
+            ) from error
 
     def restart(
         self,
@@ -290,136 +265,43 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
         return self
 
-    def _get_dataloader(
-        self,
-        datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        batch_size: int,
-        is_distributed: bool,
-    ) -> DataLoader:
-        """
-        Create a DataLoader for the provided datasets. As the dataloader is only used to
-        accumulate the quantities needed for LLPR calibration, there is no need to
-        shuffle or drop the last non-full batch. Distributed sampling can be used or
-        not, based on the `is_distributed` argument, and training with double
-        precision is enforced.
-
-        :param datasets: List of datasets to create the dataloader from.
-        :param batch_size: Batch size to use for the dataloader.
-        :param is_distributed: Whether to use distributed sampling or not.
-        :return: The created DataLoader.
-        """
-        # Create the collate function
-        targets_keys = list(self.dataset_info.targets.keys())
-        requested_neighbor_lists = get_requested_neighbor_lists(self)
-        collate_fn = CollateFn(
-            target_keys=targets_keys,
-            callables=[
-                get_system_with_neighbor_lists_transform(requested_neighbor_lists)
-            ],
-        )
-
-        # Validate dtype from datasets
-        if len(datasets) == 0:
-            raise ValueError(
-                "Cannot create dataloader from empty datasets list. "
-                "Please provide non-empty datasets for LLPR calibration."
-            )
-        if len(datasets[0]) == 0:
-            raise ValueError(
-                "Cannot create dataloader from empty dataset. "
-                "Please provide non-empty datasets for LLPR calibration."
-            )
-
-        # Build the dataloaders
-        samplers: List[torch.utils.data.Sampler | None]
-        if is_distributed:
-            world_size = torch.distributed.get_world_size()
-            rank = torch.distributed.get_rank()
-            samplers = [
-                NoPadDistributedSampler(
-                    dataset,
-                    num_replicas=world_size,
-                    rank=rank,
-                    shuffle=False,
-                    seed=0,
-                )
-                for dataset in datasets
-            ]
-        else:
-            samplers = [None] * len(datasets)
-
-        dataloaders = []
-        for dataset, sampler in zip(datasets, samplers, strict=True):
-            if len(dataset) < batch_size:
-                raise ValueError(
-                    f"A dataset has fewer samples "
-                    f"({len(dataset)}) than the batch size "
-                    f"({batch_size}). "
-                    "Please reduce the batch size."
-                )
-            dataloaders.append(
-                DataLoader(
-                    dataset=dataset,
-                    batch_size=batch_size,
-                    sampler=sampler,
-                    drop_last=False,
-                    collate_fn=collate_fn,
-                )
-            )
-
-        # important to keep shuffle=False for consistent calibration results
-        # in distributed training
-        return CombinedDataLoader(dataloaders, shuffle=False)
-
     def forward(
         self,
         systems: List[System],
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        if all(output.endswith("_uncertainty") for output in outputs) and all(
-            output.endswith("_ensemble") for output in outputs
-        ):
-            # no uncertainties requested
-            return self.model(systems, outputs, selected_atoms)
-
         outputs_for_model: Dict[str, ModelOutput] = {}
         for name, output in outputs.items():
-            if name.endswith("_uncertainty") or name.endswith("_ensemble"):
-                # request corresponding features
-                target_name = (
-                    name.replace("mtt::aux::", "")
-                    .replace("_uncertainty", "")
-                    .replace("_ensemble", "")
-                )
-                outputs_for_model[f"mtt::aux::{target_name}_last_layer_features"] = (
-                    ModelOutput(sample_kind=output.sample_kind)
-                )
-                # for both uncertainties and ensembles, we need the original output,
-                # so we request it as well
-                if name.endswith("_ensemble") or name.endswith("_uncertainty"):
-                    original_name = self._get_original_name(name)
-                    outputs_for_model[original_name] = output
-                # (will be removed at the end if not requested by the user)
+            if name not in self.llpr_outputs:
+                outputs_for_model[name] = output
 
-        for name, output in outputs.items():
-            # remove uncertainties and ensembles from the requested outputs for the
-            # wrapped model
-            if name.startswith("mtt::aux") and name.endswith("_uncertainty"):
-                continue
-            if name.endswith("_ensemble"):
-                continue
-            outputs_for_model[name] = output
+        # the targets whose uncertainty or ensemble is requested also need their
+        # prediction and last-layer features
+        requested: List[str] = []
+        for name, target in self.targets.items():
+            request: Optional[ModelOutput] = None
+            if target.uncertainty_name in outputs:
+                request = outputs[target.uncertainty_name]
+            elif target.has_ensemble and target.ensemble_name in outputs:
+                request = outputs[target.ensemble_name]
+            if request is not None:
+                requested.append(name)
+                if name not in outputs_for_model:
+                    outputs_for_model[name] = request
+                outputs_for_model[target.features_name] = ModelOutput(
+                    sample_kind=request.sample_kind
+                )
+
+        if len(requested) == 0:
+            return self.model(systems, outputs, selected_atoms)
 
         # Explicit gradients of an energy ensemble require grad-enabled positions/cell
         # and autograd-registered neighbor lists *before* the wrapped model runs.
         # Engines generally hand over systems without any of this set up, so rebuild
         # them here if needed.
-        for name, output in outputs.items():
-            if (
-                name in self.ensemble_gradient_outputs
-                and len(output.explicit_gradients) > 0
-            ):
+        for name in self.ensemble_gradient_outputs:
+            if name in outputs and len(outputs[name].explicit_gradients) > 0:
                 if selected_atoms is not None:
                     # the gradient samples built by `_add_energy_ensemble_gradients`
                     # assume one value sample per system, in order, and cover every
@@ -432,254 +314,123 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 systems = self._systems_with_grad(systems)
                 break
 
-        return_dict = self.model(systems, outputs_for_model, selected_atoms)
+        results = self.model(systems, outputs_for_model, selected_atoms)
 
-        requested_uncertainties: List[str] = []
-        for name in outputs.keys():
-            if (name.startswith("mtt::aux::") and name.endswith("_uncertainty")) or (
-                name == "energy_uncertainty"
-            ):
-                requested_uncertainties.append(name)
+        for name, target in self.targets.items():
+            if name in requested:
+                features = results[target.features_name]
+                target.move_layouts(features.device)
 
-        for uncertainty_name in requested_uncertainties:
-            ll_features_name = uncertainty_name.replace(
-                "_uncertainty", "_last_layer_features"
-            )
-            if ll_features_name == "energy_last_layer_features":
-                # special case for energy_ensemble
-                ll_features_name = "mtt::aux::energy_last_layer_features"
-            ll_features = return_dict[ll_features_name]
+                if target.uncertainty_name in outputs:
+                    uncertainty = self.model.scale_outputs(
+                        systems,
+                        {name: target.uncertainty(features)},
+                        selected_atoms,
+                    )[name]
+                    results[target.uncertainty_name] = target.apply_multipliers(
+                        uncertainty
+                    )
 
-            ll_features_values = ll_features.block().values
-            if len(ll_features_values.shape) == 2:
-                # create fake component dimension for proper einsum operation
-                ll_features_values = ll_features_values.unsqueeze(1)
-            elif len(ll_features_values.shape) == 3:
-                # already has component dimension
-                pass
-            else:
-                # condense all component dimensions into one for proper einsum operation
-                ll_features_values = ll_features_values.reshape(
-                    ll_features_values.shape[0], -1, ll_features_values.shape[-1]
+                if target.has_ensemble and target.ensemble_name in outputs:
+                    deviations = self.model.scale_outputs(
+                        systems,
+                        {name: target.deviations(features)},
+                        selected_atoms,
+                    )[name]
+                    results[target.ensemble_name] = self._ensemble(
+                        target.ensemble_name,
+                        results[name],
+                        target.apply_multipliers(deviations),
+                        outputs[target.ensemble_name],
+                        systems,
+                    )
+
+        # drop the predictions and features only requested for the uncertainties and
+        # ensembles
+        for name in list(results.keys()):
+            if name not in outputs:
+                results.pop(name)
+
+        return results
+
+    def _ensemble(
+        self,
+        ensemble_name: str,
+        prediction: TensorMap,
+        deviations: TensorMap,
+        output: ModelOutput,
+        systems: List[System],
+    ) -> TensorMap:
+        """The ensemble members, as the prediction plus their deviations.
+
+        Centering the members on the prediction also accounts for the contributions
+        that are not in the last layer (composition, additive models, ...).
+
+        :param ensemble_name: name of the ensemble output.
+        :param prediction: the prediction of the target.
+        :param deviations: the calibrated deviations of the members from their mean,
+            in the layout of the target, with the members as the last component.
+        :param output: the requested ensemble output.
+        :param systems: the systems the prediction was computed for.
+        :return: the ensemble, with the members in the properties.
+        """
+        want_positions = False
+        want_strain = False
+        if ensemble_name in self.ensemble_gradient_outputs:
+            want_positions = "positions" in output.explicit_gradients
+            want_strain = "strain" in output.explicit_gradients
+            if (want_positions or want_strain) and output.sample_kind != "system":
+                # `_add_energy_ensemble_gradients` assumes one sample per system. For
+                # a per-atom energy it would silently return the gradient of the
+                # summed energy, labelled as if it were per-sample, so refuse rather
+                # than produce wrong numbers.
+                raise ValueError(
+                    f"explicit gradients of '{ensemble_name}' are only "
+                    "supported for a per-system energy, but this output was "
+                    f"requested with sample_kind '{output.sample_kind}'"
                 )
 
-            # compute PRs; the code is the same for PR and LPR
-            v = torch.linalg.solve_triangular(
-                self._get_cholesky(uncertainty_name),
-                ll_features_values.reshape(-1, ll_features_values.shape[-1]).T,
-                upper=False,
+        blocks: List[TensorBlock] = []
+        for key, block in prediction.items():
+            values = block.values.unsqueeze(-2) + deviations.block(key).values
+            num_ens = values.shape[-2]
+            # shape: samples, components, (num_ens * num_properties)
+            values = values.reshape(list(block.values.shape[:-1]) + [-1])
+
+            properties = block.properties.values
+            members = torch.arange(
+                num_ens, device=properties.device, dtype=properties.dtype
             )
-            one_over_pr_values = torch.sum(v**2, dim=0).reshape(
-                ll_features_values.shape[0], ll_features_values.shape[1], 1
-            )
-
-            original_name = self._get_original_name(uncertainty_name)
-            number_of_components = _prod(
-                return_dict[original_name].block().values.shape[1:-1]
-            )
-            cur_prop = return_dict[original_name].block().properties
-            num_prop = len(cur_prop.values)
-            one_over_pr_values = one_over_pr_values.expand(
-                -1, number_of_components, num_prop
-            )
-            one_over_pr_values = one_over_pr_values.reshape(
-                [one_over_pr_values.shape[0]]
-                + list(return_dict[original_name].block().values.shape[1:])
-            )
-
-            # uncertainty TensorMap (values expanded into shape (num_samples, num_prop),
-            # with expansion targeting num_prop
-            # Note that we take the square root here (just below) to convert variance to
-            # standard deviation
-            uncertainty = TensorMap(
-                keys=Labels(
-                    names=["_"],
-                    values=torch.tensor(
-                        [[0]], device=ll_features.block().values.device
-                    ),
-                ),
-                blocks=[
-                    TensorBlock(
-                        values=torch.sqrt(one_over_pr_values),
-                        samples=ll_features.block().samples,
-                        components=return_dict[original_name].block().components,
-                        properties=cur_prop,
-                    )
-                ],
-            )
-
-            # calibrated multiplier TensorMaps (values expanded into shape (num_samples,
-            # num_prop), with expansion targeting num_samples
-            multipliers = TensorMap(
-                keys=Labels(
-                    names=["_"],
-                    values=torch.tensor(
-                        [[0]], device=ll_features.block().values.device
-                    ),
-                ),
-                blocks=[
-                    TensorBlock(
-                        values=self._get_multiplier(uncertainty_name).expand(
-                            one_over_pr_values.shape
-                        ),
-                        samples=ll_features.block().samples,
-                        components=return_dict[original_name].block().components,
-                        properties=cur_prop,
-                    )
-                ],
-            )
-
-            # two TensorMaps of same shape in values are multiplied together here
-            return_dict[uncertainty_name] = mts.multiply(uncertainty, multipliers)
-
-        # now deal with potential ensembles (see generate_ensemble method)
-        requested_ensembles: List[str] = []
-        for name in outputs.keys():
-            if name.endswith("_ensemble"):
-                requested_ensembles.append(name)
-
-        for ens_name in requested_ensembles:
-            original_name = self._get_original_name(ens_name)
-
-            ll_features_name = ens_name.replace("_ensemble", "_last_layer_features")
-            if ll_features_name == "energy_last_layer_features":
-                # special case for energy_ensemble
-                ll_features_name = "mtt::aux::energy_last_layer_features"
-            ll_features = return_dict[ll_features_name]
-
-            # Loop needed due to torchscript limitations
-            ensemble_values = torch.tensor([0])
-            for lin_layer_name, module in self.llpr_ensemble_layers.items():
-                if lin_layer_name == original_name:
-                    # raw ens output shape is (samples, (num_ens * num_prop))
-                    ensemble_values = module(ll_features.block().values)
-
-            # extract shape of components and properties
-            components_shape = list(
-                return_dict[original_name].block().values.shape[1:-1]
-            )
-            num_prop = return_dict[original_name].block().values.shape[-1]
-
-            # reshape values accordingly
-            if num_prop == ensemble_values.shape[-1]:
-                # equivariant (or unconstrained with single component)
-                ensemble_values = ensemble_values.reshape(
-                    [ensemble_values.shape[0]] + components_shape + [-1, num_prop]
-                )  # shape: samples, ..., num_ens, num_prop
-            else:
-                # unconstrained with multiple components
-                ensemble_values = ensemble_values.reshape(
-                    [ensemble_values.shape[0], -1] + components_shape + [num_prop]
-                )  # shape: samples, num_ens, ..., num_prop
-                # move num_ens to position before num_prop (-2)
-                ensemble_values = (
-                    ensemble_values.reshape(
-                        ensemble_values.shape[0],
-                        -1,
-                        _prod(components_shape),
-                        num_prop,
-                    )
-                    .swapaxes(1, 2)
-                    .reshape(
-                        [ensemble_values.shape[0]] + components_shape + [-1, num_prop]
-                    )
-                )  # shape: samples, ..., num_ens, num_prop
-
-            # since we know the exact mean of the ensemble from the model's prediction,
-            # it should be mathematically correct to use it to re-center the ensemble.
-            # Besides making sure that the average is always correct (so that results
-            # will always be consistent between LLPR ensembles and the original model),
-            # this also takes care of additive contributions that are not present in the
-            # last layer, which can be composition, short-range models, a bias in the
-            # last layer, etc.
-            ensemble_values = (
-                ensemble_values
-                - ensemble_values.mean(dim=-2, keepdim=True)
-                + return_dict[original_name].block().values.unsqueeze(-2)  # ens_dim
-            )
-
-            num_ens = ensemble_values.shape[-2]
-
-            ensemble_values = ensemble_values.reshape(
-                [ensemble_values.shape[0]] + components_shape + [-1]
-            )  # shape: (samples, components, (num_ens * num_prop))
-
-            # prepare the properties Labels object for ensemble output, i.e. account
-            # for the num_ens dimension
-            old_prop_val = return_dict[original_name].block().properties.values
-            num_samples = old_prop_val.shape[0]
-            ens_idxs = torch.arange(
-                num_ens,
-                device=old_prop_val.device,
-                dtype=old_prop_val.dtype,
-            )
-            ens_idxs = ens_idxs.repeat_interleave(num_samples).unsqueeze(1)
-            if ens_name == "energy_ensemble":
+            members = members.repeat_interleave(properties.shape[0]).unsqueeze(1)
+            if ensemble_name == "energy_ensemble":
                 # "energy_ensemble" quantity requires a single "energy"
                 # property column holding the ensemble member index
-                ens_prop = Labels(names=["energy"], values=ens_idxs)
+                ensemble_properties = Labels(names=["energy"], values=members)
             else:
-                exp_prop_val = old_prop_val.repeat(num_ens, 1)
-                new_prop_val = torch.cat([ens_idxs, exp_prop_val], dim=-1)
-                ens_prop = Labels(
-                    names=["ensemble_member"]
-                    + return_dict[original_name].block().properties.names,
-                    values=new_prop_val,
+                ensemble_properties = Labels(
+                    names=["ensemble_member"] + block.properties.names,
+                    values=torch.cat([members, properties.repeat(num_ens, 1)], dim=-1),
                 )
 
             ensemble_block = TensorBlock(
-                values=ensemble_values,
-                samples=ll_features.block().samples,
-                components=return_dict[original_name].block().components,
-                properties=ens_prop,
+                values=values,
+                samples=block.samples,
+                components=block.components,
+                properties=ensemble_properties,
             )
+            if want_positions or want_strain:
+                self._add_energy_ensemble_gradients(
+                    ensemble_block,
+                    systems,
+                    values,
+                    ensemble_properties,
+                    num_ens,
+                    want_positions,
+                    want_strain,
+                )
+            blocks.append(ensemble_block)
 
-            if ens_name in self.ensemble_gradient_outputs:
-                requested_gradients = outputs[ens_name].explicit_gradients
-                want_positions = "positions" in requested_gradients
-                want_strain = "strain" in requested_gradients
-                if want_positions or want_strain:
-                    if outputs[ens_name].sample_kind != "system":
-                        # `_add_energy_ensemble_gradients` assumes one sample per
-                        # system. For a per-atom energy it would silently return the
-                        # gradient of the summed energy, labelled as if it were
-                        # per-sample, so refuse rather than produce wrong numbers.
-                        raise ValueError(
-                            f"explicit gradients of '{ens_name}' are only "
-                            "supported for a per-system energy, but this output was "
-                            f"requested with sample_kind "
-                            f"'{outputs[ens_name].sample_kind}'"
-                        )
-                    self._add_energy_ensemble_gradients(
-                        ensemble_block,
-                        systems,
-                        ensemble_values,
-                        ens_prop,
-                        num_ens,
-                        want_positions,
-                        want_strain,
-                    )
-
-            ensemble = TensorMap(
-                keys=Labels(
-                    names=["_"],
-                    values=torch.tensor(
-                        [[0]], device=ll_features.block().values.device
-                    ),
-                ),
-                blocks=[ensemble_block],
-            )
-
-            return_dict[ens_name] = ensemble
-
-        # Remove any keys if they were not requested. This can happen for last-layer
-        # features needed for uncertainty/ensemble calculation as well as for
-        # the original outputs when only uncertainties/ensembles were requested
-        for key in list(return_dict.keys()):
-            if key not in outputs:
-                return_dict.pop(key)
-
-        return return_dict
+        return TensorMap(keys=prediction.keys, blocks=blocks)
 
     def _systems_with_grad(self, systems: List[System]) -> List[System]:
         """Rebuild ``systems`` so that positions and cell require grad and neighbor
@@ -861,312 +612,34 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ),
             )
 
-    def compute_covariance(
-        self,
-        datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        batch_size: int,
-        is_distributed: bool,
-    ) -> None:
-        """A function to compute the covariance matrix for a training set.
-
-        The covariance is stored as a buffer in the model.
-
-        :param datasets: List of datasets to use for covariance calculation.
-        :param batch_size: Batch size to use for the dataloader.
-        :param is_distributed: Whether to use distributed sampling or not.
-        """
-        # Create dataloader for the training datasets
-        train_loader = self._get_dataloader(
-            datasets, batch_size, is_distributed=is_distributed
-        )
-
-        device = next(iter(self.buffers())).device
-        dtype = next(iter(self.buffers())).dtype
-        with torch.no_grad():
-            for batch in train_loader:
-                systems, targets, _ = unpack_batch(batch)
-                n_atoms = torch.tensor(
-                    [len(system.positions) for system in systems], device=device
-                )
-                systems = [system.to(device=device, dtype=dtype) for system in systems]
-                outputs_for_targets = {
-                    name: ModelOutput(
-                        sample_kind="atom"
-                        if "atom" in target.block(0).samples.names
-                        else "system"
-                    )
-                    for name, target in targets.items()
-                }
-                outputs_for_features = {
-                    f"mtt::aux::{n.replace('mtt::', '')}_last_layer_features": o
-                    for n, o in outputs_for_targets.items()
-                }
-                output = self.forward(
-                    systems, {**outputs_for_targets, **outputs_for_features}
-                )
-                for name in targets.keys():
-                    ll_feat_tmap = output[
-                        f"mtt::aux::{name.replace('mtt::', '')}_last_layer_features"
-                    ]
-                    # TODO: interface ll_feat calculation with the loss function,
-                    # paying attention to normalization w.r.t. n_atoms
-                    if outputs_for_targets[name].sample_kind == "system":
-                        ll_feats = (
-                            ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(1)
-                        )
-                    else:
-                        # For per-atom targets, use the features directly
-                        ll_feats = ll_feat_tmap.block().values.detach()
-
-                    # flatten component dimensions into samples
-                    ll_feats = ll_feats.reshape(-1, ll_feats.shape[-1])
-
-                    uncertainty_name = _get_uncertainty_name(name)
-                    covariance = self._get_covariance(uncertainty_name)
-                    covariance += ll_feats.T @ ll_feats
-
-        if is_distributed:
-            torch.distributed.barrier()
-            # All-reduce the covariance matrices across all processes
-            for name in self.outputs_list:
-                uncertainty_name = _get_uncertainty_name(name)
-                covariance = self._get_covariance(uncertainty_name)
-                torch.distributed.all_reduce(covariance)
-
     def compute_cholesky_decomposition(
         self, regularizer: Optional[float] = None
     ) -> None:
-        """A function to compute the Cholesky decomposition of the covariance matrix.
-
-        The Cholesky decomposition is stored as a buffer in the model.
+        """Compute the Cholesky factor of each covariance.
 
         :param regularizer: A regularization parameter to ensure the matrix is
             positive-definite. If not provided, the function will try to compute the
             Cholesky decomposition without regularization and increase the
             regularization parameter until the matrix is positive-definite.
         """
-
-        for name in self.outputs_list:
-            uncertainty_name = _get_uncertainty_name(name)
-            covariance = self._get_covariance(uncertainty_name).to(dtype=torch.float64)
-            cholesky = self._get_cholesky(uncertainty_name)
-            if regularizer is not None:
-                cholesky[:] = torch.linalg.cholesky(
-                    0.5 * (covariance + covariance.T)
-                    + regularizer
-                    * torch.eye(
-                        self.ll_feat_size, device=covariance.device, dtype=torch.float64
-                    )
-                ).to(cholesky.dtype)
-            else:
-                # Try with an increasingly high regularization parameter until
-                # the matrix is invertible
-                is_not_pd = True
-                r = 1e-20
-                while is_not_pd and r < 1e16:
-                    try:
-                        cholesky[:] = torch.linalg.cholesky(
-                            0.5 * (covariance + covariance.T)
-                            + r
-                            * torch.eye(
-                                self.ll_feat_size,
-                                device=covariance.device,
-                                dtype=torch.float64,
-                            )
-                        ).to(cholesky.dtype)
-                        is_not_pd = False
-                    except RuntimeError:
-                        r *= 10.0
-                if is_not_pd:
-                    raise RuntimeError(
-                        "Could not compute Cholesky decomposition. Something went "
-                        "wrong. Please contact the metatrain developers"
-                    )
-                else:
+        for name, target in self.targets.items():
+            for index, feature_block in enumerate(target.feature_blocks):
+                used_regularizer = feature_block.compute_cholesky(regularizer)
+                if regularizer is None:
                     logging.info(
-                        f"Used regularization parameter of {r:.1e} to "
-                        f"compute the Cholesky decomposition for `{name}`"
+                        f"Used regularization parameter of {used_regularizer:.1e} to "
+                        "compute the Cholesky decomposition for "
+                        f"`{name}` (feature block {index})"
                     )
-
-    def calibrate(
-        self,
-        datasets: List[Union[Dataset, torch.utils.data.Subset]],
-        batch_size: int,
-        is_distributed: bool,
-        calibration_method: str,
-    ) -> None:
-        """
-        Calibrate the LLPR model.
-
-        This function computes the calibration constants (one for each output)
-        that are used to scale the uncertainties in the LLPR model. The
-        calibration is performed in a simple way by computing either the calibration
-        constant as the mean of the squared residuals divided by the mean of
-        the non-calibrated uncertainties (i.e., by minimizing the NLL as a function of
-        the calibration constant), or by minimizing the CRPS as a function of the
-        calibration constant.
-
-        :param datasets: List of datasets to use for calibration.
-        :param batch_size: Batch size to use for the dataloader.
-        :param is_distributed: Whether to use distributed sampling or not.
-        :param calibration_method: The method to use for calibration. Supported methods
-            are "squared_residuals", "absolute_residuals", and "crps". All methods
-            assume Gaussian errors. The "squared_residuals" method minimize the negative
-            log-likelihood (NLL) as a function of the calibration constant.
-            The "absolute_residuals" method estimates the calibration constant based on
-            the mean absolute residuals, which can help reduce the effect of large
-            outliers.
-            The "crps" method minimizes the Continuous Ranked Probability Score (CRPS)
-            as a function of the calibration constant.
-        """
-        valid_loader = self._get_dataloader(
-            datasets, batch_size, is_distributed=is_distributed
-        )
-
-        device = next(iter(self.buffers())).device
-        dtype = next(iter(self.buffers())).dtype
-
-        calibrator: Union[RatioCalibrator, GaussianCRPSCalibrator]
-
-        if calibration_method in ["squared_residuals", "absolute_residuals"]:
-            calibrator = RatioCalibrator(method=calibration_method)  # type: ignore[arg-type]
-        elif calibration_method == "crps":
-            calibrator = GaussianCRPSCalibrator()
-        else:
-            raise ValueError(
-                f"Unknown calibration method '{calibration_method}'! "
-                "Supported methods are 'squared_residuals', 'absolute_residuals', and"
-                " 'crps'."
-            )
-
-        with torch.no_grad():
-            for batch in valid_loader:
-                systems, targets, _ = unpack_batch(batch)
-                systems = [system.to(device=device, dtype=dtype) for system in systems]
-                targets = {
-                    name: target.to(device=device, dtype=dtype)
-                    for name, target in targets.items()
-                }
-
-                requested_outputs = {}
-                for name in targets:
-                    sample_kind = (
-                        "atom"
-                        if "atom" in targets[name].block(0).samples.names
-                        else "system"
-                    )
-                    requested_outputs[name] = ModelOutput(sample_kind=sample_kind)
-                    uncertainty_name = _get_uncertainty_name(name)
-                    requested_outputs[uncertainty_name] = ModelOutput(
-                        sample_kind=sample_kind
-                    )
-
-                outputs = self.forward(systems, requested_outputs)
-
-                for name, target in targets.items():
-                    uncertainty_name = _get_uncertainty_name(name)
-
-                    pred = outputs[name].block().values.detach()
-                    targ = target.block().values
-                    unc = outputs[uncertainty_name].block().values.detach()
-
-                    residuals = pred - targ
-
-                    calibrator.update(
-                        uncertainty_name=uncertainty_name,
-                        residuals=residuals.reshape(-1, residuals.shape[-1]),
-                        uncertainties=unc.reshape(-1, unc.shape[-1]),
-                    )
-
-        multipliers = calibrator.finalize()
-
-        for uncertainty_name, alpha in multipliers.items():
-            multiplier = self._get_multiplier(uncertainty_name)
-            multiplier[:] = alpha.to(device=device, dtype=multiplier.dtype)
 
     def generate_ensemble(self) -> None:
-        """Generate an ensemble of weights for the model.
+        """Sample the weights of the ensemble members of each target.
 
-        The ensemble is generated by sampling from a multivariate normal
-        distribution with mean given by the input weights and covariance given
-        by the inverse covariance matrix.
+        The weights are sampled from a multivariate normal distribution with zero mean
+        and covariance given by the inverse covariance matrix.
         """
-        # concatenate the provided weight tensors
-        # (necessary if there are multiple, as in the case of PET)
-        # weight tensor is of shape (num_subtarget, concat_llfeat)
-        weight_tensors = {}  # type: ignore
-        for name in self.ensemble_weight_sizes:
-            tensor_names = self.model.core.last_layer_parameter_names[name]
-            weight_tensors[name] = torch.concatenate(
-                [self.model.core.state_dict()[tn] for tn in tensor_names],
-                axis=-1,
-            )  # type: ignore
-
-        # sampling; each member is sampled from a multivariate normal distribution
-        # with mean given by the input weights and covariance given by the inverse
-        # covariance matrix
-        device = next(iter(self.buffers())).device
-        dtype = next(iter(self.buffers())).dtype
-
-        for name, weights in weight_tensors.items():
-            uncertainty_name = _get_uncertainty_name(name)
-            cur_multiplier = self._get_multiplier(uncertainty_name)
-            cur_cholesky = self._get_cholesky(uncertainty_name)
-
-            ensemble_weights = []
-
-            for ii in range(weights.shape[0]):
-                z = torch.randn(
-                    (self.ll_feat_size, self.ensemble_weight_sizes[name]),
-                    device=device,
-                    dtype=dtype,
-                )
-                # using the Cholesky decomposition to sample from the multivariate
-                # normal distribution
-                ensemble_displacements = (
-                    torch.linalg.solve_triangular(
-                        cur_cholesky.T,
-                        z,
-                        upper=True,
-                    )
-                    * cur_multiplier.item()
-                )
-                cur_ensemble_weights = weights[ii].unsqueeze(1) + ensemble_displacements
-                ensemble_weights.append(cur_ensemble_weights)
-
-            ensemble_weights = torch.stack(
-                ensemble_weights,
-                axis=-1,
-            )  # shape: (ll_feat, n_ens, n_subtarget)
-            ensemble_weights = ensemble_weights.reshape(
-                ensemble_weights.shape[0],
-                -1,
-            )  # shape: (ll_feat, n_ens * n_subtarget)
-            # assign the generated weights
-            with torch.no_grad():
-                self.llpr_ensemble_layers[name].weight.copy_(ensemble_weights.T)
-
-        # add the ensembles to the capabilities
-        old_outputs = self.capabilities.outputs
-        new_outputs = {}
-        for name in weight_tensors.keys():
-            ensemble_name = "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
-            if ensemble_name == "mtt::aux::energy_ensemble":
-                ensemble_name = "energy_ensemble"
-            new_outputs[ensemble_name] = ModelOutput(
-                unit=old_outputs[name].unit,
-                sample_kind=old_outputs[name].sample_kind,
-                explicit_gradients=self._ensemble_explicit_gradients(name),
-                description=f"ensemble of {name}",
-            )
-        self.capabilities = ModelCapabilities(
-            outputs={**old_outputs, **new_outputs},
-            atomic_types=self.capabilities.atomic_types,
-            interaction_range=self.capabilities.interaction_range,
-            length_unit=self.capabilities.length_unit,
-            supported_devices=self.capabilities.supported_devices,
-            dtype=self.capabilities.dtype,
-        )
+        for target in self.targets.values():
+            target.sample_ensemble()
 
     def get_checkpoint(
         self, best_model_state_dict: Optional[dict[str, Any]] = None
@@ -1202,32 +675,40 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             # In this case, we want to allow fine-tuning of the underlying model by
             # extracting it and returning it directly
             return model
-        elif context == "restart":
+
+        if context == "restart":
             logging.info(
                 "Restart for LLPRUncertaintyModel will attempt continuation of "
                 "ensemble calibration"
             )
             logging.info(f"Using latest model from epoch {checkpoint['epoch']}")
             model_state_dict = checkpoint["model_state_dict"]
-        elif context == "export":
-            # TODO: other models print the best epoch here; consider doing the same
-            # Here, it depends on whether we are exporting a model whose ensemble was
-            # also trained by backpropagation or not
+        else:
+            # the best state dict is None if the ensemble was not trained by
+            # backpropagation
             model_state_dict = checkpoint["best_model_state_dict"]
-            # this is None if the ensemble was not trained by backpropagation
             if model_state_dict is None:
                 model_state_dict = checkpoint["model_state_dict"]
-        else:
-            raise ValueError("Unknown context tag for checkpoint loading!")
 
         llpr_model = cls(**checkpoint["model_data"])
         llpr_model.set_wrapped_model(model)
 
-        state_dict_iter = iter(model_state_dict.values())
-        next(state_dict_iter)
-        dtype = next(state_dict_iter).dtype
-        # TODO: find a way to refactor this to avoid strict=False
-        llpr_model.to(dtype).load_state_dict(model_state_dict, strict=False)
+        dtype = next(
+            value.dtype
+            for value in model_state_dict.values()
+            if torch.is_floating_point(value)
+        )
+        # the wrapped model is not part of the state dict, as it is loaded from its
+        # own checkpoint
+        missing_keys, unexpected_keys = llpr_model.to(dtype).load_state_dict(
+            model_state_dict, strict=False
+        )
+        missing_keys = [key for key in missing_keys if not key.startswith("model.")]
+        if len(missing_keys) > 0 or len(unexpected_keys) > 0:
+            raise ValueError(
+                "Unable to load the LLPR checkpoint: missing keys "
+                f"{missing_keys}, unexpected keys {unexpected_keys}."
+            )
         return llpr_model
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
@@ -1236,60 +717,15 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         # Make sure the model is all in the same dtype
         self.to(dtype)
 
+        exported = self.model.export()
         metadata = merge_metadata(
-            merge_metadata(self.__default_metadata__, metadata),
-            self.model.export().metadata(),
+            merge_metadata(self.__default_metadata__, metadata), exported.metadata()
         )
 
-        return AtomisticModel(self.eval(), metadata, self.capabilities)
+        # copy with the wrapped model replaced by its scriptable, exported version
+        llpr_model = copy.deepcopy(self, memo={id(self.model): exported.module})
 
-    def _get_covariance(self, name: str) -> torch.Tensor:
-        name = "covariance_" + name
-        requested_buffer = torch.tensor(0)
-        for n, buffer in self.named_buffers():
-            if n == name:
-                requested_buffer = buffer
-        if requested_buffer.shape == torch.Size([]):
-            raise ValueError(f"Covariance for {name} not found.")
-        return requested_buffer
-
-    def _get_cholesky(self, name: str) -> torch.Tensor:
-        name = "cholesky_" + name
-        requested_buffer = torch.tensor(0)
-        for n, buffer in self.named_buffers():
-            if n == name:
-                requested_buffer = buffer
-        if requested_buffer.shape == torch.Size([]):
-            raise ValueError(f"Inverse covariance for {name} not found.")
-        return requested_buffer
-
-    def _get_multiplier(self, name: str) -> torch.Tensor:
-        name = "multiplier_" + name
-        requested_buffer = torch.tensor(0)
-        for n, buffer in self.named_buffers():
-            if n == name:
-                requested_buffer = buffer
-        if requested_buffer.shape == torch.Size([]):
-            raise ValueError(f"Multiplier for {name} not found.")
-        return requested_buffer
-
-    def _get_original_name(self, name: str) -> str:
-        # hopefully a bulletproof way to get the original output name from an
-        # uncertainty or ensemble name
-        if name.endswith("_uncertainty"):
-            original_name = name.replace("_uncertainty", "")
-        elif name.endswith("_ensemble"):
-            original_name = name.replace("_ensemble", "")
-        else:
-            raise ValueError(f"Output name {name} is neither uncertainty nor ensemble.")
-        if original_name.startswith("mtt::aux::"):
-            # original name could be either mtt::output or output
-            # try the former, return the latter if not found
-            # TODO: not sure what happens if both mtt::output and output are there
-            original_name = original_name.replace("aux::", "")
-            if original_name not in self.capabilities.outputs:
-                original_name = original_name.replace("mtt::", "")
-        return original_name
+        return AtomisticModel(llpr_model.eval(), metadata, self.capabilities)
 
     @classmethod
     def upgrade_checkpoint(
@@ -1316,46 +752,358 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         return ["positions", "strain"]
 
 
-def _get_uncertainty_name(name: str) -> str:
-    if name == "energy":
-        uncertainty_name = "energy_uncertainty"
-    else:
-        uncertainty_name = f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
-    return uncertainty_name
+class _TargetLLPR(torch.nn.Module):
+    """The LLPR state of one target: the covariance of each block of its last-layer
+    features, one calibration factor for each property of each block of the target,
+    and, for ensembles, one linear layer for each block of the core's target.
 
+    The last-layer features are either a single block without components, shared by
+    all the blocks of the target, or have the keys and components of the target in the
+    core. Uncertainties and ensembles are computed in the layout of the core, which the
+    wrapped model can transform to give the layout of the target.
 
-class NoPadDistributedSampler(torch.utils.data.Sampler[int]):
+    :param name: name of the target.
+    :param features: last-layer features of the target, which give their layout.
+    :param core_layout: layout of the target in the core.
+    :param layout: layout of the target.
+    :param num_ensemble_members: number of ensemble members, 0 for no ensemble.
+    :param dtype: dtype of the buffers.
+    """
+
     def __init__(
         self,
-        dataset: torch.utils.data.Dataset,
-        num_replicas: int,
-        rank: int,
-        shuffle: bool = False,
-        seed: int = 0,
-    ):
-        self.dataset = dataset
-        self.num_replicas = num_replicas
-        self.rank = rank
-        self.shuffle = shuffle
-        self.seed = seed
-        self.epoch = 0
+        name: str,
+        features: TensorMap,
+        core_layout: TensorMap,
+        layout: TensorMap,
+        num_ensemble_members: int,
+        dtype: torch.dtype,
+    ) -> None:
+        super().__init__()
+        self.uncertainty_name = _get_uncertainty_name(name)
+        self.ensemble_name = _get_ensemble_name(name)
+        self.features_name = _get_last_layer_features_name(name)
+        self.has_ensemble = num_ensemble_members > 0
+        self.core_layout = core_layout.to(features.device)
+        self.layout_keys = layout.keys.to(features.device)
 
-    def set_epoch(self, epoch: int) -> None:
-        self.epoch = epoch
+        self.shared, feature_sizes = _feature_layout(name, features, self.core_layout)
+        # the covariance of the features read by each block of the core's target
+        self.feature_indices: List[int] = [
+            0 if self.shared else index for index in range(len(core_layout))
+        ]
+        self.feature_blocks = torch.nn.ModuleList(
+            [_Covariance(size, dtype) for size in feature_sizes]
+        )
 
-    def __iter__(self) -> Iterator[int]:
-        n = len(self.dataset)
-        indices = torch.arange(n, dtype=torch.long)
-        if self.shuffle:
-            g = torch.Generator()
-            g.manual_seed(self.seed + self.epoch)
-            indices = indices[torch.randperm(n, generator=g)]
-        # no padding, no dropping
-        return iter(indices[self.rank :: self.num_replicas].tolist())
+        # shared features are mapped to all the components of a block at once
+        self.ensemble_layers = torch.nn.ModuleList()
+        if self.has_ensemble:
+            for index, block in enumerate(core_layout.blocks()):
+                num_outputs = len(block.properties)
+                if self.shared:
+                    num_outputs *= _prod([len(c) for c in block.components])
+                self.ensemble_layers.append(
+                    torch.nn.Linear(
+                        feature_sizes[self.feature_indices[index]],
+                        num_ensemble_members * num_outputs,
+                        bias=False,
+                        dtype=dtype,
+                    )
+                )
 
-    def __len__(self) -> int:
-        n = len(self.dataset)
-        return (n - self.rank + self.num_replicas - 1) // self.num_replicas
+        # the multipliers of all the blocks of the target, one after the other
+        self.multiplier_offsets: List[int] = [0]
+        for block in layout.blocks():
+            self.multiplier_offsets.append(
+                self.multiplier_offsets[-1] + len(block.properties)
+            )
+        self.register_buffer(
+            "multipliers", torch.ones(self.multiplier_offsets[-1], dtype=dtype)
+        )
+
+    def move_layouts(self, device: torch.device) -> None:
+        """Move the layouts to ``device``.
+
+        :param device: the device of the features.
+        """
+        if self.layout_keys.values.device != device:
+            self.core_layout = self.core_layout.to(device)
+            self.layout_keys = self.layout_keys.to(device)
+
+    def _feature_blocks(self, features: TensorMap) -> List[TensorBlock]:
+        """The blocks of ``features`` matching each covariance.
+
+        :param features: the last-layer features of the target.
+        :return: the blocks.
+        """
+        if self.shared:
+            return [features.block(0)]
+        return [
+            features.block(self.core_layout.keys.entry(index))
+            for index in range(len(self.core_layout))
+        ]
+
+    def uncertainty(self, features: TensorMap) -> TensorMap:
+        """The uncalibrated uncertainty, in the layout and units of the core.
+
+        :param features: the last-layer features of the target.
+        :return: the uncertainty.
+        """
+        # computed once for each feature block, and shared by the blocks reading it
+        feature_blocks = self._feature_blocks(features)
+        one_over_pr: List[torch.Tensor] = []
+        for index, covariance in enumerate(self.feature_blocks):
+            one_over_pr.append(covariance.one_over_pr(feature_blocks[index].values))
+
+        blocks: List[TensorBlock] = []
+        for index, layout_block in enumerate(self.core_layout.blocks()):
+            feature_index = self.feature_indices[index]
+            values = one_over_pr[feature_index]
+            shape = [values.shape[0]] + list(layout_block.values.shape[1:])
+            values = values.expand(-1, _prod(shape[1:-1]), shape[-1]).reshape(shape)
+            # the square root converts the variance to a standard deviation
+            blocks.append(
+                TensorBlock(
+                    values=torch.sqrt(values),
+                    samples=feature_blocks[feature_index].samples,
+                    components=layout_block.components,
+                    properties=layout_block.properties,
+                )
+            )
+        return TensorMap(keys=self.core_layout.keys, blocks=blocks)
+
+    def deviations(self, features: TensorMap) -> TensorMap:
+        """The uncalibrated deviations of the ensemble members from their mean, in the
+        layout and units of the core, with the members as the last component.
+
+        :param features: the last-layer features of the target.
+        :return: the deviations.
+        """
+        feature_blocks = self._feature_blocks(features)
+        blocks: List[TensorBlock] = []
+        for index, layer in enumerate(self.ensemble_layers):
+            feature_block = feature_blocks[self.feature_indices[index]]
+            layout_block = self.core_layout.block(index)
+            values = layer(feature_block.values)
+
+            num_samples = values.shape[0]
+            components_shape = list(layout_block.values.shape[1:-1])
+            num_properties = layout_block.values.shape[-1]
+            if self.shared:
+                values = values.reshape(
+                    [num_samples, -1] + components_shape + [num_properties]
+                ).movedim(1, -2)
+            else:
+                # the features carry the components, and each member's weights are
+                # shared across them
+                values = values.reshape(
+                    [num_samples] + components_shape + [-1, num_properties]
+                )
+
+            members = Labels(
+                names=["ensemble_member"],
+                values=torch.arange(values.shape[-2], device=values.device).unsqueeze(
+                    -1
+                ),
+            )
+            blocks.append(
+                TensorBlock(
+                    values=values - values.mean(dim=-2, keepdim=True),
+                    samples=feature_block.samples,
+                    components=layout_block.components + [members],
+                    properties=layout_block.properties,
+                )
+            )
+        return TensorMap(keys=self.core_layout.keys, blocks=blocks)
+
+    def apply_multipliers(self, tensor: TensorMap) -> TensorMap:
+        """Multiply each block of ``tensor`` by its calibration factors.
+
+        :param tensor: a tensor in the layout of the target.
+        :return: the calibrated tensor.
+        """
+        blocks: List[TensorBlock] = []
+        for key, block in tensor.items():
+            index = self.layout_keys.position(key)
+            assert index is not None
+            multipliers = self.multipliers[
+                self.multiplier_offsets[index] : self.multiplier_offsets[index + 1]
+            ]
+            blocks.append(
+                TensorBlock(
+                    values=block.values * multipliers,
+                    samples=block.samples,
+                    components=block.components,
+                    properties=block.properties,
+                )
+            )
+        return TensorMap(keys=tensor.keys, blocks=blocks)
+
+    def set_multipliers(self, block_index: int, values: torch.Tensor) -> None:
+        """Set the calibration factors of a block of the target.
+
+        :param block_index: index of the block in the layout of the target.
+        :param values: one calibration factor for each property of the block.
+        """
+        start = self.multiplier_offsets[block_index]
+        end = self.multiplier_offsets[block_index + 1]
+        self.multipliers[start:end] = values.to(self.multipliers)
+
+    def accumulate(self, features: TensorMap, n_atoms: Optional[torch.Tensor]) -> None:
+        """Add the contribution of a batch of last-layer features to the covariances.
+
+        :param features: the last-layer features of the target.
+        :param n_atoms: the number of atoms of each system, to normalize per-system
+            features, or ``None`` for per-atom features.
+        """
+        self.move_layouts(features.device)
+        feature_blocks = self._feature_blocks(features)
+        for index, covariance in enumerate(self.feature_blocks):
+            values = feature_blocks[index].values.detach()
+            # TODO: interface ll_feat calculation with the loss function, paying
+            # attention to normalization w.r.t. n_atoms
+            if n_atoms is not None:
+                values = values / n_atoms.reshape([-1] + [1] * (values.dim() - 1))
+            # components count as samples, as the last layer is shared across them
+            values = values.reshape(-1, values.shape[-1])
+            covariance.covariance += values.T @ values
+
+    def sample_ensemble(self) -> None:
+        """Sample the weights of the ensemble members."""
+        for index, layer in enumerate(self.ensemble_layers):
+            cholesky = self.feature_blocks[self.feature_indices[index]].cholesky
+            z = torch.randn(
+                (layer.in_features, layer.out_features),
+                device=cholesky.device,
+                dtype=cholesky.dtype,
+            )
+            with torch.no_grad():
+                layer.weight.copy_(
+                    torch.linalg.solve_triangular(cholesky.T, z, upper=True).T
+                )
+
+
+class _Covariance(torch.nn.Module):
+    """The covariance of a block of last-layer features, and its Cholesky factor.
+
+    :param size: the number of features.
+    :param dtype: dtype of the buffers.
+    """
+
+    def __init__(self, size: int, dtype: torch.dtype) -> None:
+        super().__init__()
+        self.register_buffer("covariance", torch.zeros((size, size), dtype=dtype))
+        self.register_buffer("cholesky", torch.zeros((size, size), dtype=dtype))
+
+    def one_over_pr(self, values: torch.Tensor) -> torch.Tensor:
+        """``1/PR`` for each sample and component; the same for PR and LPR.
+
+        :param values: the features.
+        :return: ``1/PR``, with shape ``(samples, components, 1)``, where
+            components is 1 for features without components.
+        """
+        values = values.reshape(values.shape[0], -1, values.shape[-1])
+        v = torch.linalg.solve_triangular(
+            self.cholesky, values.reshape(-1, values.shape[-1]).T, upper=False
+        )
+        return torch.sum(v**2, dim=0).reshape(values.shape[0], values.shape[1], 1)
+
+    def compute_cholesky(self, regularizer: Optional[float]) -> float:
+        """Compute the Cholesky factor of the regularized covariance.
+
+        :param regularizer: the regularization, or ``None`` to use the smallest power
+            of ten that makes the covariance positive-definite.
+        :return: the regularization used.
+        """
+        covariance = self.covariance.to(dtype=torch.float64)
+        covariance = 0.5 * (covariance + covariance.T)
+        identity = torch.eye(
+            covariance.shape[0], device=covariance.device, dtype=torch.float64
+        )
+        if regularizer is not None:
+            cholesky = _cholesky(covariance + regularizer * identity)
+            if cholesky is None:
+                raise ValueError(
+                    f"the covariance with a regularization of {regularizer} is not "
+                    "positive-definite"
+                )
+            self.cholesky[:] = cholesky.to(self.cholesky.dtype)
+            return regularizer
+
+        r = 1e-20
+        while r < 1e16:
+            cholesky = _cholesky(covariance + r * identity)
+            if cholesky is not None:
+                self.cholesky[:] = cholesky.to(self.cholesky.dtype)
+                return r
+            r *= 10.0
+        raise RuntimeError(
+            "Could not compute Cholesky decomposition. Something went wrong. Please "
+            "contact the metatrain developers"
+        )
+
+
+def _feature_layout(
+    name: str, features: TensorMap, core_layout: TensorMap
+) -> Tuple[bool, List[int]]:
+    """Whether the last-layer features of a target are shared by all its blocks, and
+    the number of features of each of their blocks, in the order of the target's
+    blocks.
+
+    :param name: name of the target.
+    :param features: the last-layer features of the target.
+    :param core_layout: layout of the target in the core.
+    :return: whether the features are shared, and the size of each feature block.
+    """
+    if len(features) == 1 and len(features.block(0).components) == 0:
+        return True, [len(features.block(0).properties)]
+
+    feature_sizes: List[int] = []
+    if features.keys.names == core_layout.keys.names:
+        for key, block in core_layout.items():
+            position = features.keys.position(key)
+            if position is None:
+                break
+            feature_block = features.block(position)
+            if feature_block.components != block.components:
+                break
+            feature_sizes.append(len(feature_block.properties))
+    if len(feature_sizes) != len(core_layout):
+        raise ValueError(
+            f"the last-layer features of '{name}' must either be a single block "
+            "without components, or have the keys and components of the target"
+        )
+    return False, feature_sizes
+
+
+def _cholesky(matrix: torch.Tensor) -> Optional[torch.Tensor]:
+    """The Cholesky factor of ``matrix``, or ``None`` if it is not positive-definite.
+
+    :param matrix: a symmetric matrix.
+    :return: the lower-triangular factor, or ``None``.
+    """
+    cholesky, info = torch.linalg.cholesky_ex(matrix)
+    # on GPUs, an indefinite matrix can give NaNs instead of a non-zero ``info``
+    if int(info) != 0 or bool(torch.isnan(cholesky).any()):
+        return None
+    return cholesky
+
+
+def _get_uncertainty_name(name: str) -> str:
+    if name == "energy":
+        return "energy_uncertainty"
+    return f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
+
+
+def _get_ensemble_name(name: str) -> str:
+    if name == "energy":
+        return "energy_ensemble"
+    return f"mtt::aux::{name.replace('mtt::', '')}_ensemble"
+
+
+def _get_last_layer_features_name(name: str) -> str:
+    return f"mtt::aux::{name.replace('mtt::', '')}_last_layer_features"
 
 
 def _prod(list_of_int: List[int]) -> int:

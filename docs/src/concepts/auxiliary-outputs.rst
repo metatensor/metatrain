@@ -28,6 +28,12 @@ This output contains the representation of the model at the last layer, before
 the final linear transformation to produce target ``target``. If the model
 produces multiple targets, the corresponding representations might be different.
 
+Invariant or non-symmetrized features are a single block, shared by all the blocks
+of the target: each component and property of the target is a linear function of
+them. Equivariant features have the keys and components of the target: each block of
+the target is a linear function of the features with the same key, with the same
+weights for all the components.
+
 .. list-table:: Metadata for last-layer features
   :widths: 2 3 7
   :header-rows: 1
@@ -37,12 +43,10 @@ produces multiple targets, the corresponding representations might be different.
     - Description
 
   * - keys
-    - ``"_"`` if invariant or non-symmetrized, ``["o3_lambda", "o3_sigma"]`` if
+    - ``"_"`` if invariant or non-symmetrized, the keys of the target if
       equivariant
     - if invariant or non-symmetrized, a single dimension named ``"_"``, with a
-      single entry set to ``0``, or, if equivariant, two dimensions named
-      ``"o3_lambda"`` and ``"o3_sigma"`` with the corresponding O3 equivariant
-      indices.
+      single entry set to ``0``, or, if equivariant, the keys of the target.
 
   * - samples
     - ``["system", "atom"]`` or ``["system"]``
@@ -55,8 +59,9 @@ produces multiple targets, the corresponding representations might be different.
       atoms/particles in the corresponding system.
 
   * - components
-    - No components if invariant or non-symmetrized, ``["o3_mu"]`` if equivariant
-    - Nothing if invariant or non-symmetrized, the O3 equivariant ``mu`` number if
+    - No components if invariant or non-symmetrized, the components of the target
+      if equivariant
+    - Nothing if invariant or non-symmetrized, the components of the target if
       equivariant.
 
   * - properties

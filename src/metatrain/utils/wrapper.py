@@ -212,6 +212,44 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         return return_dict
 
+    def scale_outputs(
+        self,
+        systems: List[System],
+        outputs: Dict[str, TensorMap],
+        selected_atoms: Optional[Labels] = None,
+    ) -> Dict[str, TensorMap]:
+        """Bring outputs of the core model to the layout and units of the targets of
+        this model, as ``forward`` does at evaluation, but without the additive
+        contributions.
+
+        This applies to any quantity that is linear in a target and is in its layout,
+        such as deviations from the prediction or uncertainties. Outputs that are not
+        targets are returned unchanged.
+
+        :param systems: the systems the outputs were computed for.
+        :param outputs: the outputs, in the layout and units of the core model.
+        :param selected_atoms: the atoms the outputs were computed for.
+        :return: the outputs, in the layout and units of the targets of this model.
+        """
+        outputs = outputs.copy()
+        if self.scaler is not None:
+            for name, tensor in outputs.items():
+                if name in self.scaler.dataset_info.targets:
+                    layout = self.scaler.dataset_info.targets[name].layout
+                    outputs[name] = match_layout(
+                        tensor, layout, target_info_layout=layout, systems=systems
+                    )
+            outputs = self.scaler.apply_scales(
+                systems, outputs, selected_atoms=selected_atoms
+            )
+        for name, tensor in outputs.items():
+            if name in self.dataset_info.targets:
+                layout = self.dataset_info.targets[name].layout
+                outputs[name] = match_layout(
+                    tensor, layout, target_info_layout=layout, systems=systems
+                )
+        return outputs
+
     def requested_inputs(self) -> Dict[str, ModelOutput]:
         requested_inputs = {}
 

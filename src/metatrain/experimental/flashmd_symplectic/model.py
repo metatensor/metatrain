@@ -141,9 +141,6 @@ class FlashMDSymplectic(ModelInterface):
         self.edge_heads = torch.nn.ModuleDict()
         self.node_last_layers = torch.nn.ModuleDict()
         self.edge_last_layers = torch.nn.ModuleDict()
-        self.last_layer_feature_size = (
-            self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
-        )
 
         self.outputs = {
             "feature": ModelOutput(unit="", sample_kind="atom")

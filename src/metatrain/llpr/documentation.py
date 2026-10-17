@@ -4,9 +4,10 @@ LLPR
 
 The LLPR architecture is a "wrapper" architecture that enables cheap uncertainty
 quantification via the last-layer prediction rigidity (LLPR) approach proposed by Bigi
-et al:footcite:p:`bigi_mlst_2024`. It is compatible with the following ``metatrain``
-models constructed from NN-based architectures: :ref:`arch-pet` and
-:ref:`arch-soap_bpnn`.
+et al. :footcite:p:`bigi_mlst_2024`. It is compatible with the ``metatrain`` models
+that expose the :ref:`last-layer features <mtt-aux-target-last-layer-features>` of
+their targets: all the targets of :ref:`arch-pet`, :ref:`arch-mace` and
+:ref:`arch-space`, and the scalar targets of :ref:`arch-soap_bpnn`.
 
 This implementation further allows the user to perform gradient-based tuning of the
 ensemble weights sampled from the LLPR formalism, which can lead to improved uncertainty
@@ -14,6 +15,12 @@ estimates. Gradients (e.g. forces and stresses) are not yet used.
 
 Note that the uncertainties computed with this implementation are returned as standard
 deviations, and not variances.
+
+Targets with components or several blocks, such as non-conservative forces, spherical
+targets with more than one ``o3_lambda`` or targets in an atomic basis, are supported:
+the uncertainties have the same layout as the target, and are calibrated separately for
+each property of each block. For Cartesian targets, they are the standard deviations of
+the single components, not of the magnitude of the vector.
 
 Additional outputs
 ------------------
@@ -70,7 +77,8 @@ class TrainerHypers(TypedDict):
     If set to ``null``, the internal routine will determine the smallest regularizer
     value that guarantees numerical stability in matrix inversion. Having exposed the
     formula here, we also note to the user that the training routine of the LLPR
-    wrapper model finds the ideal global calibration factor :math:`\alpha`."""
+    wrapper model finds the ideal calibration factor :math:`\alpha` of each property
+    of each block of each target."""
 
     model_checkpoint: Optional[str] = None
     """This should provide the checkpoint to the model for which the
