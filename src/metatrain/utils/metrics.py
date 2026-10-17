@@ -3,7 +3,7 @@ import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch.distributed
-from metatensor.torch import TensorMap
+from metatensor.torch import LabelsEntry, TensorMap
 
 
 def _block_missing_from_prediction(
@@ -32,6 +32,21 @@ def _block_missing_from_prediction(
         )
         return True
     return False
+
+
+def _separate_block_key(key: str, block_key: LabelsEntry) -> str:
+    """Label ``key`` with the values of ``block_key``, e.g. ``"energy (_=0)"``.
+
+    :param key: The name of the target.
+    :param block_key: The key of one of its blocks.
+
+    :return: The labeled key.
+    """
+    values = ",".join(
+        f"{name}={int(value)}"
+        for name, value in zip(block_key.names, block_key.values, strict=True)
+    )
+    return f"{key} ({values})"
 
 
 def _get_global_keys(keys: List[str]) -> List[str]:
@@ -102,13 +117,7 @@ class RMSEAccumulator:
 
                 key_to_write = copy.deepcopy(key)
                 if self.separate_blocks:
-                    key_to_write += " ("
-                    for name, value in zip(
-                        block_key.names, block_key.values, strict=True
-                    ):
-                        key_to_write += f"{name}={int(value)},"
-                    key_to_write = key_to_write[:-1]
-                    key_to_write += ")"
+                    key_to_write = _separate_block_key(key, block_key)
 
                 if key_to_write not in self.information:  # create key if not present
                     self.information[key_to_write] = (0.0, 0)
@@ -298,13 +307,7 @@ class MAEAccumulator:
 
                 key_to_write = copy.deepcopy(key)
                 if self.separate_blocks:
-                    key_to_write += " ("
-                    for name, value in zip(
-                        block_key.names, block_key.values, strict=True
-                    ):
-                        key_to_write += f"{name}={int(value)},"
-                    key_to_write = key_to_write[:-1]
-                    key_to_write += ")"
+                    key_to_write = _separate_block_key(key, block_key)
 
                 if key_to_write not in self.information:  # create key if not present
                     self.information[key_to_write] = (0.0, 0)
@@ -426,6 +429,95 @@ class MAEAccumulator:
             else:
                 out_key = f"{key} MAE (per atom)"
             finalized_info[out_key] = value[0] / value[1]
+
+        return finalized_info
+
+
+class EquivarianceAccumulator:
+    """Accumulates the O(3) equivariance error of a model over a dataset.
+
+    This consumes the ``o3::variance::<name>`` outputs of a metatomic
+    ``SymmetrizedModel``, which hold, for every sample, the variance of the
+    back-rotated predictions over a rotation grid, averaged over the components
+    of each block. Pooling them with the same normalization as
+    :class:`RMSEAccumulator` gives an error in the same units as the accuracy
+    RMSE of the target, and a lower bound on it.
+
+    :param separate_blocks: as in :class:`RMSEAccumulator`. The blocks are then not
+        weighted by ``2 * o3_lambda + 1``.
+    """
+
+    def __init__(self, separate_blocks: bool = False) -> None:
+        self.information: Dict[str, Tuple[float, int]] = {}
+        """A dictionary mapping each target key to a tuple containing the sum of
+        the variances and the number of elements over which it was accumulated."""
+
+        self.separate_blocks = separate_blocks
+        """Whether the equivariance error should be computed separately for each
+        block of each target."""
+
+    def update(self, variances: Dict[str, TensorMap]) -> None:
+        """Updates the accumulator with the variances of a new batch.
+
+        :param variances: a dictionary mapping each target name to the
+            ``o3::variance::<name>`` output of a ``SymmetrizedModel``, already
+            normalized per atom like the predictions.
+        """
+        for key, variance in variances.items():
+            # the irrep columns are appended after any pre-existing ones, so the
+            # position of "o3_lambda" is not fixed and it is absent altogether
+            # for targets metatomic does not decompose
+            key_names = list(variance.keys.names)
+            lambda_index = (
+                key_names.index("o3_lambda") if "o3_lambda" in key_names else None
+            )
+
+            for block_key, block in variance.items():
+                if self.separate_blocks:
+                    key_to_write = _separate_block_key(key, block_key)
+                    multiplicity = 1
+                elif lambda_index is None:
+                    # every block of an undecomposed target shares the same
+                    # number of components, so the weight cancels out
+                    key_to_write = key
+                    multiplicity = 1
+                else:
+                    key_to_write = key
+                    # the spherical decomposition is orthonormal, so weighting each
+                    # block by its number of components recovers the squared error
+                    # summed over the components of the original (e.g. Cartesian)
+                    # target
+                    multiplicity = 2 * int(block_key.values[lambda_index]) + 1
+
+                values = block.values
+                sum_of_variances, n_elems = self.information.get(key_to_write, (0.0, 0))
+                self.information[key_to_write] = (
+                    sum_of_variances + multiplicity * values.sum().item(),
+                    n_elems + multiplicity * values.shape[0] * values.shape[-1],
+                )
+
+    def finalize(self, not_per_atom: List[str]) -> Dict[str, float]:
+        """Finalizes the accumulator and returns the equivariance error per key.
+
+        All keys will be returned as "{key} equivariance RMSE (per atom)" in the
+        output dictionary, unless ``key`` contains one or more of the strings in
+        ``not_per_atom``, in which case "{key} equivariance RMSE" will be
+        returned.
+
+        :param not_per_atom: a list of strings. If any of these strings are
+            present in a key, the metric will not be labeled as "(per atom)".
+
+        :return: The equivariance error for each key.
+        """
+        finalized_info = {}
+        for key, value in self.information.items():
+            if any([s in key for s in not_per_atom]):
+                out_key = f"{key} equivariance RMSE"
+            else:
+                out_key = f"{key} equivariance RMSE (per atom)"
+            # the variance of a nearly-equivariant model is dominated by the
+            # round-off of the quadrature and can come out slightly negative
+            finalized_info[out_key] = (max(value[0], 0.0) / value[1]) ** 0.5
 
         return finalized_info
 

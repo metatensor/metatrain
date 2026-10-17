@@ -4,11 +4,13 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatrain.utils.metrics import (
+    EquivarianceAccumulator,
     MAEAccumulator,
     RMSEAccumulator,
     _get_global_keys,
     get_selected_metric,
 )
+from metatrain.utils.per_atom import divide_by_num_atoms
 
 
 @pytest.fixture
@@ -525,3 +527,121 @@ def test_finalize_distributed_separate_blocks_missing_block_on_local_rank(
     assert (
         abs(result[f"energy (label_name=1) {metric_suffix}"] - expected_block1) < 1e-6
     )
+
+
+def _variance_block(values, samples):
+    return TensorBlock(
+        values=values,
+        samples=samples,
+        components=[],
+        properties=Labels(["p"], torch.tensor([[0]])),
+    )
+
+
+def _per_atom(variance, num_atoms):
+    """Normalize a variance per atom, as ``mtt eval`` does: a variance scales as the
+    square of the predictions."""
+    num_atoms = torch.tensor(num_atoms)
+    return divide_by_num_atoms(divide_by_num_atoms(variance, num_atoms), num_atoms)
+
+
+def test_equivariance_accumulator():
+    """Pools O(3) variances weighted by ``2 * o3_lambda + 1``, with per-structure
+    targets normalized per atom as ``mtt eval`` does, against hand-computed values."""
+
+    # a per-structure target spread over an o3_lambda=0 and an o3_lambda=2 block
+    per_structure = TensorMap(
+        Labels(["o3_lambda", "o3_sigma"], torch.tensor([[0, 1], [2, 1]])),
+        [
+            _variance_block(
+                torch.tensor([[1.0], [2.0]], dtype=torch.float64),
+                Labels(["system"], torch.tensor([[0], [1]])),
+            ),
+            _variance_block(
+                torch.tensor([[0.5], [1.5]], dtype=torch.float64),
+                Labels(["system"], torch.tensor([[0], [1]])),
+            ),
+        ],
+    )
+    # a per-atom target, which must not be divided by the number of atoms
+    per_atom = TensorMap(
+        Labels(["o3_lambda", "o3_sigma"], torch.tensor([[1, 1]])),
+        [
+            _variance_block(
+                torch.full((6, 1), 2.0, dtype=torch.float64),
+                Labels(
+                    ["system", "atom"],
+                    torch.tensor([[0, 0], [0, 1], [1, 0], [1, 1], [1, 2], [1, 3]]),
+                ),
+            )
+        ],
+    )
+
+    accumulator = EquivarianceAccumulator()
+    accumulator.update(
+        {
+            "mtt::per_structure": _per_atom(per_structure, [2, 4]),
+            "mtt::per_atom": _per_atom(per_atom, [2, 4]),
+        }
+    )
+
+    metrics = accumulator.finalize(not_per_atom=["per_atom"])
+    # (2*0+1) * (1.0/2**2 + 2.0/4**2) + (2*2+1) * (0.5/2**2 + 1.5/4**2), over
+    # (2*0+1) * 2 rows + (2*2+1) * 2 rows
+    assert metrics["mtt::per_structure equivariance RMSE (per atom)"] == pytest.approx(
+        (1.46875 / 12) ** 0.5
+    )
+    # "per_atom" appears in the key, so it is not labelled "(per atom)"
+    assert metrics["mtt::per_atom equivariance RMSE"] == pytest.approx(2.0**0.5)
+
+
+def test_equivariance_accumulator_separate_blocks():
+    """With ``separate_blocks=True``, each block gets its own (unweighted) RMSE
+    instead of being pooled with the other blocks of the same target."""
+
+    per_structure = TensorMap(
+        Labels(["o3_lambda", "o3_sigma"], torch.tensor([[0, 1], [2, 1]])),
+        [
+            _variance_block(
+                torch.tensor([[1.0], [2.0]], dtype=torch.float64),
+                Labels(["system"], torch.tensor([[0], [1]])),
+            ),
+            _variance_block(
+                torch.tensor([[0.5], [1.5]], dtype=torch.float64),
+                Labels(["system"], torch.tensor([[0], [1]])),
+            ),
+        ],
+    )
+
+    accumulator = EquivarianceAccumulator(separate_blocks=True)
+    accumulator.update({"mtt::per_structure": _per_atom(per_structure, [2, 4])})
+
+    # unweighted (no "2 * o3_lambda + 1" factor): each block stands on its own
+    metrics = accumulator.finalize(not_per_atom=[])
+    assert len(metrics) == 2
+    assert metrics[
+        "mtt::per_structure (o3_lambda=0,o3_sigma=1) equivariance RMSE (per atom)"
+    ] == pytest.approx(((1.0 / 2**2 + 2.0 / 4**2) / 2) ** 0.5)
+    assert metrics[
+        "mtt::per_structure (o3_lambda=2,o3_sigma=1) equivariance RMSE (per atom)"
+    ] == pytest.approx(((0.5 / 2**2 + 1.5 / 4**2) / 2) ** 0.5)
+
+
+def test_equivariance_accumulator_without_o3_lambda():
+    """Targets that metatomic does not decompose carry no ``o3_lambda`` key, and
+    every block has the same number of components, so the weight cancels."""
+    variance = TensorMap(
+        Labels(["_"], torch.tensor([[0]])),
+        [
+            _variance_block(
+                torch.full((3, 1), 4.0, dtype=torch.float64),
+                Labels(["system", "atom"], torch.tensor([[0, 0], [0, 1], [0, 2]])),
+            )
+        ],
+    )
+
+    accumulator = EquivarianceAccumulator()
+    accumulator.update({"mtt::custom": variance})
+
+    metrics = accumulator.finalize(not_per_atom=[])
+    assert metrics["mtt::custom equivariance RMSE (per atom)"] == pytest.approx(2.0)
