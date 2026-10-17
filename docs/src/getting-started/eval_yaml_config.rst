@@ -17,6 +17,7 @@ that change which errors are reported.
 .. autoclass:: metatrain.share.base_hypers.EvalDatasetDictHypers
     :members:
     :undoc-members:
+    :no-index:
 
 
 Errors for each block
@@ -100,3 +101,4 @@ target (e.g. ``energy``), and their variance over the orientations under
 .. autoclass:: metatrain.share.base_hypers.EquivarianceHypers
     :members:
     :undoc-members:
+    :no-index:
