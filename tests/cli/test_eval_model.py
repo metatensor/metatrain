@@ -377,3 +377,20 @@ def test_eval_indices(monkeypatch, tmp_path, caplog, options, MODEL_PATH, indice
     # Test file is written predictions
     frames = read("foo.xyz", ":")
     assert len(frames) == 1
+
+
+def test_eval_log_separate_blocks(monkeypatch, tmp_path, caplog, model, options):
+    """Metrics are reported for each block, labeled by its key."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.INFO)
+    shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
+
+    options = options.copy()
+    options["indices"] = [0, 1]
+    options["log_separate_blocks"] = True
+    eval_model(model=model, options=options, output="foo.xyz")
+
+    log = "".join([rec.message for rec in caplog.records])
+    assert "energy (_=0) RMSE (per atom)" in log
+    assert "energy (_=0) MAE (per atom)" in log
+    assert "energy RMSE" not in log
