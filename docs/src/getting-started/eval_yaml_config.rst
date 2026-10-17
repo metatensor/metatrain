@@ -17,6 +17,7 @@ that change which errors are reported.
 .. autoclass:: metatrain.share.base_hypers.EvalDatasetDictHypers
     :members:
     :undoc-members:
+    :no-index:
 
 
 Errors for each block
