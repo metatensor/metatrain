@@ -227,7 +227,7 @@ class Graph2MatHook(HookInterface[Hypers]):
                 return_dict[out_name] = e3nn_to_tensormap(
                     edge_values,
                     pair_samples,
-                    self.out_targets[out_name].layout
+                    self.out_targets[out_name].layout.to(device)
                 )
 
         return return_dict
