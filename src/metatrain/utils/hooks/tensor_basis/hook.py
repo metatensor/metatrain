@@ -269,7 +269,7 @@ class TensorBasis(HookInterface[Hypers]):
         return_dict: dict[str, TensorMap] = {}
         for target_name, basis_calculators in self.basis_calculators.items():
             if target_name in requested_outs:
-                target_info = self.out_targets[target_name]
+                target_info = self.out_targets[target_name].to(device)
                 input_name = self._out_to_input_name[target_name]
                 target_invariant_coefficients = inputs[input_name].block().values
 
