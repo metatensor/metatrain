@@ -203,6 +203,12 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
+                # Filter out targets that are not supported by the scaler.
+                targets = {
+                    target_name: targets[target_name]
+                    for target_name in targets
+                    if target_name in scaler.dataset_info.targets
+                }
                 if len(targets) == 0:
                     break
 
@@ -276,6 +282,12 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 systems, targets, extra_data = batch_to(
                     systems, targets, extra_data, device=device
                 )
+                # Filter out targets that are not supported by the scaler.
+                targets = {
+                    target_name: targets[target_name]
+                    for target_name in targets
+                    if target_name in scaler.dataset_info.targets
+                }
                 if len(targets) == 0:
                     break
 
