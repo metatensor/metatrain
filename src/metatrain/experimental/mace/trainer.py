@@ -12,6 +12,7 @@ from mace.tools.scripts_utils import (
 )
 from torch.utils.data import DistributedSampler
 
+from metatrain.utils.data.atom_pair_helpers import get_pair_target_neighborlist
 from metatrain.composition import CompositionModel, train_or_load_composition_model
 from metatrain.scaler import Scaler, train_or_load_scaler
 from metatrain.utils.abc import (
@@ -353,7 +354,9 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         atomic_basis_transform, atomic_basis_reverse_transform = (
             get_prepare_atomic_basis_targets_transform(
-                model.dataset_info, model.scaler.dataset_info, nl_options=requested_neighbor_lists[0]
+                model.dataset_info,
+                model.internal_dataset_info(),
+                nl_options=get_pair_target_neighborlist(model),
             )
         )
 
@@ -467,7 +470,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 get_system_with_neighbor_lists_transform(requested_neighbor_lists),
                 atomic_basis_transform,
                 get_remove_additive_transform(additive_models, train_targets),
-                #get_remove_scale_transform(scaler),
+                get_remove_scale_transform(scaler),
             ],
         )
 

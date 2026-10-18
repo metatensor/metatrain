@@ -248,6 +248,23 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         return return_dict
 
+    def internal_dataset_info(self) -> DatasetInfo:
+        """
+        Returns the dataset_info that the internal part of the model
+        (core + hooks) sees.
+        """
+        targets = self.core.dataset_info.targets.copy()
+        for hook in self.forward_hooks:
+            for out_name in hook.supported_outputs():
+                targets[out_name] = hook.dataset_info.targets[out_name]
+
+        return DatasetInfo(
+            atomic_types=self.core.dataset_info.atomic_types,
+            length_unit=self.core.dataset_info.length_unit,
+            targets=targets,
+            extra_data=self.core.dataset_info.extra_data,
+        )
+
     def requested_inputs(self) -> Dict[str, ModelOutput]:
         requested_inputs = {}
 
