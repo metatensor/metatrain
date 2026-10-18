@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 import torch
 from metatensor.torch import Labels
@@ -152,3 +152,46 @@ def _pair_arrays_from_neighbor_lists(
     neighbors = neighbors + edge_offsets
 
     return centers, neighbors, cell_shifts
+
+def get_pair_target_neighborlist(
+    model: Any, #MetatrainModel,
+) -> Optional[NeighborListOptions]:
+    """
+    Finds out which part of the model deals with atom_pair targets.
+
+    It returns the neighbor list options requested by
+    that part of the model.
+
+    This is to play well with the current routines that prepare atomic
+    basis targets, but in the future we should change those to be more
+    flexible.
+
+    :param model: The model to inspect.
+    :return: The neighbor list options requested by the part of the
+        model that deals with atom_pair targets, or None if no such part exists.
+    """
+    if any(out.sample_kind == "atom_pair" for out in model.core.supported_outputs().values()):
+        req_nls = model.core.requested_neighbor_lists()
+        if len(req_nls) > 1:
+            raise ValueError(
+                "Model has multiple requested neighbor lists, can't determine which"
+                "one to use for atom_pair targets."
+            )
+        return req_nls[0]
+    else:
+        nl = None
+        for hook in model.forward_hooks:
+            if any(out.sample_kind == "atom_pair" for out in hook.supported_outputs().values()):
+                req_nls = hook.requested_neighbor_lists()
+                if len(req_nls) > 1:
+                    raise ValueError(
+                        "Hook has multiple requested neighbor lists, can't determine which"
+                        "one to use for atom_pair targets."
+                    )
+                if nl is not None:
+                    raise ValueError(
+                        "Multiple hooks have atom_pair targets, can't determine which"
+                        "one to take the neighbor list from."
+                    )
+                nl = req_nls[0]
+        return nl
