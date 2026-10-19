@@ -170,6 +170,7 @@ class PositionAdditive(ModelInterface):
                 )
             ],
         )
+        # TODO: variants (position/<variant>, momentum/<variant>) get no contribution
         if "position" in outputs:
             return_dict["position"] = position_tensor_map
 

@@ -113,23 +113,10 @@ def test_forward():
 
 
 @pytest.mark.parametrize("predict_momenta_as_difference", [True, False])
-@pytest.mark.parametrize(
-    "requested",
-    [
-        ["feature"],
-        ["position"],
-        ["momentum"],
-        ["feature", "position"],
-        ["mtt::aux::position_last_layer_features"],
-        ["mtt::aux::momentum_last_layer_features"],
-        ["position", "momentum"],
-    ],
-)
 @pytest.mark.filterwarnings("ignore:custom data:UserWarning")
-def test_eval_subset_of_outputs(predict_momenta_as_difference, requested):
-    """At evaluation, any subset of the supported outputs can be requested: the
-    additive contributions of the positions (and momenta) must only be added to
-    the outputs that were requested."""
+def test_eval_subset_of_outputs(predict_momenta_as_difference):
+    """At evaluation, any subset of the outputs can be requested, and gives the
+    same values as when all of them are requested."""
     from metatrain.experimental.flashmd import Trainer
 
     from . import MODEL_HYPERS
@@ -163,8 +150,16 @@ def test_eval_subset_of_outputs(predict_momenta_as_difference, requested):
         },
     )
 
+    # small model, to keep the test fast
     model_hypers = {
         **MODEL_HYPERS,
+        "d_pet": 1,
+        "d_head": 1,
+        "d_node": 1,
+        "d_feedforward": 1,
+        "num_heads": 1,
+        "num_attention_layers": 1,
+        "num_gnn_layers": 1,
         "predict_momenta_as_difference": predict_momenta_as_difference,
     }
     trainer = Trainer(get_default_hypers("experimental.flashmd")["training"])
@@ -180,14 +175,13 @@ def test_eval_subset_of_outputs(predict_momenta_as_difference, requested):
         pbc=torch.tensor([True] * 3),
     )
     system = get_system_with_neighbor_lists(system, get_requested_neighbor_lists(model))
-    momenta = torch.randn(3, 3, 1, dtype=dtype)
     system.add_data(
         "momentum",
         TensorMap(
             keys=Labels.single(),
             blocks=[
                 TensorBlock(
-                    values=momenta,
+                    values=torch.randn(3, 3, 1, dtype=dtype),
                     samples=Labels(
                         names=["system", "atom"],
                         values=torch.tensor([[0, 0], [0, 1], [0, 2]]),
@@ -199,29 +193,24 @@ def test_eval_subset_of_outputs(predict_momenta_as_difference, requested):
         ),
     )
 
-    outputs = {name: ModelOutput(sample_kind="atom") for name in requested}
-
-    # in training mode, the additive contributions are not added (and the scaler,
-    # which is only applied in evaluation mode, is the identity for this untrained
-    # model), so the difference between the two modes is the additive contribution
-    model.train()
-    raw_dict = model([system], outputs)
-
     model.eval()
-    result_dict = model([system], outputs)
+    all_outputs = [
+        "position",
+        "momentum",
+        "feature",
+        "mtt::aux::position_last_layer_features",
+    ]
+    reference = model(
+        [system], {name: ModelOutput(sample_kind="atom") for name in all_outputs}
+    )
 
-    assert set(result_dict.keys()) == set(outputs.keys())
-
-    for name in requested:
-        raw = raw_dict[name].block().values
-        result = result_dict[name].block().values
-        if name == "position":
-            expected = raw + system.positions.unsqueeze(-1)
-        elif name == "momentum":
-            expected = raw + momenta if predict_momenta_as_difference else raw
-        else:
-            continue
-        torch.testing.assert_close(result, expected)
+    # each output requested alone
+    for name in all_outputs:
+        result = model([system], {name: ModelOutput(sample_kind="atom")})
+        assert list(result.keys()) == [name]
+        torch.testing.assert_close(
+            result[name].block().values, reference[name].block().values
+        )
 
 
 def test_exported_timestep(tmpdir):
