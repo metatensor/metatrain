@@ -57,6 +57,10 @@ Fixed
   atomic-basis targets.
 - LLPR uncertainties of SPACE models trained on several targets are now correct.
 - FlashMD models can now be evaluated for any subset of their outputs.
+- PET with ``transformer_type: PreLN`` now adds the residual connection of the
+  attention output to the node embeddings when ``d_node`` equals ``d_pet``. It was
+  previously dropped, so the incoming node embeddings were discarded in each
+  transformer layer (#1314).
 
 Added
 #####
