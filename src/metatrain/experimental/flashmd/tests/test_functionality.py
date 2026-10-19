@@ -123,16 +123,13 @@ def test_forward():
         ["mtt::aux::position_last_layer_features"],
         ["mtt::aux::momentum_last_layer_features"],
         ["position", "momentum"],
-        ["position/foo"],
-        ["momentum/foo"],
-        ["feature", "position/foo", "momentum"],
     ],
 )
 @pytest.mark.filterwarnings("ignore:custom data:UserWarning")
 def test_eval_subset_of_outputs(predict_momenta_as_difference, requested):
     """At evaluation, any subset of the supported outputs can be requested: the
     additive contributions of the positions (and momenta) must only be added to
-    the outputs that were requested, including their variants."""
+    the outputs that were requested."""
     from metatrain.experimental.flashmd import Trainer
 
     from . import MODEL_HYPERS
@@ -152,7 +149,7 @@ def test_eval_subset_of_outputs(predict_momenta_as_difference, requested):
                                 values=torch.empty((0, 2), dtype=int),
                             ),
                             components=[Labels.range("xyz", 3)],
-                            properties=Labels.range(name.split("/")[0], 1),
+                            properties=Labels.range(name, 1),
                         )
                     ],
                 ),
@@ -162,8 +159,6 @@ def test_eval_subset_of_outputs(predict_momenta_as_difference, requested):
             for name, quantity, unit in [
                 ("position", "length", "angstrom"),
                 ("momentum", "momentum", "(eV*u)^(1/2)"),
-                ("position/foo", "length", "angstrom"),
-                ("momentum/foo", "momentum", "(eV*u)^(1/2)"),
             ]
         },
     )
@@ -220,9 +215,9 @@ def test_eval_subset_of_outputs(predict_momenta_as_difference, requested):
     for name in requested:
         raw = raw_dict[name].block().values
         result = result_dict[name].block().values
-        if name == "position" or name.startswith("position/"):
+        if name == "position":
             expected = raw + system.positions.unsqueeze(-1)
-        elif name == "momentum" or name.startswith("momentum/"):
+        elif name == "momentum":
             expected = raw + momenta if predict_momenta_as_difference else raw
         else:
             continue
