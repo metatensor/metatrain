@@ -56,11 +56,8 @@ Fixed
 - SPACE's per-block validation errors (``log_separate_blocks``) are now correct for
   atomic-basis targets.
 - LLPR uncertainties of SPACE models trained on several targets are now correct.
-- FlashMD models can now be evaluated for any subset of their outputs (e.g. only
-  ``feature``, ``position`` or ``mtt::aux::position_last_layer_features``) instead
-  of failing with ``KeyError: position`` (or ``momentum``) unless both ``position``
-  and ``momentum`` were requested. The position and momentum additive contributions
-  are now also added to the requested ``position/<variant>`` and
+- FlashMD models can now be evaluated for any subset of their outputs. Position and
+  momentum additive contributions are also added to ``position/<variant>`` and
   ``momentum/<variant>`` outputs.
 
 Added
