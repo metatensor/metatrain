@@ -11,7 +11,7 @@ from metatomic_ase import MetatomicCalculator
 
 from metatrain.composition import Trainer as CompositionTrainer
 from metatrain.pet import PET, Trainer
-from metatrain.pet.modules.transformer import AttentionBlock
+from metatrain.pet.modules.transformer import AttentionBlock, TransformerLayer
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.target_info import (
@@ -505,3 +505,28 @@ def test_composition_contribution_in_eval_atomic_basis():
     torch.testing.assert_close(
         out.block(o_l1_key).values, out_no_composition.block(o_l1_key).values
     )
+
+
+def test_pre_ln_node_residual_when_dimensions_match():
+    """The PreLN node token keeps its residual when node and model dimensions match."""
+    layer = TransformerLayer(
+        d_model=2,
+        n_heads=1,
+        dim_node_features=2,
+        transformer_type="PreLN",
+    )
+    torch.nn.init.zeros_(layer.attention.output_linear.weight)
+    torch.nn.init.zeros_(layer.attention.output_linear.bias)
+
+    node_embeddings = torch.tensor([[[1.0, 2.0]]])
+    edge_embeddings = torch.zeros((1, 1, 2))
+    cutoff_factors = torch.ones((1, 2, 2))
+
+    output_node_embeddings, _ = layer(
+        node_embeddings,
+        edge_embeddings,
+        cutoff_factors,
+        use_manual_attention=False,
+    )
+
+    torch.testing.assert_close(output_node_embeddings, node_embeddings)

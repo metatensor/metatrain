@@ -233,6 +233,8 @@ class TransformerLayer(torch.nn.Module):
             output_node_embeddings = output_node_embeddings + self.center_mlp(
                 self.norm_center_features(output_node_embeddings)
             )
+        else:
+            output_node_embeddings = node_embeddings + output_node_embeddings
 
         output_edge_embeddings = edge_embeddings + output_edge_embeddings
         output_edge_embeddings = output_edge_embeddings + self.mlp(
