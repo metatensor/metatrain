@@ -115,13 +115,24 @@ class PositionAdditive(ModelInterface):
         :param selected_atoms: Optional selection of atoms for which to compute the
             predictions.
         :return: A dictionary with the positions (and optionally momenta) of the
-            systems as "predicted" values.
+            systems as "predicted" values, for each of the requested ``outputs``
+            that is "position", "momentum" or one of their variants.
         """
         device = systems[0].positions.device
 
-        # TODO: variants
-
         return_dict: Dict[str, TensorMap] = {}
+
+        # only return contributions for the requested outputs (and their variants)
+        position_names: List[str] = []
+        momentum_names: List[str] = []
+        for name in outputs.keys():
+            if name == "position" or name.startswith("position/"):
+                position_names.append(name)
+            if self.do_momenta and (name == "momentum" or name.startswith("momentum/")):
+                momentum_names.append(name)
+
+        if len(position_names) == 0 and len(momentum_names) == 0:
+            return return_dict
 
         single_label = Labels(
             names=["_"],
@@ -153,26 +164,28 @@ class PositionAdditive(ModelInterface):
                 values=torch.arange(3, device=device).unsqueeze(-1),
             )
         ]
-        all_positions = torch.concatenate([system.positions for system in systems])
-        position_tensor_map = TensorMap(
-            keys=single_label,
-            blocks=[
-                TensorBlock(
-                    values=all_positions.unsqueeze(-1),
-                    samples=samples,
-                    components=components,
-                    properties=Labels(
-                        names=["position"],
-                        values=torch.zeros(
-                            (1, 1), dtype=torch.int32, device=all_positions.device
+        if len(position_names) > 0:
+            all_positions = torch.concatenate([system.positions for system in systems])
+            position_tensor_map = TensorMap(
+                keys=single_label,
+                blocks=[
+                    TensorBlock(
+                        values=all_positions.unsqueeze(-1),
+                        samples=samples,
+                        components=components,
+                        properties=Labels(
+                            names=["position"],
+                            values=torch.zeros(
+                                (1, 1), dtype=torch.int32, device=device
+                            ),
                         ),
-                    ),
-                )
-            ],
-        )
-        return_dict["position"] = position_tensor_map
+                    )
+                ],
+            )
+            for name in position_names:
+                return_dict[name] = position_tensor_map
 
-        if self.do_momenta:
+        if len(momentum_names) > 0:
             all_momenta = torch.concatenate(
                 [system.get_data("momentum").block().values for system in systems]
             )
@@ -186,13 +199,14 @@ class PositionAdditive(ModelInterface):
                         properties=Labels(
                             names=["momentum"],
                             values=torch.zeros(
-                                (1, 1), dtype=torch.int32, device=all_positions.device
+                                (1, 1), dtype=torch.int32, device=device
                             ),
                         ),
                     )
                 ],
             )
-            return_dict["momentum"] = momenta_tensor_map
+            for name in momentum_names:
+                return_dict[name] = momenta_tensor_map
 
         if selected_atoms is not None:
             for key in list(return_dict.keys()):
