@@ -13,6 +13,7 @@ os.environ["METATENSOR_IMPORT_FOR_SPHINX"] = "1"
 os.environ["METATOMIC_IMPORT_FOR_SPHINX"] = "1"
 os.environ["PYTORCH_JIT"] = "0"
 os.environ["METATENSOR_DEBUG_EXTENSIONS_LOADING"] = "1"
+RUN_EXAMPLES = os.environ.get("MTT_DOCS_EXAMPLES", "1") != "0"
 
 import metatrain  # noqa: E402
 
@@ -88,7 +89,8 @@ def generate_examples():
 
 def setup(app):
     copy_readme()
-    generate_examples()
+    if RUN_EXAMPLES:
+        generate_examples()
     setup_architectures_docs()
 
 
@@ -104,9 +106,11 @@ extensions = [
     "sphinxcontrib.bibtex",
     "sphinx_copybutton",
     "sphinx_toggleprompt",
-    "sphinx_gallery.gen_gallery",
     "chemiscope.sphinx",
 ]
+
+if RUN_EXAMPLES:
+    extensions.append("sphinx_gallery.gen_gallery")
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
