@@ -28,4 +28,8 @@ class Hypers(TypedDict):
     edge vectors."""
 
     node_hidden_irreps: str = "20x0e + 20x1o + 20x2e + 20x3o + 20x4e"
+    edge_message_irreps: Optional[str] = None #"20x0e + 20x1o + 20x2e + 20x3o + 20x4e"
+    """The irreps in which the message from one node to another is represented.
+    If None, the message irreps will be the same as the target's irreps.
+    """
     
