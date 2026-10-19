@@ -507,7 +507,6 @@ def test_composition_contribution_in_eval_atomic_basis():
     )
 
 
-
 def test_pre_ln_node_residual_when_dimensions_match():
     """The PreLN node token keeps its residual when node and model dimensions match."""
     layer = TransformerLayer(
