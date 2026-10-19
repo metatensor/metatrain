@@ -723,7 +723,7 @@ def get_prepare_atomic_basis_targets_transform(
                 " the transform. This is not supported yet."
             )
 
-    def transform(
+    def densify_atomic_basis_targets(
         systems: List[System],
         targets: Dict[str, TensorMap],
         extra: Dict[str, TensorMap],
@@ -840,7 +840,7 @@ def get_prepare_atomic_basis_targets_transform(
 
         return systems, targets, extra
 
-    return transform, reverse_transform
+    return densify_atomic_basis_targets, reverse_transform
 
 
 # ===== DatasetInfo manipulation utilities
