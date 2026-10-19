@@ -77,6 +77,56 @@ class Scaler(ModelInterface[ModelHypers]):
             self.new_outputs.append(target_name)
             self._add_output(target_name, target_info)
 
+    @classmethod
+    def from_valid_targets(
+        cls,
+        hypers: ModelHypers,
+        dataset_info: DatasetInfo,
+    ) -> "Scaler":
+        """Build a scaler from the valid targets of ``dataset_info``.
+
+        Targets the scaler cannot handle (see ``is_valid_target``)
+        are dropped.
+
+        :param hypers: hyperparameters for the model.
+        :param dataset_info: dataset information to build the model from.
+        :return: a scaler for the valid targets.
+        """
+        targets = {
+            name: info
+            for name, info in dataset_info.targets.items()
+            if cls.is_valid_target(name, info)
+        }
+        return cls(
+            hypers=hypers,
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=dataset_info.atomic_types,
+                targets=targets,
+                extra_data=dataset_info.extra_data,
+            ),
+        )
+
+    @staticmethod
+    def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
+        """
+        Check whether the scaler can work with the given target.
+
+        The scaler currently does not support targets with
+        sample kind "atom_pair".
+
+        :param target_name: Name of the target, used for logging.
+        :param target_info: Information about the target.
+        :return: Whether the target can be fitted by the composition model.
+        """
+        if target_info.sample_kind == "atom_pair":
+            logging.debug(
+                f"Scaler does not support target {target_name} "
+                "since sample kind 'atom_pair' is not implemented yet."
+            )
+            return False
+        return True
+
     def train_model(
         self,
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
