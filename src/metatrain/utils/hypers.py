@@ -8,6 +8,23 @@ from typing_extensions import TypedDict as TE_TypedDict
 HypersType = TypeVar("HypersType")
 
 
+def resolve_per_target(hyper: Any, target_name: str, default: Any) -> Any:
+    """Resolve a hyperparameter that is set either globally or per target.
+
+    Such hyperparameters take either a single value applying to every target, or a
+    dict keyed by target name, in which case the targets absent from the dict use
+    ``default``.
+
+    :param hyper: The hyperparameter value, either global or keyed by target name.
+    :param target_name: Name of the target to resolve the hyperparameter for.
+    :param default: Value to use for targets absent from a per-target dict.
+    :return: The value of the hyperparameter for this target.
+    """
+    if isinstance(hyper, Mapping):
+        return hyper.get(target_name, default)
+    return hyper
+
+
 def get_hypers_list(hypers_cls: Type[HypersType]) -> list[str]:
     """Get the list of hyperparameter names defined in a TypedDict hypers class.
 

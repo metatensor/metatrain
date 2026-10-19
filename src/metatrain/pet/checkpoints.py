@@ -404,6 +404,22 @@ def model_update_v16_v17(checkpoint: dict) -> None:
     )
 
 
+def model_update_v17_v18(checkpoint: dict) -> None:
+    """
+    Update a v17 checkpoint to v18.
+
+    It adds the ``head_type``, ``num_head_layers`` and ``readout_type``
+    hyperparameters, with the values reproducing the previous architecture. The
+    ``state_dict`` is unchanged.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    hypers = checkpoint["model_data"]["model_hypers"]
+    hypers["head_type"] = "per_target"
+    hypers["num_head_layers"] = 2
+    hypers["readout_type"] = {"atom_type_gating": False}
+
+
 ###########################
 # TRAINER #################
 ###########################

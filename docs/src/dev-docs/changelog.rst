@@ -67,6 +67,9 @@ Added
 - ``mtt eval`` options gained a ``log_separate_blocks`` flag, matching the training
   hyperparameter of the same name, to report all metrics separately for each block of
   each target instead of aggregated over the whole target.
+- PET heads/readouts can be configured with the ``d_head`` (now optionally separate
+  for node and edge heads), ``head_type``, ``num_head_layers`` and
+  ``readout_type`` hyperparameters, globally or per target.
 
 Changed
 #######
