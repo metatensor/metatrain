@@ -170,9 +170,11 @@ class PositionAdditive(ModelInterface):
                 )
             ],
         )
-        return_dict["position"] = position_tensor_map
+        # TODO: variants (position/<variant>, momentum/<variant>) get no contribution
+        if "position" in outputs:
+            return_dict["position"] = position_tensor_map
 
-        if self.do_momenta:
+        if self.do_momenta and "momentum" in outputs:
             all_momenta = torch.concatenate(
                 [system.get_data("momentum").block().values for system in systems]
             )

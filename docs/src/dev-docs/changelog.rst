@@ -56,6 +56,7 @@ Fixed
 - SPACE's per-block validation errors (``log_separate_blocks``) are now correct for
   atomic-basis targets.
 - LLPR uncertainties of SPACE models trained on several targets are now correct.
+- FlashMD models can now be evaluated for any subset of their outputs.
 
 Added
 #####
