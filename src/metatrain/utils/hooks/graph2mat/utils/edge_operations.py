@@ -96,7 +96,7 @@ class MACEEdgeState(torch.nn.Module):
             edge_targets_irreps,
         )
 
-
+        self.final_linear = o3.Linear(edge_targets_irreps, edge_targets_irreps)
 
     def forward(
         self,
@@ -120,7 +120,7 @@ class MACEEdgeState(torch.nn.Module):
             mji, node_feats[receiver]
         )
 
-        return value_ji
+        return self.final_linear(value_ji)
 
         
 
