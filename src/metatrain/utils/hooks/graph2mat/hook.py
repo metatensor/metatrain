@@ -71,7 +71,7 @@ class Graph2MatHook(HookInterface[Hypers]):
             self.out_targets[out_name] = target
             node_irreps = self.hypers["node_hidden_irreps"]
             layout = get_e3nn_mts_layout(
-                "mtt::aux::mace_features",
+                "mtt::aux::graph2mat::node_states",
                 {
                     "type": {"spherical": {"irreps": node_irreps }},
                     "sample_kind": "atom",
@@ -89,13 +89,14 @@ class Graph2MatHook(HookInterface[Hypers]):
                 layout
             )
             edge_irreps = target_info_to_e3nn_irreps(target)
+            edge_message_irreps = self.hypers["edge_message_irreps"] or edge_irreps
             operations.append(
                 MACEEdgeState(
                     irreps={
                         "node_feats_irreps": o3.Irreps(node_irreps),
                         "edge_attrs_irreps": sh_irreps,
                         "edge_feats_irreps": radial_irreps,
-                        "message_irreps": o3.Irreps("20x0e + 20x1o + 20x2e + 20x3o + 20x4e"),
+                        "message_irreps": o3.Irreps(edge_message_irreps),
                         "edge_targets_irreps": o3.Irreps(edge_irreps),
                     }
                 )
