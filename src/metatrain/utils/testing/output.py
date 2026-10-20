@@ -13,6 +13,7 @@ from metatrain.utils.data.readers import (
 )
 from metatrain.utils.data.readers.ase import read
 from metatrain.utils.data.readers.metatensor import _check_tensor_map_metadata
+from metatrain.utils.data.target_info import get_generic_target_info
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists,
@@ -50,6 +51,8 @@ class OutputTests(ArchitectureTests):
     """Whether the model supports returning features."""
     supports_last_layer_features: bool = True
     """Whether the model supports returning last-layer features."""
+    last_layer_features_are_affine: bool = True
+    """Whether each target is an affine function of its last-layer features."""
     is_equivariant_rotations: bool = True
     """Whether the model is equivariant (i.e. produces outputs that
     transform correctly under rotations by architecture's design)."""
@@ -495,7 +498,7 @@ class OutputTests(ArchitectureTests):
         model = model.to(system.positions.dtype)
         model(
             [system],
-            {"energy": model.outputs["energy"]},
+            {"energy": ModelOutput(sample_kind="atom")},
         )
 
     def test_prediction_energy_subset_atoms(
@@ -652,7 +655,7 @@ class OutputTests(ArchitectureTests):
         outputs = model(
             [system],
             {
-                "energy": model.outputs["energy"],
+                "energy": ModelOutput(sample_kind="atom"),
                 "feature": features_output_options,
             },
         )
@@ -736,7 +739,7 @@ class OutputTests(ArchitectureTests):
         outputs = model(
             [system],
             {
-                "energy": model.outputs["energy"],
+                "energy": ModelOutput(sample_kind="atom"),
                 "mtt::aux::energy_last_layer_features": ll_output_options,
             },
         )
@@ -793,9 +796,7 @@ class OutputTests(ArchitectureTests):
         ]
 
         output_label = "mtt::aux::energy_last_layer_features"
-        modeloutput = model.outputs[output_label]
-        modeloutput.sample_kind = "atom"
-        outputs = {output_label: modeloutput}
+        outputs = {output_label: ModelOutput(sample_kind="atom")}
         selected_atoms = mts.Labels(
             names=["system", "atom"],
             values=torch.tensor(
@@ -806,6 +807,112 @@ class OutputTests(ArchitectureTests):
         out = model(systems, outputs, selected_atoms=selected_atoms)
         features = out[output_label].block(0).samples.values
         assert features.shape == selected_atoms.values.shape
+
+    def test_output_layouts(
+        self,
+        model_hypers: dict,
+        dataset_info_spherical_atomic_basis: DatasetInfo,
+        dataset_path: str,
+    ) -> None:
+        """Tests that the outputs match the layouts in the supported outputs of the
+        model, and that each target is an affine function of its last-layer
+        features.
+
+        This test is skipped if the model does not support last-layer features
+        output, i.e., if ``supports_last_layer_features`` is set to ``False``. The
+        targets are not compared to the last-layer features if
+        ``last_layer_features_are_affine`` is set to ``False``.
+
+        :param model_hypers: Hyperparameters to initialize the model.
+        :param dataset_info_spherical_atomic_basis: Dataset information with a
+            spherical target in an atomic basis.
+        :param dataset_path: Path to a dataset file to read systems from.
+        """
+        if not self.supports_last_layer_features:
+            pytest.skip(
+                f"{self.architecture} does not support last-layer features output."
+            )
+
+        target_types = {
+            "scalar": ("scalar", self.supports_scalar_outputs),
+            "vector": ({"cartesian": {"rank": 1}}, self.supports_vector_outputs),
+            "spherical": (
+                {
+                    "spherical": {
+                        "irreps": [
+                            {"o3_lambda": o3_lambda, "o3_sigma": 1}
+                            for o3_lambda in range(3)
+                        ]
+                    }
+                },
+                self.supports_spherical_outputs,
+            ),
+        }
+        dataset_infos = [
+            DatasetInfo(
+                length_unit="Angstrom",
+                atomic_types=[1, 6, 7, 8],
+                targets={
+                    name: get_generic_target_info(
+                        name,
+                        {
+                            "quantity": "",
+                            "unit": "",
+                            "type": target_type,
+                            "num_subtargets": 1,
+                            "sample_kind": "atom",
+                        },
+                    )
+                },
+            )
+            for name, (target_type, supported) in target_types.items()
+            if supported
+        ]
+        if (
+            self.supports_spherical_outputs
+            and self.supports_spherical_atomic_basis_outputs
+        ):
+            dataset_infos.append(dataset_info_spherical_atomic_basis)
+
+        for dataset_info in dataset_infos:
+            model = self.model_cls(model_hypers, dataset_info).to(torch.float64)
+            model.eval()
+            systems = [
+                get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+                for system in read_systems(dataset_path)
+            ]
+            layouts = {
+                name: info.layout for name, info in model.supported_outputs().items()
+            }
+            outputs = model(
+                systems, {name: ModelOutput(sample_kind="atom") for name in layouts}
+            )
+            for name, layout in layouts.items():
+                _check_tensor_map_metadata(outputs[name], layout)
+
+            if not self.last_layer_features_are_affine:
+                continue
+            for name in dataset_info.targets:
+                features_name = f"mtt::aux::{name}_last_layer_features"
+                if features_name not in layouts:
+                    continue
+                features = outputs[features_name]
+                shared = len(features.block(0).components) == 0
+                for key, block in outputs[name].items():
+                    feature_block = features.block(0 if shared else key)
+                    rows = feature_block.samples.select(block.samples)
+                    x = feature_block.values[rows]
+                    if shared:
+                        y = block.values.reshape(block.values.shape[0], -1)
+                    else:
+                        x = x.reshape(-1, x.shape[-1])
+                        y = block.values.reshape(-1, block.values.shape[-1])
+                    # constant feature for the biases
+                    x = torch.cat([x, torch.ones_like(x[:, :1])], dim=1)
+                    # more samples than features, otherwise any target fits
+                    assert x.shape[0] > x.shape[1]
+                    weights = torch.linalg.lstsq(x, y).solution
+                    torch.testing.assert_close(x @ weights, y)
 
     def test_single_atom(
         self,
@@ -869,11 +976,11 @@ class OutputTests(ArchitectureTests):
 
         original_output = model(
             [get_system_with_neighbor_lists(original_system, requested_neighbor_lists)],
-            {"energy": model.outputs["energy"]},
+            {"energy": ModelOutput(sample_kind="atom")},
         )
         rotated_output = model(
             [get_system_with_neighbor_lists(system, requested_neighbor_lists)],
-            {"energy": model.outputs["energy"]},
+            {"energy": ModelOutput(sample_kind="atom")},
         )
 
         torch.testing.assert_close(
@@ -928,26 +1035,26 @@ class OutputTests(ArchitectureTests):
 
         model = model.to(original_system.positions.dtype)
 
-        original_output = model(
-            [original_system],
-            {"spherical_target": model.outputs["spherical_target"]},
-        )
-        rotated_output = model(
-            [rotated_system],
-            {"spherical_target": model.outputs["spherical_target"]},
-        )
+        outputs = {"spherical_target": ModelOutput(sample_kind="atom")}
+        # the last-layer features rotate with the target
+        features_name = "mtt::aux::spherical_target_last_layer_features"
+        if features_name in model.supported_outputs():
+            outputs[features_name] = ModelOutput(sample_kind="atom")
+        original_output = model([original_system], outputs)
+        rotated_output = model([rotated_system], outputs)
 
-        original_values = original_output["spherical_target"].block().values.detach()
-        expected_values = (
-            original_values.swapaxes(-1, -2)
-            @ transformation.wigner_D_matrices(ell)[0].T
-        ).swapaxes(-1, -2)
-        torch.testing.assert_close(
-            rotated_output["spherical_target"].block().values.detach(),
-            expected_values,
-            atol=self.equivariance_error_tolerance,
-            rtol=self.equivariance_error_tolerance,
-        )
+        for name in outputs:
+            original_values = original_output[name].block().values.detach()
+            expected_values = (
+                original_values.swapaxes(-1, -2)
+                @ transformation.wigner_D_matrices(ell)[0].T
+            ).swapaxes(-1, -2)
+            torch.testing.assert_close(
+                rotated_output[name].block().values.detach(),
+                expected_values,
+                atol=self.equivariance_error_tolerance,
+                rtol=self.equivariance_error_tolerance,
+            )
 
     def test_output_spherical_equivariant_inversion(
         self,
@@ -1001,11 +1108,11 @@ class OutputTests(ArchitectureTests):
 
         original_output = model(
             [original_system],
-            {"spherical_target": model.outputs["spherical_target"]},
+            {"spherical_target": ModelOutput(sample_kind="atom")},
         )
         inverted_output = model(
             [inverted_system],
-            {"spherical_target": model.outputs["spherical_target"]},
+            {"spherical_target": ModelOutput(sample_kind="atom")},
         )
 
         torch.testing.assert_close(

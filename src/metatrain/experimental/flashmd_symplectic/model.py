@@ -26,7 +26,10 @@ from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
-from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.data.target_info import (
+    get_energy_target_info,
+    get_features_info,
+)
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
@@ -148,9 +151,13 @@ class FlashMDSymplectic(ModelInterface):
             self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
         )
 
-        self.outputs = {
-            "feature": ModelOutput(unit="", sample_kind="atom")
-        }  # the model is always capable of outputting the internal features
+        # the model is always capable of outputting the internal features: the node
+        # and edge features of each readout layer
+        self.outputs: Dict[str, TargetInfo] = {
+            "feature": get_features_info(
+                self.num_readout_layers * (self.d_node + self.d_pet)
+            )
+        }
 
         self.register_buffer("key_labels", {}, persistent=False)
         self.register_buffer("component_labels", {}, persistent=False)
@@ -210,7 +217,7 @@ class FlashMDSymplectic(ModelInterface):
     def set_timestep(self, timestep: float):
         self.timestep = torch.tensor(timestep)
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def restart(
@@ -1179,7 +1186,10 @@ class FlashMDSymplectic(ModelInterface):
         self.to(dtype)
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
             interaction_range=self.num_gnn_layers * self.cutoff,
             length_unit=self.dataset_info.length_unit,
@@ -1209,11 +1219,7 @@ class FlashMDSymplectic(ModelInterface):
                 len(comp.values) for comp in block.components
             ] + [len(block.properties.values)]
 
-        self.outputs[target_name] = ModelOutput(
-            quantity=target_info.quantity,
-            unit=target_info.unit,
-            sample_kind="atom",
-        )
+        self.outputs[target_name] = target_info
 
         self.node_heads[target_name] = torch.nn.ModuleList(
             [
@@ -1272,7 +1278,10 @@ class FlashMDSymplectic(ModelInterface):
         )
 
         ll_features_name = get_last_layer_features_name(target_name)
-        self.outputs[ll_features_name] = ModelOutput(sample_kind="atom")
+        # shared by all the blocks of the target
+        self.outputs[ll_features_name] = get_features_info(
+            self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
+        )
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [
             block.components for block in target_info.layout.blocks()

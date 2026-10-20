@@ -3,6 +3,7 @@ import gzip
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import ModelOutput
 
 from metatrain.composition import CompositionModel, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
@@ -97,7 +98,7 @@ def test_composition_forward_after_fitting():
     model, _ = _train_composition_model(systems, target_values)
     model.eval()
 
-    output = model(systems[:5], {"energy": model.outputs["energy"]})
+    output = model(systems[:5], {"energy": ModelOutput(sample_kind="atom")})
     assert "energy" in output
     predicted = output["energy"].block().values
     # model outputs per-atom energies; sum per system
@@ -225,13 +226,13 @@ def test_checkpoint_roundtrip_predictions():
     model, _ = _train_composition_model(systems, target_values)
     model.eval()
 
-    reference_output = model(systems[:5], {"energy": model.outputs["energy"]})
+    reference_output = model(systems[:5], {"energy": ModelOutput(sample_kind="atom")})
 
     loaded_model = CompositionModel.load_checkpoint(model.get_checkpoint(), "export")
     loaded_model.eval()
 
     loaded_output = loaded_model(
-        systems[:5], {"energy": loaded_model.outputs["energy"]}
+        systems[:5], {"energy": ModelOutput(sample_kind="atom")}
     )
     assert torch.allclose(
         reference_output["energy"].block().values,
@@ -247,7 +248,7 @@ def test_regression_checkpoint():
     model = model.eval()
 
     systems = read_systems(DATASET_PATH)[:5]
-    output = model(systems, {"mtt::U0": model.core.outputs["mtt::U0"]})
+    output = model(systems, {"mtt::U0": ModelOutput(sample_kind="atom")})
 
     block = output["mtt::U0"].block(0)
     system_energies = torch.zeros(len(systems))

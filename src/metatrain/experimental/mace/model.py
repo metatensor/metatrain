@@ -266,6 +266,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         # Create heads for each target, store the layout for each of them.
         self.heads = torch.nn.ModuleDict()
+        self.outputs: Dict[str, TargetInfo] = {}
         self.register_buffer("layouts", {})
         # for each last-layer features output, the columns of the features of the head
         # that it keeps, in the order of the blocks of the target
@@ -281,15 +282,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 "properties_name": "feature",
             },
         )
-
-        targets = dataset_info.targets
-        self.outputs = {
-            k: ModelOutput(
-                unit=targets[k].unit if k in targets else "",
-                sample_kind="atom",
-            )
-            for k in self.layouts
-        }
+        self.outputs["mtt::aux::mace_features"] = TargetInfo(
+            self.layouts["mtt::aux::mace_features"].keys_to_properties("i_irrep")
+        )
 
         self.finetune_config: Dict[str, Any] = {}
 
@@ -420,6 +415,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 samples=samples,
                 layout=self.layouts[output_name],
             )
+            if output_name == "mtt::aux::mace_features":
+                # one block for each irrep, even if it is repeated in the features
+                per_atom_output = per_atom_output.keys_to_properties("i_irrep")
 
             if selected_atoms is not None:
                 per_atom_output = mts.slice(
@@ -434,7 +432,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         return return_dict
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def requested_neighbor_lists(
@@ -508,7 +506,10 @@ class MetaMACE(ModelInterface[ModelHypers]):
         interaction_range = self.hypers["num_interactions"] * self.cutoff
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
             interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
@@ -566,6 +567,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 )
 
         self.layouts[target_name] = target_info.layout
+        self.outputs[target_name] = target_info
 
         if target_name == self.hypers["mace_head_target"]:
             # Fake head that will not compute the target, but will help
@@ -627,6 +629,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
         llf_name = self._llf_name(target_name)
         self.layouts[llf_name] = TensorMap(target_info.layout.keys, llf_blocks)
         self.llf_indices[llf_name] = torch.tensor(llf_indices)
+        self.outputs[llf_name] = TargetInfo(self.layouts[llf_name])
 
     def _llf_name(self, target_name: str) -> str:
         """Get the name of the last layer features corresponding to a target.

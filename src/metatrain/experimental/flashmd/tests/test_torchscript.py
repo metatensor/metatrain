@@ -1,7 +1,7 @@
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import System
+from metatomic.torch import ModelOutput, System
 
 from metatrain.experimental.flashmd import FlashMD
 from metatrain.utils.architectures import get_default_hypers
@@ -95,7 +95,10 @@ def test_torchscript():
     ]
     model(
         systems,
-        {"position": model.outputs["position"], "momentum": model.outputs["momentum"]},
+        {
+            "position": ModelOutput(sample_kind="atom"),
+            "momentum": ModelOutput(sample_kind="atom"),
+        },
     )
 
 

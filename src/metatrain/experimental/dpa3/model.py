@@ -256,7 +256,7 @@ class DPA3(ModelInterface[ModelHypers]):
                 self.model = get_standard_model(deepmd_hypers)
             _register_untracked_tensors(self.model)
 
-        self.outputs: Dict[str, ModelOutput] = {}
+        self.outputs: Dict[str, TargetInfo] = {}
 
         self.num_properties: Dict[str, Dict[str, int]] = {}
 
@@ -283,10 +283,7 @@ class DPA3(ModelInterface[ModelHypers]):
         self.property_labels[target_name] = [
             block.properties for block in target.layout.blocks()
         ]
-        self.outputs[target_name] = ModelOutput(
-            unit=target.unit,
-            sample_kind="atom",
-        )
+        self.outputs[target_name] = target
 
     def get_rcut(self):
         return self.model.atomic_model.get_rcut()
@@ -501,7 +498,10 @@ class DPA3(ModelInterface[ModelHypers]):
         self.to(dtype)
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
             interaction_range=self.hypers["descriptor"]["repflow"]["e_rcut"],
             length_unit=self.dataset_info.length_unit,
@@ -552,7 +552,7 @@ class DPA3(ModelInterface[ModelHypers]):
         }
         return checkpoint
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def get_fixed_composition_weights(self) -> dict[str, dict[int, float]]:

@@ -51,6 +51,9 @@ class TestInput(InputTests, PETTests):
 class TestOutput(OutputTests, PETTests):
     is_equivariant_rotations = False
     is_equivariant_reflections = False
+    # the bias of the edge last layers is summed over the neighbors with the cutoff
+    # factors, so it adds a different offset to each atom
+    last_layer_features_are_affine = False
 
     @pytest.fixture
     def n_features(self, model_hypers):

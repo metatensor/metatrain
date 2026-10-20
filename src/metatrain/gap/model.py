@@ -20,7 +20,7 @@ from skmatter._selection import _FPS as _FPS_skmatter
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
-from metatrain.utils.data.dataset import DatasetInfo
+from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
 from metatrain.utils.metadata import merge_metadata
 
 from .documentation import ModelHypers
@@ -72,14 +72,7 @@ class GAP(ModelInterface[ModelHypers]):
         if dataset_info.targets[target_name].sample_kind == "atom":
             raise ValueError("GAP does not support per-atom energies")
 
-        self.outputs = {
-            key: ModelOutput(
-                unit=value.unit,
-                sample_kind="system",
-                description=value.description,
-            )
-            for key, value in dataset_info.targets.items()
-        }
+        self.outputs: Dict[str, TargetInfo] = dict(dataset_info.targets)
 
         self.atomic_types = dataset_info.atomic_types
 
@@ -143,7 +136,7 @@ class GAP(ModelInterface[ModelHypers]):
         )
         self.register_buffer("_species_labels", Labels.empty("_"))
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def restart(
@@ -251,7 +244,9 @@ class GAP(ModelInterface[ModelHypers]):
         interaction_range = self.hypers["soap"]["cutoff"]["radius"]
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output() for name, info in self.outputs.items()
+            },
             atomic_types=sorted(self.dataset_info.atomic_types),
             interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,

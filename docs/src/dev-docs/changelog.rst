@@ -80,6 +80,10 @@ Changed
 
 - The last-layer features of MACE and SPACE have the keys and components of their
   target (#1317).
+- ``ModelInterface.supported_outputs()`` returns a ``TargetInfo`` for each output,
+  with its layout, instead of a ``ModelOutput`` (#1317).
+- ``mtt::aux::mace_features`` has one block for each irrep, with repeated irreps
+  along the ``i_irrep`` property (#1317).
 
 Removed
 #######
