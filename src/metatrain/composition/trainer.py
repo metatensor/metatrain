@@ -3,7 +3,6 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
-import metatensor.torch as mts
 import torch
 
 from metatrain.utils.abc import (
@@ -117,7 +116,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             logging.info(f"Training on {world_size} devices with dtype {dtype}")
         else:
             logging.info(f"Training on device {device} with dtype {dtype}")
-        model.to(device=device)
+
+        model.to(device=device, dtype=torch.float64)
 
         # Targets with fixed weights don't need data accumulation, only fit().
         targets_to_accumulate = [
@@ -226,7 +226,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             # A rank whose shard of some dataset was empty never accumulated
             # the corresponding targets, so its XTX/XTY are still on the CPU,
             # while NCCL needs them on the GPU for the all_reduce.
-            composition_model.model._sync_device_dtype(device, torch.float64)
+            composition_model.model.to(device, torch.float64)
             handles = []
             for target_name in targets_to_accumulate:
                 for XTX_block, XTY_block in zip(
@@ -246,18 +246,6 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         composition_model.model.fit(
             fixed_weights, targets_to_fit=composition_model._new_outputs
         )
-
-        for target_name in composition_model.model.weights.keys():
-            composition_model.register_buffer(
-                target_name + "_composition_buffer",
-                mts.save_buffer(
-                    mts.make_contiguous(
-                        composition_model.model.weights[target_name].to(
-                            "cpu", torch.float64
-                        )
-                    )
-                ).to(device),
-            )
 
         if checkpoint_dir and (not is_distributed or torch.distributed.get_rank() == 0):
             ckpt_path = Path(checkpoint_dir) / "composition_model.ckpt"

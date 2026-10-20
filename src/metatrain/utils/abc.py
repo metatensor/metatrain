@@ -15,6 +15,7 @@ from typing import (
 
 import torch
 from metatensor.torch import Labels, TensorMap
+from metatensor.torch.learn import nn
 from metatomic.torch import (
     AtomisticModel,
     ModelMetadata,
@@ -29,12 +30,19 @@ ModelHypersType = TypeVar("ModelHypersType")
 TrainerHypersType = TypeVar("TrainerHypersType")
 
 
-class ModelInterface(torch.nn.Module, Generic[ModelHypersType], metaclass=ABCMeta):
+class ModelInterface(nn.Module, Generic[ModelHypersType], metaclass=ABCMeta):
     """
     Abstract base class for a machine learning model in metatrain.
 
     All architectures in metatrain must be implemented as sub-class of this class,
     and implement the corresponding methods.
+
+    This class derives from :py:class:`metatensor.learn.nn.Module`, which is a custom
+    :py:class:`torch.nn.Module` with added support for metatensor's data types. Any
+    :py:class:`metatensor.torch.Labels`, :py:class:`metatensor.torch.TensorBlock`, or
+    :py:class:`metatensor.torch.TensorMap` can be registered as a buffer with
+    ``register_buffer``. This data will be included in the ``state_dict()`` (if the
+    buffer is ``persistent``) and moved to the correct dtype/device by ``to()``.
 
     :param hypers: A dictionary with the model's hyper-parameters.
     :param dataset_info: Information containing details about the dataset, such as

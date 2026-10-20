@@ -105,6 +105,20 @@ def model_update_v4_v5(checkpoint: dict) -> None:
     )
 
 
+def model_update_v5_v6(checkpoint: dict) -> None:
+    """
+    Update a v5 checkpoint to v6.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # added _mts_helper and _extra_state buffers
+    state_dict = checkpoint["model_state_dict"]
+    reference = next(iter(state_dict.values()))
+    empty_tensor = torch.zeros(0, dtype=reference.dtype, device=reference.device)
+    state_dict["_mts_helper"] = empty_tensor
+    state_dict["_extra_state"] = {}
+
+
 def trainer_update_v1_v2(checkpoint: dict) -> None:
     """
     Update trainer checkpoint from version 1 to version 2.

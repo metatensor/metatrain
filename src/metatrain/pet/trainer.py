@@ -296,14 +296,6 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                     f"{list(inherit_heads.keys())}"
                 )
 
-        # Move the model to the device and dtype:
-        model.to(device=device, dtype=dtype)
-        # The additive models of PET are always in float64 (to avoid numerical errors in
-        # the composition weights, which can be very large).
-        for additive_model in model.additive_models:
-            additive_model.to(dtype=torch.float64)
-        model.scaler.to(dtype=torch.float64)
-
         # Set up transformations
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
@@ -333,6 +325,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             atomic_baseline=self.hypers["atomic_baseline"],
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
+            device=device,
             batch_size=self.hypers["batch_size"],
             is_distributed=is_distributed,
             checkpoint_dir=checkpoint_dir,
@@ -358,13 +351,14 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                     scaler=None,
                     dataset_info=model.dataset_info,
                 ),
-                fixed_weights=self.hypers["fixed_scaling_weights"],
                 train_datasets=train_datasets,
                 additive_models=model.additive_models,
+                device=device,
                 batch_size=self.hypers["batch_size"],
                 is_distributed=is_distributed,
-                checkpoint_dir=checkpoint_dir,
+                fixed_weights=self.hypers["fixed_scaling_weights"],
                 per_structure_targets=self.hypers["per_structure_targets"],
+                checkpoint_dir=checkpoint_dir,
             )
 
         logging.info("Setting up data loaders")
@@ -395,20 +389,13 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             val_samplers = [None] * len(val_datasets)
 
         # Extract additive models and scaler and move them to CPU/float64 so they
-        # can be used in the collate function
-        model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
-        additive_models = copy.deepcopy(
-            model.additive_models.to(dtype=torch.float64, device="cpu")
+        # can be used in the collate function.
+        additive_models = copy.deepcopy(model.additive_models).to(
+            dtype=torch.float64, device="cpu"
         )
-        model.additive_models.to(device)
-        model.additive_models[0].weights_to(device=device, dtype=torch.float64)
-        model.scaler.scales_to(device="cpu", dtype=torch.float64)
-        scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
-        model.scaler.to(device)
-        model.scaler.scales_to(device=device, dtype=torch.float64)
+        scaler = copy.deepcopy(model.scaler).to(dtype=torch.float64, device="cpu")
 
         # Create collate functions
-
         conditioning_keys = list(model.requested_inputs().keys())
         if conditioning_keys:
             splits = [("training", train_datasets), ("validation", val_datasets)]
@@ -452,6 +439,10 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 *base_callables,
             ],
         )
+
+        # Now move the whole model (including the composition model and scaler,
+        # which were trained in float64 above) to the training device and dtype.
+        model.to(device=device, dtype=dtype)
 
         if self.hypers["num_workers"] is None:
             num_workers = get_num_workers()

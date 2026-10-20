@@ -48,7 +48,7 @@ from .utils.structures import create_batch
 class MetaMACE(ModelInterface[ModelHypers]):
     """Interface of MACE for metatrain."""
 
-    __checkpoint_version__ = 5
+    __checkpoint_version__ = 6
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -59,6 +59,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             ]
         }
     )
+    layouts: Dict[str, TensorMap]
 
     # Attributes of the model. We can't uncomment these descriptions because
     # torchscript complains.
@@ -262,7 +263,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         # Create heads for each target, store the layout for each of them.
         self.heads = torch.nn.ModuleDict()
-        self.layouts: Dict[str, TensorMap] = {}
+        self.register_buffer("layouts", {})
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
@@ -331,17 +332,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-
-        # --------------------------
-        # Moving to device and dtype
-        # --------------------------
-        # We can't overwrite the to() method because this does not work with
-        # torchscript, so we do the necessary operations here.
-        # Get device and dtype from the first system
-        device = systems[0].device
-        # Move layouts to the correct device
-        self.layouts = {k: v.to(device=device) for k, v in self.layouts.items()}
-
         # --------------------------
         #  Prepare inputs for MACE
         # --------------------------
