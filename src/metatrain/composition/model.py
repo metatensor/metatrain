@@ -55,7 +55,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
         }
     )
 
-    outputs: Dict[str, ModelOutput]
+    outputs: Dict[str, TargetInfo]
     atomic_types: List[int]
     target_infos: Dict[str, TargetInfo]
     _new_outputs: List[str]
@@ -103,7 +103,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
             },
         )
 
-        self.outputs: Dict[str, ModelOutput] = {}
+        self.outputs: Dict[str, TargetInfo] = {}
 
         self.register_buffer("dummy_buffer", torch.randn(1))
 
@@ -311,7 +311,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
 
         return pred
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         """
         Get the outputs currently supported by this model.
 
@@ -320,11 +320,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
         return self.outputs
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-        self.outputs[target_name] = ModelOutput(
-            unit=target_info.unit,
-            sample_kind="atom",
-            description=target_info.description,
-        )
+        self.outputs[target_name] = target_info
 
     def remove_output(self, target_name: str) -> None:
         """
@@ -465,7 +461,10 @@ class CompositionModel(ModelInterface[ModelHypers]):
         self.to(dtype)
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
             interaction_range=0.0,
             length_unit=self.dataset_info.length_unit,

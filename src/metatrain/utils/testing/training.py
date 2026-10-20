@@ -6,7 +6,7 @@ import metatensor.torch as mts
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import System
+from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
 from metatrain.utils.data import Dataset, DatasetInfo, DiskDataset
@@ -263,12 +263,14 @@ class TrainingTests(ArchitectureTests):
         model.eval()
         model_after.eval()
 
-        outputs = model.supported_outputs()
+        supported_outputs = model.supported_outputs()
+        outputs = {
+            k: ModelOutput(sample_kind=supported_outputs[k].sample_kind)
+            for k in dataset_targets
+        }
 
-        output_before = model(systems[:5], {k: outputs[k] for k in dataset_targets})
-        output_after = model_after(
-            systems[:5], {k: outputs[k] for k in dataset_targets}
-        )
+        output_before = model(systems[:5], outputs)
+        output_after = model_after(systems[:5], outputs)
 
         # For each target, check that outputs are the same after loading
         # from checkpoint, including gradients

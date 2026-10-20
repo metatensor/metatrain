@@ -113,7 +113,7 @@ class LOREM(ModelInterface[ModelHypers]):
             kspace_resolution=cutoff / 8.0,
         )
 
-        self.outputs: Dict[str, ModelOutput] = {}
+        self.outputs: Dict[str, TargetInfo] = {}
         self.bec_heads = torch.nn.ModuleDict({})
         self.bec_targets = []
         self.register_buffer("layouts", {}, persistent=True)
@@ -166,11 +166,7 @@ class LOREM(ModelInterface[ModelHypers]):
             )
 
         self.layouts[target_name] = target.layout
-        self.outputs[target_name] = ModelOutput(
-            unit=target.unit,
-            sample_kind="atom",
-            description=target.description,
-        )
+        self.outputs[target_name] = target
         if is_bec:
             self.bec_targets.append(target_name)
             self.bec_heads[target_name] = BecPredictor(
@@ -183,7 +179,7 @@ class LOREM(ModelInterface[ModelHypers]):
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return [self.requested_nl]
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def forward(
@@ -349,7 +345,10 @@ class LOREM(ModelInterface[ModelHypers]):
         interaction_range = torch.inf
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
             interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,

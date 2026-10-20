@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 import torch
-from metatomic.torch import System
+from metatomic.torch import ModelOutput, System
 
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
@@ -80,7 +80,7 @@ class TestTorchscript(TorchscriptTests, SPACETests):
         model = torch.jit.script(model)
         model(
             [system],
-            model.outputs,
+            {name: ModelOutput(sample_kind="atom") for name in model.outputs},
         )
 
     def test_torchscript_save_load(
@@ -144,7 +144,7 @@ class TestTorchscript(TorchscriptTests, SPACETests):
         model = torch.jit.script(model)
         model(
             [system],
-            model.outputs,
+            {name: ModelOutput(sample_kind="atom") for name in model.outputs},
         )
 
     def test_torchscript_dtypechange(

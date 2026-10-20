@@ -29,6 +29,7 @@ from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
+from metatrain.utils.data.target_info import get_features_info
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
@@ -87,9 +88,11 @@ class SPACE(ModelInterface[ModelHypers]):
 
         self.final_scaling = hypers["final_scaling"]
 
-        self.outputs = {
-            "feature": ModelOutput(unit="", sample_kind="atom")
-        }  # the model is always capable of outputting the internal features
+        # the model is always capable of outputting the internal features, of which
+        # only the lambda=0 ones are output
+        self.outputs: Dict[str, TargetInfo] = {
+            "feature": get_features_info(self.k_max_l[0])
+        }
 
         self.register_buffer("key_labels", {}, persistent=False)
         self.register_buffer("component_labels", {}, persistent=False)
@@ -122,8 +125,7 @@ class SPACE(ModelInterface[ModelHypers]):
 
         self.finetune_config: Dict[str, Any] = {}
 
-    @torch.jit.export
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def restart(
@@ -478,7 +480,10 @@ class SPACE(ModelInterface[ModelHypers]):
         model.to(dtype)
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
             interaction_range=self.hypers["num_gnn_layers"] * self.hypers["cutoff"],
             length_unit=self.dataset_info.length_unit,
@@ -491,14 +496,7 @@ class SPACE(ModelInterface[ModelHypers]):
         return AtomisticModel(model.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-        self.outputs[target_name] = ModelOutput(
-            unit=target_info.unit,
-            sample_kind="atom",
-        )
-        # the model can always output the last-layer features for its targets
-        self.outputs[
-            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
-        ] = ModelOutput(sample_kind="atom")
+        self.outputs[target_name] = target_info
 
         if target_info.is_spherical and len(target_info.layout.block(0).components) > 1:
             raise ValueError(
@@ -550,6 +548,33 @@ class SPACE(ModelInterface[ModelHypers]):
             self.property_labels[target_name] = [
                 block.properties for block in target_info.layout.blocks()
             ]
+
+        # the features of order lambda have k_max_l[lambda] channels
+        llf_blocks: List[TensorBlock] = []
+        for components in self.component_labels[target_name]:
+            o3_lambda = (len(components[0]) - 1) // 2 if len(components) > 0 else 0
+            num_features = self.k_max_l[o3_lambda]
+            llf_blocks.append(
+                TensorBlock(
+                    values=torch.empty(
+                        [0] + [len(c) for c in components] + [num_features],
+                        dtype=torch.float64,
+                    ),
+                    samples=Labels(
+                        ["system", "atom"], torch.empty((0, 2), dtype=torch.int32)
+                    ),
+                    components=components,
+                    properties=Labels.range("feature", num_features),
+                )
+            )
+        llf_layout = TensorMap(self.key_labels[target_name], llf_blocks)
+        if target_name in self.cartesian_rank2_targets:
+            llf_layout = _features_to_cartesian_rank_2(
+                llf_layout, self._sph_to_cart_rank2
+            )
+        # the model can always output the last-layer features for its targets
+        llf_name = f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
+        self.outputs[llf_name] = TargetInfo(llf_layout)
 
     def remove_output(self, target_name: str) -> None:
         """

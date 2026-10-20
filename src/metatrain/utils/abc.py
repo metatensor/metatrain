@@ -15,6 +15,7 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.data.dataset import Dataset, DatasetInfo
+from metatrain.utils.data.target_info import TargetInfo
 
 
 ModelHypersType = TypeVar("ModelHypersType")
@@ -143,12 +144,13 @@ class ModelInterface(nn.Module, Generic[ModelHypersType], metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         """
-        Get the outputs currently supported by this model.
+        Get the outputs currently supported by this model, with their layout.
 
-        This will likely be the same outputs that are set as this model capabilities in
-        :py:func:`ModelInterface.export`.
+        These are the same outputs that are set as this model capabilities in
+        :py:func:`ModelInterface.export`, where they are described by
+        :py:class:`metatomic.torch.ModelOutput`.
 
         :return: A dictionary of the supported outputs by this model.
         """
