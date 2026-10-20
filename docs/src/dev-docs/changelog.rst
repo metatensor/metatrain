@@ -61,6 +61,8 @@ Fixed
   attention output to the node embeddings when ``d_node`` equals ``d_pet``. It was
   previously dropped, so the incoming node embeddings were discarded in each
   transformer layer (#1314).
+- Exporting a SPACE model no longer deletes its gradient models, so the model can
+  still be used after it is exported (#1317).
 
 Added
 #####
@@ -76,8 +78,14 @@ Added
 Changed
 #######
 
+- The last-layer features of MACE and SPACE have the keys and components of their
+  target (#1317).
+
 Removed
 #######
+
+- SOAP-BPNN no longer exposes last-layer features for its spherical and Cartesian
+  targets, so LLPR is not available for them (#1317).
 
 Version 2026.4.1 - 2026-09-25
 -----------------------------
