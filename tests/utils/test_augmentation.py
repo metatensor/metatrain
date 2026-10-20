@@ -808,6 +808,67 @@ def test_rotation_after_atomic_basis_prepare_transform():
     mts.allclose_raise(reversed_targets[target_name], fRX, atol=1e-5)
 
 
+def _split_blocks_by_system(tensor: TensorMap) -> TensorMap:
+    """Split every block into one block for each system, so that none contains all
+    the systems."""
+    keys = []
+    blocks = []
+    for key, block in tensor.items():
+        column = block.samples.column("system")
+        for system in torch.unique(column):
+            mask = column == system
+            keys.append(torch.cat([key.values, system.reshape(1)]))
+            blocks.append(
+                TensorBlock(
+                    values=block.values[mask],
+                    samples=Labels(block.samples.names, block.samples.values[mask]),
+                    components=block.components,
+                    properties=block.properties,
+                )
+            )
+    names = tensor.keys.names + ["system_key"]
+    return TensorMap(Labels(names, torch.stack(keys)), blocks)
+
+
+def test_rotation_no_block_with_all_systems():
+    """Tests that a target in which no block contains all the systems of the batch is
+    rotated, taking the "system" ids of the batch from the system index extra data."""
+    target_name = "mtt::electron_density_basis_projs"
+    batch_size = 2
+    system_ids = torch.tensor([3, 8])
+
+    X, fX, fRX = _load_systems_and_targets(target_name, batch_size)
+    fX = _split_blocks_by_system(_relabel_system_samples(fX, system_ids))
+    fRX = _split_blocks_by_system(_relabel_system_samples(fRX, system_ids))
+
+    system_index_extra = TensorMap(
+        keys=Labels(names=["_"], values=torch.tensor([[0]])),
+        blocks=[
+            TensorBlock(
+                values=system_ids.reshape(-1, 1).to(torch.float64),
+                samples=Labels(names=["system"], values=system_ids.reshape(-1, 1)),
+                components=[],
+                properties=Labels(names=["_"], values=torch.tensor([[0]])),
+            )
+        ],
+    )
+
+    dataset_info = _dataset_info(
+        target_name, {"spherical": {"irreps": _ELECTRON_DENSITY_IRREPS}}, "atom"
+    )
+    rotational_augmenter = O3Augmenter(dataset_info.targets, {})
+
+    _, RfX, _ = rotational_augmenter.apply_augmentations(
+        X,
+        {target_name: fX},
+        _transformation(batch_size),
+        extra_data={"mtt::aux::system_index": system_index_extra},
+    )
+
+    # Check that the rotated target matches the reference
+    mts.allclose_raise(RfX[target_name], fRX, atol=1e-5)
+
+
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 @pytest.mark.parametrize("batch_size", [1, 2])
 def test_rotation_per_atom_spherical_rank2(batch_size, device):
