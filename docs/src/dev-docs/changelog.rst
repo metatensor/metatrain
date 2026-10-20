@@ -68,6 +68,8 @@ Fixed
   transformer layer (#1314).
 - Exporting a SPACE model no longer deletes its gradient models, so the model can
   still be used after it is exported (#1317).
+- Training with rotational augmentation no longer fails on targets split by atomic
+  type when some batches have no atomic type in common (#1286).
 
 Added
 #####
@@ -82,6 +84,7 @@ Added
 - ``mtt eval`` options gained a ``log_separate_blocks`` flag, matching the training
   hyperparameter of the same name, to report all metrics separately for each block of
   each target instead of aggregated over the whole target.
+- Ensemble losses for targets with several blocks (#1286).
 
 Changed
 #######
