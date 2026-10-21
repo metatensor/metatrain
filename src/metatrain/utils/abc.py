@@ -80,6 +80,20 @@ class ModelInterface(nn.Module, Generic[ModelHypersType], metaclass=ABCMeta):
     ``architecture`` key should contain references about the general architecture.
     """
 
+    def __init_subclass__(cls) -> None:
+        super().__init_subclass__()
+
+        # Add annotation for `_mts_buffer_names` in the class. Without this, TorchScript
+        # is unable to determing the type of an empty attribute (which is the case when
+        # a class does not register any buffers), and removes it from the scripted
+        # model. In turn, this causes metatensor-torch to fall back to the old code for
+        # `to()`, which requires dumping the scripted model to a string, taking 10s and
+        # more for each call.
+        #
+        # This is a temporary workaround, and can be removed once metatensor-torch drops
+        # the fallback path.
+        cls.__annotations__["_mts_buffer_names"] = List[str]
+
     def __init__(
         self,
         hypers: ModelHypersType,
