@@ -454,8 +454,6 @@ class EquivarianceHypers(TypedDict):
     of the targets, which is exact only for models that are equivariant by
     construction. The cost grows steeply with this value.
     """
-    batch_size: NotRequired[int] = 16
-    """Number of rotated copies evaluated in a single call to the model."""
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))

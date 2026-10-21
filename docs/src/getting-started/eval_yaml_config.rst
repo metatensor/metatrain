@@ -89,6 +89,10 @@ batch on a finer grid, and warns if the two differ by more than 1%; in that case
 increase ``max_angular_momentum_grid`` until the error stops changing. The cost of the
 evaluation grows steeply with the degree of the grid.
 
+The rotated copies of each system are evaluated in batches of ``mtt eval``'s batch size
+(``-b``), which defaults to 16 instead of 1 when any dataset measures the equivariance
+error.
+
 The equivariance error of gradients (e.g. forces) is not measured: a warning is printed
 and only the target values are considered.
 

@@ -45,6 +45,8 @@ class EquivarianceEvaluation:
     :param model: The model being evaluated.
     :param targets: The targets to evaluate the model on.
     :param options: The ``EquivarianceHypers``, with their defaults.
+    :param batch_size: Number of rotated copies of a system evaluated in a single
+        call to the model.
     :param separate_blocks: Whether to report the metrics for each block.
     """
 
@@ -53,6 +55,7 @@ class EquivarianceEvaluation:
         model: Union[AtomisticModel, torch.jit.RecursiveScriptModule],
         targets: Dict[str, TargetInfo],
         options: Dict,
+        batch_size: int,
         separate_blocks: bool,
     ) -> None:
         gradients = sorted(
@@ -75,7 +78,7 @@ class EquivarianceEvaluation:
             model.module,
             max_angular_momentum_target=_max_angular_momentum(targets),
             max_angular_momentum_grid=options["max_angular_momentum_grid"],
-            batch_size=options["batch_size"],
+            batch_size=batch_size,
         )
         # atom-pair targets are excluded from the metrics, as for the accuracy
         self.names = [

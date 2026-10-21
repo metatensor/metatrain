@@ -18,6 +18,8 @@ from metatomic.torch import (
 )
 from omegaconf import OmegaConf
 
+import metatrain.cli.eval
+import metatrain.utils.equivariance
 from metatrain.cli.eval import eval_model
 from metatrain.pet import PET
 from metatrain.soap_bpnn import __model__
@@ -448,6 +450,53 @@ EQUIVARIANCE_TARGETS = {
 
 def _logged_metric(log, name):
     return float(re.search(re.escape(name) + r": ([0-9.e+-]+)", log).group(1))
+
+
+@pytest.mark.parametrize(
+    "batch_size, equivariance, expected",
+    [(None, False, 1), (None, True, 16), (4, True, 4)],
+)
+def test_eval_equivariance_batch_size(
+    monkeypatch,
+    tmp_path,
+    MODEL_PATH_64_BIT,
+    options,
+    batch_size,
+    equivariance,
+    expected,
+):
+    """``-b`` batches both the systems and their rotated copies, and defaults to 16
+    when measuring the equivariance error."""
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(RESOURCES_PATH / "qm9_reduced_100.xyz", "qm9_reduced_100.xyz")
+
+    used_batch_sizes = []
+    eval_targets = metatrain.cli.eval._eval_targets
+    symmetrized_model = metatrain.utils.equivariance.SymmetrizedModel
+
+    def spy_eval_targets(*args, **kwargs):
+        used_batch_sizes.append(kwargs["batch_size"])
+        return eval_targets(*args, **kwargs)
+
+    def spy_symmetrized_model(*args, **kwargs):
+        used_batch_sizes.append(kwargs["batch_size"])
+        return symmetrized_model(*args, **kwargs)
+
+    monkeypatch.setattr(metatrain.cli.eval, "_eval_targets", spy_eval_targets)
+    monkeypatch.setattr(
+        metatrain.utils.equivariance, "SymmetrizedModel", spy_symmetrized_model
+    )
+
+    options = options.copy()
+    options["indices"] = [0]
+    if equivariance:
+        options["equivariance"] = {}
+    model = torch.jit.load(MODEL_PATH_64_BIT)
+    eval_model(model=model, options=options, output="foo.xyz", batch_size=batch_size)
+
+    # the symmetrized model is built twice, the second time on a finer grid to check
+    # the convergence of the equivariance error
+    assert used_batch_sizes == [expected] * (3 if equivariance else 1)
 
 
 # Atomic-basis targets have empty blocks for the atomic types absent from a system,

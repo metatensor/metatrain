@@ -111,8 +111,12 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
         dest="batch_size",
         required=False,
         type=int,
-        default=1,
-        help="batch size for evaluation (default: %(default)s)",
+        default=None,
+        help=(
+            "batch size for evaluation, also used for the rotated copies of each "
+            "system when measuring the equivariance error (default: 16 if any "
+            "dataset measures the equivariance error, 1 otherwise)"
+        ),
     )
     parser.add_argument(
         "--check-consistency",
@@ -229,7 +233,9 @@ def _eval_targets(
     not_per_atom = ["positions_gradients"]
 
     equivariance_evaluation = (
-        EquivarianceEvaluation(model, options, equivariance, log_separate_blocks)
+        EquivarianceEvaluation(
+            model, options, equivariance, batch_size, log_separate_blocks
+        )
         if equivariance is not None
         else None
     )
@@ -343,7 +349,7 @@ def eval_model(
     model: Union[AtomisticModel, torch.jit.RecursiveScriptModule],
     options: DictConfig,
     output: Union[Path, str] = "output.xyz",
-    batch_size: int = 1,
+    batch_size: Optional[int] = None,
     check_consistency: bool = False,
     append: Optional[bool] = None,
     warm_up: bool = True,
@@ -360,7 +366,10 @@ def eval_model(
     :param output: Path to save the predicted values. A path ending in a path
         separator (e.g. ``"predictions/"``) writes a memmap dataset directory instead
         of a single file.
-    :param batch_size: Batch size for evaluation.
+    :param batch_size: Batch size for evaluation. When measuring the equivariance
+        error, this is also the number of rotated copies of a system evaluated in a
+        single call to the model. If :obj:`python:None`, 16 if any dataset measures
+        the equivariance error, and 1 otherwise.
     :param check_consistency: Whether to run consistency checks during model evaluation.
     :param append: If ``True``, open the output file in append mode.
     :param warm_up: Whether to do a warm-up of the model before evaluation.
@@ -374,6 +383,11 @@ def eval_model(
     options = validate_eval_options(OmegaConf.to_container(options))
     options = OmegaConf.create(options)
     options_list = expand_dataset_config(options)
+    if batch_size is None:
+        # one rotated copy per call to the model would make measuring the
+        # equivariance error very slow
+        measures_equivariance = any("equivariance" in o for o in options_list)
+        batch_size = 16 if measures_equivariance else 1
     for i, options in enumerate(options_list):
         options = OmegaConf.merge(init_with_defaults(EvalDatasetDictHypers), options)
         idx_suffix = f"_{i}" if len(options_list) > 1 else ""
