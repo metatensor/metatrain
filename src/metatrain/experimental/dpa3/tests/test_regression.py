@@ -1,6 +1,7 @@
 import random
 
 import numpy as np
+import pytest
 import torch
 from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
@@ -68,6 +69,7 @@ def test_regression_init():
     )
 
 
+@pytest.mark.timeout(60)
 def test_regression_energies_forces_train():
     """Regression test for the model when trained for 2 epoch on a small dataset"""
     random.seed(0)

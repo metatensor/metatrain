@@ -32,6 +32,8 @@ class ClassifierTests(ArchitectureTests):
 
 
 class TestCheckpoints(CheckpointTests, ClassifierTests):
+    timeouts = {"test_checkpoint_did_not_change": 60}
+
     @pytest.fixture
     def model_trainer(
         self, dataset_targets, dataset_path, model_hypers, default_hypers
@@ -92,6 +94,7 @@ class TestCheckpoints(CheckpointTests, ClassifierTests):
 
         return model, trainer
 
+    @pytest.mark.timeout(60)
     @pytest.mark.parametrize("context", ["restart", "finetune"])
     def test_loading_old_checkpoints(self, context, model_trainer, default_hypers):
         """Override parent test: Classifier does not support restart/finetune contexts.
@@ -108,6 +111,7 @@ class TestCheckpoints(CheckpointTests, ClassifierTests):
         # Call parent method with export context only
         super().test_loading_old_checkpoints(default_hypers, "export")
 
+    @pytest.mark.timeout(60)
     @pytest.mark.parametrize("context", ["restart", "finetune"])
     def test_get_checkpoint(self, context, model_trainer, caplog):
         """Override parent test: Classifier does not support restart/finetune contexts.
@@ -121,6 +125,7 @@ class TestCheckpoints(CheckpointTests, ClassifierTests):
         with pytest.raises(NotImplementedError):
             model_from_checkpoint(checkpoint, context)
 
+    @pytest.mark.timeout(60)
     def test_get_checkpoint_export(self, model_trainer, caplog):
         """Test that checkpoints can be loaded in export context."""
         import logging
@@ -164,6 +169,7 @@ def test_classifier_initialization():
     assert model.dataset_info == dataset_info
 
 
+@pytest.mark.timeout(30)
 def test_classifier(monkeypatch, tmp_path):
     """
     Tests the functionalities of the Classifier model from the CLI.
@@ -224,6 +230,7 @@ def test_classifier(monkeypatch, tmp_path):
     assert torch.all(class_probs <= 1)
 
 
+@pytest.mark.timeout(30)
 def test_checkpoint_export_from_ckpt(monkeypatch, tmp_path):
     """
     Test that a Classifier model can be exported from a checkpoint file.

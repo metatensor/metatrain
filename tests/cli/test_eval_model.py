@@ -33,6 +33,7 @@ def options():
     return OmegaConf.load(EVAL_OPTIONS_PATH)
 
 
+@pytest.mark.timeout(60)
 @pytest.mark.parametrize("warm_up", [True, False])
 def test_eval_cli(monkeypatch, tmp_path, MODEL_PATH, warm_up):
     """Test succesful run of the eval script via the CLI with default arguments"""
@@ -84,6 +85,7 @@ def test_eval_cli(monkeypatch, tmp_path, MODEL_PATH, warm_up):
     assert Path("output.xyz").is_file()
 
 
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("model_type", ["32-bit", "64-bit"])
 def test_eval(request, monkeypatch, tmp_path, caplog, model_type, options):
     """Test that eval via python API runs without an error raise."""

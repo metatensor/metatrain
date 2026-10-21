@@ -216,6 +216,8 @@ filterwarnings = [
 ]
 addopts = ["-p", "mtt_plugin"]
 pythonpath = "src/metatrain/utils/testing"
+# Default per-test timeout in seconds
+timeout = 10
 
 [tool.yamlfix]
 line_length = 88
