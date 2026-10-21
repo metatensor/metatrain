@@ -1,13 +1,9 @@
 from typing import Callable, Dict, List, Tuple
 
-import ase.neighborlist
-import numpy as np
 import torch
 import vesin
 from metatensor.torch import Labels, TensorBlock
 from metatomic.torch import NeighborListOptions, System, register_autograd_neighbors
-
-from .data.system_to_ase import system_to_ase
 
 
 def get_system_with_neighbor_lists_transform(
@@ -106,15 +102,10 @@ def get_system_with_neighbor_lists(
 
     :return: The `System` object with the neighbor lists added.
     """
-    # Convert the system to an ASE atoms object
-    atoms = system_to_ase(system)
-
     # Compute the neighbor lists
     for options in neighbor_lists:
         if options not in system.known_neighbor_lists():
-            neighbors = _compute_single_neighbor_list(atoms, options).to(
-                device=system.device, dtype=system.dtype
-            )
+            neighbors = _compute_single_neighbor_list(system, options)
 
             register_autograd_neighbors(system, neighbors)
             system.add_neighbor_list(options, neighbors)
@@ -123,68 +114,36 @@ def get_system_with_neighbor_lists(
 
 
 def _compute_single_neighbor_list(
-    atoms: ase.Atoms, options: NeighborListOptions
+    system: System, options: NeighborListOptions
 ) -> TensorBlock:
-    # Computes a single neighbor list for an ASE atoms object (as in metatomic.torch)
+    # Computes a single neighbor list on the system's device (as in metatomic.torch)
 
-    if np.all(atoms.pbc) or np.all(~atoms.pbc):
-        nl_i, nl_j, nl_S, nl_D = vesin.ase_neighbor_list(
-            "ijSD",
-            atoms,
-            cutoff=options.cutoff,
-        )
-    else:
-        # this is not implemented in vesin, so we use ASE
-        nl_i, nl_j, nl_S, nl_D = ase.neighborlist.neighbor_list(
-            "ijSD",
-            atoms,
-            cutoff=options.cutoff,
-        )
-
-    if not options.full_list:
-        # The pair selection code here below avoids a relatively slow loop over
-        # all pairs to improve performance
-        reject_condition = (
-            # we want a half neighbor list, so drop all duplicated neighbors
-            (nl_j < nl_i)
-            | (
-                (nl_i == nl_j)
-                & (
-                    # only create pairs with the same atom twice if the pair spans more
-                    # than one unit cell
-                    ((nl_S[:, 0] == 0) & (nl_S[:, 1] == 0) & (nl_S[:, 2] == 0))
-                    |
-                    # The code generates multiple redundant pairs for multiple impages
-                    # (e.g. with shifts 0 1 1 and 0 -1 -1) and we want to only keep one:
-                    # We keep the pair in the positive half plane of shifts.
-                    (
-                        (nl_S.sum(axis=1) < 0)
-                        | (
-                            (nl_S.sum(axis=1) == 0)
-                            & (
-                                (nl_S[:, 2] < 0)
-                                | ((nl_S[:, 2] == 0) & (nl_S[:, 1] < 0))
-                            )
-                        )
-                    )
-                )
-            )
-        )
-        selected = np.logical_not(reject_condition)
-        nl_i = nl_i[selected]
-        nl_j = nl_j[selected]
-        nl_S = nl_S[selected]
-        nl_D = nl_D[selected]
-
-    samples = np.concatenate(
-        [nl_i[:, None], nl_j[:, None], nl_S], axis=-1, dtype=np.int32
+    # vesin builds half lists itself, and skipping the sorting done by
+    # `vesin.ase_neighbor_list` makes the calculation faster
+    calculator = vesin.NeighborList(
+        cutoff=float(options.cutoff),
+        full_list=options.full_list,
+        sorted=False,
     )
 
-    samples = torch.from_numpy(samples)
-    distances = torch.from_numpy(nl_D)
+    # vesin does not support autograd, gradients are attached afterwards by
+    # `register_autograd_neighbors`. Periodicity is taken from the non-zero cell
+    # vectors, as was done when converting to ASE.
+    nl_i, nl_j, nl_S, nl_D = calculator.compute(
+        quantities="ijSD",
+        points=system.positions.detach(),
+        box=system.cell.detach(),
+        periodic=system.cell.detach().any(dim=1),
+        copy=True,
+    )
+
+    # vesin returns `i` and `j` as uint64, which torch can not promote
+    samples = torch.hstack(
+        [nl_i[:, None].to(torch.int32), nl_j[:, None].to(torch.int32), nl_S]
+    )
 
     return TensorBlock(
-        values=distances.reshape(-1, 3, 1),
+        values=nl_D.reshape(-1, 3, 1),
         samples=Labels(
             names=[
                 "first_atom",
@@ -196,6 +155,6 @@ def _compute_single_neighbor_list(
             values=samples,
             assume_unique=True,
         ),
-        components=[Labels.range("xyz", 3)],
-        properties=Labels.range("distance", 1),
+        components=[Labels.range("xyz", 3).to(device=system.device)],
+        properties=Labels.range("distance", 1).to(device=system.device),
     )
