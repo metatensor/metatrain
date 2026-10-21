@@ -80,6 +80,7 @@ def test_regression_init():
     torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
 
 
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_regression_energies_forces_train(device):
     """Regression test for the model when trained for 2 epoch on a small dataset"""

@@ -82,6 +82,10 @@ class TestCheckpoints(CheckpointTests, FlashMDTests):
 
 class TestTraining(TrainingTests, FlashMDTests):
     supports_atomic_basis = False
+    timeouts = {
+        "test_continue_restart_num_epochs": 30,
+        "test_continue_finetune_num_epochs": 30,
+    }
 
     @pytest.fixture
     def default_hypers(self):

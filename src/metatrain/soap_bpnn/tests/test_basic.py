@@ -92,10 +92,15 @@ class TestTorchscript(TorchscriptTests, SoapBPNNTests):
 class TestExported(ExportedTests, SoapBPNNTests): ...
 
 
-class TestTraining(TrainingTests, SoapBPNNTests): ...
+class TestTraining(TrainingTests, SoapBPNNTests):
+    timeouts = {
+        "test_continue_restart_num_epochs": 20,
+        "test_continue_finetune_num_epochs": 20,
+    }
 
 
 class TestCheckpoints(CheckpointTests, SoapBPNNTests):
+    timeouts = {"test_loading_old_checkpoints": 30}
     incompatible_trainer_checkpoints = [
         "checkpoints/model-v1_trainer-v1.ckpt.gz",
         "checkpoints/model-v2_trainer-v1.ckpt.gz",

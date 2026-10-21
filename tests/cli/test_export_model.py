@@ -39,6 +39,7 @@ def test_export(monkeypatch, tmp_path, path, caplog, MODEL_PATH_64_BIT):
     assert "Model exported to" in caplog.text
 
 
+@pytest.mark.timeout(60)
 @pytest.mark.parametrize("output", [None, "exported.pt"])
 @pytest.mark.parametrize("model_type", ["32-bit", "64-bit", "pet"])
 def test_export_cli(request, monkeypatch, tmp_path, output, model_type):
@@ -227,6 +228,7 @@ def test_metadata(monkeypatch, tmp_path, MODEL_PATH):
     assert f"This is the {model_name} model" in str(model.metadata())
 
 
+@pytest.mark.timeout(20)
 def test_export_checkpoint_with_metadata(monkeypatch, tmp_path, MODEL_PATH):
     """Tests that the metadata is correctly assigned to the exported
     model if the checkpoint has the metadata inside."""

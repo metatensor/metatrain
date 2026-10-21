@@ -165,6 +165,7 @@ def test_backend_predictions_match_full_model():
     torch.testing.assert_close(atomic_predictions["energy"][0], wrapped)
 
 
+@pytest.mark.timeout(120)
 @pytest.mark.parametrize("fullgraph", [True, False])
 def test_backend_torch_compile(fullgraph):
     """``torch.compile`` of the backend matches eager execution, end to end.

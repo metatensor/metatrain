@@ -85,6 +85,7 @@ def test_regression_init():
     torch.set_num_threads(n_threads)
 
 
+@pytest.mark.timeout(30)
 def test_regression_train():
     """Perform a regression test on the model when
     trained for 2 epoch on a small dataset"""
@@ -187,6 +188,7 @@ def test_regression_train():
     torch.set_num_threads(n_threads)
 
 
+@pytest.mark.timeout(20)
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_regression_train_spherical(device):
     """Regression test for the model when trained for 2 epoch on a small dataset"""
