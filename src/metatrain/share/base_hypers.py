@@ -456,13 +456,6 @@ class EquivarianceHypers(TypedDict):
     """
     batch_size: NotRequired[int] = 16
     """Number of rotated copies evaluated in a single call to the model."""
-    output: NotRequired[str | None] = None
-    """Path where the outputs of the symmetrized model are saved.
-
-    For each system, the O(3)-averaged predictions are written under the name of
-    each target, and their variance over the orientations under
-    ``o3::variance::<target>``. A ``.zip`` path writes them to a ``DiskDataset``.
-    """
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))
@@ -487,7 +480,10 @@ class EvalDatasetDictHypers(TypedDict):
 
     Requires a ``targets`` section. Use ``equivariance: {}`` to enable it with
     the default settings. Every system is additionally evaluated on many rotated
-    and inverted copies, so evaluation becomes substantially slower.
+    and inverted copies, so evaluation becomes substantially slower. The
+    O(3)-averaged predictions and their variance over the orientations are written
+    to the output file next to the predictions, as ``o3::average::<target>`` and
+    ``o3::variance::<target>``.
     """
     log_separate_blocks: NotRequired[bool] = False
     """Report metrics separately for each block of each target, instead of

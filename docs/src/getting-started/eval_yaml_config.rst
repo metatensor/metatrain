@@ -64,7 +64,6 @@ requires a ``targets`` section:
         key: U0
     equivariance:
       max_angular_momentum_grid: 6
-      output: symmetrized.zip
 
 For each target, the following errors are then reported, in the units of the target:
 
@@ -93,10 +92,12 @@ evaluation grows steeply with the degree of the grid.
 The equivariance error of gradients (e.g. forces) is not measured: a warning is printed
 and only the target values are considered.
 
-With ``output: symmetrized.zip``, a ``DiskDataset`` is written with one entry per
-system, containing the system, the O(3)-averaged predictions under the name of each
-target (e.g. ``energy``), and their variance over the orientations under
-``o3::variance::<target>`` (e.g. ``o3::variance::energy``).
+The O(3)-averaged predictions and their variance over the orientations are written to
+the output file of ``mtt eval``, next to the predictions, under
+``o3::average::<target>`` and ``o3::variance::<target>`` (e.g. ``o3::average::energy``
+and ``o3::variance::energy``). The variance of a rank-2 Cartesian target is
+split into one block per angular momentum, so it can only be written to a ``.zip`` or
+``.mts`` output.
 
 .. autoclass:: metatrain.share.base_hypers.EquivarianceHypers
     :members:

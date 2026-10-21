@@ -404,7 +404,7 @@ def test_eval_equivariance(monkeypatch, tmp_path, caplog, MODEL_PATH_64_BIT, opt
 
     options = options.copy()
     options["indices"] = [0, 1, 2]
-    options["equivariance"] = {"output": "symmetrized.zip"}
+    options["equivariance"] = {}
     model = torch.jit.load(MODEL_PATH_64_BIT)
     eval_model(model=model, options=options, output="foo.xyz")
 
@@ -414,13 +414,12 @@ def test_eval_equivariance(monkeypatch, tmp_path, caplog, MODEL_PATH_64_BIT, opt
     assert "energy O3-averaged MAE (per atom)" in log
     assert "energy oriented RMSE (per atom)" in log
 
-    energies = [frame.info["energy"] for frame in read("foo.xyz", ":")]
-    symmetrized = DiskDataset("symmetrized.zip")
-    assert len(symmetrized) == 3
-    for energy, sample in zip(energies, symmetrized, strict=True):
-        averaged = sample["energy"].block().values.item()
-        assert averaged == pytest.approx(energy, rel=1e-12)
-        variance = sample["o3::variance::energy"].block().values.item()
+    frames = read("foo.xyz", ":")
+    assert len(frames) == 3
+    for frame in frames:
+        energy = frame.info["energy"]
+        assert frame.info["o3::average::energy"] == pytest.approx(energy, rel=1e-12)
+        variance = frame.info["o3::variance::energy"]
         assert variance == pytest.approx(0.0, abs=1e-12 * energy**2)
 
 
@@ -517,7 +516,7 @@ def test_eval_equivariance_all_target_types(monkeypatch, tmp_path, caplog):
                 else target
                 for name, target in EQUIVARIANCE_TARGETS.items()
             },
-            "equivariance": {"output": "symmetrized.zip"},
+            "equivariance": {},
         }
     )
     eval_model(model=model, options=options, output="foo.zip")
@@ -526,10 +525,15 @@ def test_eval_equivariance_all_target_types(monkeypatch, tmp_path, caplog):
     for name in EQUIVARIANCE_TARGETS:
         assert _logged_metric(log, f"{name} equivariance RMSE (per atom)") > 0.0
 
-    symmetrized = [DiskDataset("symmetrized.zip")[i] for i in range(len(systems))]
+    # the outputs of the symmetrized model are written next to the predictions
+    symmetrized = [DiskDataset("foo.zip")[i] for i in range(len(systems))]
     for sample in symmetrized:
         for name in EQUIVARIANCE_TARGETS:
-            assert {name, f"o3::variance::{name}"} <= set(sample._fields)
+            assert {
+                name,
+                f"o3::average::{name}",
+                f"o3::variance::{name}",
+            } <= set(sample._fields)
 
     # the variances are averaged over the components of each block, and the
     # per-structure ones are normalized per atom as the square of the energy

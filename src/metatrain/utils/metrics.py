@@ -63,6 +63,24 @@ def _get_global_keys(keys: List[str]) -> List[str]:
     return sorted(list(global_keys))
 
 
+def _all_reduce_information(
+    information: Dict[str, Tuple[float, int]], device: torch.device
+) -> None:
+    """Sum, in place, the accumulated values and numbers of elements of each key
+    over all ranks, including the keys that this rank has not seen.
+
+    :param information: The ``information`` of an accumulator.
+    :param device: The local device to use for the communication.
+    """
+    for key in _get_global_keys(list(information.keys())):
+        value, n_elems = information.get(key, (0.0, 0))
+        value_tensor = torch.tensor(value, device=device)
+        n_elems_tensor = torch.tensor(n_elems, device=device)
+        torch.distributed.all_reduce(value_tensor)
+        torch.distributed.all_reduce(n_elems_tensor)
+        information[key] = (value_tensor.item(), n_elems_tensor.item())
+
+
 class RMSEAccumulator:
     """Accumulates the RMSE between predictions and targets for an arbitrary
     number of keys, each corresponding to one target.
@@ -224,20 +242,7 @@ class RMSEAccumulator:
         """
 
         if is_distributed:
-            # Make sure to collect all keys across ranks, in case some ranks have seen
-            # different keys than others
-            sorted_global_keys = _get_global_keys(list(self.information.keys()))
-
-            for key in sorted_global_keys:
-                if key in self.information:
-                    sse = torch.tensor(self.information[key][0], device=device)
-                    n_elems = torch.tensor(self.information[key][1], device=device)
-                else:
-                    sse = torch.tensor(0.0, device=device)
-                    n_elems = torch.tensor(0, device=device)
-                torch.distributed.all_reduce(sse)
-                torch.distributed.all_reduce(n_elems)
-                self.information[key] = (sse.item(), n_elems.item())
+            _all_reduce_information(self.information, device)
 
         finalized_info = {}
         for key, value in self.information.items():
@@ -407,20 +412,7 @@ class MAEAccumulator:
         """
 
         if is_distributed:
-            # Make sure to collect all keys across ranks, in case some ranks have seen
-            # different keys than others
-            sorted_global_keys = _get_global_keys(list(self.information.keys()))
-
-            for key in sorted_global_keys:
-                if key in self.information:
-                    sae = torch.tensor(self.information[key][0], device=device)
-                    n_elems = torch.tensor(self.information[key][1], device=device)
-                else:
-                    sae = torch.tensor(0.0, device=device)
-                    n_elems = torch.tensor(0, device=device)
-                torch.distributed.all_reduce(sae)
-                torch.distributed.all_reduce(n_elems)
-                self.information[key] = (sae.item(), n_elems.item())
+            _all_reduce_information(self.information, device)
 
         finalized_info = {}
         for key, value in self.information.items():
@@ -496,7 +488,12 @@ class EquivarianceAccumulator:
                     n_elems + multiplicity * values.shape[0] * values.shape[-1],
                 )
 
-    def finalize(self, not_per_atom: List[str]) -> Dict[str, float]:
+    def finalize(
+        self,
+        not_per_atom: List[str],
+        is_distributed: bool = False,
+        device: torch.device = None,
+    ) -> Dict[str, float]:
         """Finalizes the accumulator and returns the equivariance error per key.
 
         All keys will be returned as "{key} equivariance RMSE (per atom)" in the
@@ -506,9 +503,16 @@ class EquivarianceAccumulator:
 
         :param not_per_atom: a list of strings. If any of these strings are
             present in a key, the metric will not be labeled as "(per atom)".
+        :param is_distributed: if true, the equivariance error will be computed
+            across all ranks of the distributed system.
+        :param device: the local device to use for the computation. Only needed if
+            ``is_distributed`` is :obj:`python:True`.
 
         :return: The equivariance error for each key.
         """
+        if is_distributed:
+            _all_reduce_information(self.information, device)
+
         finalized_info = {}
         for key, value in self.information.items():
             if any([s in key for s in not_per_atom]):
