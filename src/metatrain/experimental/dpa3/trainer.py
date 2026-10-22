@@ -10,7 +10,7 @@ from torch.utils.data import DistributedSampler
 from metatrain.composition import CompositionModel, train_or_load_composition_model
 from metatrain.scaler import Scaler, train_or_load_scaler
 from metatrain.utils.abc import TrainerInterface, common_upgrade_checkpoint
-from metatrain.utils.additive import remove_additive
+from metatrain.utils.additive import get_remove_additive_transform
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import (
     CollateFn,
@@ -43,7 +43,7 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
-from metatrain.utils.scaler import remove_scale
+from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import (
     batch_to,
 )
@@ -245,13 +245,6 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 f"descriptor.precision."
             )
 
-        # Move the model to the device (dtype already matches construction):
-        model.to(device=device)
-        # The additive models are always kept in float64 to avoid numerical
-        # errors in the composition weights, which can be very large.
-        for additive_model in model.additive_models:
-            additive_model.to(dtype=torch.float64)
-
         atomic_baseline = self.hypers["fixed_composition_weights"]
         if isinstance(atomic_baseline, str):
             if dpa3.get_fixed_composition_weights():
@@ -272,6 +265,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             atomic_baseline=atomic_baseline,
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
+            device=device,
             batch_size=self.hypers["batch_size"],
             is_distributed=is_distributed,
             checkpoint_dir=checkpoint_dir,
@@ -283,11 +277,23 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 fixed_weights=dpa3.get_fixed_scaling_weights(),
                 train_datasets=train_datasets,
                 additive_models=model.additive_models,
+                device=device,
                 batch_size=self.hypers["batch_size"],
                 is_distributed=is_distributed,
-                checkpoint_dir=checkpoint_dir,
                 per_structure_targets=self.hypers["per_structure_targets"],
+                checkpoint_dir=checkpoint_dir,
             )
+
+        # Extract additive models and scaler and move them to CPU/float64 so they
+        # can be used in the collate function.
+        additive_models = copy.deepcopy(model.additive_models).to(
+            dtype=torch.float64, device="cpu"
+        )
+        scaler = copy.deepcopy(model.scaler).to(dtype=torch.float64, device="cpu")
+
+        # Now move the whole model (including the composition model and scaler,
+        # which were trained in float64 above) to the training device and dtype.
+        model.to(device=device, dtype=dtype)
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -322,8 +328,14 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             val_samplers = [None] * len(val_datasets)
 
         # Create a collate function:
-        targets_keys = list(raw_model.dataset_info.targets.keys())
-        collate_fn = CollateFn(target_keys=targets_keys)
+        train_targets = raw_model.dataset_info.targets
+        collate_fn = CollateFn(
+            target_keys=list(train_targets.keys()),
+            callables=[
+                get_remove_additive_transform(additive_models, train_targets),
+                get_remove_scale_transform(scaler),
+            ],
+        )
 
         max_atoms = self.hypers["max_atoms_per_batch"]
 
@@ -351,7 +363,6 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
-        train_targets = raw_model.dataset_info.targets
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -431,15 +442,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
-                )
-                for additive_model in raw_model.additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(systems, targets, raw_model.scaler)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
+                    systems, targets, extra_data, device=device, dtype=dtype
                 )
 
                 predictions = evaluate_model(
@@ -518,15 +521,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             for batch in val_dataloader:
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
-                )
-                for additive_model in raw_model.additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(systems, targets, raw_model.scaler)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
+                    systems, targets, extra_data, device=device, dtype=dtype
                 )
 
                 predictions = evaluate_model(

@@ -11,6 +11,7 @@ from metatrain.utils.data.target_info import (
     get_energy_target_info,
     get_generic_target_info,
 )
+from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.wrapper import MetatrainModel
 
 from . import DATASET_PATH, DEFAULT_HYPERS
@@ -241,11 +242,12 @@ def test_checkpoint_roundtrip_predictions():
 def test_regression_checkpoint():
     with gzip.open("regression_checkpoint.ckpt.gz", "rb") as fd:
         checkpoint = torch.load(fd, weights_only=False)
-    model = CompositionModel.load_checkpoint(checkpoint, context="export")
-    model.eval()
+
+    model = model_from_checkpoint(checkpoint, context="export")
+    model = model.eval()
 
     systems = read_systems(DATASET_PATH)[:5]
-    output = model(systems, {"mtt::U0": model.outputs["mtt::U0"]})
+    output = model(systems, {"mtt::U0": model.core.outputs["mtt::U0"]})
 
     block = output["mtt::U0"].block(0)
     system_energies = torch.zeros(len(systems))

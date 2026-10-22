@@ -86,7 +86,7 @@ def _register_untracked_tensors(model: torch.nn.Module) -> None:
 
 
 class DPA3(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 5
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -100,7 +100,9 @@ class DPA3(ModelInterface[ModelHypers]):
         }
     )
 
-    component_labels: Dict[str, List[List[Labels]]]  # torchscript needs this
+    key_labels: Dict[str, Labels]
+    component_labels: Dict[str, List[List[Labels]]]
+    property_labels: Dict[str, List[Labels]]
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -255,13 +257,12 @@ class DPA3(ModelInterface[ModelHypers]):
             _register_untracked_tensors(self.model)
 
         self.outputs: Dict[str, ModelOutput] = {}
-        self.single_label = Labels.single()
 
         self.num_properties: Dict[str, Dict[str, int]] = {}
 
-        self.key_labels: Dict[str, Labels] = {}
-        self.component_labels: Dict[str, List[List[Labels]]] = {}
-        self.property_labels: Dict[str, List[Labels]] = {}
+        self.register_buffer("key_labels", {})
+        self.register_buffer("component_labels", {})
+        self.register_buffer("property_labels", {})
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
 
@@ -358,24 +359,6 @@ class DPA3(ModelInterface[ModelHypers]):
 
         device = systems[0].positions.device
 
-        if self.single_label.values.device != device:
-            self.single_label = self.single_label.to(device)
-            self.key_labels = {
-                output_name: label.to(device)
-                for output_name, label in self.key_labels.items()
-            }
-            self.component_labels = {
-                output_name: [
-                    [labels.to(device) for labels in components_block]
-                    for components_block in components_tmap
-                ]
-                for output_name, components_tmap in self.component_labels.items()
-            }
-            self.property_labels = {
-                output_name: [labels.to(device) for labels in properties_tmap]
-                for output_name, properties_tmap in self.property_labels.items()
-            }
-
         return_dict: Dict[str, TensorMap] = {}
 
         (positions, species, cells, atom_index, system_index) = concatenate_structures(
@@ -412,12 +395,12 @@ class DPA3(ModelInterface[ModelHypers]):
                 values=atomic_property_tensor,
                 samples=invariant_coefficients,
                 components=self.component_labels[self.targets_keys][0],
-                properties=self.property_labels[self.targets_keys][0].to(device),
+                properties=self.property_labels[self.targets_keys][0],
             )
         )
 
         atomic_properties[self.targets_keys] = TensorMap(
-            self.key_labels[self.targets_keys].to(device), blocks
+            self.key_labels[self.targets_keys], blocks
         )
 
         if selected_atoms is not None:
