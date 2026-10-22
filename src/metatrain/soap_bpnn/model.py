@@ -21,6 +21,7 @@ from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.dataset import DatasetInfo
+from metatrain.utils.data.target_info import get_features_info
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
@@ -352,15 +353,16 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             self.long_range = False
             self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
 
-        self.last_layer_feature_size = (
-            self.n_inputs_last_layer
-            if not self.legacy
-            else self.n_inputs_last_layer * len(self.atomic_types)
-        )
-
         # the model is always capable of outputting the internal features
-        self.outputs = {
-            "feature": ModelOutput(sample_kind="atom", description="internal features")
+        # the legacy model has one last layer for each atomic type, which reads its
+        # own copy of the features
+        self.num_features = self.n_inputs_last_layer
+        if self.legacy:
+            self.num_features *= len(self.atomic_types)
+        self.outputs: Dict[str, TargetInfo] = {
+            "feature": get_features_info(
+                self.num_features, description="internal features"
+            )
         }
 
         self.register_buffer("single_label", Labels.single(), persistent=False)
@@ -382,7 +384,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         self.heads = torch.nn.ModuleDict({})
         self.head_types = self.hypers["heads"]
         self.last_layers = torch.nn.ModuleDict({})
-        self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         self.cartesian_rank1_targets: List[str] = []
         self.cartesian_rank2_targets: List[str] = []
         for target_name, target in dataset_info.targets.items():
@@ -403,7 +404,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             offset += 2 * L + 1
         self._sph_to_cart_rank2 = W
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def restart(
@@ -881,7 +882,10 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             interaction_range = self.hypers["soap"]["cutoff"]["radius"]
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
             interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
@@ -1006,12 +1010,16 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 f"for target {target_name}"
             )
 
-        ll_features_name = (
-            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
-        )
-        self.outputs[ll_features_name] = ModelOutput(
-            sample_kind="atom", description=f"last layer features for {target_name}"
-        )
+        # the other targets are not linear in the features, which are contracted
+        # with a geometry-dependent basis
+        if target.is_scalar:
+            ll_features_name = (
+                f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
+            )
+            self.outputs[ll_features_name] = get_features_info(
+                self.num_features,
+                description=f"last layer features for {target_name}",
+            )
 
         # For rank-2 Cartesian targets, construct an internal spherical layout
         # so the last-layer/label setup matches the spherical decomposition.
@@ -1086,11 +1094,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 bias=False,
                 out_properties=out_properties_list,
             )
-            self.last_layer_parameter_names[target_name] = [
-                f"last_layers.{target_name}.{dict_key}." + n
-                for n in self.last_layers[target_name][dict_key].state_dict().keys()
-                if n.endswith("weight")
-            ]
 
         self.key_labels[target_name] = layout_for_layers.keys
         self.component_labels[target_name] = [
@@ -1100,11 +1103,7 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             block.properties for block in layout_for_layers.blocks()
         ]
 
-        self.outputs[target_name] = ModelOutput(
-            unit=target.unit,
-            sample_kind="atom",
-            description=target.description,
-        )
+        self.outputs[target_name] = target
 
     @classmethod
     def upgrade_checkpoint(

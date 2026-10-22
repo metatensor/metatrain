@@ -119,6 +119,54 @@ def model_update_v5_v6(checkpoint: dict) -> None:
     state_dict["_extra_state"] = {}
 
 
+def model_update_v6_v7(checkpoint: dict) -> None:
+    """
+    Update a v6 checkpoint to v7.
+
+    The LLPR state of each target moves under ``targets.<name>``, with one covariance
+    for each block of features, one multiplier for each property of each block of the
+    target, and one ensemble layer for each block. The ensemble weights no longer
+    include the multipliers, which are applied to the deviations of the members
+    instead.
+
+    :param checkpoint: The checkpoint to update.
+    """
+
+    def uncertainty_name(name: str) -> str:
+        if name == "energy":
+            return "energy_uncertainty"
+        return f"mtt::aux::{name.replace('mtt::', '')}_uncertainty"
+
+    dataset_info = checkpoint["wrapped_model_checkpoint"]["dataset_info"]
+    targets = {uncertainty_name(name): name for name in dataset_info.targets}
+    for state_dict_name in ("model_state_dict", "best_model_state_dict"):
+        state_dict = checkpoint[state_dict_name]
+        if state_dict is None:
+            continue
+        new_state_dict = {}
+        for key, value in state_dict.items():
+            if key.startswith("covariance_") or key.startswith("cholesky_"):
+                kind, name = key.split("_", 1)
+                prefix = f"targets.{targets[name]}.covariances.0"
+                new_state_dict[f"{prefix}.{kind}"] = value
+            elif key.startswith("multiplier_"):
+                name = targets[key[len("multiplier_") :]]
+                layout = dataset_info.targets[name].layout
+                num_properties = sum(len(block.properties) for block in layout.blocks())
+                new_state_dict[f"targets.{name}.multipliers"] = value.expand(
+                    num_properties
+                ).clone()
+            elif key.startswith("llpr_ensemble_layers."):
+                name, parameter = key[len("llpr_ensemble_layers.") :].rsplit(".", 1)
+                multiplier = state_dict[f"multiplier_{uncertainty_name(name)}"]
+                new_state_dict[f"targets.{name}.ensemble_layers.0.{parameter}"] = (
+                    value / multiplier
+                )
+            else:
+                new_state_dict[key] = value
+        checkpoint[state_dict_name] = new_state_dict
+
+
 def trainer_update_v1_v2(checkpoint: dict) -> None:
     """
     Update trainer checkpoint from version 1 to version 2.

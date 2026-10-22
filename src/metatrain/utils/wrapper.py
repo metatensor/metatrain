@@ -17,7 +17,7 @@ from typing_extensions import TypeVar
 
 # from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.match_tmaps import match_layout
 from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.dtype import dtype_to_str
@@ -212,6 +212,40 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         return return_dict
 
+    def scale_outputs(
+        self,
+        systems: List[System],
+        outputs: Dict[str, TensorMap],
+        selected_atoms: Optional[Labels] = None,
+    ) -> Dict[str, TensorMap]:
+        """Bring quantities that are linear in the targets of the core model, such as
+        uncertainties, to the layout and units of the targets of this model. Outputs
+        that are not targets are returned unchanged.
+
+        :param systems: the systems the outputs were computed for.
+        :param outputs: the outputs, in the layout and units of the core model.
+        :param selected_atoms: the atoms the outputs were computed for.
+        :return: the outputs, in the layout and units of the targets of this model.
+        """
+        outputs = outputs.copy()
+        if self.scaler is not None:
+            for name, tensor in outputs.items():
+                if name in self.scaler.dataset_info.targets:
+                    layout = self.scaler.dataset_info.targets[name].layout
+                    outputs[name] = match_layout(
+                        tensor, layout, target_info_layout=layout, systems=systems
+                    )
+            outputs = self.scaler.apply_scales(
+                systems, outputs, selected_atoms=selected_atoms
+            )
+        for name, tensor in outputs.items():
+            if name in self.dataset_info.targets:
+                layout = self.dataset_info.targets[name].layout
+                outputs[name] = match_layout(
+                    tensor, layout, target_info_layout=layout, systems=systems
+                )
+        return outputs
+
     def requested_inputs(self) -> Dict[str, ModelOutput]:
         requested_inputs = {}
 
@@ -250,8 +284,13 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         return requested_neighbor_lists
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
-        return self.core.supported_outputs()
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
+        # the targets are in the layout of this model, not the one of the core
+        targets = self.dataset_info.targets
+        return {
+            name: targets.get(name, info)
+            for name, info in self.core.supported_outputs().items()
+        }
 
     def export(
         self,
@@ -327,7 +366,11 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         if metadata is not None:
             exported_metadata = merge_metadata(exported_metadata, metadata)
 
-        outputs = self.supported_outputs()
+        # native outputs only, metatomic re-adds the deprecated aliases at export
+        outputs = {
+            name: core.capabilities().outputs[name]
+            for name in self.core.supported_outputs()
+        }
         # Clean deprecated names that ModelCapabilities add automatically for
         # compatibility, to avoid warnings.
         for k, v in DEPRECATED_METATOMIC_OUTPUT_NAMES.items():
