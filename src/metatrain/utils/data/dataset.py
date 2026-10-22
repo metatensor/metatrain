@@ -246,6 +246,18 @@ class DatasetInfo:
         self.extra_data = state.get("extra_data", {})
 
 
+# When a TorchScript model containing a ``DatasetInfo`` attribute is loaded in a fresh
+# process, converting the attribute back to a Python object requires the class to be
+# scripted in this process (PyTorch looks it up in the current process' Python
+# compilation unit, not in the unit deserialized from the model file). Scripting it
+# here at import time registers it under the same qualified name and avoids an
+# internal assert during e.g. ``model.to(device)`` on the loaded model.
+#
+# This is a temporary workaround that can go away as we remove the fallback
+# legacy code in metatensor-torch (which needs to iterate over all fields in a module)
+_ = torch.jit.script(DatasetInfo)
+
+
 def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str:
     """
     Returns the statistics of a dataset or subset as a string.

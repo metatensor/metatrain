@@ -47,7 +47,7 @@ def _tensor_map(values: torch.Tensor, samples: Labels, layout: TensorMap) -> Ten
 
 
 class LOREM(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -116,7 +116,7 @@ class LOREM(ModelInterface[ModelHypers]):
         self.outputs: Dict[str, ModelOutput] = {}
         self.bec_heads = torch.nn.ModuleDict({})
         self.bec_targets = []
-        self.layouts: Dict[str, TensorMap] = {}
+        self.register_buffer("layouts", {}, persistent=True)
         for target_name, target in dataset_info.targets.items():
             self._add_output(target_name, target)
 
@@ -202,9 +202,6 @@ class LOREM(ModelInterface[ModelHypers]):
                 )
 
         device = systems[0].positions.device
-        self.layouts = {
-            name: layout.to(device) for name, layout in self.layouts.items()
-        }
 
         (
             _nodes_scalar,

@@ -279,6 +279,45 @@ def model_update_v9_v10(checkpoint: dict) -> None:
     )
 
 
+def model_update_v10_v11(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 10 to version 11.
+
+    The embedded composition model and scaler now use
+    ``metatensor.torch.learn.nn.Module`` with ``register_buffer`` instead of
+    manually tracked buffers.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is None:
+            continue
+
+        # If both model_state_dict and best_model_state_dict point to the same
+        # dict, the upgrade was already applied in the first iteration.
+        if "_mts_helper" in state_dict:
+            continue
+
+        # The basis calculators exist if the last layers exist
+        basis_prefixes = {
+            "basis_calculators." + ".".join(name.split(".")[1:3]) + "."
+            for name in state_dict
+            if name.startswith("last_layers.")
+        }
+        prefixes = ["", "soap_calculator."]
+        for basis in sorted(basis_prefixes):
+            prefixes += [basis, f"{basis}lambda_basis_module."]
+            for vector_basis in ["vector_basis.", "vector_basis_pseudotensor."]:
+                if any(name.startswith(basis + vector_basis) for name in state_dict):
+                    prefixes.append(basis + vector_basis)
+
+        reference = next(v for v in state_dict.values() if isinstance(v, torch.Tensor))
+        empty_tensor = torch.zeros(0, dtype=reference.dtype, device=reference.device)
+        for prefix in prefixes:
+            state_dict[f"{prefix}_mts_helper"] = empty_tensor
+            state_dict[f"{prefix}_extra_state"] = {}
+
+
 ###########################
 # TRAINER #################
 ###########################

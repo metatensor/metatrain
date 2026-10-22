@@ -404,6 +404,27 @@ def model_update_v16_v17(checkpoint: dict) -> None:
     )
 
 
+def model_update_v17_v18(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 17 to version 18.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is None:
+            continue
+
+        # If both model_state_dict and best_model_state_dict point to the same
+        # dict, the upgrade was already applied in the first iteration.
+        if "_mts_helper" in state_dict:
+            continue
+        reference = next(v for v in state_dict.values() if isinstance(v, torch.Tensor))
+        empty_tensor = torch.zeros(0, dtype=reference.dtype, device=reference.device)
+
+        state_dict["_mts_helper"] = empty_tensor
+        state_dict["_extra_state"] = {}
+
+
 ###########################
 # TRAINER #################
 ###########################

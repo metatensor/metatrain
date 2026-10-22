@@ -51,12 +51,15 @@ class SPACE(ModelInterface[ModelHypers]):
     """SPACE model: metatomic-based wrapper around ``BaseModel``
     and/or ``GradientModel``."""
 
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 5
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(references={})
 
+    single_label: Labels
+    key_labels: Dict[str, Labels]
     component_labels: Dict[str, List[List[Labels]]]
+    property_labels: Dict[str, List[Labels]]
     U_dict: Dict[int, torch.Tensor]
     cartesian_rank2_targets: List[str]  # torchscript needs this
     _sph_to_cart_rank2: torch.Tensor  # torchscript needs this
@@ -87,9 +90,9 @@ class SPACE(ModelInterface[ModelHypers]):
             "feature": ModelOutput(unit="", sample_kind="atom")
         }  # the model is always capable of outputting the internal features
 
-        self.key_labels: Dict[str, Labels] = {}
-        self.component_labels: Dict[str, List[List[Labels]]] = {}
-        self.property_labels: Dict[str, List[Labels]] = {}
+        self.register_buffer("key_labels", {}, persistent=False)
+        self.register_buffer("component_labels", {}, persistent=False)
+        self.register_buffer("property_labels", {}, persistent=False)
         self.cartesian_rank2_targets: List[str] = []
 
         # Pre-compute spherical→Cartesian conversion matrix for rank-2 tensors.
@@ -114,7 +117,7 @@ class SPACE(ModelInterface[ModelHypers]):
 
         self.last_layer_feature_size = self.k_max_l[0]
 
-        self.single_label = Labels.single()
+        self.register_buffer("single_label", Labels.single(), persistent=False)
 
         self.finetune_config: Dict[str, Any] = {}
 
@@ -166,25 +169,7 @@ class SPACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        # transfer labels, if needed
         device = systems[0].device
-        if self.single_label.values.device != device:
-            self.single_label = self.single_label.to(device)
-            self.key_labels = {
-                output_name: label.to(device)
-                for output_name, label in self.key_labels.items()
-            }
-            self.component_labels = {
-                output_name: [
-                    [label.to(device) for label in component]
-                    for component in components
-                ]
-                for output_name, components in self.component_labels.items()
-            }
-            self.property_labels = {
-                output_name: [label.to(device) for label in labels]
-                for output_name, labels in self.property_labels.items()
-            }
 
         # Convert systems to batch format
         neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one

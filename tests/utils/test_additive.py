@@ -351,6 +351,7 @@ def test_composition_model_predict(device):
         [dataset], additive_models=[], batch_size=1, is_distributed=False
     )
 
+    composition_model.to(device=device)
     systems_to_predict = [system.to(device=device) for system in systems[:5]]
 
     # per_atom = False
@@ -417,6 +418,7 @@ def test_composition_model_torchscript(tmpdir):
             targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
         ),
     )
+    composition_model.to(dtype=torch.float64)
     composition_model = torch.jit.script(composition_model)
     composition_model(
         [system],
@@ -559,7 +561,7 @@ def test_remove_additive_different_layouts(target_layout):
 
     composition_model = CompositionModel(
         hypers={}, dataset_info=comp_model_dataset_info
-    )
+    ).to(dtype=torch.float64)
 
     new_targets = remove_additive(
         systems,
