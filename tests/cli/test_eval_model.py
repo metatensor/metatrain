@@ -411,6 +411,8 @@ def test_eval_equivariance(monkeypatch, tmp_path, caplog, MODEL_PATH_64_BIT, opt
     eval_model(model=model, options=options, output="foo.xyz")
 
     log = "".join([rec.message for rec in caplog.records])
+    # the default grid for scalar targets has degree 1, with 12 rotations
+    assert "evaluated on 24 rotated and inverted copies" in log
     assert "energy equivariance RMSE (per atom): 0.0000 meV" in log
     assert "energy O3-averaged RMSE (per atom)" in log
     assert "energy O3-averaged MAE (per atom)" in log

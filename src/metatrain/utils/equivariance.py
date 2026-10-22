@@ -97,10 +97,12 @@ class EquivarianceEvaluation:
         self.averaged_rmse_acc = RMSEAccumulator(separate_blocks)
         self.averaged_mae_acc = MAEAccumulator(separate_blocks)
         self.checked_grid_convergence = False
+        # every rotation of the grid is evaluated both with and without inversion
+        n_copies = 2 * len(self.symmetrized_model._rotation_weights)
         logging.info(
             "Equivariance error evaluation enabled: every system is additionally "
-            "evaluated on many rotated and inverted copies, on a quadrature grid "
-            f"of degree {self.symmetrized_model.max_angular_momentum_grid}"
+            f"evaluated on {n_copies} rotated and inverted copies, from a quadrature "
+            f"grid of degree {self.symmetrized_model.max_angular_momentum_grid}"
         )
 
     def _per_atom_variances(
