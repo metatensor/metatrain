@@ -4,6 +4,7 @@ from pathlib import PurePath
 from typing import IO, Any, List, Tuple, Union
 
 import ase.io
+import ase.io.extxyz
 import torch
 from ase.stress import voigt_6_to_full_3x3_stress
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -20,8 +21,9 @@ def read(
     Wrapper around the :func:`ase.io.read` function.
 
     The wrapper provides a more informative error message in case of failure.
-    Additionally, it will make the keys ``"energy"``, ``"forces"`` and ``"stress"``
-    available from the calculator and the info/arrays dictionary.
+    Additionally, it makes existing calculator results available in ``atoms.info``
+    or ``atoms.arrays``, according to ASE's per-configuration/per-atom classification.
+    The ``"stress"`` result is converted from Voigt notation to a 3 x 3 matrix.
 
     .. warning ::
 
@@ -40,14 +42,14 @@ def read(
 
     # allow access of "special" keys from calculator and `info`/`arrays` dictionary
     for atoms in frames:
-        if hasattr(atoms, "calc") and atoms.calc is not None:
-            results = atoms.calc.results
-            if "energy" in results:
-                atoms.info["energy"] = results["energy"]
-            if "forces" in results:
-                atoms.arrays["forces"] = results["forces"]
-            if "stress" in results:
-                atoms.info["stress"] = voigt_6_to_full_3x3_stress(results["stress"])
+        if atoms.calc is not None:
+            for key, value in atoms.calc.results.items():
+                if key in ase.io.extxyz.per_atom_properties:
+                    atoms.arrays[key] = value
+                elif key in ase.io.extxyz.per_config_properties:
+                    if key == "stress":
+                        value = voigt_6_to_full_3x3_stress(value)
+                    atoms.info[key] = value
 
     return frames
 
