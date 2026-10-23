@@ -17,7 +17,7 @@ dependencies = [
     "metatensor-torch >=0.10.8,<0.11",
     "metatomic-torch >=0.1.17,<0.2",
     "metatomic-ase >=0.1.1,<0.3",
-    "featomic-torch >=0.7.4,<0.8",
+    "featomic-torch >=0.7.4,<0.8", # Just for coupling CG coefficients, when this moves to metatomic remove the dependency
     "jsonschema",
     "pydantic >= 2.12", # Because of passing arguments to validator functions
     "typing_extensions", # For python < 3.12 typing.TypedDict has limited functionality
