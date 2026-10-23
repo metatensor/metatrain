@@ -236,36 +236,3 @@ def uncouple_tensor_blocks(
     )
 
     return tensor_uncoupled
-
-
-# def uncouple_tensor_blocks(
-#     tensor: TensorMap,
-#     cg_coeffs: TensorMap,
-# ) -> TensorMap:
-#     """_uncouple_tensor_blocks function does not
-#     add the o3_sigma names in the keys. This little
-#     wrapper adds them."""
-#     coupled = _uncouple_tensor_blocks(tensor, cg_coeffs)
-
-#     keys_names = (
-#         coupled.keys.names[:2] + ["o3_sigma_1", "o3_sigma_2"] + coupled.keys.names[2:]
-#     )
-#     keys_values = torch.concatenate(
-#         [
-#             coupled.keys.values[:, :2],
-#             torch.ones(
-#                 (coupled.keys.values.shape[0], 2),
-#                 dtype=coupled.keys.values.dtype,
-#                 device=coupled.keys.values.device,
-#             ),
-#             coupled.keys.values[:, 2:],
-#         ],
-#         dim=1,
-#     )
-
-#     keys = Labels(names=keys_names, values=keys_values)
-
-#     return TensorMap(
-#         keys=keys,
-#         blocks=[block.copy(deep=False) for block in coupled.blocks()],
-#     )
