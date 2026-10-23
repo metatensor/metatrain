@@ -5,6 +5,7 @@ from typing import IO, Any, List, Tuple, Union
 
 import ase.io
 import torch
+from ase.outputs import all_outputs
 from ase.stress import voigt_6_to_full_3x3_stress
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System, systems_to_torch
@@ -20,8 +21,8 @@ def read(
     Wrapper around the :func:`ase.io.read` function.
 
     The wrapper provides a more informative error message in case of failure.
-    Additionally, it will make the keys ``"energy"``, ``"forces"`` and ``"stress"``
-    available from the calculator and the info/arrays dictionary.
+    Additionally, it makes registered ASE calculator outputs available through the
+    ``info`` and ``arrays`` dictionaries according to their declared shapes.
 
     .. warning ::
 
@@ -38,14 +39,24 @@ def read(
     except Exception as e:
         raise ValueError(f"Failed to read '{filename}' with ASE: {e}") from e
 
-    # allow access of "special" keys from calculator and `info`/`arrays` dictionary
+    # Expose registered calculator outputs in the dictionaries used by the generic
+    # reader. ASE declares whether each output is per-atom or per-configuration.
     for atoms in frames:
-        if hasattr(atoms, "calc") and atoms.calc is not None:
+        if atoms.calc is not None:
             results = atoms.calc.results
-            if "energy" in results:
-                atoms.info["energy"] = results["energy"]
-            if "forces" in results:
-                atoms.arrays["forces"] = results["forces"]
+            for key, value in results.items():
+                output = all_outputs.get(key)
+                if output is None:
+                    continue
+
+                shape = output.shape
+                if shape == "natoms" or (
+                    isinstance(shape, tuple) and shape and shape[0] == "natoms"
+                ):
+                    atoms.arrays[key] = value
+                else:
+                    atoms.info[key] = value
+
             if "stress" in results:
                 atoms.info["stress"] = voigt_6_to_full_3x3_stress(results["stress"])
 

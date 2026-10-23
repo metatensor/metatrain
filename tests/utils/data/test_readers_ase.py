@@ -3,8 +3,11 @@
 the reader tests in `test_readers.py`. Here we test the specific ASE readers
 for energies, forces, stresses, and virials."""
 
+from io import StringIO
+
 import ase
 import ase.io
+import numpy as np
 import pytest
 import torch
 from metatensor.torch import Labels
@@ -15,6 +18,7 @@ from metatrain.utils.data.readers.ase import (
     _read_forces_ase,
     _read_stress_ase,
     _read_virial_ase,
+    read,
 )
 
 
@@ -81,3 +85,45 @@ def test_read_stress_virial(reader_func, monkeypatch, tmp_path, key):
         assert result.samples.values == torch.tensor([[0]])
         assert result.components == components
         assert result.properties == Labels("energy", torch.tensor([[0]]))
+
+
+def test_read_restores_registered_extxyz_properties():
+    header = (
+        'dipole="1 2 3" free_energy=0.5 magmom=1.5 '
+        'polarization="0 1 2" dielectric_tensor="1 0 0 0 1 0 0 0 1" '
+        "Properties=species:S:1:pos:R:3:energies:R:1:stresses:R:6:"
+        "charges:R:1:magmoms:R:1:born_effective_charges:R:9"
+    )
+    xyz = "\n".join(
+        [
+            "2",
+            header,
+            "H 0 0 0 0.1 1 2 3 4 5 6 0.2 1.0 1 0 0 0 1 0 0 0 1",
+            "H 0 0 1 0.2 6 5 4 3 2 1 -0.2 -2.0 1 0 0 0 1 0 0 0 1",
+        ]
+    ) + "\n"
+
+    atoms = read(StringIO(xyz), index=":", format="extxyz")[0]
+
+    expected_arrays = {
+        "energies": [0.1, 0.2],
+        "stresses": [[1, 2, 3, 4, 5, 6], [6, 5, 4, 3, 2, 1]],
+        "charges": [0.2, -0.2],
+        "magmoms": [1.0, -2.0],
+        "born_effective_charges": [
+            [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+        ],
+    }
+    for key, expected in expected_arrays.items():
+        np.testing.assert_allclose(atoms.arrays[key], expected)
+
+    expected_info = {
+        "free_energy": 0.5,
+        "dipole": [1, 2, 3],
+        "magmom": 1.5,
+        "polarization": [0, 1, 2],
+        "dielectric_tensor": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+    }
+    for key, expected in expected_info.items():
+        np.testing.assert_allclose(atoms.info[key], expected)

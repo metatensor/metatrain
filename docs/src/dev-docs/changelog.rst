@@ -27,6 +27,10 @@ Unreleased
 Fixed
 #####
 
+- The ASE reader now restores registered calculator outputs to ``info`` or
+  ``arrays`` according to their declared shapes, preserving extxyz targets such as
+  ``charges``, ``magmoms``, and ``dipole`` (#1320).
+
 - PET models with ``featurizer_type: feedforward`` (the default) now export an
   ``interaction_range`` of ``(num_gnn_layers + 1) * cutoff`` instead of
   ``num_gnn_layers * cutoff``. The feedforward featurizer performs one more
