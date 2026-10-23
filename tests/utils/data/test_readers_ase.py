@@ -23,7 +23,12 @@ from metatrain.utils.data.readers.ase import (
 
 
 @pytest.mark.parametrize("ase_version", ["3.22", "3.23-3.24", "3.25+"])
-def test_restore_calculator_results(monkeypatch, ase_version):
+@pytest.mark.parametrize(
+    "read_args",
+    [(), (0,), (":",)],
+    ids=["default-frame", "indexed-frame", "all-frames"],
+)
+def test_restore_calculator_results(monkeypatch, ase_version, read_args):
     # ASE 3.22 uses hardcoded lists and retains results in info/arrays:
     # https://gitlab.com/ase/ase/-/blob/3.22.1/ase/io/extxyz.py#L50-53
     per_atom = ["forces", "stresses", "charges", "magmoms", "energies"]
@@ -88,9 +93,19 @@ def test_restore_calculator_results(monkeypatch, ase_version):
     atoms.calc = SinglePointCalculator(atoms, **results)
     # Mixed datasets may also contain frames without any calculator results.
     empty = ase.Atoms("H")
-    monkeypatch.setattr(ase.io, "read", lambda *args, **kwargs: [atoms, empty])
+    single_frame = read_args != (":",)
+    frames = atoms if single_frame else [atoms, empty]
+    monkeypatch.setattr(ase.io, "read", lambda *args, **kwargs: frames)
 
-    restored, without_results = read("unused.extxyz", ":")
+    result = read("unused.extxyz", *read_args)
+    if single_frame:
+        assert isinstance(result, ase.Atoms)
+        restored = result
+    else:
+        assert isinstance(result, list)
+        restored, without_results = result
+        assert without_results.info == {}
+        assert set(without_results.arrays) == {"numbers", "positions"}
 
     for key, expected in atom_data.items():
         if key == "charges" and ase_version == "3.22":
@@ -106,8 +121,6 @@ def test_restore_calculator_results(monkeypatch, ase_version):
         else:
             np.testing.assert_array_equal(restored.info[key], expected)
         assert key not in restored.arrays
-    assert without_results.info == {}
-    assert set(without_results.arrays) == {"numbers", "positions"}
 
 
 @pytest.mark.parametrize("key", ["true_energy", "energy"])

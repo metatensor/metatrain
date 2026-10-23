@@ -16,7 +16,7 @@ from ..target_info import TargetInfo, get_energy_target_info, get_generic_target
 
 def read(
     filename: Union[str, PurePath, IO], *args: Any, **kwargs: Any
-) -> List[ase.Atoms]:
+) -> Union[ase.Atoms, List[ase.Atoms]]:
     r"""
     Wrapper around the :func:`ase.io.read` function.
 
@@ -27,13 +27,14 @@ def read(
 
     .. warning ::
 
-        Lists of atoms read with this function can NOT be written back to a file with
+        Atoms read with this function can NOT be written back to a file with
         :func:`ase.io.write` because of the duplicated keys.
 
     :param filename: Name of the file to read from or a file descriptor.
     :param \*args: additional positional arguments for :func:`ase.io.read`
     :param \*\*kwargs: additional keyword arguments for :func:`ase.io.read`
-    :return: A list of :py:class:`ase.Atoms` objects
+    :return: A single :py:class:`ase.Atoms` object or a list of them, matching
+        :func:`ase.io.read` for the requested index.
     """
     try:
         frames = ase.io.read(filename, *args, **kwargs)
@@ -41,7 +42,8 @@ def read(
         raise ValueError(f"Failed to read '{filename}' with ASE: {e}") from e
 
     # allow access of "special" keys from calculator and `info`/`arrays` dictionary
-    for atoms in frames:
+    frames_to_restore = [frames] if isinstance(frames, ase.Atoms) else frames
+    for atoms in frames_to_restore:
         if atoms.calc is not None:
             for key, value in atoms.calc.results.items():
                 if key in ase.io.extxyz.per_atom_properties:
