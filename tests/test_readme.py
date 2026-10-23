@@ -3,12 +3,15 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from .conftest import DATASET_PATH_QM9
 
 
 README_PATH = Path(__file__).parent.parent / "README.md"
 
 
+@pytest.mark.timeout(30)
 def test_train_readme_example(monkeypatch, tmp_path):
     """Test that training runs with the example in the README."""
     monkeypatch.chdir(tmp_path)

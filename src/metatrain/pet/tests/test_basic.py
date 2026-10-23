@@ -83,7 +83,11 @@ class TestTorchscript(TorchscriptTests, PETTests):
 class TestExported(ExportedTests, PETTests): ...
 
 
-class TestTraining(TrainingTests, PETTests): ...
+class TestTraining(TrainingTests, PETTests):
+    timeouts = {
+        "test_continue_restart_num_epochs": 30,
+        "test_continue_finetune_num_epochs": 20,
+    }
 
 
 class TestCheckpoints(CheckpointTests, PETTests):

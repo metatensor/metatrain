@@ -286,6 +286,7 @@ def test_gnn_layer_edge_output():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.timeout(20)
 @pytest.mark.parametrize(
     "input_name",
     [

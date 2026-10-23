@@ -75,6 +75,7 @@ def train_model(*args, **kwargs):
         return raw_train_model(*args, **kwargs)
 
 
+@pytest.mark.timeout(20)
 @pytest.mark.parametrize("output", [None, "mymodel.pt"])
 def test_train(capfd, monkeypatch, tmp_path, output):
     """Test that training via the training cli runs without an error raise."""
@@ -182,6 +183,7 @@ def test_train(capfd, monkeypatch, tmp_path, output):
     assert "Epoch" in csv_log
 
 
+@pytest.mark.timeout(20)
 @pytest.mark.parametrize(
     "overrides",
     [
@@ -211,6 +213,7 @@ def test_command_line_override(monkeypatch, tmp_path, overrides):
         assert restart_options["architecture"]["training"]["batch_size"] == 3
 
 
+@pytest.mark.timeout(20)
 def test_train_from_options_restart_yaml(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     shutil.copy(DATASET_PATH_QM9, "qm9_reduced_100.xyz")
@@ -255,6 +258,7 @@ def test_train_unknown_arch_options(monkeypatch, tmp_path):
         train_model(options)
 
 
+@pytest.mark.timeout(20)
 @pytest.mark.parametrize("n_datasets", [1, 2])
 @pytest.mark.parametrize("test_set_file", (True, False))
 @pytest.mark.parametrize("validation_set_file", (True, False))
@@ -330,6 +334,7 @@ def test_train_multiple_datasets(monkeypatch, tmp_path, options):
     train_model(options)
 
 
+@pytest.mark.timeout(20)
 def test_train_two_datasets_two_forces(monkeypatch, tmp_path, options):
     """Test that training via the training cli runs without an error raise
     when learning on two different datasets, both with forces."""
@@ -608,6 +613,7 @@ def test_inconsistencies_within_list_datasets(
         train_model(options)
 
 
+@pytest.mark.timeout(20)
 @pytest.mark.parametrize(
     "break_target, break_extra",
     [(True, False), (False, True), (False, False)],
@@ -662,6 +668,7 @@ def test_conflicting_info_between_training_sets(
         train_model(options_extra)
 
 
+@pytest.mark.timeout(20)
 @pytest.mark.parametrize(
     "same_name",
     [True, False],
@@ -750,6 +757,7 @@ def test_restart(options, monkeypatch, tmp_path, MODEL_PATH_64_BIT):
     train_model(options, restart_from=MODEL_PATH_64_BIT.with_suffix(".ckpt"))
 
 
+@pytest.mark.timeout(20)
 def test_finetune(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
     monkeypatch.chdir(tmp_path)
 
@@ -775,6 +783,7 @@ def test_finetune(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
     assert f"Starting finetuning from '{ckpt_path}'" in caplog.text
 
 
+@pytest.mark.timeout(20)
 def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET):
     monkeypatch.chdir(tmp_path)
 
@@ -804,6 +813,7 @@ def test_transfer_learn(options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_P
     assert f"Starting finetuning from '{ckpt_path}'" in caplog.text
 
 
+@pytest.mark.timeout(20)
 def test_transfer_learn_with_forces(
     options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
 ):
@@ -844,6 +854,7 @@ def test_transfer_learn_with_forces(
     assert f"Starting finetuning from '{ckpt_path}'" in caplog.text
 
 
+@pytest.mark.timeout(30)
 def test_transfer_learn_variant(
     options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
 ):
@@ -878,6 +889,7 @@ def test_transfer_learn_variant(
     assert f"Starting finetuning from '{ckpt_path}'" in caplog.text
 
 
+@pytest.mark.timeout(20)
 def test_transfer_learn_inherit_heads(
     options_pet, caplog, monkeypatch, tmp_path, MODEL_PATH_PET
 ):
@@ -966,6 +978,7 @@ def test_transfer_learn_inherit_heads_invalid_destination(
         train_model(options_pet_transfer_learn_invalid_dest)
 
 
+@pytest.mark.timeout(20)
 @pytest.mark.parametrize("move_folder", [True, False])
 def test_restart_auto(
     options, caplog, monkeypatch, tmp_path, move_folder, MODEL_PATH_64_BIT
@@ -1032,6 +1045,7 @@ def test_restart_different_dataset(options, monkeypatch, tmp_path, MODEL_PATH_64
     train_model(options, restart_from=MODEL_PATH_64_BIT.with_suffix(".ckpt"))
 
 
+@pytest.mark.timeout(20)
 @pytest.mark.parametrize("seed", [None, 1234])
 def test_model_consistency_with_seed(options, monkeypatch, tmp_path, seed):
     """Checks final model consistency with a fixed seed."""
@@ -1140,6 +1154,7 @@ def test_oom_error(options, monkeypatch, tmp_path):
         train_model(options)
 
 
+@pytest.mark.timeout(30)
 def test_train_split_failure(monkeypatch, tmp_path):
     """Test the potential problem from a split of large to very large datasets.
 
@@ -1172,6 +1187,7 @@ def test_train_atomic_types(options, monkeypatch, tmp_path, atomic_types):
     train_model(options)
 
 
+@pytest.mark.timeout(20)
 def test_train_log_order(caplog, monkeypatch, tmp_path, options):
     """Tests that the log is always printed in the same order for forces
     and virials."""
@@ -1229,6 +1245,7 @@ def test_train_generic_target(monkeypatch, tmp_path):
     train_model(options)
 
 
+@pytest.mark.timeout(20)
 def test_train_direct_forces(monkeypatch, tmp_path):
     """Test training on a Cartesian vector target"""
     monkeypatch.chdir(tmp_path)
@@ -1244,6 +1261,7 @@ def test_train_direct_forces(monkeypatch, tmp_path):
     train_model(options)
 
 
+@pytest.mark.timeout(90)
 def test_train_density_of_states(monkeypatch, tmp_path):
     """Test training with the ShiftAgnostic MSE loss"""
     monkeypatch.chdir(tmp_path)
@@ -1281,6 +1299,7 @@ def test_train_density_of_states(monkeypatch, tmp_path):
     train_model(options)
 
 
+@pytest.mark.timeout(20)
 @pytest.mark.parametrize("with_scalar_part", [False, True])
 def test_train_generic_target_metatensor(monkeypatch, tmp_path, with_scalar_part):
     """Test training on a spherical rank-2 tensor target in metatensor format"""
@@ -1428,6 +1447,7 @@ def test_train_disk_dataset_splits_issue_601(monkeypatch, tmp_path, options):
     train_model(options)
 
 
+@pytest.mark.timeout(30)
 def test_train_memmap_dataset(monkeypatch, tmp_path, options_pet):
     """Test that training via the training cli runs without an error raise
     when learning from a `MemmapDataset`."""
@@ -1472,6 +1492,7 @@ def test_train_memmap_dataset(monkeypatch, tmp_path, options_pet):
     sys.platform == "win32",
     reason="wandb 'latest-run' symlink not created on Windows without high privileges",
 )
+@pytest.mark.timeout(30)
 def test_train_wandb_logger(monkeypatch, tmp_path):
     """Test that training via the training cli runs with an attached wandb logger."""
     monkeypatch.chdir(tmp_path)
@@ -1493,6 +1514,7 @@ def test_train_wandb_logger(monkeypatch, tmp_path):
     assert "'seed': 42" in file_log
 
 
+@pytest.mark.timeout(30)
 def test_train_mixed_stress(monkeypatch, tmp_path, options_pet):
     """Test that training works with structures with and without stress in the same
     dataset (e.g., bulk with stress, molecule/slab with NaN stress)."""
@@ -1883,6 +1905,7 @@ def test_indices_out_of_range_error(monkeypatch, tmp_path, options):
         train_model(options)
 
 
+@pytest.mark.timeout(20)
 def test_input_sanitized(monkeypatch, tmp_path, options_spherical):
     """Checks that the input is sanitized before training
     by passing a deprecated option that should be removed

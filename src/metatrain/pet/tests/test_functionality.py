@@ -289,6 +289,7 @@ def test_isolated_atom(monkeypatch, tmp_path):
     dyn.run(3)
 
 
+@pytest.mark.timeout(20)
 def test_slab_plus_isolated_atom(monkeypatch, tmp_path):
     """
     Test that a short MD run completes without errors on a slab plus an isolated atom.

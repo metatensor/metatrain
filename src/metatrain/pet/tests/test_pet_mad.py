@@ -119,6 +119,7 @@ def test_pet_mad_consistency(version, monkeypatch, tmp_path):
     )
 
 
+@pytest.mark.timeout(20)
 @pytest.mark.parametrize("version", STABLE_VERSIONS)
 def test_pet_mad_finetuning(version, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)

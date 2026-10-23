@@ -25,6 +25,7 @@ np.random.seed(0)
 torch.manual_seed(0)
 
 
+@pytest.mark.timeout(20)
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 def test_regression_train_spherical(device):
     """Regression test for the model when trained for 2 epoch on a small dataset"""
