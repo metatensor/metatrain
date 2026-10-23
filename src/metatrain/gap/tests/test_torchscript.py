@@ -1,6 +1,7 @@
 import copy
 
 import torch
+from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
 from metatrain.gap import GAP, Trainer
@@ -55,9 +56,11 @@ def test_torchscript():
     )
     scripted_gap = torch.jit.script(gap)
 
-    ref_output = gap.forward(systems[:5], {"mtt::U0": gap.core.outputs["mtt::U0"]})
+    ref_output = gap.forward(
+        systems[:5], {"mtt::U0": ModelOutput(sample_kind="system")}
+    )
     scripted_output = scripted_gap.forward(
-        systems[:5], {"mtt::U0": gap.core.outputs["mtt::U0"]}
+        systems[:5], {"mtt::U0": ModelOutput(sample_kind="system")}
     )
 
     assert torch.allclose(
@@ -132,9 +135,11 @@ def test_torchscript_integers():
     )
     scripted_gap = torch.jit.script(gap)
 
-    ref_output = gap.forward(systems[:5], {"mtt::U0": gap.core.outputs["mtt::U0"]})
+    ref_output = gap.forward(
+        systems[:5], {"mtt::U0": ModelOutput(sample_kind="system")}
+    )
     scripted_output = scripted_gap.forward(
-        systems[:5], {"mtt::U0": gap.core.outputs["mtt::U0"]}
+        systems[:5], {"mtt::U0": ModelOutput(sample_kind="system")}
     )
 
     assert torch.allclose(

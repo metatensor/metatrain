@@ -1,3 +1,4 @@
+import copy
 import logging
 import warnings
 from collections.abc import Mapping
@@ -28,6 +29,7 @@ from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
+from metatrain.utils.data.target_info import get_features_info
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
@@ -86,9 +88,11 @@ class SPACE(ModelInterface[ModelHypers]):
 
         self.final_scaling = hypers["final_scaling"]
 
-        self.outputs = {
-            "feature": ModelOutput(unit="", sample_kind="atom")
-        }  # the model is always capable of outputting the internal features
+        # the model is always capable of outputting the internal features, of which
+        # only the lambda=0 ones are output
+        self.outputs: Dict[str, TargetInfo] = {
+            "feature": get_features_info(self.k_max_l[0])
+        }
 
         self.register_buffer("key_labels", {}, persistent=False)
         self.register_buffer("component_labels", {}, persistent=False)
@@ -121,8 +125,7 @@ class SPACE(ModelInterface[ModelHypers]):
 
         self.finetune_config: Dict[str, Any] = {}
 
-    @torch.jit.export
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def restart(
@@ -239,23 +242,21 @@ class SPACE(ModelInterface[ModelHypers]):
                 base_name = f"mtt::{base_name}"
 
             last_layer_features_as_dict_of_tensors = predictions[f"{base_name}__llf"]
-            return_dict[output_name] = TensorMap(
-                keys=Labels(
-                    names=["o3_lambda"],
-                    values=torch.arange(self.l_max + 1, device=device).unsqueeze(-1),
-                ),
-                blocks=[
+            llf_blocks: List[TensorBlock] = []
+            for c in self.component_labels[base_name]:
+                o3_lambda = (len(c[0]) - 1) // 2 if len(c) > 0 else 0
+                t = last_layer_features_as_dict_of_tensors[o3_lambda]
+                if len(c) == 0:
+                    t = t.squeeze(1)
+                elif c[0].names == ["xyz"]:
+                    # rank-1 Cartesian targets are the l=1 readout, reordered to
+                    # (x, y, z)
+                    t = t[:, [2, 0, 1], :]
+                llf_blocks.append(
                     TensorBlock(
                         values=t,
                         samples=samples,
-                        components=[
-                            Labels(
-                                names=["o3_mu"],
-                                values=torch.arange(-l, l + 1, device=device).unsqueeze(
-                                    -1
-                                ),
-                            )
-                        ],
+                        components=c,
                         properties=Labels(
                             names=["feature"],
                             values=torch.arange(t.shape[-1], device=device).unsqueeze(
@@ -263,9 +264,20 @@ class SPACE(ModelInterface[ModelHypers]):
                             ),
                         ),
                     )
-                    for l, t in last_layer_features_as_dict_of_tensors.items()  # noqa: E741
-                ],
+                )
+            return_dict[output_name] = TensorMap(
+                keys=self.key_labels[base_name], blocks=llf_blocks
             )
+            if base_name in self.cartesian_rank2_targets:
+                return_dict[output_name] = _features_to_cartesian_rank_2(
+                    return_dict[output_name], self._sph_to_cart_rank2
+                )
+                if "non_conservative_stress" in base_name:
+                    return_dict[output_name] = _process_non_conservative_stress(
+                        return_dict[output_name],
+                        systems,
+                        batch["structure_centers"].to(torch.int64),
+                    )
             if selected_atoms is not None:
                 return_dict[output_name] = metatensor.torch.slice(
                     return_dict[output_name], axis="samples", selection=selected_atoms
@@ -454,19 +466,24 @@ class SPACE(ModelInterface[ModelHypers]):
         #   the functional way they're used in the GradientModel)
         # - delete the other models: even if the forward function doesn't use them,
         #   torchscript will try to compile them anyway
-        self.module = self.fake_gradient_model
-        del self.gradient_model
-        del self.fake_gradient_model
+        # This is done on a copy, so that the model itself stays usable.
+        model = copy.deepcopy(self)
+        model.module = model.fake_gradient_model
+        del model.gradient_model
+        del model.fake_gradient_model
 
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for PET")
+            raise ValueError(f"unsupported dtype {dtype} for SPACE")
 
         # Make sure the model is all in the same dtype
-        self.to(dtype)
+        model.to(dtype)
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
             interaction_range=self.hypers["num_gnn_layers"] * self.hypers["cutoff"],
             length_unit=self.dataset_info.length_unit,
@@ -476,17 +493,10 @@ class SPACE(ModelInterface[ModelHypers]):
 
         metadata = merge_metadata(self.metadata, metadata)
 
-        return AtomisticModel(self.eval(), metadata, capabilities)
+        return AtomisticModel(model.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-        self.outputs[target_name] = ModelOutput(
-            unit=target_info.unit,
-            sample_kind="atom",
-        )
-        # the model can always output the last-layer features for its targets
-        self.outputs[
-            f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
-        ] = ModelOutput(sample_kind="atom")
+        self.outputs[target_name] = target_info
 
         if target_info.is_spherical and len(target_info.layout.block(0).components) > 1:
             raise ValueError(
@@ -538,6 +548,33 @@ class SPACE(ModelInterface[ModelHypers]):
             self.property_labels[target_name] = [
                 block.properties for block in target_info.layout.blocks()
             ]
+
+        # the features of order lambda have k_max_l[lambda] channels
+        llf_blocks: List[TensorBlock] = []
+        for components in self.component_labels[target_name]:
+            o3_lambda = (len(components[0]) - 1) // 2 if len(components) > 0 else 0
+            num_features = self.k_max_l[o3_lambda]
+            llf_blocks.append(
+                TensorBlock(
+                    values=torch.empty(
+                        [0] + [len(c) for c in components] + [num_features],
+                        dtype=torch.float64,
+                    ),
+                    samples=Labels(
+                        ["system", "atom"], torch.empty((0, 2), dtype=torch.int32)
+                    ),
+                    components=components,
+                    properties=Labels.range("feature", num_features),
+                )
+            )
+        llf_layout = TensorMap(self.key_labels[target_name], llf_blocks)
+        if target_name in self.cartesian_rank2_targets:
+            llf_layout = _features_to_cartesian_rank_2(
+                llf_layout, self._sph_to_cart_rank2
+            )
+        # the model can always output the last-layer features for its targets
+        llf_name = f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
+        self.outputs[llf_name] = TargetInfo(llf_layout)
 
     def remove_output(self, target_name: str) -> None:
         """
@@ -645,6 +682,50 @@ def _to_cartesian_rank_2(tensor_map: TensorMap, W: torch.Tensor) -> TensorMap:
         properties=tensor_map.block(0).properties,
     )
     return TensorMap(keys=keys, blocks=[block])
+
+
+def _features_to_cartesian_rank_2(tensor_map: TensorMap, W: torch.Tensor) -> TensorMap:
+    """
+    Convert the last-layer features of a rank-2 Cartesian target to Cartesian, like
+    :func:`_to_cartesian_rank_2` does for the target.
+
+    :param tensor_map: the features of the l=0, l=1 and l=2 blocks.
+    :param W: conversion matrix of shape ``(3, 3, 9)``.
+    :return: a single block with the features of the three blocks one after the
+        other.
+    """
+    sph_values = [block.values for block in tensor_map.blocks()]
+    W = W.to(dtype=sph_values[0].dtype, device=sph_values[0].device)
+
+    cart_values: List[torch.Tensor] = []
+    offset = 0
+    for values in sph_values:
+        n_components = values.shape[1]
+        cart_values.append(
+            torch.einsum(
+                "ijM,nMf->nijf", W[:, :, offset : offset + n_components], values
+            )
+        )
+        offset += n_components
+    cart = torch.cat(cart_values, dim=-1)
+
+    device = cart.device
+    block = TensorBlock(
+        values=cart,
+        samples=tensor_map.block(0).samples,
+        components=[
+            Labels("xyz_1", torch.arange(3, device=device).reshape(-1, 1)),
+            Labels("xyz_2", torch.arange(3, device=device).reshape(-1, 1)),
+        ],
+        properties=Labels(
+            names=["feature"],
+            values=torch.arange(cart.shape[-1], device=device).unsqueeze(-1),
+        ),
+    )
+    return TensorMap(
+        keys=Labels(names=["_"], values=torch.tensor([[0]], device=device)),
+        blocks=[block],
+    )
 
 
 def _process_non_conservative_stress(

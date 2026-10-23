@@ -51,18 +51,14 @@ class PositionAdditive(ModelInterface):
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
 
-        self.outputs = {}
+        self.outputs: Dict[str, TargetInfo] = {}
         for key, value in dataset_info.targets.items():
             if (
                 key == "momentum" or key.startswith("momentum/")
             ) and not self.do_momenta:
                 # skip momenta targets unless `also_momenta` is True
                 continue
-            self.outputs[key] = ModelOutput(
-                unit=value.unit,
-                sample_kind="atom",
-                description=value.description,
-            )
+            self.outputs[key] = value
 
     def restart(
         self,
@@ -84,11 +80,7 @@ class PositionAdditive(ModelInterface):
             ) and not self.do_momenta:
                 # skip momenta targets unless `also_momenta` is True
                 continue
-            self.outputs[key] = ModelOutput(
-                unit=value.unit,
-                sample_kind="atom",
-                description=value.description,
-            )
+            self.outputs[key] = value
         return self
 
     def remove_output(self, target_name: str) -> None:
@@ -100,7 +92,7 @@ class PositionAdditive(ModelInterface):
         self.outputs.pop(target_name, None)
         self.dataset_info.targets.pop(target_name, None)
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def forward(
@@ -289,7 +281,10 @@ class PositionAdditive(ModelInterface):
         :return: An instance of :py:class:`metatomic.torch.AtomisticModel`.
         """
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
             interaction_range=0.0,
             length_unit=self.dataset_info.length_unit,

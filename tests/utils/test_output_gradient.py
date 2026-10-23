@@ -1,6 +1,6 @@
 import pytest
 import torch
-from metatomic.torch import System
+from metatomic.torch import ModelOutput, System
 
 from metatrain.soap_bpnn import __model__
 from metatrain.utils.data import DatasetInfo, read_systems
@@ -45,7 +45,7 @@ def test_forces(is_training):
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
         for system in systems
     ]
-    output = model(systems, {"energy": model.outputs["energy"]})
+    output = model(systems, {"energy": ModelOutput(sample_kind="atom")})
     position_gradients = compute_gradient(
         output["energy"].block().values,
         [system.positions for system in systems],
@@ -69,7 +69,7 @@ def test_forces(is_training):
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
         for system in systems
     ]
-    output = jitted_model(systems, {"energy": model.outputs["energy"]})
+    output = jitted_model(systems, {"energy": ModelOutput(sample_kind="atom")})
     jitted_position_gradients = compute_gradient(
         output["energy"].block().values,
         [system.positions for system in systems],
@@ -123,7 +123,7 @@ def test_virial(is_training):
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
         for system in systems
     ]
-    output = model(systems, {"energy": model.outputs["energy"]})
+    output = model(systems, {"energy": ModelOutput(sample_kind="atom")})
     strain_gradients = compute_gradient(
         output["energy"].block().values,
         strains,
@@ -154,7 +154,7 @@ def test_virial(is_training):
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
         for system in systems
     ]
-    output = jitted_model(systems, {"energy": model.outputs["energy"]})
+    output = jitted_model(systems, {"energy": ModelOutput(sample_kind="atom")})
     jitted_strain_gradients = compute_gradient(
         output["energy"].block().values,
         strains,
@@ -210,7 +210,7 @@ def test_both(is_training):
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
         for system in systems
     ]
-    output = model(systems, {"energy": model.outputs["energy"]})
+    output = model(systems, {"energy": ModelOutput(sample_kind="atom")})
     gradients = compute_gradient(
         output["energy"].block().values,
         [system.positions for system in systems] + strains,
@@ -240,7 +240,7 @@ def test_both(is_training):
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
         for system in systems
     ]
-    output = jitted_model(systems, {"energy": model.outputs["energy"]})
+    output = jitted_model(systems, {"energy": ModelOutput(sample_kind="atom")})
     jitted_gradients = compute_gradient(
         output["energy"].block().values,
         [system.positions for system in systems] + strains,

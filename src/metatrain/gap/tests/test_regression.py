@@ -4,6 +4,7 @@ import random
 import metatomic.torch
 import numpy as np
 import torch
+from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
 from metatrain.gap import Trainer
@@ -64,7 +65,7 @@ def test_regression_train():
     gap.eval()
 
     # Predict on the first five systems
-    output = gap(systems[:5], {"mtt::U0": gap.core.outputs["mtt::U0"]})
+    output = gap(systems[:5], {"mtt::U0": ModelOutput(sample_kind="system")})
 
     expected_output = torch.tensor(
         [[-40.5891], [-56.7122], [-76.4146], [-77.3364], [-93.4905]]
@@ -127,7 +128,7 @@ def test_invariance():
     gap.eval()
 
     # Predict on the first five systems
-    output = gap(systems[:5], {"energy": gap.core.outputs["energy"]})
+    output = gap(systems[:5], {"energy": ModelOutput(sample_kind="system")})
     data = read(DATASET_ETHANOL_PATH, ":5", format="extxyz")
 
     expected_output = torch.tensor([[i.info["energy"]] for i in data])
@@ -144,11 +145,11 @@ def test_invariance():
 
     original_output = gap(
         [metatomic.torch.systems_to_torch(original_system)],
-        {"energy": gap.core.outputs["energy"]},
+        {"energy": ModelOutput(sample_kind="system")},
     )
     rotated_output = gap(
         [metatomic.torch.systems_to_torch(system)],
-        {"energy": gap.core.outputs["energy"]},
+        {"energy": ModelOutput(sample_kind="system")},
     )
 
     assert torch.allclose(

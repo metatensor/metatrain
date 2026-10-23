@@ -21,6 +21,7 @@ from metatrain.utils.data import (
     CombinedDataLoader,
     Dataset,
     DatasetInfo,
+    TargetInfo,
     unpack_batch,
 )
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
@@ -147,7 +148,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         # wrapped model under the names the model actually understands, and metatomic's
         # `AtomisticModel` re-adds the new-name aliases (and bridges engine requests to
         # them) when this wrapper is itself exported.
-        backbone_outputs = self.model.core.supported_outputs()
+        backbone_outputs = {
+            name: old_capabilities.outputs[name]
+            for name in self.model.core.supported_outputs()
+        }
 
         # update capabilities: now we have additional outputs for the uncertainty
         additional_capabilities = {}
@@ -604,28 +608,11 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 [ensemble_values.shape[0]] + components_shape + [-1]
             )  # shape: (samples, components, (num_ens * num_prop))
 
-            # prepare the properties Labels object for ensemble output, i.e. account
-            # for the num_ens dimension
-            old_prop_val = return_dict[original_name].block().properties.values
-            num_samples = old_prop_val.shape[0]
-            ens_idxs = torch.arange(
+            ens_prop = _ensemble_properties(
+                return_dict[original_name].block().properties,
                 num_ens,
-                device=old_prop_val.device,
-                dtype=old_prop_val.dtype,
+                ens_name == "energy_ensemble",
             )
-            ens_idxs = ens_idxs.repeat_interleave(num_samples).unsqueeze(1)
-            if ens_name == "energy_ensemble":
-                # "energy_ensemble" quantity requires a single "energy"
-                # property column holding the ensemble member index
-                ens_prop = Labels(names=["energy"], values=ens_idxs)
-            else:
-                exp_prop_val = old_prop_val.repeat(num_ens, 1)
-                new_prop_val = torch.cat([ens_idxs, exp_prop_val], dim=-1)
-                ens_prop = Labels(
-                    names=["ensemble_member"]
-                    + return_dict[original_name].block().properties.names,
-                    values=new_prop_val,
-                )
 
             ensemble_block = TensorBlock(
                 values=ensemble_values,
@@ -1303,8 +1290,48 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
         )
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
-        return self.capabilities.outputs
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
+        outputs = self.model.supported_outputs()
+        for name in self.outputs_list:
+            layout = outputs[name].layout
+            # the uncertainty has the layout of the target, without gradients
+            blocks = [
+                TensorBlock(
+                    values=block.values,
+                    samples=block.samples,
+                    components=block.components,
+                    properties=block.properties,
+                )
+                for block in layout.blocks()
+            ]
+            outputs[_get_uncertainty_name(name)] = TargetInfo(
+                TensorMap(layout.keys, blocks), unit=outputs[name].unit
+            )
+        for name, num_members in self.ensemble_weight_sizes.items():
+            ensemble_name = "mtt::aux::" + name.replace("mtt::", "") + "_ensemble"
+            if ensemble_name == "mtt::aux::energy_ensemble":
+                ensemble_name = "energy_ensemble"
+            layout = outputs[name].layout
+            blocks = []
+            for block in layout.blocks():
+                properties = _ensemble_properties(
+                    block.properties, num_members, ensemble_name == "energy_ensemble"
+                )
+                blocks.append(
+                    TensorBlock(
+                        values=torch.empty(
+                            list(block.values.shape[:-1]) + [len(properties)],
+                            dtype=block.values.dtype,
+                        ),
+                        samples=block.samples,
+                        components=block.components,
+                        properties=properties,
+                    )
+                )
+            outputs[ensemble_name] = TargetInfo(
+                TensorMap(layout.keys, blocks), unit=outputs[name].unit
+            )
+        return outputs
 
     def _ensemble_explicit_gradients(self, name: str) -> List[str]:
         """Explicit gradients the ensemble of the ``name`` target is able to produce.
@@ -1318,6 +1345,27 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         if target is None or target.quantity != "energy":
             return []
         return ["positions", "strain"]
+
+
+def _ensemble_properties(properties: Labels, num_members: int, energy: bool) -> Labels:
+    """The properties of an ensemble: each member, then the properties of the target.
+
+    :param properties: the properties of the target.
+    :param num_members: the number of members of the ensemble.
+    :param energy: whether this is the standard ``energy_ensemble`` output.
+    :return: the properties of the ensemble.
+    """
+    values = properties.values
+    members = torch.arange(num_members, device=values.device, dtype=values.dtype)
+    members = members.repeat_interleave(values.shape[0]).unsqueeze(1)
+    if energy:
+        # "energy_ensemble" quantity requires a single "energy"
+        # property column holding the ensemble member index
+        return Labels(names=["energy"], values=members)
+    return Labels(
+        names=["ensemble_member"] + properties.names,
+        values=torch.cat([members, values.repeat(num_members, 1)], dim=-1),
+    )
 
 
 def _get_uncertainty_name(name: str) -> str:

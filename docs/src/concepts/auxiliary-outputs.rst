@@ -28,6 +28,14 @@ This output contains the representation of the model at the last layer, before
 the final linear transformation to produce target ``target``. If the model
 produces multiple targets, the corresponding representations might be different.
 
+The last-layer features come in one of two forms:
+
+- invariant or non-symmetrized features are a single block, used for all the blocks
+  of the target;
+- equivariant features have one block for each block of the target, with the same
+  keys and components. The last layer maps each block of features to the block of
+  the target with the same key, with the same weights for all the components.
+
 .. list-table:: Metadata for last-layer features
   :widths: 2 3 7
   :header-rows: 1
@@ -37,12 +45,10 @@ produces multiple targets, the corresponding representations might be different.
     - Description
 
   * - keys
-    - ``"_"`` if invariant or non-symmetrized, ``["o3_lambda", "o3_sigma"]`` if
+    - ``"_"`` if invariant or non-symmetrized, the keys of the target if
       equivariant
     - if invariant or non-symmetrized, a single dimension named ``"_"``, with a
-      single entry set to ``0``, or, if equivariant, two dimensions named
-      ``"o3_lambda"`` and ``"o3_sigma"`` with the corresponding O3 equivariant
-      indices.
+      single entry set to ``0``, or, if equivariant, the keys of the target.
 
   * - samples
     - ``["system", "atom"]`` or ``["system"]``
@@ -55,8 +61,9 @@ produces multiple targets, the corresponding representations might be different.
       atoms/particles in the corresponding system.
 
   * - components
-    - No components if invariant or non-symmetrized, ``["o3_mu"]`` if equivariant
-    - Nothing if invariant or non-symmetrized, the O3 equivariant ``mu`` number if
+    - No components if invariant or non-symmetrized, the components of the target
+      if equivariant
+    - Nothing if invariant or non-symmetrized, the components of the target if
       equivariant.
 
   * - properties
@@ -67,9 +74,11 @@ produces multiple targets, the corresponding representations might be different.
 
 Last-layer features are supported by the following architectures:
 
-+-----------------+-----------------------+------------------+---------------------+
-| :ref:`arch-pet` | :ref:`arch-soap_bpnn` | :ref:`arch-mace` | :ref:`arch-flashmd` |
-+-----------------+-----------------------+------------------+---------------------+
++-----------------+-----------------------+------------------+-------------------+---------------------+
+| :ref:`arch-pet` | :ref:`arch-soap_bpnn` | :ref:`arch-mace` | :ref:`arch-space` | :ref:`arch-flashmd` |
++-----------------+-----------------------+------------------+-------------------+---------------------+
+
+SOAP-BPNN only provides them for scalar targets.
 
 .. _mtt-aux-target-uncertainty:
 

@@ -8,7 +8,7 @@ from metatensor.torch import Labels, TensorMap
 from metatomic.torch import AtomisticModel, ModelMetadata, ModelOutput, System
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
-from metatrain.utils.data import Dataset, DatasetInfo
+from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 
 
 class MyTrainer(TrainerInterface):
@@ -102,7 +102,7 @@ class MyModel(ModelInterface):
     ) -> Dict[str, TensorMap]:
         raise NotImplementedError()
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         raise NotImplementedError()
 
     def restart(
