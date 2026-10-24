@@ -585,10 +585,10 @@ def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]) -
 
 
 def _train_test_random_split(
-    train_dataset: Dataset,
+    train_dataset: Union[Dataset, "DiskDataset", "MemmapDataset", Subset],
     train_size: float,
     test_size: float,
-) -> List[Dataset]:
+) -> List[Subset]:
     if train_size <= 0:
         raise ValueError("Fraction of the train set is smaller or equal to 0!")
 
