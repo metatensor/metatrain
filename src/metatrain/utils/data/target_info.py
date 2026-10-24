@@ -801,7 +801,7 @@ def _get_spherical_irreps_iter(
     product: Optional[Literal["cartesian", "coupled"]] = None,
     symmetric_product: bool = False,
     irreps_2: Optional[list[dict]] = None,
-) -> tuple[list[list[tuple[int, int, int]]], list[Labels]]:
+) -> tuple[list[list[tuple[int, int, int]]], list[Optional[Labels]]]:
     if product not in [None, "cartesian", "coupled"]:
         raise ValueError(
             f"Product '{product}' is not supported. Supported products are"
@@ -839,6 +839,7 @@ def _get_spherical_irreps_iter(
             i_irrep + j_irrep
             for i_irrep, j_irrep in itertools.product(irreps_iter, irreps_2_iter)
         ]
+    properties: list[Optional[Labels]]
     if product == "coupled":
         coupled_blocks: dict[tuple[int, int], int] = defaultdict(int)
         coupled_properties = defaultdict(list)
