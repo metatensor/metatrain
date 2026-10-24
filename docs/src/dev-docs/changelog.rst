@@ -28,6 +28,8 @@ Fixed
 #####
 
 - PET computes forces and stresses for batches of several structures faster
+- Datasets read using ASE (e.g. ``.xyz`` files) with property names treated specially by
+  ASE (e.g. ``charges``, ``magmoms``) can be read (#1320).
 - PET models with ``featurizer_type: feedforward`` (the default) now export an
   ``interaction_range`` of ``(num_gnn_layers + 1) * cutoff`` instead of
   ``num_gnn_layers * cutoff``. The feedforward featurizer performs one more
