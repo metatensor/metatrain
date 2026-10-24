@@ -81,6 +81,11 @@ Added
 Changed
 #######
 
+- Neighbor lists are now computed with ``vesin.NeighborList`` directly on the
+  device of the System, without sorting and without ASE fallback for partially
+  periodic systems. This makes neighbor lists faster without modifying previous
+  behavior.
+  
 Removed
 #######
 
