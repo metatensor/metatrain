@@ -206,16 +206,17 @@ def compute_batch_tensors(
           cell_shift_c)``. Suitable for use with :func:`get_pair_sample_labels`.
 
     """
-    # somehow the backward of this operation is very slow at evaluation,
-    # where there is only one cell, therefore we simplify the calculation
-    # for that case
+    # the backward of indexing sums the gradients of repeated indices one after
+    # the other, so with one cell we avoid indexing, and with several cells we
+    # index per atom and then per edge, which repeats each cell once per atom
+    # rather than once per edge
     if len(cells) == 1:
         cell_contributions = cell_shifts.to(cells.dtype) @ cells[0]
     else:
         cell_contributions = torch.einsum(
             "ab, abc -> ac",
             cell_shifts.to(cells.dtype),
-            cells[system_indices[centers]],
+            cells[system_indices][centers],
         )
     edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
     edge_distances = torch.norm(edge_vectors, dim=-1) + 1e-15

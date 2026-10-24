@@ -27,6 +27,10 @@ Unreleased
 Fixed
 #####
 
+- PET computes forces and stresses for batches of several structures faster: the
+  cell of each edge is now gathered per atom and then per edge, so that the
+  backward pass no longer sums the gradient of each cell over all of its edges
+  one after the other. This can speed up substantially batched inference.
 - PET models with ``featurizer_type: feedforward`` (the default) now export an
   ``interaction_range`` of ``(num_gnn_layers + 1) * cutoff`` instead of
   ``num_gnn_layers * cutoff``. The feedforward featurizer performs one more
