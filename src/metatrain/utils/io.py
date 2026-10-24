@@ -2,7 +2,7 @@ import re
 import warnings
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union, overload
 from urllib.parse import unquote, urlparse
 from urllib.request import urlretrieve
 
@@ -272,9 +272,21 @@ def _find_model_class(architecture_name: str) -> Any:
         return architecture.__model__
 
 
+@overload
+def arch_model_from_checkpoint(
+    checkpoint: Dict[str, Any], context: Literal["restart", "export"]
+) -> ModelInterface: ...
+
+
+@overload
+def arch_model_from_checkpoint(
+    checkpoint: Dict[str, Any], context: Literal["finetune"]
+) -> Union[ModelInterface, MetatrainModel]: ...
+
+
 def arch_model_from_checkpoint(
     checkpoint: Dict[str, Any], context: Literal["restart", "finetune", "export"]
-) -> ModelInterface:
+) -> Union[ModelInterface, MetatrainModel]:
     """
     Load the architecture model from a checkpoint.
 
@@ -284,7 +296,7 @@ def arch_model_from_checkpoint(
     :param checkpoint: checkpoint dictionary to load the model
     :param context: context in which the model is loaded
 
-    :return: the loaded model instance
+    :return: the loaded model instance, or LLPR's wrapped model when fine-tuning.
     """
 
     checkpoint = upgrade_checkpoint(checkpoint)

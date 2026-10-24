@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Mapping
-from typing import Any, Dict, Iterator, List, Literal, Optional, Union
+from typing import Any, Dict, Iterator, List, Literal, Optional, Union, overload
 
 import metatensor.torch as mts
 import torch
@@ -1191,12 +1191,36 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         }
         return checkpoint
 
+    @overload
+    @classmethod
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "export"],
+    ) -> "LLPRUncertaintyModel": ...
+
+    @overload
+    @classmethod
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["finetune"],
+    ) -> MetatrainModel: ...
+
     @classmethod
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
-    ) -> "LLPRUncertaintyModel":
+    ) -> Union["LLPRUncertaintyModel", MetatrainModel]:
+        """Load LLPR for restart/export, or its wrapped model for fine-tuning.
+
+        :param checkpoint: Checkpoint's state dictionary.
+        :param context: Whether to restart calibration, fine-tune the wrapped model,
+            or export LLPR.
+        :return: The LLPR model for restart/export, or the wrapped
+            :py:class:`metatrain.utils.wrapper.MetatrainModel` for fine-tuning.
+        """
         model = model_from_checkpoint(checkpoint["wrapped_model_checkpoint"], context)
         if context == "finetune":
             # In this case, we want to allow fine-tuning of the underlying model by
