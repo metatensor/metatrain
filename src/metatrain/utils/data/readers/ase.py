@@ -4,6 +4,7 @@ from pathlib import PurePath
 from typing import IO, Any, List, Tuple, Union
 
 import ase.io
+import ase.io.extxyz
 import torch
 from ase.stress import voigt_6_to_full_3x3_stress
 from metatensor.torch import Labels, TensorBlock, TensorMap
@@ -15,23 +16,25 @@ from ..target_info import TargetInfo, get_energy_target_info, get_generic_target
 
 def read(
     filename: Union[str, PurePath, IO], *args: Any, **kwargs: Any
-) -> List[ase.Atoms]:
+) -> Union[ase.Atoms, List[ase.Atoms]]:
     r"""
     Wrapper around the :func:`ase.io.read` function.
 
     The wrapper provides a more informative error message in case of failure.
-    Additionally, it will make the keys ``"energy"``, ``"forces"`` and ``"stress"``
-    available from the calculator and the info/arrays dictionary.
+    Additionally, it makes existing calculator results available in ``atoms.info``
+    or ``atoms.arrays``, according to ASE's per-configuration/per-atom classification.
+    The ``"stress"`` result is converted from Voigt notation to a 3 x 3 matrix.
 
     .. warning ::
 
-        Lists of atoms read with this function can NOT be written back to a file with
+        Atoms read with this function can NOT be written back to a file with
         :func:`ase.io.write` because of the duplicated keys.
 
     :param filename: Name of the file to read from or a file descriptor.
     :param \*args: additional positional arguments for :func:`ase.io.read`
     :param \*\*kwargs: additional keyword arguments for :func:`ase.io.read`
-    :return: A list of :py:class:`ase.Atoms` objects
+    :return: A single :py:class:`ase.Atoms` object or a list of them, matching
+        :func:`ase.io.read` for the requested index.
     """
     try:
         frames = ase.io.read(filename, *args, **kwargs)
@@ -39,15 +42,16 @@ def read(
         raise ValueError(f"Failed to read '{filename}' with ASE: {e}") from e
 
     # allow access of "special" keys from calculator and `info`/`arrays` dictionary
-    for atoms in frames:
-        if hasattr(atoms, "calc") and atoms.calc is not None:
-            results = atoms.calc.results
-            if "energy" in results:
-                atoms.info["energy"] = results["energy"]
-            if "forces" in results:
-                atoms.arrays["forces"] = results["forces"]
-            if "stress" in results:
-                atoms.info["stress"] = voigt_6_to_full_3x3_stress(results["stress"])
+    frames_to_restore = [frames] if isinstance(frames, ase.Atoms) else frames
+    for atoms in frames_to_restore:
+        if atoms.calc is not None:
+            for key, value in atoms.calc.results.items():
+                if key in ase.io.extxyz.per_atom_properties:
+                    atoms.arrays[key] = value
+                elif key in ase.io.extxyz.per_config_properties:
+                    if key == "stress":
+                        value = voigt_6_to_full_3x3_stress(value)
+                    atoms.info[key] = value
 
     return frames
 
