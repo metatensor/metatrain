@@ -1,5 +1,5 @@
 import warnings
-from typing import Callable, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 import metatensor.torch as mts
 import torch
@@ -9,6 +9,7 @@ from metatensor.torch.operations._multiply import _multiply_block_constant
 from metatomic.torch import System
 
 from ..data import TargetInfo
+from ..data.dataset import CollateTransform
 from ..data.match_tmaps import match_layout
 from ..evaluate_model import evaluate_model
 
@@ -157,7 +158,7 @@ def remove_additive(
 def get_remove_additive_transform(
     additive_models: List[torch.nn.Module],
     target_info_dict: Dict[str, TargetInfo],
-) -> Callable:
+) -> CollateTransform:
     """
     Get a function that removes the additive contributions from the targets.
 

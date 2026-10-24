@@ -6,7 +6,18 @@ import sys
 import warnings
 import zipfile
 from pathlib import Path
-from typing import Any, Callable, Dict, List, NamedTuple, Optional, Set, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Set,
+    Tuple,
+    TypeAlias,
+    Union,
+)
 
 import numpy as np
 import torch
@@ -45,6 +56,12 @@ from metatrain.utils.data.target_info import (
 )
 from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.units import get_gradient_units, units_are_equivalent
+
+
+CollateTransform: TypeAlias = Callable[
+    [List[System], Dict[str, TensorMap], Dict[str, TensorMap]],
+    Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]],
+]
 
 
 def _set(values: List[int]) -> List[int]:
@@ -394,11 +411,13 @@ class CollateFn:
     def __init__(
         self,
         target_keys: List[str],
-        callables: Optional[List[Callable]] = None,
+        callables: Optional[List[CollateTransform]] = None,
         join_kwargs: Optional[Dict[str, Any]] = None,
     ):
         self.target_keys: Set[str] = set(target_keys)
-        self.callables: List[Callable] = callables if callables is not None else []
+        self.callables: List[CollateTransform] = (
+            callables if callables is not None else []
+        )
         self.join_kwargs: Dict[str, Any] = join_kwargs or {"different_keys": "union"}
 
     def __call__(

@@ -2,7 +2,7 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
@@ -29,6 +29,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
     get_prepare_atomic_basis_targets_transform,
 )
+from metatrain.utils.data.dataset import CollateTransform
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
@@ -418,7 +419,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         target_keys = list(train_targets.keys())
         # Shared callables that run after `atomic_basis_transform` (and after
         # rotational augmentation in training).
-        base_callables: List[Callable[..., Any]] = [
+        base_callables: List[CollateTransform] = [
             get_system_with_neighbor_lists_transform(requested_neighbor_lists),
             *conditioning_callables,
             get_remove_additive_transform(additive_models, train_targets),
