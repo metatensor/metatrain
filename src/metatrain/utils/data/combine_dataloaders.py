@@ -1,4 +1,4 @@
-from typing import List
+from typing import Any, List
 
 import numpy as np
 import torch
@@ -39,7 +39,7 @@ class CombinedDataLoader:
     def __iter__(self) -> "CombinedDataLoader":
         return self
 
-    def __next__(self) -> torch.utils.data.DataLoader:
+    def __next__(self) -> Any:
         if self.current_index >= len(self.indices):
             self.reset()  # Reset the index for the next iteration
             raise StopIteration
