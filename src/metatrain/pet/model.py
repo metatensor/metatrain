@@ -346,6 +346,7 @@ class PET(ModelInterface[ModelHypers]):
                 species,
                 cells,
                 cell_shifts,
+                cell_contributions,
                 system_indices,
                 sample_labels,
             ) = concatenate_structures(systems, nl_options)
@@ -356,9 +357,8 @@ class PET(ModelInterface[ModelHypers]):
                 centers,
                 neighbors,
                 species,
-                cells,
+                cell_contributions,
                 cell_shifts,
-                system_indices,
                 self.cutoff_width_adaptive,
             )
 

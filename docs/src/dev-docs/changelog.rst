@@ -27,6 +27,7 @@ Unreleased
 Fixed
 #####
 
+- PET computes forces and stresses for batches of several structures faster
 - Datasets read using ASE (e.g. ``.xyz`` files) with property names treated specially by
   ASE (e.g. ``charges``, ``magmoms``) can be read (#1320).
 - PET models with ``featurizer_type: feedforward`` (the default) now export an
