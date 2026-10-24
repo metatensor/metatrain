@@ -1,0 +1,166 @@
+.. _arch-lorem:
+
+LOREM (Experimental)
+====================
+
+.. image:: https://codecov.io/gh/metatensor/metatrain/branch/main/graph/badge.svg?component=lorem
+   :target: https://app.codecov.io/gh/metatensor/metatrain/tree/main/src/metatrain/experimental/lorem?components%5B0%5D=lorem
+
+*Maintained by* `@EricBoittier <https://github.com/EricBoittier>`_.
+
+**LOREM** (*Learning Long-Range Representations with Equivariant Messages*)
+:footcite:p:`lorem_2025` predicts energies (forces and stress by autograd) and
+per-atom Born effective charges. Short-range features are a spherical
+neighbor density with species-dependent radial filters. Long-range features
+are Coulomb potentials of learned charges, evaluated with
+`torch-pme <https://github.com/lab-cosmo/torch-pme>`_.
+
+Born effective charges need ``max_degree >= 2`` and a target whose
+``quantity`` is ``bec``.
+
+.. _arch-lorem_installation:
+
+Installation
+------------
+
+To install this architecture along with the ``metatrain`` package, run:
+
+.. code-block:: bash
+
+    pip install metatrain[lorem]
+
+where the square brackets indicate that you want to install the optional
+dependencies required for ``lorem``.
+
+For conda installation instructions, see the :ref:`label_installation` page. Note
+that conda may not provide all optional architecture-specific dependencies.
+
+.. _arch-lorem_default_hypers:
+
+Default Hyperparameters
+-----------------------
+
+The description of all the hyperparameters used in ``lorem`` is provided
+further down this page. However, here we provide you with a yaml file containing all
+the default hyperparameters, which might be convenient as a starting point to
+create your own hyperparameter files:
+
+.. literalinclude:: ../default_hypers/lorem-default-hypers.yaml
+   :language: yaml
+
+Tuning hyperparameters
+----------------------
+
+The most impactful hyperparameters (roughly in decreasing order of importance):
+
+.. container:: mtt-hypers-remove-classname
+
+  .. autoattribute:: metatrain.experimental.lorem.documentation.ModelHypers.cutoff
+      :no-index:
+
+  .. autoattribute:: metatrain.experimental.lorem.documentation.ModelHypers.num_features
+      :no-index:
+
+  .. autoattribute:: metatrain.experimental.lorem.documentation.ModelHypers.max_degree
+      :no-index:
+
+  .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.learning_rate
+      :no-index:
+
+Default values follow the LOREM paper (5 Å cutoff, 128 features). Reduce
+``max_degree``, ``num_radial`` and ``num_features`` for faster iteration.
+
+.. _arch-lorem_model_hypers:
+
+Model hyperparameters
+------------------------
+
+The parameters that go under the ``architecture.model`` section of the config file
+are the following:
+
+.. container:: mtt-hypers-remove-classname
+
+    ..
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.ModelHypers.cutoff
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.ModelHypers.max_degree
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.ModelHypers.max_degree_lr
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.ModelHypers.num_features
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.ModelHypers.num_spherical_features
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.ModelHypers.num_radial
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.ModelHypers.num_species
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.ModelHypers.num_message_passing
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.ModelHypers.equivariant_message_passing
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.ModelHypers.initialize_node_features
+
+
+
+.. _arch-lorem_trainer_hypers:
+
+Trainer hyperparameters
+-------------------------
+
+The parameters that go under the ``architecture.trainer`` section of the config file
+are the following:
+
+.. container:: mtt-hypers-remove-classname
+
+    ..
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.distributed_port
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.batch_size
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.max_atoms_per_batch
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.min_atoms_per_batch
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.num_epochs
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.warmup_fraction
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.learning_rate
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.weight_decay
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.log_interval
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.checkpoint_interval
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.scale_targets
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.atomic_baseline
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.fixed_scaling_weights
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.per_structure_targets
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.num_workers
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.log_mae
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.log_separate_blocks
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.best_model_metric
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.grad_clip_norm
+
+        .. autoattribute:: metatrain.experimental.lorem.documentation.TrainerHypers.loss
+
+
+
+.. _arch-lorem_references:
+
+References
+----------
+
+.. footbibliography::
