@@ -1,9 +1,8 @@
 import metatensor.torch as mts
 import torch
-from featomic.torch.clebsch_gordan._coefficients import (
-    cg_couple,
-)
 from metatensor.torch import Labels, TensorBlock, TensorMap
+
+from .cg import cg_couple, cg_uncouple
 
 
 def couple_tensor_blocks(
@@ -139,6 +138,17 @@ def uncouple_tensor_blocks(
 
     :return: TensorMap in the uncoupled representation.
     """
+    # Find out in which layout the provided Clebsch-Gordan coefficients
+    # are stored.
+    if cg_coeffs.block(0).samples.names == ["_"]:
+        cg_backend = "python-dense"
+    elif cg_coeffs.block(0).samples.names == ["m1", "m2", "mu"]:
+        cg_backend = "python-sparse"
+    else:
+        raise ValueError(
+            "Can't recognize the format of the provided Clebsch-Gordan coefficients."
+        )
+
     # Check key names
     assert tmap.keys.names[:2] == ["o3_lambda", "o3_sigma"]
 
@@ -160,7 +170,6 @@ def uncouple_tensor_blocks(
         b_values = b.values
 
         o3_lambda = int(k["o3_lambda"])
-        o3_sigma = int(k["o3_sigma"])
 
         key_values: list[int] = k.values.tolist()
         extra_key_values = key_values[2:]
@@ -181,18 +190,15 @@ def uncouple_tensor_blocks(
                     device=b_values.device,
                 )
 
-            C = (
-                o3_sigma
-                * cg_coeffs.block({"l1": l1, "l2": l2, "lambda": o3_lambda}).values
+            v = cg_uncouple(
+                [b_values[..., ip][..., None]],  # shape (n_samples, 2*o3_lambda + 1, 1)
+                l1,
+                l2,
+                [o3_lambda],
+                cg_coeffs,
+                cg_backend=cg_backend,
             )
-            # TODO: fix for the case of sparse cg coeffs
-            C = C.reshape(2 * l1 + 1, 2 * l2 + 1, 2 * o3_lambda + 1)
 
-            v = torch.einsum(
-                "mnM,SM->Smn",
-                C,
-                b_values[..., ip],
-            )
             values[key].add_(v.reshape(v.shape[0], v.shape[1], v.shape[2], 1))
 
     uncoupled_blocks: list[TensorBlock] = []
