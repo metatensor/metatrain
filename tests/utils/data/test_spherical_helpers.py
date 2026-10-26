@@ -95,20 +95,20 @@ def big_uncoupled_tensormap(device, dtype):
     # Set random seed for reproducibility
     torch.manual_seed(0)
 
-    n1s = torch.arange(3, device=device)
-    n2s = torch.arange(4, device=device)
+    n1s = torch.arange(3)
+    n2s = torch.arange(4)
 
     properties = Labels(
         names=["n_1", "n_2"],
-        values=torch.tensor([[n1, n2] for n1 in n1s for n2 in n2s], device=device),
+        values=torch.tensor([[n1, n2] for n1 in n1s for n2 in n2s]),
     )
 
     samples = Labels(
         names=["system", "atom", "something"],
-        values=torch.randint(0, 10, (7, 3), device=device),
+        values=torch.randint(0, 10, (7, 3)),
     )
 
-    l_values = torch.tensor(list(itertools.product(range(3), range(4))), device=device)
+    l_values = torch.tensor(list(itertools.product(range(3), range(4))))
 
     return TensorMap(
         keys=Labels(
@@ -124,8 +124,8 @@ def big_uncoupled_tensormap(device, dtype):
             values=torch.concat(
                 [
                     l_values,
-                    torch.ones((len(l_values), 2), device=device, dtype=torch.int64),
-                    torch.randint(0, 10, (len(l_values), 3), device=device),
+                    torch.ones((len(l_values), 2), dtype=torch.int64),
+                    torch.randint(0, 10, (len(l_values), 3)),
                 ],
                 dim=1,
             ),
@@ -134,7 +134,6 @@ def big_uncoupled_tensormap(device, dtype):
             TensorBlock(
                 values=torch.randn(
                     (len(samples), (2 * l1 + 1), (2 * l2 + 1), len(properties)),
-                    device=device,
                 ),
                 samples=samples,
                 components=[
