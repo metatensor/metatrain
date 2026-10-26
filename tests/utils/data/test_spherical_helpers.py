@@ -188,7 +188,7 @@ def test_uncouple(coupled_tensormap, cg_coeffs):
     ]
 
     # Check that the block is correct.
-    uncoupled_block = uncoupled.block(0)
+    uncoupled_block = uncoupled.block(0).to("cpu")
 
     coupled_samples = coupled_tensormap.block(0).samples
     assert uncoupled_block.samples == coupled_samples
