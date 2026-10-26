@@ -29,6 +29,7 @@ from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.sum_over_atoms import sum_over_atoms
+from metatrain.utils.variance import get_variance_output_name
 
 from . import checkpoints
 from .documentation import ModelHypers
@@ -46,7 +47,7 @@ class FlashMD(ModelInterface[ModelHypers]):
     For more information, you can refer to https://arxiv.org/abs/2505.19350.
     """
 
-    __checkpoint_version__ = 7
+    __checkpoint_version__ = 8
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     # read by downstream integrators from the exported module
@@ -58,6 +59,7 @@ class FlashMD(ModelInterface[ModelHypers]):
     key_labels: Dict[str, Labels]
     component_labels: Dict[str, List[List[Labels]]]
     property_labels: Dict[str, List[Labels]]
+    variance_target_names: List[str]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
@@ -159,6 +161,8 @@ class FlashMD(ModelInterface[ModelHypers]):
         self.register_buffer("property_labels", {}, persistent=False)
 
         self.target_names: List[str] = []
+        # targets with a heteroscedastic variance head (see ``add_variance_output``)
+        self.variance_target_names = []
         for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
@@ -469,6 +473,18 @@ class FlashMD(ModelInterface[ModelHypers]):
                 return_dict[k] = v
 
         # **Stage 4: Atomic Predictions**
+        # variance outputs are predicted by their own (variance) heads
+        head_outputs: Dict[str, ModelOutput] = {}
+        for name, output in outputs.items():
+            head_outputs[name] = output
+
+        for target_name in self.variance_target_names:
+            variance_name = get_variance_output_name(target_name)
+            if variance_name in outputs:
+                head_outputs[get_variance_head_name(target_name)] = outputs[
+                    variance_name
+                ]
+
         with record_function("FlashMD::_calculate_atomic_predictions"):
             node_atomic_predictions_dict, edge_atomic_predictions_dict = (
                 self._calculate_atomic_predictions(
@@ -476,9 +492,10 @@ class FlashMD(ModelInterface[ModelHypers]):
                     edge_last_layer_features_dict,
                     padding_mask,
                     cutoff_factors,
-                    outputs,
+                    head_outputs,
                 )
             )
+
         with record_function("FlashMD::_get_output_atomic_predictions"):
             atomic_predictions_dict = self._get_output_atomic_predictions(
                 systems,
@@ -493,6 +510,20 @@ class FlashMD(ModelInterface[ModelHypers]):
 
             for k, v in atomic_predictions_dict.items():
                 return_dict[k] = v
+
+        if len(self.variance_target_names) > 0:
+            with record_function("FlashMD::_get_output_variance_predictions"):
+                variance_predictions_dict = self._get_output_variance_predictions(
+                    node_atomic_predictions_dict,
+                    edge_atomic_predictions_dict,
+                    edge_vectors,
+                    sample_labels,
+                    outputs,
+                    selected_atoms,
+                )
+
+                for k, v in variance_predictions_dict.items():
+                    return_dict[k] = v
 
         return return_dict
 
@@ -1040,6 +1071,99 @@ class FlashMD(ModelInterface[ModelHypers]):
 
         return atomic_predictions_tmap_dict
 
+    def _get_output_variance_predictions(
+        self,
+        node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+        edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+        edge_vectors: torch.Tensor,
+        sample_labels: Labels,
+        outputs: Dict[str, ModelOutput],
+        selected_atoms: Optional[Labels],
+    ) -> Dict[str, TensorMap]:
+        """
+        Combine the node and edge predictions of the variance heads into positive
+        per-atom variances, broadcast over the components of the corresponding target.
+        Per-structure variances are the sum of the per-atom ones.
+
+        :param node_atomic_predictions_dict: Dictionary mapping head names to lists of
+            lists of node atomic prediction tensors (one list per GNN layer, one tensor
+            per block).
+        :param edge_atomic_predictions_dict: Dictionary mapping head names to lists of
+            lists of edge atomic prediction tensors (one list per GNN layer, one tensor
+            per block).
+        :param edge_vectors: Tensor of edge vectors [n_atoms, max_num_neighbors, 3].
+        :param sample_labels: Labels for all atoms in the batch [n_atoms, 2].
+        :param outputs: Dictionary of requested outputs.
+        :param selected_atoms: Optional Labels specifying a subset of atoms to include.
+        :return: Dictionary mapping requested variance output names to TensorMaps.
+        """
+        variance_tmap_dict: Dict[str, TensorMap] = {}
+
+        for target_name in self.variance_target_names:
+            variance_name = get_variance_output_name(target_name)
+            if variance_name not in outputs:
+                continue
+
+            head_name = get_variance_head_name(target_name)
+
+            raw_by_block = {
+                key: torch.zeros(
+                    1, dtype=edge_vectors.dtype, device=edge_vectors.device
+                )
+                for key in self.output_shapes[head_name].keys()
+            }
+
+            # sum the node and edge contributions of all the readout layers
+            node_predictions_by_layer = node_atomic_predictions_dict[head_name]
+            edge_predictions_by_layer = edge_atomic_predictions_dict[head_name]
+            for i in range(len(node_predictions_by_layer)):
+                for j, key in enumerate(raw_by_block):
+                    raw_by_block[key] = raw_by_block[key] + (
+                        node_predictions_by_layer[i][j]
+                        + edge_predictions_by_layer[i][j]
+                    )
+
+            blocks: List[TensorBlock] = []
+            for key, shape, components, properties in zip(
+                self.output_shapes[target_name].keys(),
+                self.output_shapes[target_name].values(),
+                self.component_labels[target_name],
+                self.property_labels[target_name],
+                strict=True,
+            ):
+                # the variance blocks are stored with the same keys as the target's
+                raw = raw_by_block[key]  # [n_atoms, n_properties]
+                variance = torch.nn.functional.softplus(raw) + 1e-6
+
+                # isotropic: the same variance for all the components
+                for _ in range(len(shape) - 1):
+                    variance = variance.unsqueeze(1)
+                variance = variance.expand([raw.shape[0]] + shape)
+
+                blocks.append(
+                    TensorBlock(
+                        values=variance,
+                        samples=sample_labels,
+                        components=components,
+                        properties=properties,
+                    )
+                )
+
+            variance_tmap = TensorMap(keys=self.key_labels[target_name], blocks=blocks)
+
+            if selected_atoms is not None:
+                variance_tmap = mts.slice(
+                    variance_tmap, axis="samples", selection=selected_atoms
+                )
+
+            if outputs[variance_name].sample_kind == "atom":
+                variance_tmap_dict[variance_name] = variance_tmap
+            else:
+                # independent per-atom noise: the variances add up
+                variance_tmap_dict[variance_name] = sum_over_atoms(variance_tmap)
+
+        return variance_tmap_dict
+
     @classmethod
     def load_checkpoint(
         cls,
@@ -1061,6 +1185,10 @@ class FlashMD(ModelInterface[ModelHypers]):
             hypers=model_data["model_hypers"],
             dataset_info=model_data["dataset_info"],
         )
+        # variance heads are not part of the hypers, so they are re-created here
+        # (checkpoints written before variance heads existed simply don't have any)
+        for target_name in model_data.get("variance_target_names", []):
+            model.add_variance_output(target_name)
 
         finetune_config = model_state_dict.pop("finetune_config", {})
         if finetune_config:
@@ -1130,61 +1258,7 @@ class FlashMD(ModelInterface[ModelHypers]):
             description=target_info.description,
         )
 
-        self.node_heads[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.Sequential(
-                    torch.nn.Linear(self.d_node, self.d_head),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(self.d_head, self.d_head),
-                    torch.nn.SiLU(),
-                )
-                for _ in range(self.num_readout_layers)
-            ]
-        )
-
-        self.edge_heads[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.Sequential(
-                    torch.nn.Linear(self.d_pet, self.d_head),
-                    torch.nn.SiLU(),
-                    torch.nn.Linear(self.d_head, self.d_head),
-                    torch.nn.SiLU(),
-                )
-                for _ in range(self.num_readout_layers)
-            ]
-        )
-
-        self.node_last_layers[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.ModuleDict(
-                    {
-                        key: torch.nn.Linear(
-                            self.d_head,
-                            prod(shape),
-                            bias=True,
-                        )
-                        for key, shape in self.output_shapes[target_name].items()
-                    }
-                )
-                for _ in range(self.num_readout_layers)
-            ]
-        )
-
-        self.edge_last_layers[target_name] = torch.nn.ModuleList(
-            [
-                torch.nn.ModuleDict(
-                    {
-                        key: torch.nn.Linear(
-                            self.d_head,
-                            prod(shape),
-                            bias=True,
-                        )
-                        for key, shape in self.output_shapes[target_name].items()
-                    }
-                )
-                for _ in range(self.num_readout_layers)
-            ]
-        )
+        self._add_heads(target_name, self.output_shapes[target_name])
 
         ll_features_name = get_last_layer_features_name(target_name)
         self.outputs[ll_features_name] = ModelOutput(
@@ -1198,6 +1272,112 @@ class FlashMD(ModelInterface[ModelHypers]):
             block.properties for block in target_info.layout.blocks()
         ]
 
+    def _add_heads(self, head_name: str, output_shapes: Dict[str, List[int]]) -> None:
+        """
+        Create the node/edge heads and last layers for all readout layers.
+
+        :param head_name: Name under which the heads are stored.
+        :param output_shapes: Output shape of each block produced by the last layers.
+        """
+        self.node_heads[head_name] = torch.nn.ModuleList(
+            [
+                torch.nn.Sequential(
+                    torch.nn.Linear(self.d_node, self.d_head),
+                    torch.nn.SiLU(),
+                    torch.nn.Linear(self.d_head, self.d_head),
+                    torch.nn.SiLU(),
+                )
+                for _ in range(self.num_readout_layers)
+            ]
+        )
+
+        self.edge_heads[head_name] = torch.nn.ModuleList(
+            [
+                torch.nn.Sequential(
+                    torch.nn.Linear(self.d_pet, self.d_head),
+                    torch.nn.SiLU(),
+                    torch.nn.Linear(self.d_head, self.d_head),
+                    torch.nn.SiLU(),
+                )
+                for _ in range(self.num_readout_layers)
+            ]
+        )
+
+        self.node_last_layers[head_name] = torch.nn.ModuleList(
+            [
+                torch.nn.ModuleDict(
+                    {
+                        key: torch.nn.Linear(
+                            self.d_head,
+                            prod(shape),
+                            bias=True,
+                        )
+                        for key, shape in output_shapes.items()
+                    }
+                )
+                for _ in range(self.num_readout_layers)
+            ]
+        )
+
+        self.edge_last_layers[head_name] = torch.nn.ModuleList(
+            [
+                torch.nn.ModuleDict(
+                    {
+                        key: torch.nn.Linear(
+                            self.d_head,
+                            prod(shape),
+                            bias=True,
+                        )
+                        for key, shape in output_shapes.items()
+                    }
+                )
+                for _ in range(self.num_readout_layers)
+            ]
+        )
+
+    def add_variance_output(self, target_name: str) -> None:
+        """
+        Add a heteroscedastic variance head for an existing target.
+
+        The variance head has its own node/edge heads and last layers on top of the
+        shared backbone, and predicts one (positive) variance per atom and per
+        property, shared by all the components of the target (i.e. the noise is
+        isotropic for Cartesian vectors). It is exposed as the
+        ``mtt::aux::{target}_variance`` output, which has the same metadata as the
+        target. Per-structure variances are obtained by summing the per-atom ones,
+        i.e. assuming that the noise is independent across atoms.
+
+        The variance head is not part of the last layer of the target, so that it
+        does not enter the LLPR of the target's mean.
+
+        Calling this function on a target which already has a variance head is a
+        no-op.
+
+        :param target_name: Name of the target for which to add a variance head.
+        """
+        if target_name not in self.target_names:
+            raise ValueError(
+                f"Cannot add a variance head for '{target_name}': it is not a target "
+                f"of this model (targets: {self.target_names})."
+            )
+        if target_name in self.variance_target_names:
+            return
+
+        head_name = get_variance_head_name(target_name)
+        self.output_shapes[head_name] = {
+            key: shape[-1:] for key, shape in self.output_shapes[target_name].items()
+        }
+        self._add_heads(head_name, self.output_shapes[head_name])
+
+        target_output = self.outputs[target_name]
+        self.outputs[get_variance_output_name(target_name)] = ModelOutput(
+            unit=f"({target_output.unit})^2" if target_output.unit != "" else "",
+            sample_kind="atom",
+            description=f"predicted (aleatoric) variance of {target_name}",
+        )
+
+        self.variance_target_names.append(target_name)
+
     def remove_output(self, target_name: str) -> None:
         """
         Remove a previously registered output target, mirroring ``_add_output``.
@@ -1207,6 +1387,18 @@ class FlashMD(ModelInterface[ModelHypers]):
 
         :param target_name: Name of the target to remove.
         """
+        if target_name in self.variance_target_names:
+            head_name = get_variance_head_name(target_name)
+            self.output_shapes.pop(head_name, None)
+            self.outputs.pop(get_variance_output_name(target_name), None)
+
+            del self.node_heads[head_name]
+            del self.edge_heads[head_name]
+            del self.node_last_layers[head_name]
+            del self.edge_last_layers[head_name]
+
+            self.variance_target_names.remove(target_name)
+
         self.output_shapes.pop(target_name, None)
         self.outputs.pop(target_name, None)
         self.outputs.pop(get_last_layer_features_name(target_name), None)
@@ -1251,6 +1443,7 @@ class FlashMD(ModelInterface[ModelHypers]):
             "model_data": {
                 "model_hypers": self.hypers,
                 "dataset_info": self.dataset_info,
+                "variance_target_names": list(self.variance_target_names),
             },
             "epoch": None,
             "best_epoch": None,
@@ -1269,6 +1462,16 @@ def get_last_layer_features_name(target_name: str) -> str:
     """
     base_name = target_name.replace("mtt::", "")
     return f"mtt::aux::{base_name}_last_layer_features"
+
+
+def get_variance_head_name(target_name: str) -> str:
+    """
+    Get the name under which the variance heads of a target are stored.
+
+    :param target_name: Name of the target.
+    :return: Name of the corresponding variance heads.
+    """
+    return f"{target_name}__variance"
 
 
 def should_compute_last_layer_features(

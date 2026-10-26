@@ -24,8 +24,24 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 -----------------------------
 
+Added
+#####
+
+- FlashMD can train heteroscedastic variance heads on top of a frozen, trained model,
+  with the new ``variance_heads`` training hyperparameter. The predicted variances are
+  exposed as ``mtt::aux::{target}_variance`` outputs.
+- New ``gaussian_nll`` loss, using the predicted variance of a target.
+- The LLPR uses the predicted variances of the wrapped model, if any, as
+  heteroscedastic noise of the last-layer Laplace approximation, and returns the total
+  (aleatoric + epistemic) uncertainty for the corresponding targets.
+
 Fixed
 #####
+
+- The LLPR now puts the wrapped model in evaluation mode before computing its
+  covariance and calibration residuals. Previously, the predictions compared to the
+  targets did not include the scaler and the additive models (e.g. the atomic
+  baseline).
 
 - PET computes forces and stresses for batches of several structures faster
 - Datasets read using ASE (e.g. ``.xyz`` files) with property names treated specially by

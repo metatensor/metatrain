@@ -15,6 +15,7 @@ from metatrain.utils.loss import (
     TensorMapEmpiricalCRPSLoss,
     TensorMapGaussianCRPSLoss,
     TensorMapGaussianNLLLoss,
+    TensorMapGaussianNLLVarianceLoss,
     TensorMapHuberLoss,
     TensorMapMAELoss,
     TensorMapMaskedHuberLoss,
@@ -835,3 +836,63 @@ def test_tensormap_gaussian_crps_loss(ensemble_tensor_maps):
     result = loss_fn.compute(predictions, targets)
     assert torch.isfinite(result)
     assert result.item() >= 0.0  # CRPS should be non-negative
+
+
+def _cartesian_tensor_map(values):
+    n_atoms = values.shape[0]
+    return TensorMap(
+        keys=Labels.single(),
+        blocks=[
+            TensorBlock(
+                values=values,
+                samples=Labels(
+                    ["system", "atom"],
+                    torch.stack(
+                        [torch.zeros(n_atoms, dtype=int), torch.arange(n_atoms)], 1
+                    ),
+                ),
+                components=[Labels.range("xyz", 3)],
+                properties=Labels.range("position", 1),
+            )
+        ],
+    )
+
+
+def test_gaussian_nll_variance_loss():
+    """The 'gaussian_nll' loss uses the predicted variance output of the target."""
+    assert LossType.from_key("gaussian_nll").cls is TensorMapGaussianNLLVarianceLoss
+
+    torch.manual_seed(0)
+    mean = torch.randn(4, 3, 1, dtype=torch.float64)
+    variance = torch.rand(4, 3, 1, dtype=torch.float64) + 0.1
+    target = torch.randn(4, 3, 1, dtype=torch.float64)
+    target[0, 1, 0] = torch.nan  # NaN targets are ignored
+
+    loss_fn = create_loss(
+        "gaussian_nll", name="position", gradient=None, weight=1.0, reduction="mean"
+    )
+    predictions = {
+        "position": _cartesian_tensor_map(mean),
+        "mtt::aux::position_variance": _cartesian_tensor_map(variance),
+    }
+    result = loss_fn.compute(predictions, {"position": _cartesian_tensor_map(target)})
+
+    valid = ~torch.isnan(target)
+    expected = torch.mean(
+        0.5 * (torch.log(variance) + (mean - target) ** 2 / variance)[valid]
+    )
+    torch.testing.assert_close(result, expected)
+
+    with pytest.raises(ValueError, match="mtt::aux::position_variance"):
+        loss_fn.compute(
+            {"position": _cartesian_tensor_map(mean)},
+            {"position": _cartesian_tensor_map(target)},
+        )
+    with pytest.raises(ValueError, match="does not support gradients"):
+        create_loss(
+            "gaussian_nll",
+            name="position",
+            gradient="positions",
+            weight=1.0,
+            reduction="mean",
+        )

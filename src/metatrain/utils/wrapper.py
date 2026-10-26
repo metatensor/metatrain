@@ -22,6 +22,7 @@ from metatrain.utils.data.match_tmaps import match_layout
 from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.variance import get_variance_output_name
 
 
 CoreModelClass = TypeVar("CoreModelClass", bound=ModelInterface)
@@ -52,6 +53,44 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         # Compute transformations needed at evaluation time.
         self._eval_transforms = self._get_eval_transforms()
 
+    def get_variance_target_scales(
+        self,
+        systems: List[System],
+        target_name: str,
+        sample_kind: str,
+        selected_atoms: Optional[Labels] = None,
+    ) -> Optional[torch.Tensor]:
+        """Get the scales applied at evaluation to a target with a predicted variance.
+
+        :param systems: The systems the outputs are computed for.
+        :param target_name: The name of the target.
+        :param sample_kind: The sample kind of the requested output.
+        :param selected_atoms: Optional labels for selected atoms.
+        :return: The full scales, with the shape of the target's values, or ``None``
+            if the scaler does not rescale this target.
+        """
+        if self.scaler is None:
+            return None
+
+        if target_name not in self._eval_transforms["scale_variance"]:
+            return None
+
+        scales = self.scaler.get_scales(
+            systems,
+            {target_name: ModelOutput(sample_kind=sample_kind)},
+            selected_atoms=selected_atoms,
+        )
+
+        return scales[target_name].block().values
+
+    def update_eval_transforms(self) -> None:
+        """Recompute the transformations needed at evaluation time.
+
+        This must be called when outputs are added to the core model after the
+        wrapper was created (e.g. variance outputs).
+        """
+        self._eval_transforms = self._get_eval_transforms()
+
     def _get_eval_transforms(self) -> dict[str, list[str]]:
         """Finds out which targets need to be transformed at evaluation time to
         make sure that the outputs of the core model, scaler and additive models
@@ -71,6 +110,14 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         additive_targets = [
             additive_model.dataset_info.targets
             for additive_model in self.additive_models
+        ]
+
+        # Targets whose predicted variance output must be rescaled by the scaler
+        core_outputs = self.core.supported_outputs()
+        eval_transforms["scale_variance"] = [
+            name
+            for name in scaler_targets
+            if get_variance_output_name(name) in core_outputs
         ]
 
         # Go through the steps of the evaluation and find out
@@ -138,6 +185,25 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
                         use_per_target_scales=True,
                         use_per_property_scales=True,
                     )
+
+                    # A variance scales with the square of its target's scale, so the
+                    # target's scales are applied to it twice. Additive models are not
+                    # applied to variances.
+                    for k in self._eval_transforms["scale_variance"]:
+                        variance_name = get_variance_output_name(k)
+                        if variance_name in return_dict:
+                            variance = return_dict[variance_name]
+
+                            for _ in range(2):
+                                variance = self.scaler.apply_scales(
+                                    systems,
+                                    {k: variance},
+                                    selected_atoms=selected_atoms,
+                                    use_per_target_scales=True,
+                                    use_per_property_scales=True,
+                                )[k]
+
+                            return_dict[variance_name] = variance
 
                 for i, additive_model in enumerate(self.additive_models):
                     # Convert all targets whose layout is different at this point

@@ -34,11 +34,13 @@ from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
     get_system_with_neighbor_lists_transform,
 )
+from metatrain.utils.variance import get_variance_output_name
 from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
 from .calibration import (
     GaussianCRPSCalibrator,
+    HeteroscedasticNLLCalibrator,
     RatioCalibrator,
 )
 from .documentation import ModelHypers
@@ -48,6 +50,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
     __checkpoint_version__ = 6
 
     ensemble_gradient_outputs: List[str]
+    heteroscedastic_outputs: List[str]
 
     # all torch devices and dtypes are supported, if they are supported by the wrapped
     # the check is performed in the trainer
@@ -161,6 +164,24 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 unit=output.unit,
                 sample_kind=output.sample_kind,
                 description=output.description,
+            )
+
+        # outputs for which the wrapped model also predicts an (aleatoric) variance.
+        # For these, the last-layer Hessian is weighted by the inverse predicted
+        # variance, and the returned uncertainty is
+        # sqrt(aleatoric variance + epistemic variance).
+        self.heteroscedastic_outputs = [
+            name
+            for name in self.outputs_list
+            if get_variance_output_name(name) in backbone_outputs
+        ]
+
+        if len(self.heteroscedastic_outputs) > 0:
+            logging.info(
+                "The wrapped model predicts variances for "
+                f"{self.heteroscedastic_outputs}: the LLPR will use them as "
+                "heteroscedastic noise, and return total (aleatoric + epistemic) "
+                "uncertainties for these outputs"
             )
 
         self.capabilities = ModelCapabilities(
@@ -400,6 +421,13 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 if name.endswith("_ensemble") or name.endswith("_uncertainty"):
                     original_name = self._get_original_name(name)
                     outputs_for_model[original_name] = output
+                # total uncertainties also need the aleatoric variance
+                if name.endswith("_uncertainty"):
+                    original_name = self._get_original_name(name)
+                    if original_name in self.heteroscedastic_outputs:
+                        outputs_for_model[get_variance_output_name(original_name)] = (
+                            ModelOutput(sample_kind=output.sample_kind)
+                        )
                 # (will be removed at the end if not requested by the user)
 
         for name, output in outputs.items():
@@ -450,42 +478,51 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ll_features_name = "mtt::aux::energy_last_layer_features"
             ll_features = return_dict[ll_features_name]
 
-            ll_features_values = ll_features.block().values
-            if len(ll_features_values.shape) == 2:
-                # create fake component dimension for proper einsum operation
-                ll_features_values = ll_features_values.unsqueeze(1)
-            elif len(ll_features_values.shape) == 3:
-                # already has component dimension
-                pass
-            else:
-                # condense all component dimensions into one for proper einsum operation
-                ll_features_values = ll_features_values.reshape(
-                    ll_features_values.shape[0], -1, ll_features_values.shape[-1]
+            original_name = self._get_original_name(uncertainty_name)
+            cur_prop = return_dict[original_name].block().properties
+            one_over_pr_values = self._compute_one_over_pr(
+                uncertainty_name,
+                ll_features.block().values,
+                list(return_dict[original_name].block().values.shape),
+            )
+
+            if original_name in self.heteroscedastic_outputs:
+                # total variance: predicted aleatoric variance plus the (calibrated)
+                # epistemic variance from the LLPR
+                aleatoric_variance = (
+                    return_dict[get_variance_output_name(original_name)].block().values
+                )
+                multiplier = self._get_multiplier(uncertainty_name)
+
+                # the LLPR is computed for the weights of the (unscaled) last layer,
+                # the epistemic variance of the prediction scales with scale^2
+                epistemic_variance = one_over_pr_values * self._squared_scales(
+                    systems,
+                    original_name,
+                    outputs[uncertainty_name].sample_kind,
+                    selected_atoms,
+                    one_over_pr_values,
                 )
 
-            # compute PRs; the code is the same for PR and LPR
-            v = torch.linalg.solve_triangular(
-                self._get_cholesky(uncertainty_name),
-                ll_features_values.reshape(-1, ll_features_values.shape[-1]).T,
-                upper=False,
-            )
-            one_over_pr_values = torch.sum(v**2, dim=0).reshape(
-                ll_features_values.shape[0], ll_features_values.shape[1], 1
-            )
-
-            original_name = self._get_original_name(uncertainty_name)
-            number_of_components = _prod(
-                return_dict[original_name].block().values.shape[1:-1]
-            )
-            cur_prop = return_dict[original_name].block().properties
-            num_prop = len(cur_prop.values)
-            one_over_pr_values = one_over_pr_values.expand(
-                -1, number_of_components, num_prop
-            )
-            one_over_pr_values = one_over_pr_values.reshape(
-                [one_over_pr_values.shape[0]]
-                + list(return_dict[original_name].block().values.shape[1:])
-            )
+                return_dict[uncertainty_name] = TensorMap(
+                    keys=Labels(
+                        names=["_"],
+                        values=torch.tensor(
+                            [[0]], device=ll_features.block().values.device
+                        ),
+                    ),
+                    blocks=[
+                        TensorBlock(
+                            values=torch.sqrt(
+                                aleatoric_variance + multiplier**2 * epistemic_variance
+                            ),
+                            samples=ll_features.block().samples,
+                            components=return_dict[original_name].block().components,
+                            properties=cur_prop,
+                        )
+                    ],
+                )
+                continue
 
             # uncertainty TensorMap (values expanded into shape (num_samples, num_prop),
             # with expansion targeting num_prop
@@ -680,6 +717,83 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 return_dict.pop(key)
 
         return return_dict
+
+    def _squared_scales(
+        self,
+        systems: List[System],
+        target_name: str,
+        sample_kind: str,
+        selected_atoms: Optional[Labels],
+        like: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Squared scales applied by the scaler of the wrapped model to a target with a
+        predicted variance, or ones if the target is not scaled.
+
+        :param systems: The systems the outputs are computed for.
+        :param target_name: Name of the target.
+        :param sample_kind: Sample kind of the output.
+        :param selected_atoms: Optional labels for selected atoms.
+        :param like: Tensor with the shape, dtype and device of the target values.
+        :return: The squared scales, broadcastable to ``like``.
+        """
+        scales = self.model.get_variance_target_scales(
+            systems, target_name, sample_kind, selected_atoms
+        )
+
+        if scales is None:
+            return torch.ones_like(like)
+
+        return scales.to(dtype=like.dtype) ** 2
+
+    def _compute_one_over_pr(
+        self,
+        uncertainty_name: str,
+        ll_features_values: torch.Tensor,
+        target_shape: List[int],
+    ) -> torch.Tensor:
+        """
+        Compute the (uncalibrated) inverse prediction rigidities, i.e. the epistemic
+        variances of the LLPR, expanded to the shape of the target values.
+
+        :param uncertainty_name: Name of the uncertainty output.
+        :param ll_features_values: Last-layer features, with shape
+            ``(num_samples, ..., num_features)``.
+        :param target_shape: Shape of the values of the target.
+        :return: Inverse prediction rigidities, with shape ``target_shape``.
+        """
+        if len(ll_features_values.shape) == 2:
+            # create fake component dimension for proper einsum operation
+            ll_features_values = ll_features_values.unsqueeze(1)
+        elif len(ll_features_values.shape) == 3:
+            # already has component dimension
+            pass
+        else:
+            # condense all component dimensions into one for proper einsum operation
+            ll_features_values = ll_features_values.reshape(
+                ll_features_values.shape[0], -1, ll_features_values.shape[-1]
+            )
+
+        # compute PRs; the code is the same for PR and LPR
+        v = torch.linalg.solve_triangular(
+            self._get_cholesky(uncertainty_name),
+            ll_features_values.reshape(-1, ll_features_values.shape[-1]).T,
+            upper=False,
+        )
+        one_over_pr_values = torch.sum(v**2, dim=0).reshape(
+            ll_features_values.shape[0], ll_features_values.shape[1], 1
+        )
+
+        number_of_components = _prod(target_shape[1:-1])
+        num_prop = target_shape[-1]
+        one_over_pr_values = one_over_pr_values.expand(
+            -1, number_of_components, num_prop
+        )
+        one_over_pr_values = one_over_pr_values.reshape(
+            [one_over_pr_values.shape[0]] + list(target_shape[1:])
+        )
+
+        return one_over_pr_values
 
     def _systems_with_grad(self, systems: List[System]) -> List[System]:
         """Rebuild ``systems`` so that positions and cell require grad and neighbor
@@ -882,6 +996,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
         device = next(iter(self.buffers())).device
         dtype = next(iter(self.buffers())).dtype
+        # in evaluation mode, the predictions of the wrapped model (here, the
+        # variances) include the scaler and additive models
+        self.model.eval()
         with torch.no_grad():
             for batch in train_loader:
                 systems, targets, _ = unpack_batch(batch)
@@ -901,8 +1018,19 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     f"mtt::aux::{n.replace('mtt::', '')}_last_layer_features": o
                     for n, o in outputs_for_targets.items()
                 }
+                outputs_for_variances = {
+                    get_variance_output_name(n): o
+                    for n, o in outputs_for_targets.items()
+                    if n in self.heteroscedastic_outputs
+                }
+
                 output = self.forward(
-                    systems, {**outputs_for_targets, **outputs_for_features}
+                    systems,
+                    {
+                        **outputs_for_targets,
+                        **outputs_for_features,
+                        **outputs_for_variances,
+                    },
                 )
                 for name in targets.keys():
                     ll_feat_tmap = output[
@@ -910,7 +1038,35 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     ]
                     # TODO: interface ll_feat calculation with the loss function,
                     # paying attention to normalization w.r.t. n_atoms
-                    if outputs_for_targets[name].sample_kind == "system":
+                    if name in self.heteroscedastic_outputs:
+                        # Gauss-Newton Hessian of the Gaussian NLL with predicted
+                        # variance, for the weights of the (unscaled) last layer:
+                        # sum_i scale_i^2 f_i f_i^T / var_i. There is no need to
+                        # normalize by n_atoms, as it cancels out between the features
+                        # and the variance of per-structure targets
+                        variance = output[get_variance_output_name(name)].block().values
+                        variance = variance / self._squared_scales(
+                            systems,
+                            name,
+                            outputs_for_targets[name].sample_kind,
+                            None,
+                            variance,
+                        )
+
+                        if variance.shape[-1] != 1:
+                            raise NotImplementedError(
+                                "LLPR with predicted variances is only implemented "
+                                f"for targets with a single property, but '{name}' "
+                                f"has {variance.shape[-1]}"
+                            )
+
+                        # the variance is the same for all components (isotropic)
+                        variance = variance.reshape(variance.shape[0], -1)[:, 0]
+
+                        ll_feats = ll_feat_tmap.block().values.detach() / torch.sqrt(
+                            variance
+                        ).reshape([-1] + [1] * (ll_feat_tmap.block().values.dim() - 1))
+                    elif outputs_for_targets[name].sample_kind == "system":
                         ll_feats = (
                             ll_feat_tmap.block().values.detach() / n_atoms.unsqueeze(1)
                         )
@@ -1018,6 +1174,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             outliers.
             The "crps" method minimizes the Continuous Ranked Probability Score (CRPS)
             as a function of the calibration constant.
+            Outputs for which the wrapped model predicts a variance are always
+            calibrated by minimizing the NLL of the total variance (aleatoric plus
+            calibrated epistemic) as a function of the calibration constant.
         """
         valid_loader = self._get_dataloader(
             datasets, batch_size, is_distributed=is_distributed
@@ -1039,6 +1198,23 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 " 'crps'."
             )
 
+        # for outputs with a predicted (aleatoric) variance, only the epistemic part
+        # of the total variance is calibrated
+        heteroscedastic_calibrator = HeteroscedasticNLLCalibrator()
+
+        if (
+            len(self.heteroscedastic_outputs) > 0
+            and calibration_method != "squared_residuals"
+        ):
+            logging.info(
+                f"Calibrating {self.heteroscedastic_outputs}, which have a predicted "
+                "variance, by minimizing the Gaussian NLL (the calibration method "
+                f"'{calibration_method}' is only used for the other outputs)"
+            )
+
+        # in evaluation mode, the predictions of the wrapped model include the scaler
+        # and additive models, like the targets they are compared to
+        self.model.eval()
         with torch.no_grad():
             for batch in valid_loader:
                 systems, targets, _ = unpack_batch(batch)
@@ -1056,10 +1232,19 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                         else "system"
                     )
                     requested_outputs[name] = ModelOutput(sample_kind=sample_kind)
-                    uncertainty_name = _get_uncertainty_name(name)
-                    requested_outputs[uncertainty_name] = ModelOutput(
-                        sample_kind=sample_kind
-                    )
+
+                    if name in self.heteroscedastic_outputs:
+                        requested_outputs[get_variance_output_name(name)] = ModelOutput(
+                            sample_kind=sample_kind
+                        )
+                        requested_outputs[
+                            f"mtt::aux::{name.replace('mtt::', '')}_last_layer_features"
+                        ] = ModelOutput(sample_kind=sample_kind)
+                    else:
+                        uncertainty_name = _get_uncertainty_name(name)
+                        requested_outputs[uncertainty_name] = ModelOutput(
+                            sample_kind=sample_kind
+                        )
 
                 outputs = self.forward(systems, requested_outputs)
 
@@ -1068,9 +1253,39 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
                     pred = outputs[name].block().values.detach()
                     targ = target.block().values
-                    unc = outputs[uncertainty_name].block().values.detach()
-
                     residuals = pred - targ
+
+                    if name in self.heteroscedastic_outputs:
+                        aleatoric = (
+                            outputs[get_variance_output_name(name)].block().values
+                        )
+                        ll_features = outputs[
+                            f"mtt::aux::{name.replace('mtt::', '')}_last_layer_features"
+                        ].block()
+
+                        epistemic = self._compute_one_over_pr(
+                            uncertainty_name, ll_features.values, list(pred.shape)
+                        ) * self._squared_scales(
+                            systems,
+                            name,
+                            requested_outputs[name].sample_kind,
+                            None,
+                            pred,
+                        )
+
+                        heteroscedastic_calibrator.update(
+                            uncertainty_name=uncertainty_name,
+                            residuals=residuals.reshape(-1, residuals.shape[-1]),
+                            aleatoric_variances=aleatoric.reshape(
+                                -1, residuals.shape[-1]
+                            ),
+                            epistemic_variances=epistemic.reshape(
+                                -1, residuals.shape[-1]
+                            ),
+                        )
+                        continue
+
+                    unc = outputs[uncertainty_name].block().values.detach()
 
                     calibrator.update(
                         uncertainty_name=uncertainty_name,
@@ -1079,6 +1294,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     )
 
         multipliers = calibrator.finalize()
+        multipliers.update(heteroscedastic_calibrator.finalize())
 
         for uncertainty_name, alpha in multipliers.items():
             multiplier = self._get_multiplier(uncertainty_name)

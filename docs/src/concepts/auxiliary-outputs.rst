@@ -17,6 +17,8 @@ architectures in ``metatrain``:
   ``target``, as computed by the LLPR module.
 - :ref:`mtt-aux-target-ensemble`: An ensemble prediction for target
   ``target``, as computed by the LLPR module.
+- :ref:`mtt-aux-target-variance`: The predicted (aleatoric) variance of target
+  ``target``.
 
 
 .. _mtt-aux-target-last-layer-features:
@@ -107,3 +109,26 @@ output <mta-energy-ensemble_>`_.
 .. _mta-energy-ensemble: https://docs.metatensor.org/metatomic/latest/outputs/energy.html#energy-ensemble
 
 This output is only supported by the :ref:`LLPR architecture <arch-llpr>`.
+
+.. _mtt-aux-target-variance:
+
+``mtt::aux::{target}_variance``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This output contains the variance of the noise on target ``target``, i.e. its
+aleatoric uncertainty. A separate head of the model predicts it, and is trained
+with the ``gaussian_nll`` :ref:`loss <loss-functions>`. The metadata of this
+output is the same as for the target, and its unit is the square of the unit of
+the target. Per-structure variances are the sums of the per-atom variances.
+
+If a model with variance outputs is wrapped with the :ref:`LLPR architecture
+<arch-llpr>`, the LLPR uses these variances as the noise of its last-layer
+Laplace approximation. The corresponding :ref:`mtt-aux-target-uncertainty`
+output then contains the total uncertainty: the square root of the aleatoric
+variance plus the calibrated epistemic variance.
+
+This output is supported by the following architectures:
+
++---------------------+
+| :ref:`arch-flashmd` |
++---------------------+

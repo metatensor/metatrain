@@ -15,6 +15,7 @@ from torch.nn.modules.loss import _Loss
 from typing_extensions import NotRequired, TypedDict
 
 from metatrain.utils.data import TargetInfo
+from metatrain.utils.variance import get_variance_output_name
 
 
 @with_config(ConfigDict(extra="allow"))
@@ -776,6 +777,89 @@ class TensorMapEnsembleLoss(BaseTensorMapLoss):
         return self.compute_flattened(tmap_pred_mean, tmap_targ, tmap_pred_var)
 
 
+class TensorMapGaussianNLLVarianceLoss(BaseTensorMapLoss):
+    """
+    Gaussian negative log-likelihood loss with a predicted (heteroscedastic) variance.
+
+    The mean is the prediction for the target itself, while the variance is read from
+    the ``mtt::aux::{target}_variance`` output of the model, which must therefore be
+    present in the predictions.
+
+    :param name: key in the predictions/targets dict.
+    :param gradient: optional gradient field name. Not supported for this loss.
+    :param weight: weight of the loss contribution in the final aggregation.
+    :param reduction: reduction mode for torch loss.
+    :param eps: lower bound on the variance, for numerical stability.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        gradient: Optional[str],
+        weight: float,
+        reduction: str,
+        eps: float = 1e-6,
+    ):
+        if gradient is not None:
+            raise ValueError(
+                "The 'gaussian_nll' loss does not support gradients, as no variance "
+                "is predicted for them. Please use another loss for the gradients of "
+                f"'{name}'."
+            )
+        super().__init__(
+            name,
+            gradient,
+            weight,
+            reduction,
+            loss_fn=torch.nn.GaussianNLLLoss(reduction=reduction, eps=eps),
+        )
+
+    def compute(
+        self,
+        predictions: Dict[str, TensorMap],
+        targets: Dict[str, TensorMap],
+        extra_data: Optional[Any] = None,
+    ) -> torch.Tensor:
+        """
+        Gather and flatten mean, variance and target blocks, then compute the loss.
+
+        :param predictions: mapping of names to :py:class:`TensorMap`, containing both
+            the target and its variance output.
+        :param targets: mapping of names to :py:class:`TensorMap`.
+        :param extra_data: ignored for this loss.
+        :return: scalar torch.Tensor loss.
+        """
+        variance_name = get_variance_output_name(self.target)
+        if variance_name not in predictions:
+            raise ValueError(
+                f"The 'gaussian_nll' loss for '{self.target}' requires the model to "
+                f"predict the variance output '{variance_name}'."
+            )
+
+        tensor_map_pred = predictions[self.target]
+        tensor_map_var = predictions[variance_name]
+        tensor_map_targ = targets[self.target]
+
+        means, variances, target_values = [], [], []
+        for key in tensor_map_targ.keys:
+            means.append(tensor_map_pred.block(key).values.reshape(-1))
+            variances.append(tensor_map_var.block(key).values.reshape(-1))
+            target_values.append(tensor_map_targ.block(key).values.reshape(-1))
+
+        all_means = torch.cat(means)
+        all_variances = torch.cat(variances)
+        all_targets = torch.cat(target_values)
+
+        # Don't include in the loss calculation any points where the target is NaN
+        not_nan = ~torch.isnan(all_targets)
+        if not torch.any(not_nan):
+            return torch.zeros((), dtype=all_means.dtype, device=all_means.device)
+
+        return self.torch_loss(
+            all_means[not_nan], all_targets[not_nan], all_variances[not_nan]
+        )
+
+
 class GaussianCRPSLoss(torch.nn.Module):
     r"""
     Gaussian CRPS loss.
@@ -1204,6 +1288,7 @@ class LossType(Enum):
     MASKED_POINTWISE = ("masked_pointwise", MaskedTensorMapLoss)
     SHIFT_AGNOSTIC_MSE = ("shift_agnostic_mse", ShiftAgnosticMSE)
     GAUSSIAN_NLL = ("gaussian_nll_ensemble", TensorMapGaussianNLLLoss)
+    GAUSSIAN_NLL_VARIANCE = ("gaussian_nll", TensorMapGaussianNLLVarianceLoss)
     GAUSSIAN_CRPS = ("gaussian_crps_ensemble", TensorMapGaussianCRPSLoss)
     EMPIRICAL_CRPS = ("empirical_crps_ensemble", TensorMapEmpiricalCRPSLoss)
 

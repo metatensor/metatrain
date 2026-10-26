@@ -318,3 +318,94 @@ def _solve_alpha_crps(
         out[m] = float(sol.root)
 
     return out
+
+
+class HeteroscedasticNLLCalibrator:
+    """
+    Gaussian NLL calibration of the epistemic part of a total predictive variance.
+
+    The total predictive variance of sample ``i`` and channel ``m`` (last axis) is
+    ``s_im + alpha_m^2 * e_im``, where ``s`` is the aleatoric variance predicted by the
+    model and ``e`` is the uncalibrated epistemic variance from the LLPR. As opposed
+    to the purely epistemic case, the NLL-optimal ``alpha`` has no closed form: it is
+    found by bisection on the sign of the derivative of the NLL with respect to
+    ``log(alpha^2)``. The derivative is a sum over samples, which is all-reduced in
+    distributed mode, so that all ranks must call ``finalize`` together.
+
+    If the NLL keeps decreasing (increasing) with ``alpha``, the result is the upper
+    (lower) end of the search interval, ``alpha^2`` in ``[exp(-40), exp(40)]``.
+    """
+
+    def __init__(self) -> None:
+        self._store: Dict[str, Dict[str, List[torch.Tensor]]] = {}
+
+    def update(
+        self,
+        *,
+        uncertainty_name: str,
+        residuals: torch.Tensor,
+        aleatoric_variances: torch.Tensor,
+        epistemic_variances: torch.Tensor,
+    ) -> None:
+        if uncertainty_name not in self._store:
+            self._store[uncertainty_name] = {
+                "squared_residuals": [],
+                "aleatoric": [],
+                "epistemic": [],
+            }
+
+        store = self._store[uncertainty_name]
+        store["squared_residuals"].append(residuals.detach().to(torch.float64) ** 2)
+        store["aleatoric"].append(aleatoric_variances.detach().to(torch.float64))
+        store["epistemic"].append(epistemic_variances.detach().to(torch.float64))
+
+    def finalize(self) -> Dict[str, torch.Tensor]:
+        is_distributed = (
+            torch.distributed.is_available() and torch.distributed.is_initialized()
+        )
+
+        multipliers: Dict[str, torch.Tensor] = {}
+        for uncertainty_name, store in self._store.items():
+            r2 = torch.cat(store["squared_residuals"], dim=0)  # (N, M)
+            s = torch.cat(store["aleatoric"], dim=0)  # (N, M)
+            e = torch.cat(store["epistemic"], dim=0)  # (N, M)
+
+            # bisection on log(alpha^2)
+            lo = torch.full(
+                (r2.shape[1],), -40.0, dtype=torch.float64, device=r2.device
+            )
+            hi = torch.full_like(lo, 40.0)
+
+            for _ in range(100):
+                mid = 0.5 * (lo + hi)
+
+                derivative = _heteroscedastic_nll_derivative(mid, r2, s, e)
+                if is_distributed:
+                    torch.distributed.all_reduce(derivative)
+
+                increasing = derivative > 0.0
+                hi = torch.where(increasing, mid, hi)
+                lo = torch.where(increasing, lo, mid)
+
+            multipliers[uncertainty_name] = torch.sqrt(torch.exp(0.5 * (lo + hi)))
+
+        return multipliers
+
+
+def _heteroscedastic_nll_derivative(
+    log_a: torch.Tensor, r2: torch.Tensor, s: torch.Tensor, e: torch.Tensor
+) -> torch.Tensor:
+    """
+    Local derivative, with respect to ``log(a)``, of the Gaussian NLL
+    ``0.5 * sum_i [log(v_i) + r2_i / v_i]`` with variance ``v = s + a * e``.
+
+    :param log_a: Logarithm of the multiplier ``a``, shape (M,).
+    :param r2: Squared residuals, shape (N, M).
+    :param s: Aleatoric variances, shape (N, M).
+    :param e: Epistemic variances, shape (N, M).
+    :return: The derivative for each channel, shape (M,).
+    """
+    a = torch.exp(log_a)
+    v = s + a * e
+
+    return torch.sum(0.5 * a * e * (1.0 / v - r2 / v**2), dim=0)

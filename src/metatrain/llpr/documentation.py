@@ -1,4 +1,4 @@
-"""
+r"""
 LLPR
 ====
 
@@ -14,6 +14,21 @@ estimates. Gradients (e.g. forces and stresses) are not yet used.
 
 Note that the uncertainties computed with this implementation are returned as standard
 deviations, and not variances.
+
+Some models also predict the (aleatoric) variance :math:`\sigma^2(x)` of a target, as
+the :ref:`mtt-aux-target-variance` output (for example :ref:`arch-flashmd` with
+``variance_heads``). For such a target, the LLPR is a heteroscedastic last-layer
+Laplace approximation for the weights of the last layer. Its precision matrix is
+:math:`\Lambda = \sum_i c_i^2 f_i f_i^T / \sigma^2(x_i) + r I`, where :math:`f` are
+the last-layer features, :math:`c` is the scale that the scaler of the wrapped model
+applies to the target, and :math:`r` is the ``regularizer``. The returned uncertainty
+is the total one, :math:`\sqrt{\sigma^2(x) + \alpha^2 c^2 f^T \Lambda^{-1} f}`. This
+is exact for per-atom outputs, also when the scale depends on the atomic type. For
+per-structure outputs of per-atom targets with type-dependent scales, it is an
+approximation. The calibration constant
+:math:`\alpha` scales only the epistemic part, and is always fitted by minimizing the
+Gaussian NLL of the total variance on the validation set. Ensembles are still sampled
+from the last-layer posterior, so they only carry the epistemic uncertainty.
 
 Additional outputs
 ------------------
