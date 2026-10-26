@@ -150,6 +150,12 @@ def test_variance_output():
     assert torch.all(variance.values > 0.0)
     torch.testing.assert_close(variance.values[:, 0], variance.values[:, 2])
 
+    # a new head starts from a unit variance (in normalized units) for all atoms, so
+    # that its softplus is not saturated
+    torch.testing.assert_close(
+        variance.values, torch.full_like(variance.values, 1.0 + 1e-6)
+    )
+
     # requesting only the variance gives the same result
     alone = model(systems, {POSITION: ModelOutput(sample_kind="atom")})
 

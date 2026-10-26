@@ -1,0 +1,34 @@
+seed: 42
+
+architecture:
+  name: llpr
+  training:
+    model_checkpoint: model-variance.ckpt
+    batch_size: 4
+
+# The same data as for the variance heads. The validation set is used to calibrate
+# the epistemic part of the uncertainty.
+training_set:
+  systems:
+    read_from: flashmd.xyz
+    length_unit: A
+  targets:
+    position:
+      key: future_positions
+      quantity: length
+      unit: A
+      type:
+        cartesian:
+          rank: 1
+      sample_kind: atom
+    momentum:
+      key: future_momenta
+      quantity: momentum
+      unit: (eV*u)^(1/2)
+      type:
+        cartesian:
+          rank: 1
+      sample_kind: atom
+
+validation_set: 0.2
+test_set: 0.0

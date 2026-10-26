@@ -1,4 +1,5 @@
 import logging
+import math
 import warnings
 from collections.abc import Mapping
 from math import prod
@@ -1368,6 +1369,24 @@ class FlashMD(ModelInterface[ModelHypers]):
             key: shape[-1:] for key, shape in self.output_shapes[target_name].items()
         }
         self._add_heads(head_name, self.output_shapes[head_name])
+
+        # With the default initialization, the sum of the node and edge contributions
+        # of all readout layers on top of a trained backbone can be large. When it is
+        # very negative, the softplus saturates and the head never trains. Instead,
+        # start from a unit variance (in normalized units) for all atoms.
+        with torch.no_grad():
+            for last_layers in [
+                self.node_last_layers[head_name],
+                self.edge_last_layers[head_name],
+            ]:
+                for layers in last_layers:
+                    for layer in layers.values():
+                        layer.weight.zero_()
+                        layer.bias.zero_()
+
+            inverse_softplus_of_one = math.log(math.expm1(1.0))
+            for layer in self.node_last_layers[head_name][0].values():
+                layer.bias.fill_(inverse_softplus_of_one)
 
         target_output = self.outputs[target_name]
         self.outputs[get_variance_output_name(target_name)] = ModelOutput(
