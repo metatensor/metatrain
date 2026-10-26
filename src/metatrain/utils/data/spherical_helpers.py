@@ -89,9 +89,7 @@ def couple_tensor_blocks(
                     Labels(
                         ["o3_mu"],
                         torch.arange(
-                            -o3_lambda,
-                            o3_lambda + 1,
-                            device=coupled_array.device
+                            -o3_lambda, o3_lambda + 1, device=coupled_array.device
                         ).reshape(-1, 1),
                     ),
                 ],
