@@ -922,7 +922,7 @@ def _real2complex(L: int) -> np.ndarray:
     :param L: the order of the spherical harmonics.
     :return: a (2L+1, 2L+1) matrix that converts real to complex spherical harmonics.
     """
-    result = np.zeros((2 * L + 1, 2 * L + 1), dtype=np.complex128)
+    result: np.ndarray = np.zeros((2 * L + 1, 2 * L + 1), dtype=np.complex128)
 
     I_SQRT_2 = 1.0 / np.sqrt(2)
 
