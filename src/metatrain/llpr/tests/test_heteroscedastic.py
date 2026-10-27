@@ -22,8 +22,10 @@ TARGET = "mtt::y"
 FEATURES = "mtt::aux::y_last_layer_features"
 VARIANCE = "mtt::aux::y_variance"
 UNCERTAINTY = "mtt::aux::y_uncertainty"
+ENSEMBLE = "mtt::aux::y_ensemble"
 WEIGHTS = torch.tensor([0.3, -1.0, 0.5, 2.0, -0.7], dtype=DTYPE)
 REGULARIZER = 0.1
+NUM_ENSEMBLE_MEMBERS = 20_000
 
 
 def features(positions: torch.Tensor) -> torch.Tensor:
@@ -46,7 +48,9 @@ class LinearModel(torch.nn.Module):
         self.dataset_info = dataset_info
         self.atomic_types = dataset_info.atomic_types
         self.last_layer_feature_size = len(WEIGHTS)
-        self.register_buffer("weights", WEIGHTS.clone())
+        # shape (num_properties, num_features), as expected for the LLPR ensemble
+        self.register_buffer("weights", WEIGHTS.clone().unsqueeze(0))
+        self.last_layer_parameter_names = {TARGET: ["weights"]}
         self.outputs = {
             TARGET: ModelOutput(sample_kind="atom"),
             FEATURES: ModelOutput(sample_kind="atom"),
@@ -92,7 +96,7 @@ class LinearModel(torch.nn.Module):
 
         phi = features(positions)
         values = {
-            TARGET: (phi @ self.weights).unsqueeze(1),
+            TARGET: phi @ self.weights.T,
             FEATURES: phi,
             VARIANCE: normalized_variance(positions).unsqueeze(1),
         }
@@ -155,6 +159,22 @@ def _per_atom_tensor_map(index, system, values):
     )
 
 
+def _make_dataset(systems, scales):
+    """Data in physical units: y = c_t w^T phi + noise of variance c_t^2 v(r)."""
+    generator = torch.Generator().manual_seed(0)
+
+    targets = []
+    for index, system in enumerate(systems):
+        c = torch.tensor([scales[int(t)] for t in system.types], dtype=DTYPE)
+        mean = c * (features(system.positions) @ WEIGHTS)
+        std = c * normalized_variance(system.positions).sqrt()
+        noise = torch.randn(len(system), dtype=DTYPE, generator=generator)
+
+        targets.append(_per_atom_tensor_map(index, system, mean + std * noise))
+
+    return Dataset.from_dict({"system": systems, TARGET: targets})
+
+
 @pytest.fixture(params=[{1: 1.0, 6: 1.0}, {1: 2.0, 6: 0.5}], ids=["unscaled", "scaled"])
 def setup(request):
     """The LLPR around the linear model, trained on noisy data from that model."""
@@ -174,20 +194,8 @@ def setup(request):
         length_unit="Angstrom", atomic_types=[1, 6], targets={TARGET: target_info}
     )
 
-    # data in physical units: y = c_t w^T phi + noise of variance c_t^2 v(r)
-    generator = torch.Generator().manual_seed(0)
     systems = _systems(40, seed=1)
-
-    targets = []
-    for index, system in enumerate(systems):
-        c = torch.tensor([scales[int(t)] for t in system.types], dtype=DTYPE)
-        mean = c * (features(system.positions) @ WEIGHTS)
-        std = c * normalized_variance(system.positions).sqrt()
-        noise = torch.randn(len(system), dtype=DTYPE, generator=generator)
-
-        targets.append(_per_atom_tensor_map(index, system, mean + std * noise))
-
-    dataset = Dataset.from_dict({"system": systems, TARGET: targets})
+    dataset = _make_dataset(systems, scales)
 
     scaler = Scaler(get_default_hypers("scaler")["model"], dataset_info)
     with pytest.warns(FutureWarning):
@@ -206,7 +214,9 @@ def setup(request):
         dataset_info=dataset_info,
     ).to(dtype=DTYPE)
 
-    llpr = LLPRUncertaintyModel(get_default_hypers("llpr")["model"], dataset_info)
+    llpr_hypers = get_default_hypers("llpr")["model"]
+    llpr_hypers["num_ensemble_members"] = {TARGET: NUM_ENSEMBLE_MEMBERS}
+    llpr = LLPRUncertaintyModel(llpr_hypers, dataset_info)
     llpr.set_wrapped_model(wrapped)
     llpr.to(dtype=DTYPE)  # as done by the LLPR trainer
 
@@ -271,3 +281,60 @@ def test_predictive_variance_matches_closed_form(setup):
     torch.testing.assert_close(
         outputs[UNCERTAINTY].block().values[:, 0] ** 2, expected_variance
     )
+
+
+def test_ensemble_spread_matches_epistemic_uncertainty(setup):
+    """The spread of the ensemble is the epistemic part of the uncertainty,
+    c* sqrt(phi*^T Lambda^-1 phi*), also when the targets are scaled."""
+    llpr, systems, scales = setup
+    precision_inverse = torch.linalg.inv(_closed_form_precision(systems, scales))
+
+    torch.manual_seed(0)
+    llpr.generate_ensemble()
+
+    test_systems = _systems(5, seed=2)
+    outputs = llpr.eval()(test_systems, {ENSEMBLE: ModelOutput(sample_kind="atom")})
+
+    positions = torch.cat([s.positions for s in test_systems])
+    c = torch.tensor(
+        [scales[int(t)] for s in test_systems for t in s.types], dtype=DTYPE
+    )
+    phi = features(positions)
+    expected_std = c * torch.einsum("if,fg,ig->i", phi, precision_inverse, phi).sqrt()
+
+    ensemble = outputs[ENSEMBLE].block().values
+    assert ensemble.shape == (len(positions), NUM_ENSEMBLE_MEMBERS)
+    torch.testing.assert_close(ensemble.std(dim=1), expected_std, rtol=0.05, atol=0)
+
+
+@pytest.mark.parametrize("training", [True, False])
+def test_covariance_and_calibration_keep_the_mode_of_the_wrapped_model(setup, training):
+    llpr, systems, scales = setup
+    dataset = _make_dataset(systems, scales)
+
+    llpr.model.train(training)
+
+    llpr.compute_covariance([dataset], batch_size=4, is_distributed=False)
+    assert llpr.model.training == training
+
+    llpr.compute_cholesky_decomposition(regularizer=REGULARIZER)
+    llpr.calibrate(
+        [dataset],
+        batch_size=4,
+        is_distributed=False,
+        calibration_method="squared_residuals",
+    )
+    assert llpr.model.training == training
+
+
+def test_variance_and_uncertainty_with_different_sample_kinds(setup):
+    llpr, _, _ = setup
+
+    with pytest.raises(ValueError, match="sample_kind"):
+        llpr.eval()(
+            _systems(2, seed=3),
+            {
+                VARIANCE: ModelOutput(sample_kind="atom"),
+                UNCERTAINTY: ModelOutput(sample_kind="system"),
+            },
+        )

@@ -400,7 +400,8 @@ def _heteroscedastic_nll_derivative(
     ``0.5 * sum_i [log(v_i) + r2_i / v_i]`` with variance ``v = s + a * e``.
 
     :param log_a: Logarithm of the multiplier ``a``, shape (M,).
-    :param r2: Squared residuals, shape (N, M).
+    :param r2: Squared residuals, shape (N, M). NaN residuals (missing targets) are
+        ignored.
     :param s: Aleatoric variances, shape (N, M).
     :param e: Epistemic variances, shape (N, M).
     :return: The derivative for each channel, shape (M,).
@@ -408,4 +409,6 @@ def _heteroscedastic_nll_derivative(
     a = torch.exp(log_a)
     v = s + a * e
 
-    return torch.sum(0.5 * a * e * (1.0 / v - r2 / v**2), dim=0)
+    derivative = 0.5 * a * e * (1.0 / v - r2 / v**2)
+
+    return torch.sum(torch.where(torch.isnan(r2), 0.0, derivative), dim=0)

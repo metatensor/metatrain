@@ -1,3 +1,4 @@
+import contextlib
 import logging
 from collections.abc import Mapping
 from typing import Any, Dict, Iterator, List, Literal, Optional, Union
@@ -425,8 +426,22 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 if name.endswith("_uncertainty"):
                     original_name = self._get_original_name(name)
                     if original_name in self.heteroscedastic_outputs:
-                        outputs_for_model[get_variance_output_name(original_name)] = (
-                            ModelOutput(sample_kind=output.sample_kind)
+                        variance_name = get_variance_output_name(original_name)
+                        # the model returns a single variance, used for the
+                        # uncertainty, so an explicit request has to agree with it
+                        if (
+                            variance_name in outputs
+                            and outputs[variance_name].sample_kind != output.sample_kind
+                        ):
+                            raise ValueError(
+                                f"'{variance_name}' and '{name}' can only be "
+                                "requested together with the same sample_kind, but "
+                                f"got '{outputs[variance_name].sample_kind}' and "
+                                f"'{output.sample_kind}'"
+                            )
+
+                        outputs_for_model[variance_name] = ModelOutput(
+                            sample_kind=output.sample_kind
                         )
                 # (will be removed at the end if not requested by the user)
 
@@ -629,9 +644,26 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             # this also takes care of additive contributions that are not present in the
             # last layer, which can be composition, short-range models, a bias in the
             # last layer, etc.
+            deviations = ensemble_values - ensemble_values.mean(dim=-2, keepdim=True)
+
+            if original_name in self.heteroscedastic_outputs:
+                # the ensemble is drawn in the weight space of the (unscaled) last
+                # layer. For these outputs, the multiplier only calibrates the
+                # epistemic variance of that layer, so the scales of the target are
+                # applied here, as they are to the uncertainty
+                scales = torch.sqrt(
+                    self._squared_scales(
+                        systems,
+                        original_name,
+                        outputs[ens_name].sample_kind,
+                        selected_atoms,
+                        return_dict[original_name].block().values,
+                    )
+                )
+                deviations = deviations * scales.unsqueeze(-2)  # ens_dim
+
             ensemble_values = (
-                ensemble_values
-                - ensemble_values.mean(dim=-2, keepdim=True)
+                deviations
                 + return_dict[original_name].block().values.unsqueeze(-2)  # ens_dim
             )
 
@@ -998,8 +1030,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         dtype = next(iter(self.buffers())).dtype
         # in evaluation mode, the predictions of the wrapped model (here, the
         # variances) include the scaler and additive models
-        self.model.eval()
-        with torch.no_grad():
+        with _eval_mode(self.model), torch.no_grad():
             for batch in train_loader:
                 systems, targets, _ = unpack_batch(batch)
                 n_atoms = torch.tensor(
@@ -1214,8 +1245,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
         # in evaluation mode, the predictions of the wrapped model include the scaler
         # and additive models, like the targets they are compared to
-        self.model.eval()
-        with torch.no_grad():
+        with _eval_mode(self.model), torch.no_grad():
             for batch in valid_loader:
                 systems, targets, _ = unpack_batch(batch)
                 systems = [system.to(device=device, dtype=dtype) for system in systems]
@@ -1576,6 +1606,20 @@ class NoPadDistributedSampler(torch.utils.data.Sampler[int]):
     def __len__(self) -> int:
         n = len(self.dataset)
         return (n - self.rank + self.num_replicas - 1) // self.num_replicas
+
+
+@contextlib.contextmanager
+def _eval_mode(module: torch.nn.Module) -> Iterator[None]:
+    # run in evaluation mode, and leave the mode of the module as it was afterwards:
+    # the LLPR trainer does not set it, so what follows (e.g. the training of the
+    # ensemble) would otherwise depend on whether this code was executed
+    was_training = module.training
+    module.eval()
+
+    try:
+        yield
+    finally:
+        module.train(was_training)
 
 
 def _prod(list_of_int: List[int]) -> int:
