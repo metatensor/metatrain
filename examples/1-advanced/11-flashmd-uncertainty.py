@@ -19,8 +19,8 @@ We estimate both in two cheap steps, on top of a frozen pre-trained model:
    log-likelihood (:ref:`gaussian_nll <loss-functions>`) loss, so the mean predictions
    of the model do not change. This is a mean-variance estimation (MVE) network.
 2. **Heteroscedastic LLPR.** The :ref:`LLPR <arch-llpr>` (a `last-layer Laplace
-   approximation <https://arxiv.org/abs/2106.14806>`_) is applied to the model. Its precision matrix weights each training
-   sample by the predicted noise,
+   approximation <https://arxiv.org/abs/2106.14806>`_) is applied to the model. Its
+   precision matrix weights each training sample by the predicted noise,
    :math:`\Lambda = \sum_i f_i f_i^T / \sigma^2(x_i) + r I`
    (`Immer et al., 2023 <https://arxiv.org/abs/2304.08501>`_), and the predicted
    uncertainty is the total one,
@@ -62,7 +62,8 @@ from metatomic_ase import MetatomicCalculator
 # NVE molecular dynamics of a small box of aluminum with the EMT potential, and
 # build pairs of current and future (32 fs later) structures. We also generate test
 # pairs at two temperatures: 300 K, like the training data, and 900 K, which is outside
-# of the training distribution. The latter is useful to test the epistemic uncertainty of the LLPR, which should be larger for out-of-distribution structures.
+# of the training distribution. The latter is useful for testing the epistemic
+# uncertainty of the LLPR, which should be larger for out-of-distribution structures.
 
 time_lag = 32  # in units of the MD time step (1 fs)
 
@@ -143,13 +144,11 @@ hf_hub_download(
 #
 # .. note::
 #
-#    The LLPR is applied post hoc, but an MVE network is normally trained from scratch
-#    on the Gaussian NLL, which is expensive for a model like FlashMD. We therefore
-#    freeze the pre-trained model and train only the variance heads. Joint NLL training
-#    also tends to fit the mean worse than MSE (`Seitzer et al., 2022
-#    <https://arxiv.org/abs/2203.09168>`_), and keeping the variance's gradients out of
-#    the mean and the shared layers fixes that (`Stirn et al., 2023
-#    <https://arxiv.org/abs/2212.09184>`_).
+#    This procedure is equivalent to the faithful heteroscedastic regression of
+#    `Stirn et al., 2023 <https://proceedings.mlr.press/v206/stirn23a.html>`_, which
+#    ensures that the mean predictions of the model are the same as those of the
+#    MSE-trained model. This is in the same spirit as the Laplace approximation (LLPR),
+#    which is also applied post hoc and leaves the mean unchanged.
 #
 # .. note::
 #
@@ -157,7 +156,8 @@ hf_hub_download(
 #    z components) and independent across atoms and between positions and momenta.
 #    Correlating positions and momenta would need a joint LLPR over both last layers,
 #    with four times the cost of the factorization. Correlations across atoms would need
-#    a :math:`6N \times 6N` covariance per structure, which can be expensive to store and invert.
+#    a :math:`6N \times 6N` covariance per structure, which can be expensive to store
+#    and invert.
 #
 # .. literalinclude:: options-flashmd-variance.yaml
 #    :language: yaml
@@ -278,10 +278,10 @@ for output_name, target in targets.items():
 
 # %%
 #
-# If the uncertainties are well calibrated, the predicted variance matches
-# (or at least highly correlated to) the mean
-# squared error. Since there is a single error per atom and Cartesian component, we
-# compare them on average, by binning the atoms by their predicted variance (left).
+# If the uncertainties are well calibrated, the predicted variance matches (or is at
+# least highly correlated with) the mean squared error. Since there is a single error
+# per atom and Cartesian component, we compare them on average, by binning the atoms
+# by their predicted variance (left).
 # Points on the diagonal are perfectly calibrated. On the right, we compare the
 # epistemic part of the uncertainty at the two temperatures. The top row is for the
 # positions, the bottom row for the momenta.
@@ -335,6 +335,7 @@ plt.show()
 # %%
 #
 # At 300 K, the temperature of the training data, the predicted uncertainties match the
-# errors for both targets. At 900 K, outside of the training distribution (i.e., OOD), the
-# calibration gets worse, as expected. As expected, the epistemic uncertainty of the LLPR is several
-# times larger there, so it can be used to detect such out-of-distribution structures.
+# errors for both targets. At 900 K, outside of the training distribution, the
+# calibration gets worse, as expected. The epistemic uncertainty of the LLPR is also
+# several times larger there, so it can be used to detect such out-of-distribution
+# structures.
