@@ -126,12 +126,13 @@ def get_adaptive_cutoffs_solver(
     ``[0, max_cutoff]`` and crosses ``num_neighbors_adaptive`` exactly once.
 
     Algorithm:
-      * **Forward (root finding).** Newton-bisection hybrid: each iteration
-        attempts a Newton step using the analytical derivative
-        ``dn_total/dr``; if the step would land outside the current bracket
-        (e.g., near a "shoulder" where one bump is going from active to
-        saturated and the local slope is small) it falls back to the
-        bracket midpoint.
+      * **Forward (root finding).** Bisection on the bracket
+        ``[0, max_cutoff]`` for a fixed number of steps. Since ``n_total`` is
+        monotonic, the bracket halves at every step regardless of rounding,
+        so the result converges unconditionally. (A Newton-bisection hybrid
+        that only bisects when the Newton step leaves the bracket can get
+        trapped in a two-cycle inside the bracket near a "shoulder" of
+        ``n_total``, and return an unconverged ``r``; see issue #1324.)
       * **Backward (gradient).** A trailing implicit-function-theorem step
         ``r_bar = r - n_residual / dn_root`` attaches gradients via the
         residual, with ``r`` and ``dn_root`` constants from the forward
@@ -147,7 +148,7 @@ def get_adaptive_cutoffs_solver(
     :return: Adapted cutoff distances for each center atom.
     """
 
-    # Detached view of edge_distances used for the Newton-bisection loop:
+    # Detached view of edge_distances used for the bisection loop:
     # everything inside the loop is meant to be a "constant" from autograd's
     # point of view. Detaching means autograd never records the iteration
     # ops.
@@ -155,7 +156,7 @@ def get_adaptive_cutoffs_solver(
 
     inv_max_cutoff = 1.0 / max_cutoff
 
-    with torch.profiler.record_function("PET::adaptive_cutoff_newton"):
+    with torch.profiler.record_function("PET::adaptive_cutoff_bisection"):
         # Bracket [r_lo, r_hi] with f(r_lo) <= 0 <= f(r_hi). r_lo starts at
         # 0 (where n_total = 0) and r_hi at max_cutoff (where the baseline
         # alone reaches num_neighbors_adaptive), so the root is bracketed.
@@ -171,9 +172,11 @@ def get_adaptive_cutoffs_solver(
             device=edge_distances.device,
         )
         r = 0.5 * r_hi
-        # 10 Newton iters are typically enough to converge to float32 precision.
-        for _ in range(10):
-            n, dn = _n_total_and_dn_dr(
+        # 16 steps shrink the bracket to max_cutoff / 2**16 (1.2e-4 for 8 A).
+        # The IFT step below is a Newton step from there, which brings the
+        # cutoff to float32 resolution.
+        for _ in range(16):
+            n = _n_total(
                 r,
                 edge_distances_d,
                 centers,
@@ -182,14 +185,10 @@ def get_adaptive_cutoffs_solver(
                 inv_max_cutoff,
                 num_neighbors_adaptive,
             )
-            f = n - num_neighbors_adaptive
-            below = f <= 0
+            below = (n - num_neighbors_adaptive) <= 0
             r_lo = torch.where(below, r, r_lo)
             r_hi = torch.where(below, r_hi, r)
-            r_newton = r - f / dn.clamp_min(1e-6)
-            inside = (r_newton >= r_lo) & (r_newton <= r_hi)
-            r_mid = 0.5 * (r_lo + r_hi)
-            r = torch.where(inside, r_newton, r_mid)
+            r = 0.5 * (r_lo + r_hi)
         _, dn_root = _n_total_and_dn_dr(
             r,
             edge_distances_d,
@@ -246,7 +245,7 @@ def get_adaptive_cutoffs_grid(
     smoothed neighbor counts are closest to ``num_neighbors_adaptive``.
 
     Superseded by :func:`get_adaptive_cutoffs_solver`, which solves the same
-    selection as a Newton-bisection root find. Preserved here so existing
+    selection as a bisection root find. Preserved here so existing
     checkpoints reload with their original behaviour.
 
     :param centers: Indices of the center atoms.
