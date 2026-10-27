@@ -37,6 +37,7 @@ import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import systems_to_torch
+from numpy.typing import NDArray
 
 from metatrain.utils.data.writers import DiskDatasetWriter
 
@@ -194,16 +195,18 @@ f_path = root / "f.bin"
 s_path = root / "s.bin"
 
 ns = len(structures)
-na = np.cumsum(np.array([0] + [len(s) for s in structures], dtype=np.int64))
+na: NDArray[np.int64] = np.cumsum(
+    np.array([0] + [len(s) for s in structures], dtype=np.int64)
+)
 np.save(ns_path, ns)
 np.save(na_path, na)
 
-a_mm = np.memmap(a_path, dtype="int32", mode="w+", shape=(na[-1],))
-x_mm = np.memmap(x_path, dtype="float32", mode="w+", shape=(na[-1], 3))
-c_mm = np.memmap(c_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
-e_mm = np.memmap(e_path, dtype="float32", mode="w+", shape=(ns, 1))
-f_mm = np.memmap(f_path, dtype="float32", mode="w+", shape=(na[-1], 3))
-s_mm = np.memmap(s_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
+a_mm: np.memmap = np.memmap(a_path, dtype="int32", mode="w+", shape=(na[-1],))
+x_mm: np.memmap = np.memmap(x_path, dtype="float32", mode="w+", shape=(na[-1], 3))
+c_mm: np.memmap = np.memmap(c_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
+e_mm: np.memmap = np.memmap(e_path, dtype="float32", mode="w+", shape=(ns, 1))
+f_mm: np.memmap = np.memmap(f_path, dtype="float32", mode="w+", shape=(na[-1], 3))
+s_mm: np.memmap = np.memmap(s_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
 
 for i, s in enumerate(structures):
     a_mm[na[i] : na[i + 1]] = s.numbers
