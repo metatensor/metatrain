@@ -23,12 +23,12 @@ Laplace approximation for the weights of the last layer. Its precision matrix is
 the last-layer features, :math:`c` is the scale that the scaler of the wrapped model
 applies to the target, and :math:`r` is the ``regularizer``. The returned uncertainty
 is the total one, :math:`\sqrt{\sigma^2(x) + \alpha^2 c^2 f^T \Lambda^{-1} f}`. This
-is exact for per-atom outputs, also when the scale depends on the atomic type. For
-per-structure outputs of per-atom targets with type-dependent scales, it is an
-approximation. The calibration constant
-:math:`\alpha` scales only the epistemic part, and is always fitted by minimizing the
-Gaussian NLL of the total variance on the validation set. Ensembles are still sampled
-from the last-layer posterior, so they only carry the epistemic uncertainty.
+is exact for per-atom outputs, also when the scale depends on the atomic type. The
+predicted variance has to be the same for all the components of a target, and targets
+with several properties are not supported. The calibration constant :math:`\alpha`
+scales only the epistemic part, and is always fitted by minimizing the Gaussian NLL of
+the total variance on the validation set. Ensembles are still sampled from the
+last-layer posterior, so they only carry the epistemic uncertainty.
 
 Additional outputs
 ------------------

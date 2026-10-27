@@ -1091,8 +1091,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                                 f"has {variance.shape[-1]}"
                             )
 
-                        # the variance is the same for all components (isotropic)
-                        variance = variance.reshape(variance.shape[0], -1)[:, 0]
+                        variance = _per_sample_variance(variance, name)
 
                         ll_feats = ll_feat_tmap.block().values.detach() / torch.sqrt(
                             variance
@@ -1620,6 +1619,28 @@ def _eval_mode(module: torch.nn.Module) -> Iterator[None]:
         yield
     finally:
         module.train(was_training)
+
+
+def _per_sample_variance(variance: torch.Tensor, name: str) -> torch.Tensor:
+    """
+    Get the variance of each sample from a predicted variance that is isotropic,
+    i.e. the same for all the components of a sample.
+
+    :param variance: Predicted variance, with shape
+        ``(num_samples, ..., num_properties)``.
+    :param name: Name of the target, for the error message.
+    :return: The variance of each sample, with shape ``(num_samples,)``.
+    :raises NotImplementedError: If the variance differs between components.
+    """
+    variance = variance.reshape(variance.shape[0], -1)
+
+    if not torch.allclose(variance, variance[:, :1].expand_as(variance)):
+        raise NotImplementedError(
+            "LLPR with predicted variances is only implemented for isotropic noise, "
+            f"i.e. the variance has to be the same for all the components of '{name}'"
+        )
+
+    return variance[:, 0]
 
 
 def _prod(list_of_int: List[int]) -> int:

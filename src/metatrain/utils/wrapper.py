@@ -192,6 +192,29 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
                     for k in self._eval_transforms["scale_variance"]:
                         variance_name = get_variance_output_name(k)
                         if variance_name in return_dict:
+                            # the variance is not converted to the layout of the
+                            # scaler, like the target is above
+                            if k in self._eval_transforms["pre_scaler"]:
+                                raise NotImplementedError(
+                                    f"The variance of '{k}' can not be scaled, "
+                                    "because the layout of the model is different "
+                                    "from the one of the scaler"
+                                )
+
+                            # a per-structure variance is a sum over the atoms, so the
+                            # scales of a per-atom target (which depend on the
+                            # atomic type) can not be applied to it afterwards
+                            if (
+                                outputs[variance_name].sample_kind == "system"
+                                and self.scaler.model.sample_kinds[k] == "per_atom"
+                            ):
+                                raise NotImplementedError(
+                                    f"The variance of '{k}' can not be requested for "
+                                    "each system, because it is a per-atom target "
+                                    "and its scales depend on the atomic type. "
+                                    "Request it for each atom instead."
+                                )
+
                             variance = return_dict[variance_name]
 
                             for _ in range(2):

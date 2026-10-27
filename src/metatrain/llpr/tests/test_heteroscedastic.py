@@ -10,6 +10,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelCapabilities, ModelOutput, System
 
 from metatrain.llpr import LLPRUncertaintyModel
+from metatrain.llpr.model import _per_sample_variance
 from metatrain.scaler import Scaler
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo
@@ -338,3 +339,15 @@ def test_variance_and_uncertainty_with_different_sample_kinds(setup):
                 UNCERTAINTY: ModelOutput(sample_kind="system"),
             },
         )
+
+
+def test_variance_has_to_be_the_same_for_all_components():
+    # shape: (samples, components, properties)
+    variance = torch.tensor([[[1.0], [1.0], [1.0]], [[2.0], [2.0], [2.0]]])
+    torch.testing.assert_close(
+        _per_sample_variance(variance, TARGET), torch.tensor([1.0, 2.0])
+    )
+
+    variance[0, 1, 0] = 1.5
+    with pytest.raises(NotImplementedError, match="same for all the components"):
+        _per_sample_variance(variance, TARGET)

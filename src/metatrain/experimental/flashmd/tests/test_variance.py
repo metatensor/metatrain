@@ -471,3 +471,24 @@ def test_llpr_calibration_minimizes_nll(trained, name):
 
     for factor in [0.9, 1.1]:
         assert nll(alpha) <= nll(alpha * factor)
+
+
+def test_per_structure_variance_of_per_atom_target_is_not_supported(trained):
+    """The scales of a per-atom target depend on the atomic type, so they can not be
+    applied to a variance that was already summed over the atoms."""
+    model = trained["variance"].to(dtype=DTYPE).eval()
+    systems, _ = next(_batches(trained))
+
+    with pytest.raises(NotImplementedError, match="per-atom target"):
+        model(systems, {POSITION: ModelOutput(sample_kind="system")})
+
+
+def test_variance_with_different_scaler_layout_is_not_supported(trained, monkeypatch):
+    model = trained["variance"].to(dtype=DTYPE).eval()
+    systems, _ = next(_batches(trained))
+
+    # pretend that the layout of the model differs from the one of the scaler
+    monkeypatch.setitem(model._eval_transforms, "pre_scaler", ["position"])
+
+    with pytest.raises(NotImplementedError, match="layout"):
+        model(systems, {POSITION: ModelOutput(sample_kind="atom")})

@@ -119,7 +119,9 @@ This output contains the variance of the noise on target ``target``, i.e. its
 aleatoric uncertainty. A separate head of the model predicts it, and is trained
 with the ``gaussian_nll`` :ref:`loss <loss-functions>`. The metadata of this
 output is the same as for the target, and its unit is the square of the unit of
-the target. Per-structure variances are the sums of the per-atom variances.
+the target. Per-structure variances are the sums of the per-atom variances. If the
+model has a scaler, the variance of a per-atom target can only be requested for each
+atom, because the scales depend on the atomic type.
 
 If a model with variance outputs is wrapped with the :ref:`LLPR architecture
 <arch-llpr>`, the LLPR uses these variances as the noise of its last-layer
