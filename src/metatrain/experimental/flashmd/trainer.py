@@ -59,7 +59,7 @@ from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
 from .documentation import ModelHypers, TrainerHypers
-from .model import FlashMD, get_variance_head_name
+from .model import FlashMD
 from .modules.additive import PositionAdditive
 
 
@@ -92,7 +92,7 @@ def _freeze_all_but_variance_heads(
     :param model: The model whose parameters are (un)frozen.
     :param variance_targets: Targets whose variance heads are trained.
     """
-    head_names = {get_variance_head_name(name) for name in variance_targets}
+    head_names = {get_variance_output_name(name) for name in variance_targets}
 
     for name, param in model.named_parameters():
         param.requires_grad = any(part in head_names for part in name.split("."))
@@ -377,15 +377,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         # Apply fine-tuning strategy if provided
         if len(variance_targets) > 0:
             _freeze_all_but_variance_heads(model, variance_targets)
-            num_params = sum(p.numel() for p in model.parameters())
-            num_trainable_params = sum(
-                p.numel() for p in model.parameters() if p.requires_grad
-            )
-            logging.info(
-                f"Training only the variance heads of {variance_targets}. "
-                f"Number of trainable parameters: {num_trainable_params} "
-                f"[{num_trainable_params / num_params:.2%} %]"
-            )
+            logging.info(f"Training only the variance heads of {variance_targets}")
         elif is_finetune:
             assert self.hypers["finetune"]["read_from"] is not None  # for mypy
             # ``inherit_heads`` is a one-time weight-copy initialization step that
@@ -413,11 +405,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 f"[{num_trainable_params / num_params:.2%} %]"
             )
 
-        if len(variance_targets) > 0:
-            # the frozen mean is only meaningful together with the atomic baseline
-            # and the scaler it was trained with, so these are not re-fitted
-            logging.info("Keeping the atomic baseline and scaler of the trained model")
-        else:
+        # a frozen mean keeps the atomic baseline and scaler it was trained with
+        if len(variance_targets) == 0:
             train_or_load_composition_model(
                 composition_model=model.additive_models[0],
                 atomic_baseline=self.hypers["atomic_baseline"],
@@ -626,9 +615,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
         # the variances of per-structure targets are not averaged either
         per_structure_outputs = per_structure_targets + [
-            get_variance_output_name(name)
-            for name in variance_targets
-            if name in per_structure_targets
+            get_variance_output_name(name) for name in per_structure_targets
         ]
 
         # Log the initial learning rate:
@@ -664,10 +651,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {
-                        **{key: train_targets[key] for key in targets.keys()},
-                        **variance_requests,
-                    },
+                    {key: train_targets[key] for key in targets.keys()}
+                    | variance_requests,
                     is_training=True,
                 )
 
@@ -779,10 +764,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                     predictions = evaluate_model(
                         model,
                         systems,
-                        {
-                            **{key: train_targets[key] for key in targets.keys()},
-                            **variance_requests,
-                        },
+                        {key: train_targets[key] for key in targets.keys()}
+                        | variance_requests,
                         is_training=False,
                     )
 
@@ -950,22 +933,14 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             )
 
         for target_name in variance_targets:
-            if target_name not in model.dataset_info.targets:
-                raise ValueError(
-                    f"Cannot train a variance head for '{target_name}', which is not "
-                    "one of the training targets "
-                    f"({list(model.dataset_info.targets.keys())})."
-                )
+            # raises an error for targets which are not part of the model
+            model.core.add_variance_output(target_name)
 
             if len(model.dataset_info.targets[target_name].gradients) > 0:
                 raise ValueError(
                     f"Cannot train a variance head for '{target_name}', which has "
                     "gradients: variances are not predicted for gradients."
                 )
-
-            model.core.add_variance_output(target_name)
-
-        model.update_eval_transforms()
 
     def save_checkpoint(
         self, model: MetatrainModel[FlashMD, Scaler], path: Union[str, Path]

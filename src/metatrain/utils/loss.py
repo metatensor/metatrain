@@ -836,19 +836,15 @@ class TensorMapGaussianNLLVarianceLoss(BaseTensorMapLoss):
                 f"predict the variance output '{variance_name}'."
             )
 
-        tensor_map_pred = predictions[self.target]
-        tensor_map_var = predictions[variance_name]
-        tensor_map_targ = targets[self.target]
-
-        means, variances, target_values = [], [], []
-        for key in tensor_map_targ.keys:
-            means.append(tensor_map_pred.block(key).values.reshape(-1))
-            variances.append(tensor_map_var.block(key).values.reshape(-1))
-            target_values.append(tensor_map_targ.block(key).values.reshape(-1))
-
-        all_means = torch.cat(means)
-        all_variances = torch.cat(variances)
-        all_targets = torch.cat(target_values)
+        keys = targets[self.target].keys
+        all_means, all_variances, all_targets = (
+            torch.cat([tensor_map.block(key).values.reshape(-1) for key in keys])
+            for tensor_map in [
+                predictions[self.target],
+                predictions[variance_name],
+                targets[self.target],
+            ]
+        )
 
         # Don't include in the loss calculation any points where the target is NaN
         not_nan = ~torch.isnan(all_targets)

@@ -7,10 +7,10 @@ import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
-from omegaconf import OmegaConf
 
 from metatrain.experimental.flashmd import FlashMD, Trainer
 from metatrain.llpr import Trainer as LLPRTrainer
+from metatrain.scaler.utils.samples import get_samples_labels
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import (
     DatasetInfo,
@@ -18,7 +18,6 @@ from metatrain.utils.data import (
     get_dataset,
     unpack_batch,
 )
-from metatrain.utils.data.target_info import TargetInfo
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.loss import LossSpecification
@@ -28,6 +27,7 @@ from metatrain.utils.neighbor_lists import (
 )
 
 from . import DATASET_PATH, MODEL_HYPERS
+from .test_finetuning import _get_dataset_info
 
 
 DTYPE = torch.float64
@@ -43,34 +43,6 @@ SMALL_FLASHMD = {
     "num_attention_layers": 1,
     "num_gnn_layers": 1,
 }
-
-
-def _dataset_info():
-    return DatasetInfo(
-        length_unit="angstrom",
-        atomic_types=[1, 6],
-        targets={
-            name: TargetInfo(
-                layout=TensorMap(
-                    keys=Labels.single(),
-                    blocks=[
-                        TensorBlock(
-                            values=torch.empty((0, 3, 1), dtype=torch.float64),
-                            samples=Labels(
-                                names=["system", "atom"],
-                                values=torch.empty((0, 2), dtype=int),
-                            ),
-                            components=[Labels.range("xyz", 3)],
-                            properties=Labels.range(name, 1),
-                        )
-                    ],
-                ),
-                quantity="length",
-                unit="angstrom",
-            )
-            for name in TARGETS
-        },
-    )
 
 
 def _systems(model):
@@ -101,16 +73,7 @@ def _systems(model):
                 blocks=[
                     TensorBlock(
                         values=torch.randn(n_atoms, 3, 1),
-                        samples=Labels(
-                            names=["system", "atom"],
-                            values=torch.stack(
-                                [
-                                    torch.zeros(n_atoms, dtype=int),
-                                    torch.arange(n_atoms),
-                                ],
-                                dim=1,
-                            ),
-                        ),
+                        samples=get_samples_labels([system])["atom"],
                         components=[Labels.range("xyz", 3)],
                         properties=Labels.range("momentum", 1),
                     )
@@ -124,7 +87,7 @@ def _systems(model):
 def test_variance_output():
     """The variance output is positive, isotropic, summed over atoms for
     per-structure outputs, and survives TorchScript and checkpointing."""
-    model = FlashMD(MODEL_HYPERS, _dataset_info())
+    model = FlashMD(MODEL_HYPERS, _get_dataset_info())
     model.set_masses({1: 1.008, 6: 12.011})
 
     assert POSITION not in model.supported_outputs()
@@ -192,11 +155,11 @@ def test_variance_output():
 
     assert POSITION not in model.supported_outputs()
     assert model.variance_target_names == []
-    assert "position__variance" not in model.node_heads
+    assert POSITION not in model.node_heads
 
 
 def test_variance_output_unknown_target():
-    model = FlashMD(MODEL_HYPERS, _dataset_info())
+    model = FlashMD(MODEL_HYPERS, _get_dataset_info())
     with pytest.raises(ValueError, match="not a target of this model"):
         model.add_variance_output("energy")
 
@@ -245,12 +208,9 @@ def trained(tmp_path_factory):
     hypers = copy.deepcopy(get_default_hypers("experimental.flashmd"))
     hypers["model"].update(SMALL_FLASHMD)
     hypers["training"].update(timestep=32.0, batch_size=2, num_epochs=2)
-    hypers["training"]["loss"] = OmegaConf.to_container(
-        OmegaConf.create(
-            {name: init_with_defaults(LossSpecification) for name in TARGETS}
-        ),
-        resolve=True,
-    )
+    hypers["training"]["loss"] = {
+        name: init_with_defaults(LossSpecification) for name in TARGETS
+    }
 
     # 1. the model with a mean head only
     base_path = str(tmp_path / "base.ckpt")
@@ -312,7 +272,7 @@ def test_only_variance_heads_are_trained(trained):
 
     new_keys = set(variance) - set(base)
     assert len(new_keys) > 0
-    assert all("__variance" in key for key in new_keys)
+    assert all("_variance." in key for key in new_keys)
     for key, value in base.items():
         if key == "core.masses":
             # re-set by every training, in the (here different) dtype of the model,
@@ -495,7 +455,7 @@ def test_variance_with_different_scaler_layout_is_not_supported(trained, monkeyp
 
 
 def test_only_the_heads_of_requested_outputs_are_evaluated():
-    model = FlashMD(MODEL_HYPERS, _dataset_info())
+    model = FlashMD(MODEL_HYPERS, _get_dataset_info())
     model.set_masses({1: 1.008, 6: 12.011})
     model.add_variance_output("position")
     systems = _systems(model)
@@ -515,10 +475,7 @@ def test_only_the_heads_of_requested_outputs_are_evaluated():
     features = "mtt::aux::position_last_layer_features"
 
     assert evaluated_heads({"position": atom}) == ["position"]
-    assert evaluated_heads({POSITION: atom}) == ["position__variance"]
+    assert evaluated_heads({POSITION: atom}) == [POSITION]
     assert evaluated_heads({"momentum": atom}) == ["momentum"]
     assert evaluated_heads({features: atom}) == ["position"]
-    assert evaluated_heads({"position": atom, POSITION: atom}) == [
-        "position",
-        "position__variance",
-    ]
+    assert evaluated_heads({"position": atom, POSITION: atom}) == [POSITION, "position"]

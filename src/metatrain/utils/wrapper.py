@@ -72,7 +72,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         if self.scaler is None:
             return None
 
-        if target_name not in self._eval_transforms["scale_variance"]:
+        if target_name not in self.scaler.model.target_names:
             return None
 
         scales = self.scaler.get_scales(
@@ -82,14 +82,6 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         )
 
         return scales[target_name].block().values
-
-    def update_eval_transforms(self) -> None:
-        """Recompute the transformations needed at evaluation time.
-
-        This must be called when outputs are added to the core model after the
-        wrapper was created (e.g. variance outputs).
-        """
-        self._eval_transforms = self._get_eval_transforms()
 
     def _get_eval_transforms(self) -> dict[str, list[str]]:
         """Finds out which targets need to be transformed at evaluation time to
@@ -110,14 +102,6 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         additive_targets = [
             additive_model.dataset_info.targets
             for additive_model in self.additive_models
-        ]
-
-        # Targets whose predicted variance output must be rescaled by the scaler
-        core_outputs = self.core.supported_outputs()
-        eval_transforms["scale_variance"] = [
-            name
-            for name in scaler_targets
-            if get_variance_output_name(name) in core_outputs
         ]
 
         # Go through the steps of the evaluation and find out
@@ -189,44 +173,46 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
                     # A variance scales with the square of its target's scale, so the
                     # target's scales are applied to it twice. Additive models are not
                     # applied to variances.
-                    for k in self._eval_transforms["scale_variance"]:
+                    for k in self.scaler.model.target_names:
                         variance_name = get_variance_output_name(k)
-                        if variance_name in return_dict:
-                            # the variance is not converted to the layout of the
-                            # scaler, like the target is above
-                            if k in self._eval_transforms["pre_scaler"]:
-                                raise NotImplementedError(
-                                    f"The variance of '{k}' can not be scaled, "
-                                    "because the layout of the model is different "
-                                    "from the one of the scaler"
-                                )
+                        if variance_name not in return_dict:
+                            continue
 
-                            # a per-structure variance is a sum over the atoms, so the
-                            # scales of a per-atom target (which depend on the
-                            # atomic type) can not be applied to it afterwards
-                            if (
-                                outputs[variance_name].sample_kind == "system"
-                                and self.scaler.model.sample_kinds[k] == "per_atom"
-                            ):
-                                raise NotImplementedError(
-                                    f"The variance of '{k}' can not be requested for "
-                                    "each system, because it is a per-atom target "
-                                    "and its scales depend on the atomic type. "
-                                    "Request it for each atom instead."
-                                )
+                        # the variance is not converted to the layout of the scaler,
+                        # like the target is above
+                        if k in self._eval_transforms["pre_scaler"]:
+                            raise NotImplementedError(
+                                f"The variance of '{k}' can not be scaled, because "
+                                "the layout of the model is different from the one "
+                                "of the scaler"
+                            )
 
-                            variance = return_dict[variance_name]
+                        # a per-structure variance is a sum over the atoms, so the
+                        # scales of a per-atom target (which depend on the atomic
+                        # type) can not be applied to it afterwards
+                        if (
+                            outputs[variance_name].sample_kind == "system"
+                            and self.scaler.model.sample_kinds[k] == "per_atom"
+                        ):
+                            raise NotImplementedError(
+                                f"The variance of '{k}' can not be requested for each "
+                                "system, because it is a per-atom target and its "
+                                "scales depend on the atomic type. Request it for each "
+                                "atom instead."
+                            )
 
-                            for _ in range(2):
-                                variance = self.scaler.apply_scales(
-                                    systems,
-                                    {k: variance},
-                                    selected_atoms=selected_atoms,
-                                    use_per_target_scales=True,
-                                    use_per_property_scales=True,
-                                )[k]
+                        variance = return_dict[variance_name]
 
-                            return_dict[variance_name] = variance
+                        for _ in range(2):
+                            variance = self.scaler.apply_scales(
+                                systems,
+                                {k: variance},
+                                selected_atoms=selected_atoms,
+                                use_per_target_scales=True,
+                                use_per_property_scales=True,
+                            )[k]
+
+                        return_dict[variance_name] = variance
 
                 for i, additive_model in enumerate(self.additive_models):
                     # Convert all targets whose layout is different at this point

@@ -12,6 +12,7 @@ from metatomic.torch import ModelCapabilities, ModelOutput, System
 from metatrain.llpr import LLPRUncertaintyModel
 from metatrain.llpr.model import _per_sample_variance
 from metatrain.scaler import Scaler
+from metatrain.scaler.utils.samples import get_samples_labels
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.target_info import get_generic_target_info
@@ -85,15 +86,7 @@ class LinearModel(torch.nn.Module):
         assert all(output.sample_kind == "atom" for output in outputs.values())
 
         positions = torch.cat([system.positions for system in systems])
-        samples = Labels(
-            ["system", "atom"],
-            torch.cat(
-                [
-                    torch.stack([torch.full((len(s),), i), torch.arange(len(s))], dim=1)
-                    for i, s in enumerate(systems)
-                ]
-            ),
-        )
+        samples = get_samples_labels(systems)["atom"]
 
         phi = features(positions)
         values = {

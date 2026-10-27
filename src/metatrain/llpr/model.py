@@ -501,16 +501,15 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 list(return_dict[original_name].block().values.shape),
             )
 
+            variance = one_over_pr_values
             if original_name in self.heteroscedastic_outputs:
                 # total variance: predicted aleatoric variance plus the (calibrated)
-                # epistemic variance from the LLPR
+                # epistemic variance from the LLPR. The LLPR is computed for the
+                # weights of the (unscaled) last layer, so the epistemic variance of
+                # the prediction scales with scale^2
                 aleatoric_variance = (
                     return_dict[get_variance_output_name(original_name)].block().values
                 )
-                multiplier = self._get_multiplier(uncertainty_name)
-
-                # the LLPR is computed for the weights of the (unscaled) last layer,
-                # the epistemic variance of the prediction scales with scale^2
                 epistemic_variance = one_over_pr_values * self._squared_scales(
                     systems,
                     original_name,
@@ -518,26 +517,10 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                     selected_atoms,
                     one_over_pr_values,
                 )
-
-                return_dict[uncertainty_name] = TensorMap(
-                    keys=Labels(
-                        names=["_"],
-                        values=torch.tensor(
-                            [[0]], device=ll_features.block().values.device
-                        ),
-                    ),
-                    blocks=[
-                        TensorBlock(
-                            values=torch.sqrt(
-                                aleatoric_variance + multiplier**2 * epistemic_variance
-                            ),
-                            samples=ll_features.block().samples,
-                            components=return_dict[original_name].block().components,
-                            properties=cur_prop,
-                        )
-                    ],
+                variance = (
+                    aleatoric_variance
+                    + self._get_multiplier(uncertainty_name) ** 2 * epistemic_variance
                 )
-                continue
 
             # uncertainty TensorMap (values expanded into shape (num_samples, num_prop),
             # with expansion targeting num_prop
@@ -552,13 +535,18 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 ),
                 blocks=[
                     TensorBlock(
-                        values=torch.sqrt(one_over_pr_values),
+                        values=torch.sqrt(variance),
                         samples=ll_features.block().samples,
                         components=return_dict[original_name].block().components,
                         properties=cur_prop,
                     )
                 ],
             )
+
+            if original_name in self.heteroscedastic_outputs:
+                # already calibrated (only the epistemic part, see above)
+                return_dict[uncertainty_name] = uncertainty
+                continue
 
             # calibrated multiplier TensorMaps (values expanded into shape (num_samples,
             # num_prop), with expansion targeting num_samples
