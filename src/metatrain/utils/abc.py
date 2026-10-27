@@ -2,18 +2,7 @@ from abc import ABCMeta, abstractmethod
 from collections.abc import Mapping
 from pathlib import Path
 from types import ModuleType
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Dict,
-    Generic,
-    List,
-    Literal,
-    Optional,
-    TypeVar,
-    Union,
-    overload,
-)
+from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 
 import torch
 from metatensor.torch import Labels, TensorMap
@@ -26,10 +15,6 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.data.dataset import Dataset, DatasetInfo
-
-
-if TYPE_CHECKING:
-    from .wrapper import MetatrainModel
 
 
 ModelHypersType = TypeVar("ModelHypersType")
@@ -207,31 +192,13 @@ class ModelInterface(nn.Module, Generic[ModelHypersType], metaclass=ABCMeta):
             f"{type(self).__name__} does not support removing an output."
         )
 
-    @overload
-    @classmethod
-    @abstractmethod
-    def load_checkpoint(
-        cls,
-        checkpoint: Dict[str, Any],
-        context: Literal["restart", "export"],
-    ) -> "ModelInterface": ...
-
-    @overload
-    @classmethod
-    @abstractmethod
-    def load_checkpoint(
-        cls,
-        checkpoint: Dict[str, Any],
-        context: Literal["finetune"],
-    ) -> Union["ModelInterface", "MetatrainModel"]: ...
-
     @classmethod
     @abstractmethod
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
         context: Literal["restart", "finetune", "export"],
-    ) -> Union["ModelInterface", "MetatrainModel"]:
+    ) -> "ModelInterface":
         """
         Create a model from a checkpoint (i.e. state dictionary).
 
@@ -243,9 +210,7 @@ class ModelInterface(nn.Module, Generic[ModelHypersType], metaclass=ABCMeta):
             checkpoints are stored together, this can be used to pick one of them
             depending on the context.
 
-        :return: An instance of the model. For fine-tuning, wrapper architectures such
-            as LLPR may instead return their wrapped
-            :py:class:`metatrain.utils.wrapper.MetatrainModel`.
+        :return: An instance of the model.
         """
 
     @abstractmethod

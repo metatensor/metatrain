@@ -2,7 +2,7 @@ import re
 import warnings
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Union, overload
+from typing import Any, Dict, Literal, Optional, Union
 from urllib.parse import unquote, urlparse
 from urllib.request import urlretrieve
 
@@ -236,7 +236,9 @@ def model_from_checkpoint(
         # LLPR returns the wrapped model instead of itself when loading
         # with context="finetune". The wrapped model is already a MetatrainModel.
         # LLPR should not behave like this, but for now we just hack around the hack.
-        return arch_model_from_checkpoint(checkpoint["core"], context=context)
+        return arch_model_from_checkpoint(  # type: ignore[return-value]
+            checkpoint["core"], context=context
+        )
 
     # The normal loading.
     return MetatrainModel(
@@ -272,21 +274,9 @@ def _find_model_class(architecture_name: str) -> Any:
         return architecture.__model__
 
 
-@overload
-def arch_model_from_checkpoint(
-    checkpoint: Dict[str, Any], context: Literal["restart", "export"]
-) -> ModelInterface: ...
-
-
-@overload
-def arch_model_from_checkpoint(
-    checkpoint: Dict[str, Any], context: Literal["finetune"]
-) -> Union[ModelInterface, MetatrainModel]: ...
-
-
 def arch_model_from_checkpoint(
     checkpoint: Dict[str, Any], context: Literal["restart", "finetune", "export"]
-) -> Union[ModelInterface, MetatrainModel]:
+) -> ModelInterface:
     """
     Load the architecture model from a checkpoint.
 
@@ -296,7 +286,7 @@ def arch_model_from_checkpoint(
     :param checkpoint: checkpoint dictionary to load the model
     :param context: context in which the model is loaded
 
-    :return: the loaded model instance, or LLPR's wrapped model when fine-tuning.
+    :return: the loaded model instance
     """
 
     checkpoint = upgrade_checkpoint(checkpoint)
