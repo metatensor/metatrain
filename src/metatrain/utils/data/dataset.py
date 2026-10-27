@@ -11,6 +11,7 @@ from typing import (
     Callable,
     Dict,
     List,
+    Literal,
     NamedTuple,
     Optional,
     Set,
@@ -1276,13 +1277,16 @@ class MemmapArray:
         path: Union[str, Path],
         shape: Tuple[int, ...],
         dtype: Union[str, np.dtype],
-        mode: str = "r",
+        mode: Literal[
+            "r", "c", "r+", "w+", "readonly", "copyonwrite", "readwrite", "write"
+        ] = "r",
     ) -> None:
         self.path = str(path)
         self.shape = tuple(shape)
         self.dtype = np.dtype(dtype)
         self.mode = mode
-        self._mm = None
+        # NumPy's private `_mmap` handle is not part of its annotated interface.
+        self._mm: Any = None
 
     def _ensure_open(self) -> None:
         if self._mm is None:
@@ -1292,7 +1296,7 @@ class MemmapArray:
 
     def __getitem__(self, idx: Any) -> np.ndarray:
         self._ensure_open()
-        return self._mm[idx]  # type: ignore
+        return self._mm[idx]
 
     def close(self) -> None:
         if self._mm is not None:
