@@ -101,8 +101,7 @@ def model_update_v6_v7(checkpoint: dict) -> None:
     """
     Update model checkpoint from version 6 to version 7.
 
-    The last-layer features now have the layout of their target. The stored layouts
-    are dropped, and the model builds them again from the dataset info and hypers.
+    The `layouts` buffer was made persistent by mistake in the previous version.
 
     :param checkpoint: The checkpoint to update.
     """

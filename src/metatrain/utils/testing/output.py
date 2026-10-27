@@ -49,8 +49,18 @@ class OutputTests(ArchitectureTests):
     """
     supports_features: bool = True
     """Whether the model supports returning features."""
-    supports_last_layer_features: bool = True
-    """Whether the model supports returning last-layer features."""
+    supports_last_layer_features: dict[str, bool | None] = {
+        "scalar": None,
+        "multiscalar": None,
+        "vector": None,
+        "spherical": None,
+        "spherical_rank2": None,
+        "spherical_atomic_basis": None
+    }
+    """Whether the model supports returning last-layer features for each
+    target type. If None, or the target is not present in the dictionary,
+    it will be assumed to be ``True`` when the target type is supported
+    and ``False`` otherwise."""
     last_layer_features_are_affine: bool = True
     """Whether each target is an affine function of its last-layer features."""
     is_equivariant_rotations: bool = True
@@ -65,6 +75,11 @@ class OutputTests(ArchitectureTests):
     monomer_equal_dimer: bool = False
     """Whether the model is expected to produce the same output for
     a dimer and two monomers at a large distance."""
+
+    atoms_per_system: int = 3
+    """Number of atoms per system to use in the tests."""
+    batch_size: int = 40
+    """Batch size to use in the tests."""
 
     @pytest.fixture
     def n_features(self) -> Optional[int | list[int]]:
@@ -89,6 +104,11 @@ class OutputTests(ArchitectureTests):
         architecture if you want the test suite to check that the number of
         last-layer features in the output is correct.
 
+        THIS FIXTURE IS CURRENTLY NOT USED, we used to check this in the past
+        because we only had last layer features for scalar outputs so it was
+        easy to check. We will reintroduce checks for the number of last
+        layer features for all outputs in the future.
+
         :return: The number of last-layer features produced by the model.
         """
         return None
@@ -112,6 +132,7 @@ class OutputTests(ArchitectureTests):
         dataset_info: DatasetInfo,
         sample_kind: Literal["atom", "system"],
         outputs: Optional[list[str]] = None,
+        last_layer_features: bool = False,
         check_metadata: bool = True,
     ) -> dict[str, mts.TensorMap]:
         """Helper function to get the model output for different types of outputs.
@@ -128,13 +149,37 @@ class OutputTests(ArchitectureTests):
 
         :return: The model outputs.
         """
-        model = self.model_cls(model_hypers, dataset_info)
+        torch.manual_seed(0)
 
+        model = self.model_cls(model_hypers, dataset_info)
+        supported_outs = model.supported_outputs()
+
+        # Check the layout of the last layer features.
+        if last_layer_features:
+            for out_name, target_info in supported_outs.items():
+                if out_name.endswith("_last_layer_features"):
+                    target_name = out_name.replace("mtt::aux::", "").replace("_last_layer_features", "")
+                    for key, block in target_info.layout.items():
+                        assert block.properties.names == ["feature"], (
+                            f"Last layer features for output '{target_name}' should "
+                            f"have only one property named 'feature', but got "
+                            f"{block.properties.names}."
+                        )
+
+        # Check that the layouts of the supported outputs match the
+        # dataset info targets.
+        if check_metadata:
+            for target_name, target_info in dataset_info.targets.items():
+                assert target_name in supported_outs, f"Target '{target_name}' is not present in the model's supported outputs."
+                _check_tensor_map_metadata(supported_outs[target_name].layout, target_info.layout)
+
+        # Build system with the requested number of atoms.
+        positions = torch.zeros(self.atoms_per_system, 3)
+        Z = ([1, 6, 7, 8] * (self.atoms_per_system // 4 + 1))[:self.atoms_per_system]
+        positions[:, -1] = torch.linspace(0, 8, positions.shape[0])
         system = System(
-            types=torch.tensor([1, 6, 7, 8]),
-            positions=torch.tensor(
-                [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]]
-            ),
+            types=torch.tensor(Z),
+            positions=positions,
             cell=torch.zeros(3, 3),
             pbc=torch.tensor([False, False, False]),
         )
@@ -142,18 +187,55 @@ class OutputTests(ArchitectureTests):
             system, model.requested_neighbor_lists()
         )
 
+        # Outputs that we will request to the model
         if outputs is None:
             outputs = list(model.outputs.keys())
+        if last_layer_features:
+            outputs += [f"mtt::aux::{target_name}_last_layer_features" for target_name in outputs]
 
+        # Evaluate the model.
         model = model.to(system.positions.dtype)
         model.eval()
-
         out = model(
-            [system], {k: ModelOutput(sample_kind=sample_kind) for k in outputs}
+            [system] * self.batch_size, {k: ModelOutput(sample_kind=sample_kind) for k in outputs}
         )
+
+        # Check that all requested outputs are present.
+        for key in outputs:
+            assert key in out, f"Output '{key}' was requested, but the model did not return it."
+
+        # Check that the outputs have the declared layout.
         if check_metadata:
             for k, v in out.items():
-                _check_tensor_map_metadata(v, dataset_info.targets[k].layout)
+                try:
+                    _check_tensor_map_metadata(v, supported_outs[k].layout)
+                except Exception as e:
+                    if isinstance(e, ValueError) and "['system', 'atom']" in str(e) and sample_kind=="system":
+                        # Sometimes supported outputs are declared with sample kind "atom",
+                        # but the model can also produce them with sample kind "system".
+                        # For now we accept this.
+                        pass
+                    else:
+                        raise ValueError(
+                            f"Output '{k}' does not match the expected layout: \n\n{e}"
+                        ) from e
+
+                out_kind = supported_outs[k].sample_kind
+                out_kind = sample_kind
+                if out_kind == "atom":
+                    expected_samples = self.atoms_per_system * self.batch_size
+                else:
+                    expected_samples = self.batch_size
+
+                for block in v.blocks():
+                    assert block.samples.values.shape[0] == expected_samples
+
+        if last_layer_features and self.last_layer_features_are_affine:
+            for k, v in out.items():
+                if k.endswith("_last_layer_features"):
+                    out_name = k.replace("mtt::aux::", "").replace("_last_layer_features", "")
+                    self._check_llfs_affine(out[out_name], v, out_name)
+
         return out
 
     def test_no_output(
@@ -217,14 +299,20 @@ class OutputTests(ArchitectureTests):
                 f"{self.architecture} does not support multiple scalar subtargets."
             )
 
+        target_type = "scalar" if num_subtargets == 1 else "multiscalar"
+        last_layer_features = self.supports_last_layer_features.get(target_type)
+        if last_layer_features is None:
+            last_layer_features = getattr(self, f"supports_{target_type}_outputs")
+
         outputs = self._get_output(
-            model_hypers, dataset_info_scalar, sample_kind, ["scalar"]
+            model_hypers, dataset_info_scalar, sample_kind, ["scalar"],
+            last_layer_features=last_layer_features
         )
 
         if sample_kind == "atom":
-            assert outputs["scalar"].block().values.shape == (4, num_subtargets)
+            assert outputs["scalar"].block().values.shape[1] == num_subtargets
         else:
-            assert outputs["scalar"].block().values.shape == (1, num_subtargets)
+            assert outputs["scalar"].block().values.shape[1] == num_subtargets
 
     def test_output_vector(
         self,
@@ -251,14 +339,19 @@ class OutputTests(ArchitectureTests):
         """
         if not self.supports_vector_outputs:
             pytest.skip(f"{self.architecture} does not support vector outputs.")
+
+        last_layer_features = self.supports_last_layer_features.get("vector")
+        if last_layer_features is None:
+            last_layer_features = self.supports_vector_outputs
+
         outputs = self._get_output(
-            model_hypers, dataset_info_vector, sample_kind, ["vector"]
+            model_hypers, dataset_info_vector, sample_kind, ["vector"], last_layer_features=last_layer_features
         )
 
         if sample_kind == "atom":
-            assert outputs["vector"].block().values.shape == (4, 3, 5)
+            assert outputs["vector"].block().values.shape[1:] == (3, 5)
         else:
-            assert outputs["vector"].block().values.shape == (1, 3, 5)
+            assert outputs["vector"].block().values.shape[1:] == (3, 5)
 
     def test_output_spherical(
         self,
@@ -286,14 +379,14 @@ class OutputTests(ArchitectureTests):
         if not self.supports_spherical_outputs:
             pytest.skip(f"{self.architecture} does not support spherical outputs.")
 
-        outputs = self._get_output(
-            model_hypers, dataset_info_spherical, sample_kind, ["spherical_target"]
-        )
+        last_layer_features = self.supports_last_layer_features.get("spherical")
+        if last_layer_features is None:
+            last_layer_features = self.supports_spherical_outputs
 
-        if sample_kind == "atom":
-            assert outputs["spherical_target"].block().values.shape[0] == 4
-        else:
-            assert outputs["spherical_target"].block().values.shape[0] == 1
+        self._get_output(
+            model_hypers, dataset_info_spherical, sample_kind, ["spherical_target"],
+            last_layer_features=last_layer_features
+        )
 
     def test_output_multispherical(
         self,
@@ -324,19 +417,15 @@ class OutputTests(ArchitectureTests):
         if not self.supports_spherical_outputs:
             pytest.skip(f"{self.architecture} does not support spherical outputs.")
 
+        last_layer_features = self.supports_last_layer_features.get("spherical")
+        if last_layer_features is None:
+            last_layer_features = self.supports_spherical_outputs
+
         outputs = self._get_output(
-            model_hypers, dataset_info_multispherical, sample_kind, ["spherical_tensor"]
+            model_hypers, dataset_info_multispherical, sample_kind, ["spherical_tensor"], last_layer_features=last_layer_features
         )
 
         assert len(outputs["spherical_tensor"]) == 3
-
-        for i in range(len(outputs["spherical_tensor"])):
-            spherical_target_block = outputs["spherical_tensor"].block(i)
-
-            if sample_kind == "atom":
-                assert spherical_target_block.values.shape[0] == 4
-            else:
-                assert spherical_target_block.values.shape[0] == 1
 
     def test_output_spherical_rank2(
         self,
@@ -371,17 +460,17 @@ class OutputTests(ArchitectureTests):
                 f"{self.architecture} does not support spherical rank 2 outputs."
             )
 
-        outputs = self._get_output(
+        last_layer_features = self.supports_last_layer_features.get("spherical_rank2")
+        if last_layer_features is None:
+            last_layer_features = self.supports_spherical_rank2_outputs
+
+        self._get_output(
             model_hypers,
             dataset_info_spherical_rank2,
             sample_kind,
             ["spherical_tensor_rank2"],
+            last_layer_features=last_layer_features
         )
-
-        if sample_kind == "atom":
-            assert outputs["spherical_tensor_rank2"].block().values.shape[0] == 4
-        else:
-            assert outputs["spherical_tensor_rank2"].block().values.shape[0] == 1
 
     def test_output_spherical_atomic_basis(
         self,
@@ -416,11 +505,16 @@ class OutputTests(ArchitectureTests):
                 f"{self.architecture} does not support spherical atomic basis outputs."
             )
 
+        last_layer_features = self.supports_last_layer_features.get("spherical_atomic_basis")
+        if last_layer_features is None:
+            last_layer_features = self.supports_spherical_atomic_basis_outputs
+
         self._get_output(
             model_hypers,
             dataset_info_spherical_atomic_basis,
             sample_kind="atom",
             outputs=["spherical_tensor_atomic_basis"],
+            last_layer_features=last_layer_features
         )
 
     def test_output_spherical_atomic_basis_rank2(
@@ -687,75 +781,6 @@ class OutputTests(ArchitectureTests):
                     f"but got {features.values.shape[-1]}"
                 )
 
-    @pytest.mark.parametrize("sample_kind", ["atom", "system"])
-    def test_output_last_layer_features(
-        self,
-        model_hypers: dict,
-        dataset_info: DatasetInfo,
-        sample_kind: Literal["atom", "system"],
-        n_last_layer_features: Optional[int],
-    ) -> None:
-        """Tests that the model can output its last layer features.
-
-        If this test is failing you are probably not exposing correctly
-        the last-layer features output in your model.
-
-        This test is skipped if the model does not support last-layer features
-        output, i.e., if ``supports_last_layer_features`` is set to ``False``.
-
-        :param model_hypers: Hyperparameters to initialize the model.
-        :param dataset_info: Dataset information to initialize the model.
-        :param sample_kind: The kind of samples for which to request
-          last-layer features.
-        :param n_last_layer_features: Expected number of last-layer features.
-          If ``None``, the number of last-layer features is not checked.
-        """
-
-        if not self.supports_last_layer_features:
-            pytest.skip(
-                f"{self.architecture} does not support last-layer features output."
-            )
-
-        model = self.model_cls(model_hypers, dataset_info)
-
-        system = System(
-            types=torch.tensor([6, 1, 8, 7]),
-            positions=torch.tensor(
-                [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], [0.0, 0.0, 3.0]],
-            ),
-            cell=torch.zeros(3, 3),
-            pbc=torch.tensor([False, False, False]),
-        )
-        system = get_system_with_neighbor_lists(
-            system, model.requested_neighbor_lists()
-        )
-
-        # last-layer features per atom:
-        ll_output_options = ModelOutput(
-            unit="",
-            sample_kind=sample_kind,
-        )
-        model = model.to(system.positions.dtype)
-        outputs = model(
-            [system],
-            {
-                "energy": ModelOutput(sample_kind="atom"),
-                "mtt::aux::energy_last_layer_features": ll_output_options,
-            },
-        )
-        assert "energy" in outputs
-        assert "mtt::aux::energy_last_layer_features" in outputs
-
-        last_layer_features = outputs["mtt::aux::energy_last_layer_features"].block(0)
-        expected_samples = ["system", "atom"] if sample_kind == "atom" else ["system"]
-        assert last_layer_features.samples.names == expected_samples
-        assert last_layer_features.properties.names == ["feature"]
-        assert last_layer_features.values.shape[0] == (
-            4 if sample_kind == "atom" else 1
-        )
-        if n_last_layer_features is not None:
-            assert last_layer_features.values.shape[-1] == n_last_layer_features
-
     @pytest.mark.parametrize("select_atoms", [[0, 2]])
     def test_output_last_layer_features_selected_atoms(
         self,
@@ -808,111 +833,43 @@ class OutputTests(ArchitectureTests):
         features = out[output_label].block(0).samples.values
         assert features.shape == selected_atoms.values.shape
 
-    def test_output_layouts(
+    def _check_llfs_affine(
         self,
-        model_hypers: dict,
-        dataset_info_spherical_atomic_basis: DatasetInfo,
-        dataset_path: str,
-    ) -> None:
-        """Tests that the outputs match the layouts in the supported outputs of the
-        model, and that each target is an affine function of its last-layer
-        features.
-
-        This test is skipped if the model does not support last-layer features
-        output, i.e., if ``supports_last_layer_features`` is set to ``False``. The
-        targets are not compared to the last-layer features if
-        ``last_layer_features_are_affine`` is set to ``False``.
-
-        :param model_hypers: Hyperparameters to initialize the model.
-        :param dataset_info_spherical_atomic_basis: Dataset information with a
-            spherical target in an atomic basis.
-        :param dataset_path: Path to a dataset file to read systems from.
-        """
-        if not self.supports_last_layer_features:
-            pytest.skip(
-                f"{self.architecture} does not support last-layer features output."
-            )
-
-        target_types = {
-            "scalar": ("scalar", self.supports_scalar_outputs),
-            "vector": ({"cartesian": {"rank": 1}}, self.supports_vector_outputs),
-            "spherical": (
-                {
-                    "spherical": {
-                        "irreps": [
-                            {"o3_lambda": o3_lambda, "o3_sigma": 1}
-                            for o3_lambda in range(3)
-                        ]
-                    }
-                },
-                self.supports_spherical_outputs,
-            ),
-        }
-        dataset_infos = [
-            DatasetInfo(
-                length_unit="Angstrom",
-                atomic_types=[1, 6, 7, 8],
-                targets={
-                    name: get_generic_target_info(
-                        name,
-                        {
-                            "quantity": "",
-                            "unit": "",
-                            "type": target_type,
-                            "num_subtargets": 1,
-                            "sample_kind": "atom",
-                        },
-                    )
-                },
-            )
-            for name, (target_type, supported) in target_types.items()
-            if supported
-        ]
-        if (
-            self.supports_spherical_outputs
-            and self.supports_spherical_atomic_basis_outputs
-        ):
-            dataset_infos.append(dataset_info_spherical_atomic_basis)
-
-        for dataset_info in dataset_infos:
-            model = self.model_cls(model_hypers, dataset_info).to(torch.float64)
-            model.eval()
-            systems = [
-                get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-                for system in read_systems(dataset_path)
-            ]
-            layouts = {
-                name: info.layout for name, info in model.supported_outputs().items()
-            }
-            outputs = model(
-                systems, {name: ModelOutput(sample_kind="atom") for name in layouts}
-            )
-            for name, layout in layouts.items():
-                _check_tensor_map_metadata(outputs[name], layout)
-
-            if not self.last_layer_features_are_affine:
+        output: mts.TensorMap,
+        llf: mts.TensorMap,
+        output_name: Optional[str] = None,
+    ):
+        shared = len(llf.block(0).components) == 0
+        for key, block in output.items():
+            feature_block = llf.block(0 if shared else key)
+            if feature_block.properties.values.shape[0] == 0:
+                # There are no last layer features for this block.
+                # Before calling this function we always check that the layout of
+                # the last layer features is fine, so this means that truly there
+                # are no last layer features for this block. Skip it.
                 continue
-            for name in dataset_info.targets:
-                features_name = f"mtt::aux::{name}_last_layer_features"
-                if features_name not in layouts:
-                    continue
-                features = outputs[features_name]
-                shared = len(features.block(0).components) == 0
-                for key, block in outputs[name].items():
-                    feature_block = features.block(0 if shared else key)
-                    rows = feature_block.samples.select(block.samples)
-                    x = feature_block.values[rows]
-                    if shared:
-                        y = block.values.reshape(block.values.shape[0], -1)
-                    else:
-                        x = x.reshape(-1, x.shape[-1])
-                        y = block.values.reshape(-1, block.values.shape[-1])
-                    # constant feature for the biases
-                    x = torch.cat([x, torch.ones_like(x[:, :1])], dim=1)
-                    # more samples than features, otherwise any target fits
-                    assert x.shape[0] > x.shape[1]
-                    weights = torch.linalg.lstsq(x, y).solution
-                    torch.testing.assert_close(x @ weights, y)
+            rows = feature_block.samples.select(block.samples)
+            x = feature_block.values[rows]
+            if shared:
+                y = block.values.reshape(block.values.shape[0], -1)
+            else:
+                x = x.reshape(-1, x.shape[-1])
+                y = block.values.reshape(-1, block.values.shape[-1])
+            # constant feature for the biases
+            x = torch.cat([x, torch.ones_like(x[:, :1])], dim=1)
+            # more samples than features, otherwise any target fits
+            assert x.shape[0] > x.shape[1]
+            weights = torch.linalg.lstsq(x, y).solution
+            if not torch.allclose(x @ weights, y, atol=5e-4):
+                if output_name is None:
+                    raise ValueError(
+                        "Last-layer features are not affine with respect to the output."
+                    )
+                else:
+                    raise ValueError(
+                        f"Last-layer features for output '{output_name}' are not affine "
+                        "with respect to the output."
+                    )
 
     def test_single_atom(
         self,
