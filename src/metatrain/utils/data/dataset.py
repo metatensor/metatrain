@@ -720,8 +720,8 @@ def _scan_members(zip_file: SmartZip, path: Union[str, Path]) -> _MemberScan:
     :return: The classification.
     """
     n_members = len(zip_file)
-    entries = np.full(n_members, -1, dtype=np.int64)
-    field_ids = np.full(n_members, -1, dtype=np.int64)
+    entries: np.ndarray = np.full(n_members, -1, dtype=np.int64)
+    field_ids: np.ndarray = np.full(n_members, -1, dtype=np.int64)
     field_id_by_name: Dict[str, int] = {}
     ignored_names: List[str] = []
     has_atom_counts = False
@@ -802,7 +802,7 @@ def _validate_format(scan: _MemberScan, path: Union[str, Path]) -> int:
     n_samples = len(entry_numbers)
 
     # Every entry must carry the same fields ("homogeneous" format).
-    present = np.zeros((n_samples, len(scan.field_id_by_name)), dtype=bool)
+    present: np.ndarray = np.zeros((n_samples, len(scan.field_id_by_name)), dtype=bool)
     for field_id in scan.field_id_by_name.values():
         # entries are the dense range 0..N-1, so they index rows directly
         mask = (scan.field_ids == field_id) & (scan.entries < n_samples)
