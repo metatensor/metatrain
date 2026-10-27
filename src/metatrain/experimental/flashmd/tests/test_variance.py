@@ -492,3 +492,33 @@ def test_variance_with_different_scaler_layout_is_not_supported(trained, monkeyp
 
     with pytest.raises(NotImplementedError, match="layout"):
         model(systems, {POSITION: ModelOutput(sample_kind="atom")})
+
+
+def test_only_the_heads_of_requested_outputs_are_evaluated():
+    model = FlashMD(MODEL_HYPERS, _dataset_info())
+    model.set_masses({1: 1.008, 6: 12.011})
+    model.add_variance_output("position")
+    systems = _systems(model)
+
+    evaluated = []
+    for head_name, heads in model.node_heads.items():
+        heads[0].register_forward_hook(
+            lambda module, args, output, name=head_name: evaluated.append(name)
+        )
+
+    def evaluated_heads(outputs):
+        evaluated.clear()
+        model(systems, outputs)
+        return sorted(set(evaluated))
+
+    atom = ModelOutput(sample_kind="atom")
+    features = "mtt::aux::position_last_layer_features"
+
+    assert evaluated_heads({"position": atom}) == ["position"]
+    assert evaluated_heads({POSITION: atom}) == ["position__variance"]
+    assert evaluated_heads({"momentum": atom}) == ["momentum"]
+    assert evaluated_heads({features: atom}) == ["position"]
+    assert evaluated_heads({"position": atom, POSITION: atom}) == [
+        "position",
+        "position__variance",
+    ]

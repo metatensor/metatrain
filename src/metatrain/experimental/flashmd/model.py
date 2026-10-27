@@ -452,12 +452,25 @@ class FlashMD(ModelInterface[ModelHypers]):
                 for k, v in features_dict.items():
                     return_dict[k] = v
 
+        # variance outputs are predicted by their own (variance) heads
+        head_outputs: Dict[str, ModelOutput] = {}
+        for name, output in outputs.items():
+            head_outputs[name] = output
+
+        for target_name in self.variance_target_names:
+            variance_name = get_variance_output_name(target_name)
+            if variance_name in outputs:
+                head_outputs[get_variance_head_name(target_name)] = outputs[
+                    variance_name
+                ]
+
         # **Stage 3: Last Layer Feature Computation**
         with record_function("FlashMD::_calculate_last_layer_features"):
             node_last_layer_features_dict, edge_last_layer_features_dict = (
                 self._calculate_last_layer_features(
                     node_features_list,
                     edge_features_list,
+                    head_outputs,
                 )
             )
         with record_function("FlashMD::_get_output_last_layer_features"):
@@ -474,18 +487,6 @@ class FlashMD(ModelInterface[ModelHypers]):
                 return_dict[k] = v
 
         # **Stage 4: Atomic Predictions**
-        # variance outputs are predicted by their own (variance) heads
-        head_outputs: Dict[str, ModelOutput] = {}
-        for name, output in outputs.items():
-            head_outputs[name] = output
-
-        for target_name in self.variance_target_names:
-            variance_name = get_variance_output_name(target_name)
-            if variance_name in outputs:
-                head_outputs[get_variance_head_name(target_name)] = outputs[
-                    variance_name
-                ]
-
         with record_function("FlashMD::_calculate_atomic_predictions"):
             node_atomic_predictions_dict, edge_atomic_predictions_dict = (
                 self._calculate_atomic_predictions(
@@ -759,13 +760,18 @@ class FlashMD(ModelInterface[ModelHypers]):
         self,
         node_features_list: List[torch.Tensor],
         edge_features_list: List[torch.Tensor],
+        requested_outputs: Dict[str, ModelOutput],
     ) -> Tuple[Dict[str, List[torch.Tensor]], Dict[str, List[torch.Tensor]]]:
         """
         Apply output-specific heads to node and edge features from each GNN layer.
         Returns dictionaries mapping output names to lists of head-transformed features.
+        The heads of outputs that are not requested (neither directly, nor through
+        their last layer features) are skipped.
 
         :param node_features_list: List of node feature tensors from each GNN layer.
         :param edge_features_list: List of edge feature tensors from each GNN layer.
+        :param requested_outputs: Dictionary of requested outputs, with the variance
+            outputs under the name of their heads.
         :return: Tuple of two dictionaries:
             - Dictionary mapping output names to lists of node last layer features
             - Dictionary mapping output names to lists of edge last layer features
@@ -775,21 +781,23 @@ class FlashMD(ModelInterface[ModelHypers]):
 
         # Calculating node last layer features
         for output_name, node_heads in self.node_heads.items():
-            if output_name not in node_last_layer_features_dict:
-                node_last_layer_features_dict[output_name] = []
-            for i, node_head in enumerate(node_heads):
-                node_last_layer_features_dict[output_name].append(
-                    node_head(node_features_list[i])
-                )
+            if should_compute_last_layer_features(output_name, requested_outputs):
+                if output_name not in node_last_layer_features_dict:
+                    node_last_layer_features_dict[output_name] = []
+                for i, node_head in enumerate(node_heads):
+                    node_last_layer_features_dict[output_name].append(
+                        node_head(node_features_list[i])
+                    )
 
         # Calculating edge last layer features
         for output_name, edge_heads in self.edge_heads.items():
-            if output_name not in edge_last_layer_features_dict:
-                edge_last_layer_features_dict[output_name] = []
-            for i, edge_head in enumerate(edge_heads):
-                edge_last_layer_features_dict[output_name].append(
-                    edge_head(edge_features_list[i])
-                )
+            if should_compute_last_layer_features(output_name, requested_outputs):
+                if output_name not in edge_last_layer_features_dict:
+                    edge_last_layer_features_dict[output_name] = []
+                for i, edge_head in enumerate(edge_heads):
+                    edge_last_layer_features_dict[output_name].append(
+                        edge_head(edge_features_list[i])
+                    )
 
         return node_last_layer_features_dict, edge_last_layer_features_dict
 
@@ -972,6 +980,43 @@ class FlashMD(ModelInterface[ModelHypers]):
 
         return node_atomic_predictions_dict, edge_atomic_predictions_dict
 
+    def _sum_atomic_predictions(
+        self,
+        head_name: str,
+        node_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+        edge_atomic_predictions_dict: Dict[str, List[List[torch.Tensor]]],
+        edge_vectors: torch.Tensor,
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Sum the node and edge atomic predictions of all the readout layers, for each
+        block of the output of a head.
+
+        :param head_name: Name of the head (the target, or its variance head).
+        :param node_atomic_predictions_dict: Dictionary mapping head names to lists of
+            lists of node atomic prediction tensors (one list per GNN layer, one tensor
+            per block).
+        :param edge_atomic_predictions_dict: Dictionary mapping head names to lists of
+            lists of edge atomic prediction tensors (one list per GNN layer, one tensor
+            per block).
+        :param edge_vectors: Tensor of edge vectors [n_atoms, max_num_neighbors, 3],
+            only used for the dtype and the device.
+        :return: Dictionary mapping the keys of the blocks to the summed predictions.
+        """
+        predictions_by_block = {
+            key: torch.zeros(1, dtype=edge_vectors.dtype, device=edge_vectors.device)
+            for key in self.output_shapes[head_name].keys()
+        }
+
+        node_predictions_by_layer = node_atomic_predictions_dict[head_name]
+        edge_predictions_by_layer = edge_atomic_predictions_dict[head_name]
+        for i in range(len(node_predictions_by_layer)):
+            for j, key in enumerate(predictions_by_block):
+                predictions_by_block[key] = predictions_by_block[key] + (
+                    node_predictions_by_layer[i][j] + edge_predictions_by_layer[i][j]
+                )
+
+        return predictions_by_block
+
     def _get_output_atomic_predictions(
         self,
         systems: List[System],
@@ -1007,28 +1052,12 @@ class FlashMD(ModelInterface[ModelHypers]):
         atomic_predictions_tmap_dict: Dict[str, TensorMap] = {}
         for output_name in self.target_names:
             if output_name in outputs:
-                atomic_predictions_by_block = {
-                    key: torch.zeros(
-                        1, dtype=edge_vectors.dtype, device=edge_vectors.device
-                    )
-                    for key in self.output_shapes[output_name].keys()
-                }
-
-                node_atomic_predictions_by_block = node_atomic_predictions_dict[
-                    output_name
-                ]
-                edge_atomic_predictions_by_block = edge_atomic_predictions_dict[
-                    output_name
-                ]
-                for i in range(len(node_atomic_predictions_by_block)):
-                    node_atomic_prediction_block = node_atomic_predictions_by_block[i]
-                    edge_atomic_prediction_block = edge_atomic_predictions_by_block[i]
-                    for j, key in enumerate(atomic_predictions_by_block):
-                        node_atomic_predictions = node_atomic_prediction_block[j]
-                        edge_atomic_predictions = edge_atomic_prediction_block[j]
-                        atomic_predictions_by_block[key] = atomic_predictions_by_block[
-                            key
-                        ] + (node_atomic_predictions + edge_atomic_predictions)
+                atomic_predictions_by_block = self._sum_atomic_predictions(
+                    output_name,
+                    node_atomic_predictions_dict,
+                    edge_atomic_predictions_dict,
+                    edge_vectors,
+                )
 
                 blocks = [
                     TensorBlock(
@@ -1107,22 +1136,12 @@ class FlashMD(ModelInterface[ModelHypers]):
 
             head_name = get_variance_head_name(target_name)
 
-            raw_by_block = {
-                key: torch.zeros(
-                    1, dtype=edge_vectors.dtype, device=edge_vectors.device
-                )
-                for key in self.output_shapes[head_name].keys()
-            }
-
-            # sum the node and edge contributions of all the readout layers
-            node_predictions_by_layer = node_atomic_predictions_dict[head_name]
-            edge_predictions_by_layer = edge_atomic_predictions_dict[head_name]
-            for i in range(len(node_predictions_by_layer)):
-                for j, key in enumerate(raw_by_block):
-                    raw_by_block[key] = raw_by_block[key] + (
-                        node_predictions_by_layer[i][j]
-                        + edge_predictions_by_layer[i][j]
-                    )
+            raw_by_block = self._sum_atomic_predictions(
+                head_name,
+                node_atomic_predictions_dict,
+                edge_atomic_predictions_dict,
+                edge_vectors,
+            )
 
             blocks: List[TensorBlock] = []
             for key, shape, components, properties in zip(
