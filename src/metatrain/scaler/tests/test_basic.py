@@ -32,6 +32,9 @@ class TestOutput(OutputTests, ScalerTests):
     is_equivariant_rotations = False
     is_equivariant_reflections = False
     monomer_equal_dimer = True
+    # The scaler supports atomic basis, but not outputing the scales in forward.
+    # Applying the scales on an atomic basis is tested in test_scaler.py
+    supports_spherical_atomic_basis_outputs = False
 
 
 class TestTorchscript(TorchscriptTests, ScalerTests): ...
