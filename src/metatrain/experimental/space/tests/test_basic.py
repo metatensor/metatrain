@@ -41,6 +41,12 @@ class TestOutput(OutputTests, SPACETests):
     supports_spherical_atomic_basis_outputs = False
     supports_spherical_rank2_outputs = False
 
+    # We need a batch size larger than the number of last layer features
+    # in order to test that outputs are linear with respect to the
+    # last layer features.
+    batch_size = 300
+    atoms_per_system = 2
+
     @pytest.fixture
     def n_last_layer_features(self) -> int:
         return 256
