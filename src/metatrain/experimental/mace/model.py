@@ -631,8 +631,11 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     values=block.values,
                     samples=block.samples,
                     components=block.components,
-                    properties=Labels.range("feature", len(block.properties)).to(
-                        block.properties.device
+                    properties=Labels(
+                        names=["feature"],
+                        values=torch.arange(
+                            len(block.properties), device=block.properties.device
+                        ).reshape(-1, 1),
                     ),
                 )
                 for block in llf.blocks()
