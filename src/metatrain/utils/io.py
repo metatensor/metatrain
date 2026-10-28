@@ -236,7 +236,9 @@ def model_from_checkpoint(
         # LLPR returns the wrapped model instead of itself when loading
         # with context="finetune". The wrapped model is already a MetatrainModel.
         # LLPR should not behave like this, but for now we just hack around the hack.
-        return arch_model_from_checkpoint(checkpoint["core"], context=context)
+        return arch_model_from_checkpoint(  # type: ignore[return-value]
+            checkpoint["core"], context=context
+        )
 
     # The normal loading.
     return MetatrainModel(

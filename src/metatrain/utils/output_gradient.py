@@ -1,5 +1,5 @@
 import warnings
-from typing import List, Optional
+from typing import List, Optional, Tuple, Union
 
 import torch
 
@@ -9,7 +9,7 @@ def compute_gradient(
     inputs: List[torch.Tensor],
     is_training: bool,
     destroy_graph: bool,
-) -> List[torch.Tensor]:
+) -> Union[List[torch.Tensor], Tuple[torch.Tensor, ...]]:
     """
     Calculates the gradient of a target tensor with respect to a list of input tensors.
 
@@ -25,11 +25,12 @@ def compute_gradient(
     :param destroy_graph: A boolean indicating whether to destroy the computation graph
         after computing the gradient. If True, the graph is destroyed (unless
         ``is_training`` is True).
-    :return: A list of tensors representing the gradients of the target with respect to
-        each input
+    :return: A list or tuple of tensors representing the gradients of the target with
+        respect to each input.
     """
 
     grad_outputs: Optional[List[Optional[torch.Tensor]]] = [torch.ones_like(target)]
+    gradient: Union[List[torch.Tensor], Tuple[torch.Tensor, ...]]
     try:
         gradient = torch.autograd.grad(
             outputs=[target],

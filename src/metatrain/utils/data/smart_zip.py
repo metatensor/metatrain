@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import IO, Any, Dict, Iterator, Optional, Union
 
 import numpy as np
+from numpy.typing import NDArray
 
 
 class _LazyZipFile(zipfile.ZipFile):
@@ -86,7 +87,9 @@ class SmartZip:
                     )
                 )
 
-        self._names = np.array(names) if names else np.empty(0, dtype="S1")
+        self._names: NDArray[np.bytes_] = (
+            np.array(names) if names else np.empty(0, dtype="S1")
+        )
         self._locs = (
             np.array(locs, dtype=np.int64) if locs else np.empty((0, 5), dtype=np.int64)
         )

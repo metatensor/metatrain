@@ -160,16 +160,18 @@ def evaluate_model(
     return model_outputs
 
 
-def _position_gradients_to_block(gradients_list: List[torch.Tensor]) -> TensorBlock:
+def _position_gradients_to_block(
+    gradients_list: Union[List[torch.Tensor], Tuple[torch.Tensor, ...]],
+) -> TensorBlock:
     """
-    Convert a list of position gradients to a `TensorBlock`
+    Convert a list or tuple of position gradients to a `TensorBlock`
     which can act as a gradient block to an energy block.
 
-    :param gradients_list: List of position gradient tensors.
+    :param gradients_list: List or tuple of position gradient tensors.
     :return: A TensorBlock with the position gradients.
     """
 
-    # `gradients` consists of a list of tensors where the second dimension is 3
+    # `gradients` contains tensors where the second dimension is 3
     gradients = torch.concatenate(gradients_list, dim=0).unsqueeze(-1)
     # unsqueeze for the property dimension
 
@@ -207,12 +209,14 @@ def _position_gradients_to_block(gradients_list: List[torch.Tensor]) -> TensorBl
     )
 
 
-def _strain_gradients_to_block(gradients_list: List[torch.Tensor]) -> TensorBlock:
+def _strain_gradients_to_block(
+    gradients_list: Union[List[torch.Tensor], Tuple[torch.Tensor, ...]],
+) -> TensorBlock:
     """
-    Convert a list of strain gradients to a `TensorBlock`
+    Convert a list or tuple of strain gradients to a `TensorBlock`
     which can act as a gradient block to an energy block.
 
-    :param gradients_list: List of strain gradient tensors.
+    :param gradients_list: List or tuple of strain gradient tensors.
     :return: A TensorBlock with the strain gradients.
     """
 

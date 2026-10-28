@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import metatensor.torch as mts
 import torch
@@ -7,6 +7,7 @@ from metatomic.torch import NeighborListOptions, System
 
 from ..data import DatasetInfo
 from .atom_pair_helpers import get_pair_sample_labels
+from .dataset import CollateTransform
 from .target_info import TargetInfo
 
 
@@ -673,7 +674,7 @@ def get_prepare_atomic_basis_targets_transform(
     pre_dataset_info: DatasetInfo,
     post_dataset_info: DatasetInfo,
     nl_options: Optional[NeighborListOptions] = None,
-) -> Tuple[Callable, Callable]:
+) -> Tuple[CollateTransform, CollateTransform]:
     """
     Get a function that prepares the atomic basis targets for batching by densifying and
     padding.

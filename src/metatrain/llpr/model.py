@@ -1201,7 +1201,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         if context == "finetune":
             # In this case, we want to allow fine-tuning of the underlying model by
             # extracting it and returning it directly
-            return model
+            return model  # type: ignore[return-value]
         elif context == "restart":
             logging.info(
                 "Restart for LLPRUncertaintyModel will attempt continuation of "

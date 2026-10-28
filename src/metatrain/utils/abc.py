@@ -2,16 +2,7 @@ from abc import ABCMeta, abstractmethod
 from collections.abc import Mapping
 from pathlib import Path
 from types import ModuleType
-from typing import (
-    Any,
-    Dict,
-    Generic,
-    List,
-    Literal,
-    Optional,
-    TypeVar,
-    Union,
-)
+from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 
 import torch
 from metatensor.torch import Labels, TensorMap
@@ -56,8 +47,8 @@ class ModelInterface(nn.Module, Generic[ModelHypersType], metaclass=ABCMeta):
 
     This is used to upgrade checkpoints produced with earlier versions of the code.
     See :ref:`ckpt_version` for more information."""
-    __supported_devices__: List[torch.device]
-    """List of torch devices supported by this model architecture.
+    __supported_devices__: List[str]
+    """List of torch device names supported by this model architecture.
 
     They should be sorted in order of preference since ``metatrain``  will use
     this and ``__supported_dtypes__`` to determine, based on the user request

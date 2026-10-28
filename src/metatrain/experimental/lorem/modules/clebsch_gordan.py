@@ -95,7 +95,7 @@ def degree_index(max_degree: int) -> torch.Tensor:
 
 
 def _real2complex(L: int) -> np.ndarray:
-    result = np.zeros((2 * L + 1, 2 * L + 1), dtype=np.complex128)
+    result: np.ndarray = np.zeros((2 * L + 1, 2 * L + 1), dtype=np.complex128)
     inv_sqrt_2 = 1.0 / np.sqrt(2)
     for m in range(-L, L + 1):
         if m < 0:
