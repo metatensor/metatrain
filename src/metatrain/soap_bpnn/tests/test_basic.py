@@ -36,6 +36,12 @@ class TestOutput(OutputTests, SoapBPNNTests):
     supports_vector_outputs = True
     supports_spherical_rank2_outputs = False
 
+    supports_last_layer_features = {
+        "vector": False,
+        "spherical": False,
+        "spherical_atomic_basis": False,
+    }
+
     # We need a batch size larger than the number of last layer features
     # in order to test that outputs are linear with respect to the
     # last layer features.
