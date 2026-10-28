@@ -27,6 +27,13 @@ formats. You can choose the one that best fits your needs.
 We start by importing the necessary packages.
 """
 
+# sphinx_gallery_start_ignore
+# TODO: With follow_imports="skip", mypy cannot infer some NumPy dtype parameters.
+#       Rather than cluttering the docs, blanket ignore here. Remove this ignore when
+#       possible.
+# mypy: disable-error-code="var-annotated"
+# sphinx_gallery_end_ignore
+
 # %%
 #
 import subprocess
@@ -201,12 +208,12 @@ na: NDArray[np.int64] = np.cumsum(
 np.save(ns_path, ns)
 np.save(na_path, na)
 
-a_mm: np.memmap = np.memmap(a_path, dtype="int32", mode="w+", shape=(na[-1],))
-x_mm: np.memmap = np.memmap(x_path, dtype="float32", mode="w+", shape=(na[-1], 3))
-c_mm: np.memmap = np.memmap(c_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
-e_mm: np.memmap = np.memmap(e_path, dtype="float32", mode="w+", shape=(ns, 1))
-f_mm: np.memmap = np.memmap(f_path, dtype="float32", mode="w+", shape=(na[-1], 3))
-s_mm: np.memmap = np.memmap(s_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
+a_mm = np.memmap(a_path, dtype="int32", mode="w+", shape=(na[-1],))
+x_mm = np.memmap(x_path, dtype="float32", mode="w+", shape=(na[-1], 3))
+c_mm = np.memmap(c_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
+e_mm = np.memmap(e_path, dtype="float32", mode="w+", shape=(ns, 1))
+f_mm = np.memmap(f_path, dtype="float32", mode="w+", shape=(na[-1], 3))
+s_mm = np.memmap(s_path, dtype="float32", mode="w+", shape=(ns, 3, 3))
 
 for i, s in enumerate(structures):
     a_mm[na[i] : na[i + 1]] = s.numbers
