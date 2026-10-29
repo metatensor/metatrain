@@ -1,7 +1,8 @@
 from typing import Dict
 
 import torch
-from metatomic.torch import ModelOutput
+
+from metatrain.utils.data import TargetInfo
 
 
 class DistributedDataParallel(torch.nn.parallel.DistributedDataParallel):
@@ -11,5 +12,5 @@ class DistributedDataParallel(torch.nn.parallel.DistributedDataParallel):
     and adds a function to retrieve the supported outputs of the module.
     """
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.module.supported_outputs()

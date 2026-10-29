@@ -23,6 +23,10 @@ from metatrain.utils.data.atom_pair_helpers import (
     check_no_atom_pair_targets,
     get_pair_sample_labels,
 )
+from metatrain.utils.data.target_info import (
+    get_features_info,
+    get_generic_target_info,
+)
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
@@ -116,16 +120,27 @@ class PET(ModelInterface[ModelHypers]):
             self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
         )  # for LLPR
 
-        # the model is always capable of outputting the internal features
-        self.outputs = {
-            "feature": ModelOutput(sample_kind="atom", description="internal features"),
-            "mtt::aux::cutoff_stats": ModelOutput(
-                sample_kind="atom",
-                description=(
-                    "Per-atom adaptive-cutoff diagnostics: column 0 = atomic_cutoff, "
-                    "column 1 = num_neighbors. If requested per structure, "
-                    "averages across all atoms are returned."
-                ),
+        # the model is always capable of outputting the internal features: the node
+        # and edge features of each readout layer
+        self.outputs: Dict[str, TargetInfo] = {
+            "feature": get_features_info(
+                self.num_readout_layers * (self.backend.d_node + self.backend.d_pet),
+                description="internal features",
+            ),
+            "mtt::aux::cutoff_stats": get_generic_target_info(
+                "property",
+                {
+                    "quantity": "",
+                    "unit": "",
+                    "type": "scalar",
+                    "num_subtargets": 2,
+                    "sample_kind": "atom",
+                    "description": (
+                        "Per-atom adaptive-cutoff diagnostics: column 0 = "
+                        "atomic_cutoff, column 1 = num_neighbors. If requested per "
+                        "structure, averages across all atoms are returned."
+                    ),
+                },
             ),
         }
 
@@ -164,7 +179,7 @@ class PET(ModelInterface[ModelHypers]):
         self.register_buffer("single_label", Labels.single())
         self.finetune_config: Dict[str, Any] = {}
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def restart(
@@ -874,7 +889,10 @@ class PET(ModelInterface[ModelHypers]):
             interaction_range = num_message_passing_steps * self.cutoff
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
             interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
@@ -904,11 +922,7 @@ class PET(ModelInterface[ModelHypers]):
                 len(comp.values) for comp in block.components
             ] + [len(block.properties.values)]
 
-        self.outputs[target_name] = ModelOutput(
-            unit=target_info.unit,
-            sample_kind="atom",
-            description=target_info.description,
-        )
+        self.outputs[target_name] = target_info
 
         # The learnable heads and last layers live on the pure-PyTorch backend.
         self.backend.add_output(target_name, self.output_shapes[target_name])
@@ -926,8 +940,10 @@ class PET(ModelInterface[ModelHypers]):
                 )
 
         ll_features_name = get_last_layer_features_name(target_name)
-        self.outputs[ll_features_name] = ModelOutput(
-            sample_kind="atom", description=f"last layer features for {target_name}"
+        # shared by all the blocks of the target
+        self.outputs[ll_features_name] = get_features_info(
+            self.last_layer_feature_size,
+            description=f"last layer features for {target_name}",
         )
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [

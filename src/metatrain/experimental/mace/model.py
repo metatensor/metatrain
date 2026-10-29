@@ -11,7 +11,7 @@ import torch
 from e3nn import o3
 from e3nn.util import jit
 from mace.modules import MACE
-from metatensor.torch import Labels, TensorMap
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -48,7 +48,7 @@ from .utils.structures import create_batch
 class MetaMACE(ModelInterface[ModelHypers]):
     """Interface of MACE for metatrain."""
 
-    __checkpoint_version__ = 6
+    __checkpoint_version__ = 7
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -59,7 +59,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             ]
         }
     )
-    layouts: Dict[str, TensorMap]
+    raw_layouts: Dict[str, TensorMap]
 
     # Attributes of the model. We can't uncomment these descriptions because
     # torchscript complains.
@@ -263,27 +263,25 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         # Create heads for each target, store the layout for each of them.
         self.heads = torch.nn.ModuleDict()
-        self.register_buffer("layouts", {})
+        self.outputs: Dict[str, TargetInfo] = {}
+        self.register_buffer("raw_layouts", {}, persistent=False)
         for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
-        self.layouts["mtt::aux::mace_features"] = get_e3nn_mts_layout(
+        self.raw_layouts["mtt::aux::mace_features"] = get_e3nn_mts_layout(
+            self.features_irreps,
             "mtt::aux::mace_features",
             {
-                "type": {"spherical": {"irreps": self.features_irreps}},
+                "type": "spherical",
                 "sample_kind": "atom",
                 "properties_name": "feature",
             },
         )
-
-        targets = dataset_info.targets
-        self.outputs = {
-            k: ModelOutput(
-                unit=targets[k].unit if k in targets else "",
-                sample_kind="atom",
+        self.outputs["mtt::aux::mace_features"] = TargetInfo(
+            layout=self.raw_layouts["mtt::aux::mace_features"].keys_to_properties(
+                "i_irrep"
             )
-            for k in self.layouts
-        }
+        )
 
         self.finetune_config: Dict[str, Any] = {}
 
@@ -410,8 +408,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
             per_atom_output = e3nn_to_tensormap(
                 model_output,
                 samples=samples,
-                layout=self.layouts[output_name],
+                layout=self.raw_layouts[output_name],
             )
+            if "i_irrep" in per_atom_output.keys.names:
+                # e3nn irreps can be something like "3x0e + 2x1o + 4x0e".
+                # Move to one block per irrep, i.e. "7x0e + 2x1o" in the example.
+                per_atom_output = per_atom_output.keys_to_properties("i_irrep")
+                if output_name.endswith("_last_layer_features"):
+                    per_atom_output = self.to_llf_layout(per_atom_output)
 
             if selected_atoms is not None:
                 per_atom_output = mts.slice(
@@ -426,7 +430,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         return return_dict
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def requested_neighbor_lists(
@@ -500,7 +504,10 @@ class MetaMACE(ModelInterface[ModelHypers]):
         interaction_range = self.hypers["num_interactions"] * self.cutoff
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
             interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
@@ -557,7 +564,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     f"{len(target_info.layout.block(0).components)}."
                 )
 
-        self.layouts[target_name] = target_info.layout
+        self.raw_layouts[target_name] = target_info.layout
+        self.outputs[target_name] = target_info
 
         if target_name == self.hypers["mace_head_target"]:
             # Fake head that will not compute the target, but will help
@@ -577,15 +585,61 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
             self.heads[target_name] = head.to(torch.float64)
 
-        llf_irreps = self.heads[target_name].last_layer_features_irreps
+        # Build last layer features. Their layout has to match the layout of
+        # the target.
+        if target_info.is_scalar:
+            target_type = "scalar"
+        elif target_info.is_cartesian:
+            target_type = "cartesian"
+        elif target_info.is_spherical:
+            target_type = "spherical"
+        else:
+            raise ValueError(
+                f"Target {target_name} has unknown type. "
+                "Only scalar, cartesian and spherical are supported."
+            )
 
-        self.layouts[self._llf_name(target_name)] = get_e3nn_mts_layout(
-            f"{target_name}_last_layer_features",
+        llf_name = self._llf_name(target_name)
+        llf_layout = get_e3nn_mts_layout(
+            self.heads[target_name].last_layer_features_irreps,
+            self._llf_name(target_name),
             {
-                "type": {"spherical": {"irreps": llf_irreps}},
+                "type": target_type,
                 "sample_kind": "atom",
                 "properties_name": "feature",
             },
+        )
+
+        self.raw_layouts[llf_name] = llf_layout
+        self.outputs[llf_name] = TargetInfo(
+            layout=self.to_llf_layout(llf_layout.keys_to_properties("i_irrep"))
+        )
+
+    @staticmethod
+    def to_llf_layout(llf: TensorMap) -> TensorMap:
+        """Takes the output of MACE for last layer features and makes sure
+        it has the layout expected for last layer features.
+
+        :param llf: TensorMap of last layer features.
+        :return: TensorMap of last layer features rearranged to match the
+          layout of the target.
+        """
+        return TensorMap(
+            llf.keys,
+            [
+                TensorBlock(
+                    values=block.values,
+                    samples=block.samples,
+                    components=block.components,
+                    properties=Labels(
+                        names=["feature"],
+                        values=torch.arange(
+                            len(block.properties), device=block.properties.device
+                        ).reshape(-1, 1),
+                    ),
+                )
+                for block in llf.blocks()
+            ],
         )
 
     def _llf_name(self, target_name: str) -> str:

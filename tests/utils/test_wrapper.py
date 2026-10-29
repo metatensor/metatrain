@@ -14,7 +14,7 @@ from metatomic.torch import (
 
 from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.atomic_basis_helpers import densify_atomic_basis_dataset_info
 from metatrain.utils.data.target_info import (
     get_energy_target_info,
@@ -42,11 +42,8 @@ class Model1(ModelInterface):
     ) -> Dict[str, TensorMap]:
         raise NotImplementedError()
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
-        return {
-            k: ModelOutput(sample_kind=target.sample_kind, unit=target.unit)
-            for k, target in self.dataset_info.targets.items()
-        }
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
+        return dict(self.dataset_info.targets)
 
     def restart(
         self,
@@ -69,7 +66,10 @@ class Model1(ModelInterface):
     ) -> AtomisticModel:
 
         capabilities = ModelCapabilities(
-            outputs=self.supported_outputs(),
+            outputs={
+                k: ModelOutput(sample_kind=target.sample_kind, unit=target.unit)
+                for k, target in self.dataset_info.targets.items()
+            },
             atomic_types=self.dataset_info.atomic_types,
             interaction_range=int(self.__class__.__name__[-1]),
             length_unit=self.dataset_info.length_unit,

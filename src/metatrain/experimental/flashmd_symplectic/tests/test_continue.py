@@ -5,6 +5,7 @@ import metatensor
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
 from metatrain.experimental.flashmd_symplectic import Trainer
@@ -80,8 +81,8 @@ def test_continue(monkeypatch, tmp_path):
     output_before = model(
         [system.to(torch.float32) for system in systems[:5]],
         {
-            "position": model.supported_outputs()["position"],
-            "momentum": model.supported_outputs()["momentum"],
+            "position": ModelOutput(sample_kind="atom"),
+            "momentum": ModelOutput(sample_kind="atom"),
         },
     )
 
@@ -173,15 +174,15 @@ def test_continue(monkeypatch, tmp_path):
     output_before = model(
         [system.to(torch.float32) for system in systems[:5]],
         {
-            "position": model.supported_outputs()["position"],
-            "momentum": model.supported_outputs()["momentum"],
+            "position": ModelOutput(sample_kind="atom"),
+            "momentum": ModelOutput(sample_kind="atom"),
         },
     )
     output_after = model_after(
         [system.to(torch.float32) for system in systems[:5]],
         {
-            "position": model_after.supported_outputs()["position"],
-            "momentum": model_after.supported_outputs()["momentum"],
+            "position": ModelOutput(sample_kind="atom"),
+            "momentum": ModelOutput(sample_kind="atom"),
         },
     )
 

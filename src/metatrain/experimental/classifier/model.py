@@ -13,8 +13,9 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
-from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
+from metatrain.utils.data.target_info import get_features_info
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
 
@@ -355,5 +356,10 @@ class Classifier(ModelInterface[ModelHypers]):
             checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
         )
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
-        return self.capabilities.outputs
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
+        outputs = dict(self.dataset_info.targets)
+        # the output of the layer of the MLP selected by ``feature_layer_index``
+        outputs["feature"] = get_features_info(
+            self.hidden_sizes[self.feature_layer_index], sample_kind="system"
+        )
+        return outputs
