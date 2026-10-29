@@ -923,6 +923,7 @@ class OutputTests(ArchitectureTests):
             # more samples than features, otherwise any target fits
             assert x.shape[0] > x.shape[1]
             weights = torch.linalg.lstsq(x, y).solution
+            print("Affine error", torch.max(torch.abs(x @ weights - y)))
             if not torch.allclose(x @ weights, y, atol=self.llf_affine_tolerance):
                 if output_name is None:
                     raise ValueError(
