@@ -509,6 +509,33 @@ def test_memmap_writer_streams_to_disk(monkeypatch, tmp_path):
     np.testing.assert_allclose(energy, expected_energy, atol=1e-6)
 
 
+def test_memmap_writer_variant_target(monkeypatch, tmp_path):
+    """Variant target names contain a slash (``energy/gs``): their files go to a
+    subdirectory, which the writer must create."""
+    monkeypatch.chdir(tmp_path)
+
+    systems, _, predictions = systems_capabilities_predictions()
+    predictions = {"energy/gs": predictions["energy"]}
+    capabilities = ModelCapabilities(
+        length_unit="angstrom",
+        outputs={"energy/gs": ModelOutput(quantity="energy", unit="eV")},
+        interaction_range=1.0,
+        dtype="float32",
+    )
+
+    writer = MemmapWriter("test_variant/", capabilities=capabilities)
+    writer.write(systems, predictions)
+    writer.finish()
+
+    directory = Path("test_variant")
+    block = predictions["energy/gs"].block()
+    energy = np.fromfile(directory / "energy" / "gs.bin", dtype=np.float32)
+    np.testing.assert_allclose(energy, block.values.numpy().ravel(), atol=1e-6)
+    forces = np.fromfile(directory / "energy" / "gs_forces.bin", dtype=np.float32)
+    expected_forces = -block.gradient("positions").values.numpy().ravel()
+    np.testing.assert_allclose(forces, expected_forces, atol=1e-6)
+
+
 def test_memmap_writer_append_not_supported(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(ValueError, match="Appending is not supported"):
