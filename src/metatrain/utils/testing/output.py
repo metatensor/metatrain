@@ -256,20 +256,27 @@ class OutputTests(ArchitectureTests):
                             f"Output '{k}' does not match the expected layout: \n\n{e}"
                         ) from e
 
-                out_kind = supported_outs[k].sample_kind
-                out_kind = sample_kind
-                if out_kind == "atom":
+                expected_samples = None
+                if sample_kind == "atom":
                     expected_samples = self.atoms_per_system * self.batch_size
                     if "atom_type" in v.keys.names or "first_atom_type" in v.keys.names:
                         # Blocks have different number of samples depending on the
                         # atom type so avoid checking the number of samples in
                         # this case.
-                        continue
+                        expected_samples = None
                 else:
                     expected_samples = self.batch_size
 
-                for block in v.blocks():
-                    assert block.samples.values.shape[0] == expected_samples
+                for block_key, block in v.items():
+                    # Check that samples are correct
+                    if expected_samples is not None:
+                        assert block.samples.values.shape[0] == expected_samples
+
+                    # Check that properties are correct
+                    expected_props = (
+                        supported_outs[k].layout.block(block_key).properties
+                    )
+                    assert block.properties == expected_props
 
         if last_layer_features and self.last_layer_features_are_affine:
             for k, v in out.items():
