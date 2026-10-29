@@ -199,19 +199,26 @@ class OutputTests(ArchitectureTests):
                     supported_outs[target_name].layout, target_info.layout
                 )
 
-        # Build system with the requested number of atoms.
+        # Build distinct systems with the requested number of atoms, by shrinking
+        # and jittering a chain of atoms (needed to check the last-layer features)
         positions = torch.zeros(self.atoms_per_system, 3)
         Z = ([1, 6, 7, 8] * (self.atoms_per_system // 4 + 1))[: self.atoms_per_system]
         positions[:, -1] = torch.linspace(0, 8, positions.shape[0])
-        system = System(
-            types=torch.tensor(Z),
-            positions=positions,
-            cell=torch.zeros(3, 3),
-            pbc=torch.tensor([False, False, False]),
-        )
-        system = get_system_with_neighbor_lists(
-            system, model.requested_neighbor_lists()
-        )
+        generator = torch.Generator().manual_seed(0)
+        systems = [
+            get_system_with_neighbor_lists(
+                System(
+                    types=torch.tensor(Z),
+                    positions=positions
+                    * (0.25 + 0.25 * torch.rand(1, generator=generator))
+                    + 0.1 * torch.rand(positions.shape, generator=generator),
+                    cell=torch.zeros(3, 3),
+                    pbc=torch.tensor([False, False, False]),
+                ),
+                model.requested_neighbor_lists(),
+            )
+            for _ in range(self.batch_size)
+        ]
 
         # Outputs that we will request to the model
         if outputs is None:
@@ -223,10 +230,10 @@ class OutputTests(ArchitectureTests):
             ]
 
         # Evaluate the model.
-        model = model.to(system.positions.dtype)
+        model = model.to(systems[0].positions.dtype)
         model.eval()
         out = model(
-            [system] * self.batch_size,
+            systems,
             {k: ModelOutput(sample_kind=sample_kind) for k in outputs},
         )
 
@@ -916,10 +923,12 @@ class OutputTests(ArchitectureTests):
             else:
                 x = x.reshape(-1, x.shape[-1])
                 y = block.values.reshape(-1, block.values.shape[-1])
-            # constant feature for the biases
-            x = torch.cat([x, torch.ones_like(x[:, :1])], dim=1)
-            # more samples than features, otherwise any target fits
-            assert x.shape[0] > x.shape[1]
+            # constant feature for the biases, fitted in float64 because the
+            # features can span several orders of magnitude
+            x = torch.cat([x, torch.ones_like(x[:, :1])], dim=1).to(torch.float64)
+            y = y.to(torch.float64)
+            # more distinct samples than features, otherwise any target fits
+            assert torch.unique(x, dim=0).shape[0] > x.shape[1]
             weights = torch.linalg.lstsq(x, y).solution
             if not torch.allclose(x @ weights, y, atol=1e-3):
                 if output_name is None:
