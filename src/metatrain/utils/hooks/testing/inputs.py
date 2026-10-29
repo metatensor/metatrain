@@ -74,8 +74,9 @@ class InputTests(HookTests):
         all_target_infos = {**dataset_info.targets, **dataset_info.extra_data}
 
         requested_target_infos = hook.requested_target_infos()
-        requested_inputs = hook.requested_inputs()
         supported_outputs = hook.supported_outputs()
+        # requesting every output of the hook must request all its inputs
+        requested_inputs = hook.requested_hook_inputs(supported_outputs)
 
         if inputs_in_dataset:
             expected_inp_targets = {
