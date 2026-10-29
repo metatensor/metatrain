@@ -942,7 +942,7 @@ class PET(ModelInterface[ModelHypers]):
         ll_features_name = get_last_layer_features_name(target_name)
         # shared by all the blocks of the target
         self.outputs[ll_features_name] = get_features_info(
-            self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES,
+            self.last_layer_feature_size,
             description=f"last layer features for {target_name}",
         )
         self.key_labels[target_name] = target_info.layout.keys
