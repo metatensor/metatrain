@@ -63,10 +63,7 @@ class MemmapWriter(Writer):
 
     def _file(self, name: str) -> BinaryIO:
         if name not in self._files:
-            # target names of variants contain a slash (e.g. ``energy/gs``)
-            path = self.directory / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            self._files[name] = open(path, "wb")
+            self._files[name] = open(self.directory / name, "wb")
         return self._files[name]
 
     def write(self, systems: List[System], predictions: Dict[str, TensorMap]) -> None:

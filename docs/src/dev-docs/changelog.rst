@@ -27,9 +27,6 @@ Unreleased
 Fixed
 #####
 
-- The memmap writer of ``mtt eval`` (``-o <directory>/``) can write predictions of
-  variant targets such as ``energy/gs``, whose files go to a subdirectory
-  (``energy/gs.bin``); it previously failed with ``FileNotFoundError``.
 - Corrected type annotations to match existing runtime behavior (#1325).
   Lint and formatting environments now install the project dependencies.
 - PET computes forces and stresses for batches of several structures faster
