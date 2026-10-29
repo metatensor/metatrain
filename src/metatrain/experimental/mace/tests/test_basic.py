@@ -172,6 +172,8 @@ class TestOutput(OutputTests, MACETests):
     supports_spherical_atomic_basis_outputs = False
     supports_spherical_rank2_outputs = False
 
+    llf_affine_tolerance = 5e-3
+
     @pytest.fixture
     def n_features(self, model_hypers: dict) -> list[int]:
         """Features output was renamed to mtt::aux:mace_features so
