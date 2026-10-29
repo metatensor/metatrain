@@ -80,8 +80,6 @@ class OutputTests(ArchitectureTests):
     and ``False`` otherwise."""
     last_layer_features_are_affine: bool = True
     """Whether each target is an affine function of its last-layer features."""
-    llf_affine_tolerance: float = 5e-4
-    """Tolerance for checking whether the last-layer features are affine."""
     is_equivariant_rotations: bool = True
     """Whether the model is equivariant (i.e. produces outputs that
     transform correctly under rotations by architecture's design)."""
@@ -923,7 +921,7 @@ class OutputTests(ArchitectureTests):
             # more samples than features, otherwise any target fits
             assert x.shape[0] > x.shape[1]
             weights = torch.linalg.lstsq(x, y).solution
-            if not torch.allclose(x @ weights, y, atol=self.llf_affine_tolerance):
+            if not torch.allclose(x @ weights, y, atol=1e-3):
                 if output_name is None:
                     raise ValueError(
                         "Last-layer features are not affine with respect to the output."

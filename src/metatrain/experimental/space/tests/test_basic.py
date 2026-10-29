@@ -41,8 +41,6 @@ class TestOutput(OutputTests, SPACETests):
     supports_spherical_atomic_basis_outputs = False
     supports_spherical_rank2_outputs = False
 
-    llf_affine_tolerance = 5e-3
-
     # We need a batch size larger than the number of last layer features
     # in order to test that outputs are linear with respect to the
     # last layer features.
