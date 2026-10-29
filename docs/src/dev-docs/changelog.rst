@@ -27,6 +27,11 @@ Unreleased
 Fixed
 #####
 
+- The memmap writer of ``mtt eval`` (``-o <directory>/``) can write predictions of
+  variant targets such as ``energy/gs``; it previously failed with
+  ``FileNotFoundError``. In memmap datasets, the ``/`` of such names is now
+  written as ``__`` in the file names (``energy__gs.bin``), both when writing
+  and when reading with ``key: energy/gs`` (#1334).
 - Corrected type annotations to match existing runtime behavior (#1325).
   Lint and formatting environments now install the project dependencies.
 - PET computes forces and stresses for batches of several structures faster

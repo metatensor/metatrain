@@ -1262,6 +1262,19 @@ def _make_system_contiguous(system: System) -> System:
     return new_system
 
 
+def memmap_file_name(key: str) -> str:
+    """Name of the file storing the array ``key`` in a :py:class:`MemmapDataset`.
+
+    The slash of variant names (e.g. ``energy/gs``) is replaced by ``__``
+    (``energy__gs.bin``): it separates the variant from the base name and is not a
+    directory separator.
+
+    :param key: Name of the array, as given in the ``key`` options of the targets.
+    :return: The file name of the array, relative to the dataset directory.
+    """
+    return key.replace("/", "__") + ".bin"
+
+
 class MemmapArray:
     """
     Small helper to reopen a ``np.memmap`` lazily in each worker.
@@ -1329,7 +1342,8 @@ class MemmapDataset(TorchDataset):
         (na[-1], ..., num_subtargets) if per-atom, where the
         ... depends on the type of target (scalar, vector, tensor, etc.). <key> can
         then be used in the "key" section of targets in metatrain input files to read
-        the target(s).
+        the target(s). A ``/`` in <key> (variant names such as ``energy/gs``) is
+        replaced by ``__`` in the file name (``energy__gs.bin``).
 
     :param path: Path to the directory containing the dataset.
     :param target_options: Dictionary containing the target configurations, in the
@@ -1400,7 +1414,7 @@ class MemmapDataset(TorchDataset):
         for key, opts in self.extra_data_config.items():
             n_samples = self.na[-1] if opts["sample_kind"] == "atom" else self.ns
             self.extra_data_arrays[key] = MemmapArray(
-                path / f"{opts['key']}.bin",
+                path / memmap_file_name(opts["key"]),
                 (n_samples, opts["num_subtargets"]),
                 "float32",
                 mode="r",
@@ -1415,7 +1429,7 @@ class MemmapDataset(TorchDataset):
             number_of_properties = single_target_options["num_subtargets"]
             if single_target_options["type"] == "scalar":
                 self.target_arrays[target_key] = MemmapArray(
-                    path / f"{data_key}.bin",
+                    path / memmap_file_name(data_key),
                     (number_of_samples, number_of_properties),
                     "float32",
                     mode="r",
@@ -1428,14 +1442,16 @@ class MemmapDataset(TorchDataset):
                     # energy target: look into potential gradients
                     if single_target_options["forces"]:
                         self.target_arrays[f"{target_key}_forces"] = MemmapArray(
-                            path / f"{single_target_options['forces']['key']}.bin",
+                            path
+                            / memmap_file_name(single_target_options["forces"]["key"]),
                             (self.na[-1], 3, 1),
                             "float32",
                             mode="r",
                         )
                     if single_target_options["stress"]:
                         self.target_arrays[f"{target_key}_stress"] = MemmapArray(
-                            path / f"{single_target_options['stress']['key']}.bin",
+                            path
+                            / memmap_file_name(single_target_options["stress"]["key"]),
                             (self.ns, 3, 3, 1),
                             "float32",
                             mode="r",
@@ -1459,7 +1475,7 @@ class MemmapDataset(TorchDataset):
                         + (number_of_properties,)
                     )
                     self.target_arrays[target_key] = MemmapArray(
-                        path / f"{data_key}.bin", shape, "float32", mode="r"
+                        path / memmap_file_name(data_key), shape, "float32", mode="r"
                     )
             else:
                 raise ValueError(
