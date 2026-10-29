@@ -44,12 +44,22 @@ class TestOutput(OutputTests, SPACETests):
     # We need a batch size larger than the number of last layer features
     # in order to test that outputs are linear with respect to the
     # last layer features.
-    batch_size = 300
+    batch_size = 34
     atoms_per_system = 2
 
     @pytest.fixture
-    def n_last_layer_features(self) -> int:
-        return 256
+    def model_hypers(
+        self,
+    ) -> dict:
+        """Model hypers that make sure the last layer features are
+        not so large.
+
+        :param mace_init_mode: How to initialize the MACE model.
+        :return: Hyperparameters for the model.
+        """
+        defaults = get_default_hypers(self.architecture)["model"]
+        defaults["num_element_channels"] = 16
+        return defaults
 
 
 class TestTorchscript(TorchscriptTests, SPACETests):

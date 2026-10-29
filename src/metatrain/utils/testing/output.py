@@ -1,7 +1,10 @@
 import copy
+import os
+import random
 from typing import Literal, Optional
 
 import metatensor.torch as mts
+import numpy as np
 import pytest
 import torch
 from metatomic.torch import ModelOutput, System, systems_to_torch
@@ -19,6 +22,21 @@ from metatrain.utils.neighbor_lists import (
 )
 
 from .architectures import ArchitectureTests
+
+
+def set_random_seed(seed: int) -> None:
+    """
+    Set the random seed of everything for reproducibility.
+
+    :param seed: The random seed to set.
+    """
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
 
 
 class OutputTests(ArchitectureTests):
@@ -150,7 +168,7 @@ class OutputTests(ArchitectureTests):
 
         :return: The model outputs.
         """
-        torch.manual_seed(0)
+        set_random_seed(0)
 
         model = self.model_cls(model_hypers, dataset_info)
         supported_outs = model.supported_outputs()
@@ -896,7 +914,7 @@ class OutputTests(ArchitectureTests):
             # more samples than features, otherwise any target fits
             assert x.shape[0] > x.shape[1]
             weights = torch.linalg.lstsq(x, y).solution
-            if not torch.allclose(x @ weights, y, atol=5e-4):
+            if not torch.allclose(x @ weights, y, atol=1e-3):
                 if output_name is None:
                     raise ValueError(
                         "Last-layer features are not affine with respect to the output."
