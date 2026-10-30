@@ -425,6 +425,22 @@ def model_update_v17_v18(checkpoint: dict) -> None:
         state_dict["_extra_state"] = {}
 
 
+def model_update_v18_v19(checkpoint: dict) -> None:
+    """
+    Update a v18 checkpoint to v19.
+
+    It adds the ``head_type``, ``num_head_layers`` and ``readout_type``
+    hyperparameters, with the values reproducing the previous architecture. The
+    ``state_dict`` is unchanged.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    hypers = checkpoint["model_data"]["model_hypers"]
+    hypers["head_type"] = "per_target"
+    hypers["num_head_layers"] = 2
+    hypers["readout_type"] = None
+
+
 ###########################
 # TRAINER #################
 ###########################

@@ -92,6 +92,9 @@ Added
 - LLPR uncertainties and ensembles for targets with several blocks, such as spherical
   targets and targets in an atomic basis, and for SPACE and MACE (#1286).
 - Ensemble losses for targets with several blocks (#1286).
+- PET heads/readouts can be configured with the ``d_head`` (now optionally separate
+  for node and edge heads), ``head_type``, ``num_head_layers`` and
+  ``readout_type`` hyperparameters, globally or per target.
 
 Changed
 #######

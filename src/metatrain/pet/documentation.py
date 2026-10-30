@@ -140,7 +140,7 @@ important** (in decreasing order of importance):
       :no-index:
 """
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 from typing_extensions import NotRequired, TypedDict
 
@@ -151,6 +151,15 @@ from metatrain.utils.long_range import LongRangeHypers
 from metatrain.utils.loss import LossSpecification
 
 from .modules.finetuning import FinetuneHypers, NoFinetuneHypers
+
+
+class HeadDimensions(TypedDict):
+    """Output dimensions of the node and edge heads, set independently."""
+
+    node: int
+    """Output dimension of the node heads."""
+    edge: int
+    """Output dimension of the edge heads."""
 
 
 class ModelHypers(TypedDict):
@@ -200,8 +209,48 @@ class ModelHypers(TypedDict):
     increasing it might lead to better accuracy, especially on larger datasets, at the
     cost of increased training and evaluation time.
     """
-    d_head: int = 128
-    """Dimension of the attention heads."""
+    d_head: Union[int, HeadDimensions] = 128
+    """Output dimension of the node and edge heads.
+
+    Either a single ``int``, shared by the node and the edge heads, or a dict
+    ``{node: int, edge: int}`` setting them independently.
+    """
+    head_type: Union[
+        Literal["per_target", "per_block"],
+        dict[str, Literal["per_target", "per_block"]],
+    ] = "per_target"
+    """How the node and edge heads are shared across the blocks of a target.
+
+    With ``"per_target"``, all the blocks of a target share one node head and one
+    edge head. With ``"per_block"``, each block of a target has its own heads, so
+    that the head features can specialize to each block (e.g. to each ``o3_lambda``
+    of a spherical target). This multiplies the cost of the heads by the number of
+    blocks.
+
+    Either a single value for all targets, or a dict keyed by target name, e.g.
+    ``{"mtt::foo": "per_block"}``, in which case the targets that are not listed use
+    ``"per_target"``.
+    """
+    num_head_layers: int = 2
+    """Number of Linear+SiLU layers in each node and edge head. Must be ``>= 1``."""
+    readout_type: Union[
+        Optional[Literal["one-hot"]], dict[str, Optional[Literal["one-hot"]]]
+    ] = None
+    """Conditioning of the readout layers, i.e. the linear maps from the head
+    features to the predictions of each block, on the type of the central atom.
+
+    With ``None``, each block has a single readout layer shared by all atomic types.
+    With ``"one-hot"``, each block has an independent readout layer per atomic type.
+    This is useful for targets where the properties of a block have a different
+    meaning for each atomic type, such as the coefficients of an atom-centered basis
+    expansion.
+
+    Either a single value for all targets, or a dict keyed by target name, e.g.
+    ``{"mtt::foo": "one-hot"}``, in which case the targets that are not listed use
+    ``None``.
+
+    LLPR uncertainties are not yet supported for targets with ``"one-hot"``.
+    """
     d_node: int = 256
     """Dimension of the node features.
 
