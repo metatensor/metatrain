@@ -87,8 +87,8 @@ SOAP-BPNN only provides them for scalar targets.
 
 This output contains an uncertainty estimate for target ``target``, as computed
 by the LLPR module. The metadata for this output is the same as for the
-corresponding target, except that there is a single property named
-``"uncertainty"``.
+corresponding target: there is one uncertainty for each component and property of
+the target.
 
 When ``target`` is ``energy``, this output is instead named
 ``energy_uncertainty``, creating the `corresponding standard metatomic
@@ -105,13 +105,14 @@ This output is only supported by the :ref:`LLPR architecture <arch-llpr>`.
 
 This output contains an ensemble prediction for target ``target``, as computed
 by the LLPR module. The metadata for this output is the same as for the
-corresponding target, except that there is a single property named
-``"ensemble_prediction"``, with entries ranging from 0 to the number of
-ensemble members.
+corresponding target, except that the properties are named
+``["ensemble_member", ...]``, followed by the property names of the target, with
+one entry for each ensemble member and property of the target.
 
 When ``target`` is ``energy``, this output is instead named
 ``energy_ensemble``, creating the `corresponding standard metatomic
-output <mta-energy-ensemble_>`_.
+output <mta-energy-ensemble_>`_, with a single ``"energy"`` property that holds the
+index of each ensemble member.
 
 .. _mta-energy-ensemble: https://docs.metatensor.org/metatomic/latest/outputs/energy.html#energy-ensemble
 

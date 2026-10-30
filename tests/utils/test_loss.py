@@ -716,77 +716,80 @@ def ensemble_tensor_maps():
 
 
 @pytest.fixture
-def cartesian_ensemble_tensor_maps():
-    """Same as ``ensemble_tensor_maps``, for a Cartesian (vector) target."""
+def spherical_ensemble_tensor_maps():
+    """Same as ``ensemble_tensor_maps``, for a spherical target with a lambda=0 and
+    a lambda=2 block."""
     n_samples = 2
     n_ensemble = 3
-    n_properties = 1
-
-    # Ensemble predictions: shape (n_samples, 3, n_ensemble * n_properties)
-    ensemble_values = torch.tensor(
-        [
-            [[1.0, 1.5, 2.0], [0.0, 0.1, -0.1], [2.0, 2.5, 2.2]],
-            [[3.0, 3.2, 3.1], [1.0, 0.8, 1.2], [-1.0, -1.2, -0.9]],
-        ]
-    )
-
-    # Original prediction (mean) and target: shape (n_samples, 3, n_properties)
-    mean_values = ensemble_values.mean(dim=-1, keepdim=True)
-    target_values = mean_values + 0.1
+    n_properties = 2
 
     samples = Labels.range("sample", n_samples)
-    components = [Labels.range("xyz", 3)]
     properties_mean = Labels.range("property", n_properties)
     properties_ensemble = Labels.range("property", n_ensemble * n_properties)
+    keys = Labels(["o3_lambda", "o3_sigma"], torch.tensor([[0, 1], [2, 1]]))
 
-    def _map(values, properties):
-        block = TensorBlock(
-            values=values,
-            samples=samples,
-            components=components,
-            properties=properties,
+    generator = torch.Generator().manual_seed(0)
+    maps = {"target": [], "mean": [], "ensemble": []}
+    for o3_lambda in (0, 2):
+        components = [Labels.range("o3_mu", 2 * o3_lambda + 1)]
+        ensemble_values = torch.randn(
+            n_samples, 2 * o3_lambda + 1, n_ensemble, n_properties, generator=generator
         )
-        return TensorMap(keys=Labels.single(), blocks=[block])
-
-    return {
-        "target": _map(target_values, properties_mean),
-        "mean": _map(mean_values, properties_mean),
-        "ensemble": _map(ensemble_values, properties_ensemble),
-    }
+        mean_values = ensemble_values.mean(dim=-2)
+        values = {
+            "target": (mean_values + 0.1, properties_mean),
+            "mean": (mean_values, properties_mean),
+            "ensemble": (ensemble_values.flatten(-2), properties_ensemble),
+        }
+        for name, (block_values, properties) in values.items():
+            maps[name].append(
+                TensorBlock(
+                    values=block_values,
+                    samples=samples,
+                    components=components,
+                    properties=properties,
+                )
+            )
+    return {name: TensorMap(keys=keys, blocks=blocks) for name, blocks in maps.items()}
 
 
 @pytest.mark.parametrize(
     "loss_class",
     [TensorMapGaussianNLLLoss, TensorMapGaussianCRPSLoss, TensorMapEmpiricalCRPSLoss],
 )
-def test_ensemble_losses_with_cartesian_target(
-    loss_class, cartesian_ensemble_tensor_maps
-):
-    """Ensemble losses must also work for targets that have components."""
+def test_ensemble_losses_with_components(loss_class, spherical_ensemble_tensor_maps):
+    """Ensemble losses must also work for targets that have components and
+    multiple blocks."""
+    tensor_maps = spherical_ensemble_tensor_maps
     loss_fn = loss_class(
-        name="mtt::forces",
+        name="mtt::target",
         gradient=None,
         weight=1.0,
         reduction="mean",
     )
 
     predictions = {
-        "mtt::forces": cartesian_ensemble_tensor_maps["mean"],
-        "mtt::aux::forces_ensemble": cartesian_ensemble_tensor_maps["ensemble"],
+        "mtt::target": tensor_maps["mean"],
+        "mtt::aux::target_ensemble": tensor_maps["ensemble"],
     }
-    targets = {"mtt::forces": cartesian_ensemble_tensor_maps["target"]}
+    targets = {"mtt::target": tensor_maps["target"]}
 
     result = loss_fn.compute(predictions, targets)
 
-    # Each (sample, component) pair must behave as an independent scalar target
+    # Each (sample, component) pair of each block must behave as an independent
+    # scalar target
     def _as_scalar(tmap):
-        values = tmap.block().values
-        values = values.reshape(-1, values.shape[-1])
+        values = torch.cat(
+            [
+                block.values.reshape(-1, block.values.shape[-1])
+                for block in tmap.blocks()
+            ]
+        )
         block = TensorBlock(
             values=values,
             samples=Labels.range("sample", values.shape[0]),
             components=[],
-            properties=tmap.block().properties,
+            properties=tmap.block(0).properties,
         )
         return TensorMap(keys=Labels.single(), blocks=[block])
 
