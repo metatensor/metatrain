@@ -14,7 +14,6 @@ import torch
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
-from metatrain.llpr import LLPRUncertaintyModel
 from metatrain.pet import PET
 from metatrain.utils.architectures import (
     check_architecture_options,
@@ -24,14 +23,10 @@ from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
 )
-from metatrain.utils.data.target_info import (
-    get_energy_target_info,
-    get_generic_target_info,
-)
+from metatrain.utils.data.target_info import get_generic_target_info
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.pydantic import MetatrainValidationError
-from metatrain.utils.wrapper import MetatrainModel
 
 from . import MODEL_HYPERS
 
@@ -100,6 +95,64 @@ def test_predictions_and_torchscript(head_type, readout_type):
     torch.jit.script(model)
 
 
+@pytest.mark.parametrize("head_type", ["per_target", "per_block"])
+@pytest.mark.parametrize("readout_type", [None, "one-hot"])
+def test_predictions_are_linear_in_last_layer_features(head_type, readout_type):
+    """Without biases, each block of the predictions is its block of last-layer
+    features times the weights of its last layers, those of the type of each atom with
+    readouts conditioned on the atomic type."""
+    model = _model(head_type=head_type, readout_type=readout_type)
+    with torch.no_grad():
+        for name, parameter in model.backend.named_parameters():
+            if "last_layers" in name and name.endswith("bias"):
+                parameter.zero_()
+
+    system = System(
+        types=torch.tensor([8, 1, 1]),
+        positions=torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.9, 0.0], [0.9, 0.0, 0.0]]),
+        cell=torch.zeros(3, 3),
+        pbc=torch.tensor([False, False, False]),
+    )
+    system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
+    llf_name = "mtt::aux::basis_last_layer_features"
+    output = model(
+        [system],
+        {
+            TARGET: ModelOutput(sample_kind="atom"),
+            llf_name: ModelOutput(sample_kind="atom"),
+        },
+    )
+    features = output[llf_name].block()
+
+    for index, (key, block) in enumerate(output[TARGET].items()):
+        # the node and edge weights of each readout layer, in the order of the features
+        weights = []
+        for layer in range(model.num_readout_layers):
+            for which in ["node", "edge"]:
+                last_layers = getattr(model.backend, f"{which}_last_layers")
+                weights.append(list(last_layers[TARGET][layer].values())[index].weight)
+        weight = torch.cat(weights, dim=-1)
+        if readout_type is None:
+            weight = weight.unsqueeze(0)
+        # the weights of the type of each atom (O, H, H)
+        weight = weight[[1, 0, 0] if readout_type == "one-hot" else [0, 0, 0]]
+
+        # with per-block heads, the features labelled by the key of the block
+        values = features.values
+        if head_type == "per_block":
+            mask = torch.ones(len(features.properties), dtype=torch.bool)
+            for name in key.names:
+                mask &= features.properties.column(name) == key[name]
+            values = values[:, mask]
+        torch.testing.assert_close(
+            block.values.reshape(len(block.samples), -1),
+            torch.einsum("sof,sf->so", weight, values),
+        )
+    assert model.last_layer_depends_on_atomic_type(TARGET) == (
+        readout_type == "one-hot"
+    )
+
+
 def test_per_block_heads_are_independent():
     """Changing the head of the last block only changes the predictions of it."""
     model = _model(head_type="per_block")
@@ -151,25 +204,6 @@ def test_per_target_readout_type():
     assert _last_layer(_model(readout_type={TARGET: "one-hot"})).conditioned
     # targets that are not listed use the default
     assert not _last_layer(_model(readout_type={"mtt::other": "one-hot"})).conditioned
-
-
-def test_llpr_rejects_one_hot_readout_type():
-    """LLPR assumes 2-D last-layer weights, which conditioned readouts do not have."""
-    # LLPR only supports single-block targets
-    dataset_info = DatasetInfo(
-        length_unit="Angstrom",
-        atomic_types=[1, 8],
-        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
-    )
-    model_hypers = copy.deepcopy(MODEL_HYPERS)
-    model_hypers["readout_type"] = "one-hot"
-    model = PET(model_hypers, dataset_info)
-    llpr = LLPRUncertaintyModel({"num_ensemble_members": {}}, dataset_info)
-    wrapped_model = MetatrainModel(
-        core=model, additive_models=[], scaler=None, dataset_info=dataset_info
-    )
-    with pytest.raises(ValueError, match='`readout_type` is "one-hot" for this target'):
-        llpr.set_wrapped_model(wrapped_model)
 
 
 def _check_options(hypers):

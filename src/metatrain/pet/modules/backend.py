@@ -156,6 +156,8 @@ class PETBackend(torch.nn.Module):
         # Whether the edge last layers of each output are applied to the edge features
         # pooled over neighbors, see ``_calculate_atomic_predictions``
         self.pool_edges: Dict[str, bool] = {}
+        # Whether the last layers of each output are conditioned on the atomic type
+        self.conditioned_last_layers: Dict[str, bool] = {}
         # Whether any last layer is conditioned on the atomic type, in which case
         # ``predict`` finds the atomic types present in the batch once for all of them
         self.has_conditioned_last_layers = False
@@ -213,6 +215,7 @@ class PETBackend(torch.nn.Module):
             self.d_pet, self.d_head_edge, heads_per_readout_layer
         )
 
+        self.conditioned_last_layers[target_name] = readout_type == "one-hot"
         n_groups: Optional[int] = None
         if readout_type == "one-hot":
             n_groups = self.num_atomic_species
@@ -295,6 +298,7 @@ class PETBackend(torch.nn.Module):
             del self.edge_last_layers[target_name]
         self.heads_per_readout_layer.pop(target_name, None)
         self.pool_edges.pop(target_name, None)
+        self.conditioned_last_layers.pop(target_name, None)
         self.has_conditioned_last_layers = any(
             module.conditioned
             for module in self.node_last_layers.modules()

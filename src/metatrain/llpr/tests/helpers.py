@@ -112,6 +112,8 @@ def make_systems(model: ModelInterface, n_systems: int) -> List[System]:
 def dummy_backbone(
     dataset_info: DatasetInfo,
     shared: bool = False,
+    labelled: bool = False,
+    per_type: bool = False,
     last_layer_features: bool = True,
 ) -> MetatrainModel:
     """The dummy model with a composition model and a scaler, as trainers set up
@@ -119,6 +121,10 @@ def dummy_backbone(
 
     :param dataset_info: the dataset info to build the model with.
     :param shared: whether the last-layer features are shared by all the blocks.
+    :param labelled: whether the shared features are labelled by the key of the block
+        reading them.
+    :param per_type: whether the last layer has different weights for each atomic
+        type.
     :param last_layer_features: whether the model declares last-layer features.
     :return: the model.
     """
@@ -126,6 +132,8 @@ def dummy_backbone(
     hypers = {
         "num_features": 8,
         "shared": shared,
+        "labelled": labelled,
+        "per_type": per_type,
         "last_layer_features": last_layer_features,
     }
     return MetatrainModel(

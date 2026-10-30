@@ -27,10 +27,13 @@ class DummyModel(ModelInterface):
     """Each block of each target is a linear function of the last-layer features:
     radial functions of the distance of the atoms from the center of their system,
     times the spherical harmonics of the block (up to lambda=1). With ``shared``, the
-    features are the radial functions only, shared by all the blocks.
+    features are the radial functions only, shared by all the blocks. With ``labelled``
+    too, each block reads its own power of the radial functions instead, labelled by
+    its key in a single block of features. With ``shared`` and ``per_type``, the last
+    layer has different weights for each atomic type.
 
-    :param hypers: ``num_features``, ``shared``, and whether to expose
-        ``last_layer_features``.
+    :param hypers: ``num_features``, ``shared``, ``labelled``, ``per_type``, and
+        whether to expose ``last_layer_features``.
     :param dataset_info: the dataset info.
     """
 
@@ -42,6 +45,11 @@ class DummyModel(ModelInterface):
     def __init__(self, hypers: Dict[str, Any], dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
         self.shared = bool(hypers["shared"])
+        self.labelled = bool(hypers["labelled"])
+        self.per_type = bool(hypers["per_type"])
+        self.register_buffer(
+            "atomic_types", torch.tensor(dataset_info.atomic_types), persistent=False
+        )
         self.num_features = int(hypers["num_features"])
         self.register_buffer("centers", torch.linspace(0.0, 2.0, self.num_features))
 
@@ -58,9 +66,12 @@ class DummyModel(ModelInterface):
                 [
                     torch.nn.Linear(
                         self.num_features,
-                        math.prod(block.values.shape[1:])
-                        if self.shared
-                        else block.values.shape[-1],
+                        (len(dataset_info.atomic_types) if self.per_type else 1)
+                        * (
+                            math.prod(block.values.shape[1:])
+                            if self.shared
+                            else block.values.shape[-1]
+                        ),
                         bias=False,
                     )
                     for block in target.layout.blocks()
@@ -73,6 +84,20 @@ class DummyModel(ModelInterface):
         :param target: the info of the target.
         :return: the info of its last-layer features.
         """
+        if self.shared and self.labelled:
+            properties = _labelled_features(target.layout.keys, self.num_features)
+            layout = TensorMap(
+                Labels.single(),
+                [
+                    TensorBlock(
+                        values=torch.empty(0, len(properties), dtype=torch.float64),
+                        samples=Labels.empty(["system", "atom"]),
+                        components=[],
+                        properties=properties,
+                    )
+                ],
+            )
+            return TargetInfo(layout)
         if self.shared:
             return get_features_info(self.num_features)
         layout = TensorMap(
@@ -95,6 +120,9 @@ class DummyModel(ModelInterface):
     def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
+    def last_layer_depends_on_atomic_type(self, target_name: str) -> bool:
+        return self.per_type
+
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return []
 
@@ -116,6 +144,9 @@ class DummyModel(ModelInterface):
             )
             vectors.append(system.positions - system.positions.mean(dim=0))
         samples = Labels(["system", "atom"], torch.cat(samples_values).to(torch.int32))
+        type_indices = torch.searchsorted(
+            self.atomic_types, torch.cat([system.types for system in systems])
+        )
         vector = torch.cat(vectors)
         distance = torch.linalg.norm(vector, dim=1, keepdim=True)
         radial = torch.exp(-((distance - self.centers) ** 2))
@@ -130,11 +161,23 @@ class DummyModel(ModelInterface):
             layout = self.layouts[name]
             targets: List[TensorBlock] = []
             features: List[TensorBlock] = []
+            labelled_features: List[torch.Tensor] = []
             for index, last_layer in enumerate(last_layers):
                 block = layout.block(index)
                 shape = [len(samples)] + [len(c) for c in block.components]
-                if self.shared:
-                    values = last_layer(radial).reshape(shape + [-1])
+                if self.shared and self.labelled:
+                    block_radial = radial ** (index + 1)
+                    values = last_layer(block_radial).reshape(shape + [-1])
+                    labelled_features.append(block_radial)
+                elif self.shared:
+                    values = last_layer(radial)
+                    if self.per_type:
+                        # the weights of the type of each atom
+                        values = values.reshape(
+                            len(samples), len(self.atomic_types), -1
+                        )
+                        values = values[torch.arange(len(samples)), type_indices]
+                    values = values.reshape(shape + [-1])
                 else:
                     angular = (
                         harmonics if shape[1:] == [3] else torch.ones_like(distance)
@@ -150,8 +193,18 @@ class DummyModel(ModelInterface):
                 targets.append(
                     TensorBlock(values, samples, block.components, block.properties)
                 )
-            if self.shared:
+            if self.shared and self.labelled:
+                features = [
+                    TensorBlock(
+                        torch.cat(labelled_features, dim=1),
+                        samples,
+                        [],
+                        _labelled_features(layout.keys, self.num_features),
+                    )
+                ]
+            elif self.shared:
                 features = [TensorBlock(radial, samples, [], feature_labels)]
+            if self.shared:
                 feature_keys = Labels(
                     ["_"], torch.zeros((1, 1), dtype=torch.int32, device=device)
                 )
@@ -218,6 +271,22 @@ class DummyModel(ModelInterface):
             dtype=dtype_to_str(self.centers.dtype),
         )
         return AtomisticModel(self.eval(), ModelMetadata(), capabilities)
+
+
+def _labelled_features(keys: Labels, num_features: int) -> Labels:
+    """The properties of features made of ``num_features`` features for each key.
+
+    :param keys: the keys of the target.
+    :param num_features: the number of features of each key.
+    :return: the properties, named after the keys followed by ``"feature"``.
+    """
+    features = torch.arange(num_features, dtype=torch.int32, device=keys.device)
+    values: List[torch.Tensor] = []
+    for key in keys.values:
+        values.append(
+            torch.cat([key.expand(num_features, -1), features.unsqueeze(1)], dim=1)
+        )
+    return Labels(keys.names + ["feature"], torch.cat(values))
 
 
 def _features_name(target_name: str) -> str:
