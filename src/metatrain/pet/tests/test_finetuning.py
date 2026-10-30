@@ -134,6 +134,7 @@ def test_heads_finetuning_unknown_modules():
         apply_finetuning_strategy(model, finetuning_strategy)
 
 
+@pytest.mark.timeout(20)
 def test_finetuning_restart(monkeypatch, tmp_path):
     """
     Test finetuning with LoRA layers.
@@ -425,6 +426,7 @@ def _fill_target_params(model, target_name, value):
         param.data.fill_(value)
 
 
+@pytest.mark.timeout(20)
 def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path):
     """Restarting an interrupted finetuning run must not redo the one-time
     ``inherit_heads`` weight copy: the destination head's weights, once trained,
@@ -573,6 +575,7 @@ def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path
         torch.testing.assert_close(param, snapshot[name])
 
 
+@pytest.mark.timeout(20)
 def test_restart_with_fewer_targets_does_not_crash(monkeypatch, tmp_path):
     """Continuing training (plain restart, not part of a finetuning run) from a
     checkpoint that has 3 targets, specifying only 2 of them, must not raise --

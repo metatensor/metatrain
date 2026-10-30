@@ -1,13 +1,42 @@
-"""Pytest plugin to add documentation links on test failures.
+"""Pytest plugin for architecture tests.
 
-This plugin is used by architecture tests as ``pytest -p mtt_plugin``
-in ``tox.ini``.
+This plugin adds documentation links on test failures, and applies the per-test
+timeouts declared in the ``timeouts`` attribute of test classes. It is loaded
+with ``-p mtt_plugin`` from ``pyproject.toml``.
 """
 
 from collections.abc import Generator
 from typing import Any
 
 import pytest
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """
+    Add a timeout marker to tests listed in their class ``timeouts`` attribute.
+
+    :param items: The collected test items.
+    """
+    checked: set[type] = set()
+    for item in items:
+        cls = getattr(item, "cls", None)
+        timeouts = getattr(cls, "timeouts", None)
+        if cls is None or not timeouts:
+            continue
+
+        if cls not in checked:
+            checked.add(cls)
+            for name in timeouts:
+                if not callable(getattr(cls, name, None)):
+                    raise pytest.UsageError(
+                        f"{cls.__qualname__}.timeouts refers to '{name}', "
+                        "which is not a test in this class"
+                    )
+
+        timeout = timeouts.get(getattr(item, "originalname", item.name))
+        if timeout is not None:
+            # prepend the marker so it takes precedence over any decorator
+            item.add_marker(pytest.mark.timeout(timeout), append=False)
 
 
 @pytest.hookimpl(hookwrapper=True, tryfirst=True)

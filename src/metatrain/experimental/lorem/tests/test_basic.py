@@ -80,6 +80,7 @@ class TestExported(ExportedTests, LoremTests): ...
 
 class TestTraining(TrainingTests, LoremTests):
     supports_atomic_basis = False
+    timeouts = {"test_continue_restart_num_epochs": 20}
 
 
 class TestCheckpoints(CheckpointTests, LoremTests):

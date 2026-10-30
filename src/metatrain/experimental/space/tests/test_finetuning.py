@@ -115,6 +115,7 @@ def test_heads_finetuning_unknown_modules():
         apply_finetuning_strategy(model, finetuning_strategy)
 
 
+@pytest.mark.timeout(30)
 def test_finetuning_restart(monkeypatch, tmp_path):
     """A LoRA-finetuned checkpoint must round-trip: the adapters have to survive
     saving and reloading, otherwise the restarted run silently trains the wrong
@@ -383,6 +384,7 @@ def test_plain_restart_keeps_stale_targets():
     _assert_target_present(model, "mtt::U0")
 
 
+@pytest.mark.timeout(60)
 def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path):
     """Restarting an interrupted finetuning run must not redo the one-time
     ``inherit_heads`` weight copy: the destination head's weights, once trained,

@@ -211,6 +211,11 @@ class TestExported(ExportedTests, MACETests): ...
 
 
 class TestTraining(TrainingTests, MACETests):
+    timeouts = {
+        "test_continue_restart_num_epochs": 30,
+        "test_continue_finetune_num_epochs": 20,
+    }
+
     def test_train_atomic_basis_target(
         self,
         source,
@@ -233,6 +238,7 @@ class TestTraining(TrainingTests, MACETests):
 
 class TestCheckpoints(CheckpointTests, MACETests):
     incompatible_trainer_checkpoints = []
+    timeouts = {"test_loading_old_checkpoints": 20}
 
     def test_checkpoint_did_not_change(
         self,

@@ -18,6 +18,7 @@ HERE = Path(__file__).parent
 torch.manual_seed(42)
 
 
+@pytest.mark.timeout(90)
 def test_llpr(monkeypatch, tmp_path):
     """
     Tests the functionalities of the LLPRUncertaintyModel from the CLI.
@@ -59,6 +60,7 @@ def test_llpr(monkeypatch, tmp_path):
     subprocess.check_call(command)
 
 
+@pytest.mark.timeout(60)
 def test_with_old_llpr_checkpoint(monkeypatch, tmp_path):
     """
     Tests the LLPR wrapper with PET-MAD v1.0.2, which was published using a LLPR
@@ -151,6 +153,7 @@ def check_exported_model_predictions(
         )
 
 
+@pytest.mark.timeout(120)
 @pytest.mark.parametrize("train_backbone", [True, False])
 def test_llpr_ensemble_training(monkeypatch, tmp_path, train_backbone):
     """

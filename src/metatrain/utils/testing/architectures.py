@@ -39,6 +39,14 @@ class ArchitectureTests:
     as well as the hyperparameters.
     """
 
+    timeouts: dict[str, float] = {}
+    """Per-test timeouts (in seconds), keyed by test name.
+
+    Use this to give a longer timeout to tests inherited from the shared test
+    suite, without having to override them. Tests not listed here use the default
+    timeout, or the one set with ``@pytest.mark.timeout``.
+    """
+
     @pytest.fixture
     def dataset_path(self) -> str:
         """Fixture that provides a path to a dataset file for testing.
