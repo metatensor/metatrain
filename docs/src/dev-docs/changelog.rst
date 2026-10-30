@@ -27,6 +27,7 @@ Unreleased
 Fixed
 #####
 
+- Memmap datasets support variant targets such as ``energy/gs`` (#1334).
 - Corrected type annotations to match existing runtime behavior (#1325).
   Lint and formatting environments now install the project dependencies.
 - PET computes forces and stresses for batches of several structures faster
