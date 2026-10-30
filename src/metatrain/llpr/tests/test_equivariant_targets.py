@@ -320,7 +320,7 @@ def test_last_layer_depending_on_atomic_type():
     for type_index, atomic_type in enumerate([1, 6]):
         type_features = features.block().values[types == atomic_type]
         torch.testing.assert_close(
-            target.covariances[type_index].covariance,
+            target.covariances[0].covariance[type_index],
             type_features.T @ type_features,
         )
 
@@ -330,9 +330,7 @@ def test_last_layer_depending_on_atomic_type():
     )
     features = outputs[LLF].block().values
     type_indices = torch.tensor([[1, 6].index(t) for t in systems[0].types.tolist()])
-    choleskys = torch.stack(
-        [target.covariances[index].cholesky for index in type_indices]
-    )
+    choleskys = target.covariances[0].cholesky[type_indices]
     inverses = torch.linalg.inv(choleskys @ choleskys.transpose(1, 2))
     one_over_pr = torch.einsum("sf,sfg,sg->s", features, inverses, features)
     for key, block in outputs[UNCERTAINTY].items():
@@ -473,9 +471,9 @@ def test_pet_with_per_block_heads_and_one_hot_readouts(tmp_path: Path) -> None:
         )
         for type_index, atomic_type in enumerate([1, 6]):
             block_features = features.values[types == atomic_type][:, selection]
-            covariance_index = target.covariance_indices[2 * block_index + type_index]
+            covariance = target.covariances[target.feature_indices[block_index]]
             torch.testing.assert_close(
-                target.covariances[covariance_index].covariance,
+                covariance.covariance[type_index],
                 block_features.T @ block_features,
             )
 

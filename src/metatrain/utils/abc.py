@@ -155,6 +155,17 @@ class ModelInterface(nn.Module, Generic[ModelHypersType], metaclass=ABCMeta):
         :return: A dictionary of the supported outputs by this model.
         """
 
+    def last_layer_depends_on_atomic_type(self, target_name: str) -> bool:
+        """
+        Whether the last layer of a target has different weights for each atomic
+        type, which LLPR then accounts for.
+
+        :param target_name: Name of the target.
+        :return: Whether the last layer depends on the atomic type, ``False`` by
+            default.
+        """
+        return False
+
     @abstractmethod
     def restart(
         self,
