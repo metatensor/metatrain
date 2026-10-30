@@ -119,8 +119,6 @@ class SPACE(ModelInterface[ModelHypers]):
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
 
-        self.last_layer_feature_size = self.k_max_l[0]
-
         self.register_buffer("single_label", Labels.single(), persistent=False)
 
         self.finetune_config: Dict[str, Any] = {}

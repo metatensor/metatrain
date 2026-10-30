@@ -2,12 +2,13 @@ import copy
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Dict, Iterator, List, Literal, Optional, Union, cast
 
 import torch
 from metatensor.torch import TensorBlock, TensorMap
+from metatomic.torch import ModelOutput
 from torch.optim.lr_scheduler import LambdaLR
-from torch.utils.data import DistributedSampler
+from torch.utils.data import DataLoader, DistributedSampler
 
 from metatrain.utils.abc import (
     ModelInterface,
@@ -47,6 +48,7 @@ from metatrain.utils.transfer import batch_to
 from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
+from .calibration import GaussianCRPSCalibrator, RatioCalibrator
 from .documentation import ModelHypers, TrainerHypers
 from .model import LLPRUncertaintyModel
 
@@ -98,7 +100,6 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         self.best_metric: Optional[float] = None
         self.best_model_state_dict: Optional[Dict[str, Any]] = None
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
-        self.has_new_targets: bool = False
 
     def setup(
         self, model_hypers: ModelHypers, dataset_info: DatasetInfo
@@ -132,22 +133,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         dataset_info: DatasetInfo,
         model_hypers: ModelHypers,
     ) -> MetatrainModel[LLPRUncertaintyModel]:
-        # -------------------------------------------------
-        #        Find out what are the new targets
-        # --------------------------------------------------
-        merged_info = model.dataset_info.union(dataset_info)
-        new_targets = {
-            key: value
-            for key, value in merged_info.targets.items()
-            if key not in model.dataset_info.targets
-        }
-        self.has_new_targets = len(new_targets) > 0
-
-        # ------------------------------------------------------
-        #  Ask the model to restart with the new dataset info
-        # -------------------------------------------------------
         model.restart(dataset_info, model_hypers=model_hypers)
-
         return model
 
     def train(
@@ -210,13 +196,14 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
         if start_epoch == 0:
             logging.info("Computing LLPR covariance matrix")
-            llpr_model.compute_covariance(
-                train_datasets, self.hypers["batch_size"], is_distributed
+            compute_covariance(
+                llpr_model, train_datasets, self.hypers["batch_size"], is_distributed
             )
             logging.info("Computing Cholesky decomposition of the covariance matrix")
             llpr_model.compute_cholesky_decomposition(self.hypers["regularizer"])
             logging.info("Calibrating LLPR uncertainties")
-            llpr_model.calibrate(
+            calibrate(
+                llpr_model,
                 val_datasets,
                 self.hypers["batch_size"],
                 is_distributed,
@@ -361,18 +348,13 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             )
 
         if self.optimizer_state_dict is not None:
-            # try to load the optimizer state dict, but this is only possible
-            # if there are no new targets in the model (new parameters)
-            if not self.has_new_targets:
-                optimizer.load_state_dict(self.optimizer_state_dict)
+            optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a learning rate scheduler
         lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
 
         if self.scheduler_state_dict is not None:
-            # same as the optimizer, try to load the scheduler state dict
-            if not self.has_new_targets:
-                lr_scheduler.load_state_dict(self.scheduler_state_dict)
+            lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         per_structure_targets = self.hypers["per_structure_targets"]
 
@@ -388,10 +370,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         for key, value in model_unwrapped.dataset_info.targets.items():
             requested_outputs[key] = model_unwrapped.capabilities.outputs[key]
             requested_outputs[key].sample_kind = value.sample_kind
-            if key == "energy":
-                ensemble_name = "energy_ensemble"
-            else:
-                ensemble_name = f"mtt::aux::{key.replace('mtt::', '')}_ensemble"
+            ensemble_name = model_unwrapped.targets[key].ensemble_name
             requested_outputs[ensemble_name] = model_unwrapped.capabilities.outputs[
                 ensemble_name
             ]
@@ -695,3 +674,215 @@ def _apply_ensemble_training_strategy(
             param.requires_grad = False
 
     return model
+
+
+def compute_covariance(
+    model: LLPRUncertaintyModel,
+    datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    batch_size: int,
+    is_distributed: bool,
+) -> None:
+    """Accumulate the covariance of the last-layer features of each target.
+
+    :param model: the LLPR model.
+    :param datasets: the datasets to accumulate the covariance over.
+    :param batch_size: the batch size.
+    :param is_distributed: whether the datasets are split between processes.
+    """
+    reference = next(model.model.parameters())
+    device, dtype = reference.device, reference.dtype
+    sample_kinds = {
+        name: model.model.dataset_info.targets[name].sample_kind
+        for name in model.targets
+    }
+    with torch.no_grad():
+        for batch in _get_dataloader(model, datasets, batch_size, is_distributed):
+            systems, targets, _ = unpack_batch(batch)
+            systems = [system.to(device=device, dtype=dtype) for system in systems]
+            names = [name for name in targets if name in model.targets]
+            outputs = {
+                model.targets[name].features_name: ModelOutput(
+                    sample_kind=sample_kinds[name]
+                )
+                for name in names
+            }
+            features = model(systems, outputs)
+            n_atoms = torch.tensor([len(s) for s in systems], device=device)
+            for name in names:
+                llpr_target = model.targets[name]
+                llpr_target.accumulate(
+                    features[llpr_target.features_name],
+                    n_atoms if sample_kinds[name] == "system" else None,
+                )
+
+    if is_distributed:
+        torch.distributed.barrier()
+        for llpr_target in model.targets.values():
+            for covariance in llpr_target.covariances:
+                torch.distributed.all_reduce(covariance.covariance)
+
+
+def calibrate(
+    model: LLPRUncertaintyModel,
+    datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    batch_size: int,
+    is_distributed: bool,
+    calibration_method: Literal["absolute_residuals", "squared_residuals", "crps"],
+) -> None:
+    """Fit one calibration factor for each property of each block of each target, so
+    that the uncertainties match the errors on ``datasets``.
+
+    :param model: the LLPR model.
+    :param datasets: the datasets to calibrate on.
+    :param batch_size: the batch size.
+    :param is_distributed: whether the datasets are split between processes.
+    :param calibration_method: "squared_residuals" and "crps" minimize the negative
+        log-likelihood and the continuous ranked probability score of Gaussian
+        errors; "absolute_residuals" matches the mean absolute residuals instead,
+        which is less sensitive to outliers.
+    """
+    reference = next(model.model.parameters())
+    device, dtype = reference.device, reference.dtype
+
+    # one calibrator for each block of each target, in the same order on all the
+    # processes, and holding all the blocks, also those missing from the batches of
+    # a process, so that all the processes reduce the same blocks
+    blocks = [
+        (name, index)
+        for name, target in model.targets.items()
+        for index in range(len(target.multiplier_offsets) - 1)
+    ]
+    calibrators: List[Union[RatioCalibrator, GaussianCRPSCalibrator]] = []
+    for name, index in blocks:
+        calibrator: Union[RatioCalibrator, GaussianCRPSCalibrator]
+        if calibration_method == "crps":
+            calibrator = GaussianCRPSCalibrator()
+        else:
+            calibrator = RatioCalibrator(method=calibration_method)
+        offsets = model.targets[name].multiplier_offsets
+        empty = torch.empty((0, offsets[index + 1] - offsets[index]), device=device)
+        calibrator.update(uncertainty_name=name, residuals=empty, uncertainties=empty)
+        calibrators.append(calibrator)
+    num_samples = torch.zeros(len(blocks), dtype=torch.long, device=device)
+
+    with torch.no_grad():
+        for batch in _get_dataloader(model, datasets, batch_size, is_distributed):
+            systems, targets, _ = unpack_batch(batch)
+            systems = [system.to(device=device, dtype=dtype) for system in systems]
+            targets = {
+                name: target.to(device=device, dtype=dtype)
+                for name, target in targets.items()
+                if name in model.targets
+            }
+            outputs: Dict[str, ModelOutput] = {}
+            for name in targets:
+                outputs[name] = ModelOutput(
+                    sample_kind=model.model.dataset_info.targets[name].sample_kind
+                )
+                outputs[model.targets[name].uncertainty_name] = outputs[name]
+            predictions = model(systems, outputs)
+
+            for name, target in targets.items():
+                uncertainty = predictions[model.targets[name].uncertainty_name]
+                layout_keys = model.targets[name].layout_keys
+                for key, block in predictions[name].items():
+                    block_index = layout_keys.position(key)
+                    assert block_index is not None
+                    i = blocks.index((name, block_index))
+                    residuals = block.values - target.block(key).values
+                    uncertainties = uncertainty.block(key).values
+                    calibrators[i].update(
+                        uncertainty_name=name,
+                        residuals=residuals.reshape(-1, residuals.shape[-1]),
+                        uncertainties=uncertainties.reshape(
+                            -1, uncertainties.shape[-1]
+                        ),
+                    )
+                    num_samples[i] += len(block.samples)
+
+    if is_distributed:
+        torch.distributed.all_reduce(num_samples)
+    for i, (name, block_index) in enumerate(blocks):
+        # the blocks missing from the calibration data keep a factor of 1
+        if num_samples[i] > 0:
+            multipliers = calibrators[i].finalize()[name]
+            model.targets[name].set_multipliers(block_index, multipliers)
+
+
+def _get_dataloader(
+    model: LLPRUncertaintyModel,
+    datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    batch_size: int,
+    is_distributed: bool,
+) -> CombinedDataLoader:
+    """A dataloader over ``datasets`` for a pass of LLPR fitting, without shuffling
+    or dropping samples, split between processes if ``is_distributed``.
+
+    :param model: the LLPR model.
+    :param datasets: the datasets.
+    :param batch_size: the batch size.
+    :param is_distributed: whether to split the datasets between processes.
+    :return: the dataloader.
+    """
+    if len(datasets) == 0:
+        raise ValueError("No datasets were provided for LLPR fitting.")
+    collate_fn = CollateFn(
+        target_keys=list(model.dataset_info.targets.keys()),
+        callables=[
+            get_system_with_neighbor_lists_transform(
+                get_requested_neighbor_lists(model)
+            )
+        ],
+    )
+
+    dataloaders = []
+    for dataset in datasets:
+        if len(dataset) < batch_size:
+            raise ValueError(
+                f"A dataset has fewer samples ({len(dataset)}) than the batch size "
+                f"({batch_size}). Please reduce the batch size."
+            )
+        sampler = (
+            _NoPadDistributedSampler(
+                dataset,
+                num_replicas=torch.distributed.get_world_size(),
+                rank=torch.distributed.get_rank(),
+            )
+            if is_distributed
+            else None
+        )
+        dataloaders.append(
+            DataLoader(
+                dataset=dataset,
+                batch_size=batch_size,
+                sampler=sampler,
+                drop_last=False,
+                collate_fn=collate_fn,
+            )
+        )
+    # not shuffled, so that the results do not depend on the number of processes
+    return CombinedDataLoader(dataloaders, shuffle=False)
+
+
+class _NoPadDistributedSampler(torch.utils.data.Sampler[int]):
+    """Splits a dataset between processes without padding it, so that each sample
+    is seen exactly once.
+
+    :param dataset: the dataset.
+    :param num_replicas: the number of processes.
+    :param rank: the rank of this process.
+    """
+
+    def __init__(
+        self, dataset: torch.utils.data.Dataset, num_replicas: int, rank: int
+    ) -> None:
+        self.dataset = dataset
+        self.num_replicas = num_replicas
+        self.rank = rank
+
+    def __iter__(self) -> Iterator[int]:
+        return iter(range(self.rank, len(self.dataset), self.num_replicas))
+
+    def __len__(self) -> int:
+        n = len(self.dataset)
+        return (n - self.rank + self.num_replicas - 1) // self.num_replicas

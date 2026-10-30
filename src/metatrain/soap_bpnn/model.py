@@ -353,12 +353,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
             self.long_range = False
             self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
 
-        self.last_layer_feature_size = (
-            self.n_inputs_last_layer
-            if not self.legacy
-            else self.n_inputs_last_layer * len(self.atomic_types)
-        )
-
         # the model is always capable of outputting the internal features
         # the legacy model has one last layer for each atomic type, which reads its
         # own copy of the features
@@ -390,7 +384,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
         self.heads = torch.nn.ModuleDict({})
         self.head_types = self.hypers["heads"]
         self.last_layers = torch.nn.ModuleDict({})
-        self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
         self.cartesian_rank1_targets: List[str] = []
         self.cartesian_rank2_targets: List[str] = []
         for target_name, target in dataset_info.targets.items():
@@ -1101,11 +1094,6 @@ class SoapBpnn(ModelInterface[ModelHypers]):
                 bias=False,
                 out_properties=out_properties_list,
             )
-            self.last_layer_parameter_names[target_name] = [
-                f"last_layers.{target_name}.{dict_key}." + n
-                for n in self.last_layers[target_name][dict_key].state_dict().keys()
-                if n.endswith("weight")
-            ]
 
         self.key_labels[target_name] = layout_for_layers.keys
         self.component_labels[target_name] = [

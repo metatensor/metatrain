@@ -145,9 +145,6 @@ class FlashMD(ModelInterface[ModelHypers]):
         self.edge_heads = torch.nn.ModuleDict()
         self.node_last_layers = torch.nn.ModuleDict()
         self.edge_last_layers = torch.nn.ModuleDict()
-        self.last_layer_feature_size = (
-            self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
-        )
 
         # the model is always capable of outputting the internal features
         # the node and edge features of each readout layer
