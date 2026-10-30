@@ -1,9 +1,13 @@
 import copy
+import glob
+import gzip
 
 import pytest
+import torch
 
 from metatrain.utils.additive import ZBL
 from metatrain.utils.architectures import get_default_hypers
+from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.testing import (
     ArchitectureTests,
     AutogradTests,
@@ -102,3 +106,12 @@ class TestCheckpoints(CheckpointTests, PETTests):
         "checkpoints/model-v6_trainer-v3.ckpt.gz",
         "checkpoints/model-v6_trainer-v4.ckpt.gz",
     ]
+
+    def test_old_checkpoints_keep_scaler_and_composition_model(self):
+        """Check old checkpoints keep their scaler and composition model."""
+        for path in glob.glob("checkpoints/*.ckpt.gz"):
+            with gzip.open(path, "rb") as fd:
+                checkpoint = torch.load(fd, weights_only=False)
+            model = model_from_checkpoint(checkpoint, "export")
+            assert model.scaler is not None, path
+            assert len(model.additive_models) == 1, path

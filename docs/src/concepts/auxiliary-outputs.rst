@@ -36,6 +36,10 @@ The last-layer features come in one of two forms:
   keys and components. The last layer maps each block of features to the block of
   the target with the same key, with the same weights for all the components.
 
+When the last layer of a per-atom target has different weights for each atomic
+type, the model defines a ``last_layer_depends_on_atomic_type(target_name)`` method
+returning ``True`` for this target.
+
 .. list-table:: Metadata for last-layer features
   :widths: 2 3 7
   :header-rows: 1
@@ -67,10 +71,13 @@ The last-layer features come in one of two forms:
       equivariant.
 
   * - properties
-    - ``"feature"``
-    - the last-layer features have a single property dimension named
-      ``"feature"``, with entries ranging from 0 to the number of features
-      in the last layer.
+    - ``"feature"``, optionally preceded by some of the key names of the target
+    - the last-layer features have a property dimension named ``"feature"``,
+      with entries ranging from 0 to the number of features in the last layer.
+      Invariant or non-symmetrized features read by different blocks of the target
+      also have dimensions named after some of the keys of the target, e.g.
+      ``["o3_lambda", "o3_sigma", "feature"]``: each block of the target reads the
+      features whose labels match its key on these dimensions.
 
 Last-layer features are supported by the following architectures:
 

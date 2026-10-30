@@ -62,7 +62,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 18
+    __checkpoint_version__ = 19
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -70,9 +70,9 @@ class PET(ModelInterface[ModelHypers]):
     )
     single_label: Labels
     key_labels: Dict[str, Labels]
+    last_layer_features_properties: Dict[str, Labels]
     property_labels: Dict[str, List[Labels]]
     component_labels: Dict[str, List[List[Labels]]]
-    NUM_FEATURE_TYPES: int = 2  # node + edge features
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -92,7 +92,6 @@ class PET(ModelInterface[ModelHypers]):
         self.adaptive_cutoff_method = self.hypers["adaptive_cutoff_method"]
         self.d_pet = self.hypers["d_pet"]
         self.d_node = self.hypers["d_node"]
-        self.d_head = self.hypers["d_head"]
         self.num_gnn_layers = self.hypers["num_gnn_layers"]
         self.featurizer_type = self.hypers["featurizer_type"]
 
@@ -144,6 +143,7 @@ class PET(ModelInterface[ModelHypers]):
         self.register_buffer("key_labels", {}, persistent=False)
         self.register_buffer("property_labels", {}, persistent=False)
         self.register_buffer("component_labels", {}, persistent=False)
+        self.register_buffer("last_layer_features_properties", {}, persistent=False)
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
         self.target_names: List[str] = []
@@ -177,6 +177,16 @@ class PET(ModelInterface[ModelHypers]):
 
     def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
+
+    def last_layer_depends_on_atomic_type(self, target_name: str) -> bool:
+        """
+        Whether the last layers of a target depend on the atomic type, i.e. with
+        ``readout_type="one-hot"``.
+
+        :param target_name: Name of the target.
+        :return: Whether the last layers depend on the atomic type.
+        """
+        return self.backend.conditioned_last_layers[target_name]
 
     def restart(
         self,
@@ -377,7 +387,13 @@ class PET(ModelInterface[ModelHypers]):
         # optional diagnostic token capture by registering temporary module hooks
         _diagnostic_pair_labels: Optional[Labels] = None
         _diagnostic_handles: List[Any] = []
+        # Hooks on the edge last layers capture their per-edge outputs, so these
+        # layers must then be applied before pooling over neighbors.
+        _per_edge_last_layers = False
         if (not torch.jit.is_scripting()) and (not torch.jit.is_tracing()):
+            _per_edge_last_layers = any(
+                k.startswith(DIAGNOSTIC_PREFIX + "edge_last_layers") for k in outputs
+            )
             if any(k.startswith(DIAGNOSTIC_PREFIX) for k in outputs):
                 _diagnostic_pair_labels = get_pair_sample_labels(
                     sample_labels,
@@ -482,6 +498,7 @@ class PET(ModelInterface[ModelHypers]):
                 cells,
                 system_indices,
                 requested_target_names,
+                _per_edge_last_layers,
             )
 
         # **Stage 2: Intermediate Feature Output (Optional)**
@@ -675,6 +692,9 @@ class PET(ModelInterface[ModelHypers]):
         Combine node and edge last layer features for requested last layer
         features output. Edge features are summed with cutoff weighting.
 
+        The features of all the heads of a target are concatenated, with properties
+        labelled by the key of the block reading them with ``head_type="per_block"``.
+
         :param node_last_layer_features_dict: Dictionary mapping output names to
             lists of node last layer features.
         :param edge_last_layer_features_dict: Dictionary mapping output names to
@@ -692,16 +712,26 @@ class PET(ModelInterface[ModelHypers]):
         for output_name in node_last_layer_features_dict.keys():
             if not should_compute_last_layer_features(output_name, requested_outputs):
                 continue
-            if output_name not in last_layer_features_dict:
-                last_layer_features_dict[output_name] = []
+            heads_per_readout_layer = self.backend.heads_per_readout_layer[output_name]
+            # the features of each head, from all the readout layers
+            features_by_head: List[List[torch.Tensor]] = []
+            for _ in range(heads_per_readout_layer):
+                features_by_head.append([])
             for i in range(len(node_last_layer_features_dict[output_name])):
                 node_last_layer_features = node_last_layer_features_dict[output_name][i]
                 edge_last_layer_features = edge_last_layer_features_dict[output_name][i]
                 edge_last_layer_features = (
                     edge_last_layer_features * cutoff_factors[:, :, None]
                 ).sum(dim=1)
-                last_layer_features_dict[output_name].append(node_last_layer_features)
-                last_layer_features_dict[output_name].append(edge_last_layer_features)
+                features_by_head[i % heads_per_readout_layer].append(
+                    node_last_layer_features
+                )
+                features_by_head[i % heads_per_readout_layer].append(
+                    edge_last_layer_features
+                )
+            last_layer_features_dict[output_name] = []
+            for features in features_by_head:
+                last_layer_features_dict[output_name].append(torch.cat(features, dim=1))
 
         for output_name in requested_outputs:
             if not (
@@ -715,24 +745,14 @@ class PET(ModelInterface[ModelHypers]):
             # the corresponding output could be base_name or mtt::base_name
             if f"mtt::{base_name}" in last_layer_features_dict:
                 base_name = f"mtt::{base_name}"
-            last_layer_features_values = torch.cat(
-                last_layer_features_dict[base_name], dim=1
-            )
             last_layer_feature_tmap = TensorMap(
                 keys=self.single_label,
                 blocks=[
                     TensorBlock(
-                        values=last_layer_features_values,
+                        values=torch.cat(last_layer_features_dict[base_name], dim=1),
                         samples=sample_labels,
                         components=[],
-                        properties=Labels(
-                            names=["feature"],
-                            values=torch.arange(
-                                last_layer_features_values.shape[-1],
-                                device=last_layer_features_values.device,
-                            ).reshape(-1, 1),
-                            assume_unique=True,
-                        ),
+                        properties=self.last_layer_features_properties[base_name],
                     )
                 ],
             )
@@ -923,12 +943,40 @@ class PET(ModelInterface[ModelHypers]):
         # The learnable heads and last layers live on the pure-PyTorch backend.
         self.backend.add_output(target_name, self.output_shapes[target_name])
 
-        ll_features_name = get_last_layer_features_name(target_name)
-        # shared by all the blocks of the target
-        self.outputs[ll_features_name] = get_features_info(
-            self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES,
+        num_last_layer_features = self.num_readout_layers * (
+            self.backend.d_head_node + self.backend.d_head_edge
+        )
+        num_heads = self.backend.heads_per_readout_layer[target_name]
+        ll_features_info = get_features_info(
+            num_heads * num_last_layer_features,
             description=f"last layer features for {target_name}",
         )
+        if num_heads > 1:
+            # the features of the heads of each block, labelled by its key
+            keys = target_info.layout.keys
+            features = torch.arange(num_last_layer_features, dtype=torch.int32)
+            properties = Labels(
+                keys.names + ["feature"],
+                torch.cat(
+                    [
+                        keys.values.repeat_interleave(num_last_layer_features, dim=0),
+                        features.repeat(len(keys)).unsqueeze(1),
+                    ],
+                    dim=1,
+                ),
+            )
+            block = ll_features_info.layout.block()
+            ll_features_info = TargetInfo(
+                TensorMap(
+                    Labels.single(),
+                    [TensorBlock(block.values, block.samples, [], properties)],
+                ),
+                description=ll_features_info.description,
+            )
+        self.last_layer_features_properties[target_name] = (
+            ll_features_info.layout.block().properties
+        )
+        self.outputs[get_last_layer_features_name(target_name)] = ll_features_info
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [
             block.components for block in target_info.layout.blocks()
@@ -951,6 +999,7 @@ class PET(ModelInterface[ModelHypers]):
         self.outputs.pop(get_last_layer_features_name(target_name), None)
         self.backend.remove_output(target_name)
         self.key_labels.pop(target_name, None)
+        self.last_layer_features_properties.pop(target_name, None)
         self.component_labels.pop(target_name, None)
         self.property_labels.pop(target_name, None)
         self.target_names.remove(target_name)
