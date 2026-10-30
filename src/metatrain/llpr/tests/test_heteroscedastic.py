@@ -10,12 +10,12 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelCapabilities, ModelOutput, System
 
 from metatrain.llpr import LLPRUncertaintyModel
-from metatrain.llpr.model import _per_sample_variance
+from metatrain.llpr.trainer import _per_sample_variance, calibrate, compute_covariance
 from metatrain.scaler import Scaler
 from metatrain.scaler.utils.samples import get_samples_labels
 from metatrain.utils.architectures import get_default_hypers
-from metatrain.utils.data import Dataset, DatasetInfo
-from metatrain.utils.data.target_info import get_generic_target_info
+from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
+from metatrain.utils.data.target_info import get_features_info, get_generic_target_info
 from metatrain.utils.wrapper import MetatrainModel
 
 
@@ -41,6 +41,19 @@ def normalized_variance(positions: torch.Tensor) -> torch.Tensor:
     return 0.05 + 0.1 * positions[:, 0] ** 2
 
 
+def _scalar_info(name: str) -> TargetInfo:
+    return get_generic_target_info(
+        name,
+        {
+            "quantity": "",
+            "unit": "",
+            "type": "scalar",
+            "num_subtargets": 1,
+            "sample_kind": "atom",
+        },
+    )
+
+
 class LinearModel(torch.nn.Module):
     """Per-atom model ``w^T phi(r)`` with a predicted noise variance, in normalized
     units (the scaler of the wrapper converts them to physical units)."""
@@ -51,15 +64,18 @@ class LinearModel(torch.nn.Module):
         self.atomic_types = dataset_info.atomic_types
         self.last_layer_feature_size = len(WEIGHTS)
         # shape (num_properties, num_features), as expected for the LLPR ensemble
-        self.register_buffer("weights", WEIGHTS.clone().unsqueeze(0))
+        self.weights = torch.nn.Parameter(
+            WEIGHTS.clone().unsqueeze(0), requires_grad=False
+        )
         self.last_layer_parameter_names = {TARGET: ["weights"]}
         self.outputs = {
-            TARGET: ModelOutput(sample_kind="atom"),
-            FEATURES: ModelOutput(sample_kind="atom"),
-            VARIANCE: ModelOutput(sample_kind="atom"),
+            TARGET: dataset_info.targets[TARGET],
+            FEATURES: get_features_info(len(WEIGHTS)),
+            # same layout as the target
+            VARIANCE: _scalar_info(TARGET),
         }
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def requested_neighbor_lists(self) -> List:
@@ -67,7 +83,9 @@ class LinearModel(torch.nn.Module):
 
     def export(self):
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output() for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
             interaction_range=0.0,
             length_unit="Angstrom",
@@ -174,16 +192,7 @@ def setup(request):
     """The LLPR around the linear model, trained on noisy data from that model."""
     scales = request.param
 
-    target_info = get_generic_target_info(
-        TARGET,
-        {
-            "quantity": "",
-            "unit": "",
-            "type": "scalar",
-            "num_subtargets": 1,
-            "sample_kind": "atom",
-        },
-    )
+    target_info = _scalar_info(TARGET)
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6], targets={TARGET: target_info}
     )
@@ -214,7 +223,7 @@ def setup(request):
     llpr.set_wrapped_model(wrapped)
     llpr.to(dtype=DTYPE)  # as done by the LLPR trainer
 
-    llpr.compute_covariance([dataset], batch_size=4, is_distributed=False)
+    compute_covariance(llpr, [dataset], batch_size=4, is_distributed=False)
     llpr.compute_cholesky_decomposition(regularizer=REGULARIZER)
     # the calibration constant is 1, as in the closed form
 
@@ -240,14 +249,15 @@ def test_precision_matches_closed_form(setup):
     llpr, systems, scales = setup
     assert llpr.heteroscedastic_outputs == [TARGET]
 
-    cholesky = llpr._get_cholesky(UNCERTAINTY).to(DTYPE)
+    cholesky = llpr.targets[TARGET].covariances[0].cholesky.to(DTYPE)
     torch.testing.assert_close(
         cholesky @ cholesky.T, _closed_form_precision(systems, scales)
     )
 
 
 def test_predictive_variance_matches_closed_form(setup):
-    """At new points, total variance = s(r*) + c*^2 phi*^T Lambda^-1 phi*."""
+    """At new points, the uncertainty is the epistemic one, c* sqrt(phi*^T Lambda^-1
+    phi*), and the total variance is s(r*) + c*^2 phi*^T Lambda^-1 phi*."""
     llpr, systems, scales = setup
     precision_inverse = torch.linalg.inv(_closed_form_precision(systems, scales))
 
@@ -256,6 +266,7 @@ def test_predictive_variance_matches_closed_form(setup):
         test_systems,
         {
             TARGET: ModelOutput(sample_kind="atom"),
+            VARIANCE: ModelOutput(sample_kind="atom"),
             UNCERTAINTY: ModelOutput(sample_kind="atom"),
         },
     )
@@ -267,13 +278,17 @@ def test_predictive_variance_matches_closed_form(setup):
     phi = features(positions)
 
     expected_mean = c * (phi @ WEIGHTS)
-    expected_variance = c**2 * normalized_variance(positions) + c**2 * torch.einsum(
-        "if,fg,ig->i", phi, precision_inverse, phi
-    )
+    expected_aleatoric = c**2 * normalized_variance(positions)
+    expected_epistemic = c**2 * torch.einsum("if,fg,ig->i", phi, precision_inverse, phi)
+
+    aleatoric = outputs[VARIANCE].block().values[:, 0]
+    epistemic = outputs[UNCERTAINTY].block().values[:, 0] ** 2
 
     torch.testing.assert_close(outputs[TARGET].block().values[:, 0], expected_mean)
+    torch.testing.assert_close(aleatoric, expected_aleatoric)
+    torch.testing.assert_close(epistemic, expected_epistemic)
     torch.testing.assert_close(
-        outputs[UNCERTAINTY].block().values[:, 0] ** 2, expected_variance
+        aleatoric + epistemic, expected_aleatoric + expected_epistemic
     )
 
 
@@ -301,37 +316,39 @@ def test_ensemble_spread_matches_epistemic_uncertainty(setup):
     torch.testing.assert_close(ensemble.std(dim=1), expected_std, rtol=0.05, atol=0)
 
 
-@pytest.mark.parametrize("training", [True, False])
-def test_covariance_and_calibration_keep_the_mode_of_the_wrapped_model(setup, training):
-    llpr, systems, scales = setup
+def test_calibration_minimizes_the_nll_of_the_total_variance(setup):
+    """For a target with a predicted variance, alpha minimizes the Gaussian NLL of
+    s + alpha^2 e on the calibration data, whatever the calibration method."""
+    llpr, _, scales = setup
+
+    systems = _systems(40, seed=4)
     dataset = _make_dataset(systems, scales)
-
-    llpr.model.train(training)
-
-    llpr.compute_covariance([dataset], batch_size=4, is_distributed=False)
-    assert llpr.model.training == training
-
-    llpr.compute_cholesky_decomposition(regularizer=REGULARIZER)
-    llpr.calibrate(
-        [dataset],
-        batch_size=4,
-        is_distributed=False,
-        calibration_method="squared_residuals",
+    calibrate(
+        llpr, [dataset], batch_size=4, is_distributed=False, calibration_method="crps"
     )
-    assert llpr.model.training == training
+    alpha = llpr.targets[TARGET].multipliers[0]
 
+    outputs = llpr.eval()(
+        systems,
+        {
+            TARGET: ModelOutput(sample_kind="atom"),
+            VARIANCE: ModelOutput(sample_kind="atom"),
+            UNCERTAINTY: ModelOutput(sample_kind="atom"),
+        },
+    )
+    reference = torch.cat([dataset[i][TARGET].block().values for i in range(40)])
+    r2 = (outputs[TARGET].block().values - reference)[:, 0] ** 2
+    s = outputs[VARIANCE].block().values[:, 0]
+    # the uncertainty is already calibrated
+    e = outputs[UNCERTAINTY].block().values[:, 0] ** 2 / alpha**2
 
-def test_variance_and_uncertainty_with_different_sample_kinds(setup):
-    llpr, _, _ = setup
+    def nll(a):
+        v = s + a**2 * e
+        return 0.5 * torch.sum(torch.log(v) + r2 / v)
 
-    with pytest.raises(ValueError, match="sample_kind"):
-        llpr.eval()(
-            _systems(2, seed=3),
-            {
-                VARIANCE: ModelOutput(sample_kind="atom"),
-                UNCERTAINTY: ModelOutput(sample_kind="system"),
-            },
-        )
+    assert alpha > 0
+    for factor in [0.9, 1.1]:
+        assert nll(alpha) <= nll(factor * alpha)
 
 
 def test_variance_has_to_be_the_same_for_all_components():

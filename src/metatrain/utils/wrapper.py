@@ -17,7 +17,7 @@ from typing_extensions import TypeVar
 
 # from metatrain.scaler import Scaler
 from metatrain.utils.abc import ModelInterface
-from metatrain.utils.data import DatasetInfo
+from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.match_tmaps import match_layout
 from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.dtype import dtype_to_str
@@ -325,8 +325,13 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         return requested_neighbor_lists
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
-        return self.core.supported_outputs()
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
+        # the targets are in the layout of this model, not the one of the core
+        targets = self.dataset_info.targets
+        return {
+            name: targets.get(name, info)
+            for name, info in self.core.supported_outputs().items()
+        }
 
     def export(
         self,
@@ -402,7 +407,11 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         if metadata is not None:
             exported_metadata = merge_metadata(exported_metadata, metadata)
 
-        outputs = self.supported_outputs()
+        # native outputs only, metatomic re-adds the deprecated aliases at export
+        outputs = {
+            name: core.capabilities().outputs[name]
+            for name in self.core.supported_outputs()
+        }
         # Clean deprecated names that ModelCapabilities add automatically for
         # compatibility, to avoid warnings.
         for k, v in DEPRECATED_METATOMIC_OUTPUT_NAMES.items():

@@ -97,6 +97,20 @@ def model_update_v5_v6(checkpoint: dict) -> None:
         state_dict["_extra_state"] = {}
 
 
+def model_update_v6_v7(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 6 to version 7.
+
+    The `layouts` buffer was made persistent by mistake in the previous version.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is None:
+            continue
+        state_dict["_extra_state"].pop("layouts", None)
+
+
 ###########################
 # TRAINER #################
 ###########################

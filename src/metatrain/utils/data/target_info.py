@@ -114,6 +114,22 @@ class TargetInfo:
         """The labels of the properties of the target."""
         return [block.properties for block in self.layout.blocks()]
 
+    def to_model_output(self, sample_kind: Optional[str] = None) -> ModelOutput:
+        """The output described by this info, for the capabilities of an exported
+        model.
+
+        :param sample_kind: The sample kind of the output, if it is not the one of the
+            layout, e.g. ``"atom"`` for a per-system target that the model can also
+            give for each atom.
+
+        :return: The ``ModelOutput``.
+        """
+        return ModelOutput(
+            unit=self.unit,
+            sample_kind=self.sample_kind if sample_kind is None else sample_kind,
+            description=self.description,
+        )
+
     def __repr__(self) -> str:
         return (
             f"TargetInfo(layout={self.layout}, quantity='{self.quantity}', "
@@ -801,7 +817,7 @@ def _get_spherical_irreps_iter(
     product: Optional[Literal["cartesian", "coupled"]] = None,
     symmetric_product: bool = False,
     irreps_2: Optional[list[dict]] = None,
-) -> tuple[list[list[tuple[int, int, int]]], list[Labels]]:
+) -> tuple[list[list[tuple[int, int, int]]], list[Optional[Labels]]]:
     if product not in [None, "cartesian", "coupled"]:
         raise ValueError(
             f"Product '{product}' is not supported. Supported products are"
@@ -839,6 +855,7 @@ def _get_spherical_irreps_iter(
             i_irrep + j_irrep
             for i_irrep, j_irrep in itertools.product(irreps_iter, irreps_2_iter)
         ]
+    properties: list[Optional[Labels]]
     if product == "coupled":
         coupled_blocks: dict[tuple[int, int], int] = defaultdict(int)
         coupled_properties = defaultdict(list)
@@ -894,6 +911,33 @@ def is_auxiliary_output(name: str) -> bool:
         or name.startswith("mtt::aux::")
     )
     return is_auxiliary
+
+
+def get_features_info(
+    num_features: int, sample_kind: str = "atom", description: str = ""
+) -> TargetInfo:
+    """
+    Get the info of features without components, such as last-layer features shared
+    by all the blocks of their target: a single block with ``num_features``
+    properties named ``"feature"``.
+
+    :param num_features: The number of features.
+    :param sample_kind: Whether the features are per ``"atom"`` or per ``"system"``.
+    :param description: A description of the features.
+
+    :return: The info of the features.
+    """
+    return get_generic_target_info(
+        "feature",
+        {
+            "quantity": "",
+            "unit": "",
+            "type": "scalar",
+            "num_subtargets": num_features,
+            "sample_kind": sample_kind,
+            "description": description,
+        },
+    )
 
 
 # metatomic 0.1.12 auto-injects deprecated output names back for backward compatability

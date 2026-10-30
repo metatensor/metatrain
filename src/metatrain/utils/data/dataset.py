@@ -6,7 +6,19 @@ import sys
 import warnings
 import zipfile
 from pathlib import Path
-from typing import Any, Callable, Dict, List, NamedTuple, Optional, Set, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    NamedTuple,
+    Optional,
+    Set,
+    Tuple,
+    TypeAlias,
+    Union,
+)
 
 import numpy as np
 import torch
@@ -45,6 +57,12 @@ from metatrain.utils.data.target_info import (
 )
 from metatrain.utils.external_naming import to_external_name
 from metatrain.utils.units import get_gradient_units, units_are_equivalent
+
+
+CollateTransform: TypeAlias = Callable[
+    [List[System], Dict[str, TensorMap], Dict[str, TensorMap]],
+    Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]],
+]
 
 
 def _set(values: List[int]) -> List[int]:
@@ -394,11 +412,13 @@ class CollateFn:
     def __init__(
         self,
         target_keys: List[str],
-        callables: Optional[List[Callable]] = None,
+        callables: Optional[List[CollateTransform]] = None,
         join_kwargs: Optional[Dict[str, Any]] = None,
     ):
         self.target_keys: Set[str] = set(target_keys)
-        self.callables: List[Callable] = callables if callables is not None else []
+        self.callables: List[CollateTransform] = (
+            callables if callables is not None else []
+        )
         self.join_kwargs: Dict[str, Any] = join_kwargs or {"different_keys": "union"}
 
     def __call__(
@@ -566,10 +586,10 @@ def check_datasets(train_datasets: List[Dataset], val_datasets: List[Dataset]) -
 
 
 def _train_test_random_split(
-    train_dataset: Dataset,
+    train_dataset: Union[Dataset, "DiskDataset", "MemmapDataset", Subset],
     train_size: float,
     test_size: float,
-) -> List[Dataset]:
+) -> List[Subset]:
     if train_size <= 0:
         raise ValueError("Fraction of the train set is smaller or equal to 0!")
 
@@ -701,8 +721,8 @@ def _scan_members(zip_file: SmartZip, path: Union[str, Path]) -> _MemberScan:
     :return: The classification.
     """
     n_members = len(zip_file)
-    entries = np.full(n_members, -1, dtype=np.int64)
-    field_ids = np.full(n_members, -1, dtype=np.int64)
+    entries: np.ndarray = np.full(n_members, -1, dtype=np.int64)
+    field_ids: np.ndarray = np.full(n_members, -1, dtype=np.int64)
     field_id_by_name: Dict[str, int] = {}
     ignored_names: List[str] = []
     has_atom_counts = False
@@ -783,7 +803,7 @@ def _validate_format(scan: _MemberScan, path: Union[str, Path]) -> int:
     n_samples = len(entry_numbers)
 
     # Every entry must carry the same fields ("homogeneous" format).
-    present = np.zeros((n_samples, len(scan.field_id_by_name)), dtype=bool)
+    present: np.ndarray = np.zeros((n_samples, len(scan.field_id_by_name)), dtype=bool)
     for field_id in scan.field_id_by_name.values():
         # entries are the dense range 0..N-1, so they index rows directly
         mask = (scan.field_ids == field_id) & (scan.entries < n_samples)
@@ -1242,6 +1262,19 @@ def _make_system_contiguous(system: System) -> System:
     return new_system
 
 
+def memmap_file_name(key: str) -> str:
+    """Name of the file storing the array ``key`` in a :py:class:`MemmapDataset`.
+
+    The slash of variant names (e.g. ``energy/gs``) is replaced by ``__``
+    (``energy__gs.bin``): it separates the variant from the base name and is not a
+    directory separator.
+
+    :param key: Name of the array, as given in the ``key`` options of the targets.
+    :return: The file name of the array, relative to the dataset directory.
+    """
+    return key.replace("/", "__") + ".bin"
+
+
 class MemmapArray:
     """
     Small helper to reopen a ``np.memmap`` lazily in each worker.
@@ -1257,13 +1290,16 @@ class MemmapArray:
         path: Union[str, Path],
         shape: Tuple[int, ...],
         dtype: Union[str, np.dtype],
-        mode: str = "r",
+        mode: Literal[
+            "r", "c", "r+", "w+", "readonly", "copyonwrite", "readwrite", "write"
+        ] = "r",
     ) -> None:
         self.path = str(path)
         self.shape = tuple(shape)
         self.dtype = np.dtype(dtype)
         self.mode = mode
-        self._mm = None
+        # NumPy's private `_mmap` handle is not part of its annotated interface.
+        self._mm: Any = None
 
     def _ensure_open(self) -> None:
         if self._mm is None:
@@ -1273,7 +1309,7 @@ class MemmapArray:
 
     def __getitem__(self, idx: Any) -> np.ndarray:
         self._ensure_open()
-        return self._mm[idx]  # type: ignore
+        return self._mm[idx]
 
     def close(self) -> None:
         if self._mm is not None:
@@ -1306,7 +1342,8 @@ class MemmapDataset(TorchDataset):
         (na[-1], ..., num_subtargets) if per-atom, where the
         ... depends on the type of target (scalar, vector, tensor, etc.). <key> can
         then be used in the "key" section of targets in metatrain input files to read
-        the target(s).
+        the target(s). A ``/`` in <key> (variant names such as ``energy/gs``) is
+        replaced by ``__`` in the file name (``energy__gs.bin``).
 
     :param path: Path to the directory containing the dataset.
     :param target_options: Dictionary containing the target configurations, in the
@@ -1377,7 +1414,7 @@ class MemmapDataset(TorchDataset):
         for key, opts in self.extra_data_config.items():
             n_samples = self.na[-1] if opts["sample_kind"] == "atom" else self.ns
             self.extra_data_arrays[key] = MemmapArray(
-                path / f"{opts['key']}.bin",
+                path / memmap_file_name(opts["key"]),
                 (n_samples, opts["num_subtargets"]),
                 "float32",
                 mode="r",
@@ -1392,7 +1429,7 @@ class MemmapDataset(TorchDataset):
             number_of_properties = single_target_options["num_subtargets"]
             if single_target_options["type"] == "scalar":
                 self.target_arrays[target_key] = MemmapArray(
-                    path / f"{data_key}.bin",
+                    path / memmap_file_name(data_key),
                     (number_of_samples, number_of_properties),
                     "float32",
                     mode="r",
@@ -1405,14 +1442,16 @@ class MemmapDataset(TorchDataset):
                     # energy target: look into potential gradients
                     if single_target_options["forces"]:
                         self.target_arrays[f"{target_key}_forces"] = MemmapArray(
-                            path / f"{single_target_options['forces']['key']}.bin",
+                            path
+                            / memmap_file_name(single_target_options["forces"]["key"]),
                             (self.na[-1], 3, 1),
                             "float32",
                             mode="r",
                         )
                     if single_target_options["stress"]:
                         self.target_arrays[f"{target_key}_stress"] = MemmapArray(
-                            path / f"{single_target_options['stress']['key']}.bin",
+                            path
+                            / memmap_file_name(single_target_options["stress"]["key"]),
                             (self.ns, 3, 3, 1),
                             "float32",
                             mode="r",
@@ -1436,7 +1475,7 @@ class MemmapDataset(TorchDataset):
                         + (number_of_properties,)
                     )
                     self.target_arrays[target_key] = MemmapArray(
-                        path / f"{data_key}.bin", shape, "float32", mode="r"
+                        path / memmap_file_name(data_key), shape, "float32", mode="r"
                     )
             else:
                 raise ValueError(

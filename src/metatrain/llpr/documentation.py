@@ -4,8 +4,10 @@ LLPR
 
 The LLPR architecture is a "wrapper" architecture that enables cheap uncertainty
 quantification via the last-layer prediction rigidity (LLPR) approach proposed by Bigi
-et al:footcite:p:`bigi_mlst_2024`. It is compatible with the following ``metatrain``
-models constructed from NN-based architectures: :ref:`arch-pet` and
+et al. :footcite:p:`bigi_mlst_2024`. It is compatible with the ``metatrain`` models
+that expose the :ref:`last-layer features <mtt-aux-target-last-layer-features>` of
+their targets: all the targets of :ref:`arch-pet`, :ref:`arch-flashmd`,
+:ref:`arch-mace` and :ref:`arch-space`, and the scalar targets of
 :ref:`arch-soap_bpnn`.
 
 This implementation further allows the user to perform gradient-based tuning of the
@@ -15,20 +17,28 @@ estimates. Gradients (e.g. forces and stresses) are not yet used.
 Note that the uncertainties computed with this implementation are returned as standard
 deviations, and not variances.
 
+Targets with components or several blocks, such as non-conservative forces, spherical
+targets with more than one ``o3_lambda`` or targets in an atomic basis, are supported:
+the uncertainties have the same layout as the target, and are calibrated separately for
+each property of each block. For Cartesian targets, they are the standard deviations of
+the single components, not of the magnitude of the vector.
+
 Some models also predict the (aleatoric) variance :math:`\sigma^2(x)` of a target, as
 the :ref:`mtt-aux-target-variance` output (for example :ref:`arch-flashmd` with
 ``variance_heads``). For such a target, the LLPR is a heteroscedastic last-layer
-Laplace approximation for the weights of the last layer. Its precision matrix is
-:math:`\Lambda = \sum_i c_i^2 f_i f_i^T / \sigma^2(x_i) + r I`, where :math:`f` are
-the last-layer features, :math:`c` is the scale that the scaler of the wrapped model
-applies to the target, and :math:`r` is the ``regularizer``. The returned uncertainty
-is the total one, :math:`\sqrt{\sigma^2(x) + \alpha^2 c^2 f^T \Lambda^{-1} f}`. This
-is exact for per-atom outputs, also when the scale depends on the atomic type. The
-predicted variance has to be the same for all the components of a target, and targets
-with several properties are not supported. The calibration constant :math:`\alpha`
-scales only the epistemic part, and is always fitted by minimizing the Gaussian NLL of
-the total variance on the validation set. Ensembles are still sampled from the
-last-layer posterior, so they only carry the epistemic uncertainty.
+Laplace approximation. Its precision matrix is
+:math:`\Lambda = \sum_i f_i f_i^T / \sigma^2(x_i) + r I`, where :math:`f` are the
+last-layer features, :math:`\sigma^2` is the variance in the units of the last layer
+(before the scaler of the wrapped model) and :math:`r` is the ``regularizer``. The
+uncertainty of the target is still the epistemic one,
+:math:`\alpha c \sqrt{f^T \Lambda^{-1} f}`, with :math:`c` the scale of the target, and
+the total predictive variance is :math:`\sigma^2(x) + \alpha^2 c^2 f^T \Lambda^{-1} f`.
+The calibration constant :math:`\alpha` is always fitted by minimizing the Gaussian NLL
+of this total variance on the validation set, whatever the ``calibration_method``.
+Only targets with a single block and a single property are supported, and the
+predicted variance has to be the same for all the components of the target. Ensembles
+are sampled from the last-layer posterior, so they only carry the epistemic
+uncertainty.
 
 Additional outputs
 ------------------
@@ -85,7 +95,8 @@ class TrainerHypers(TypedDict):
     If set to ``null``, the internal routine will determine the smallest regularizer
     value that guarantees numerical stability in matrix inversion. Having exposed the
     formula here, we also note to the user that the training routine of the LLPR
-    wrapper model finds the ideal global calibration factor :math:`\alpha`."""
+    wrapper model finds the ideal calibration factor :math:`\alpha` of each property
+    of each block of each target."""
 
     model_checkpoint: Optional[str] = None
     """This should provide the checkpoint to the model for which the

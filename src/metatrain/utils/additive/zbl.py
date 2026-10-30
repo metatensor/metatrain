@@ -78,14 +78,7 @@ class ZBL(ModelInterface):
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
 
-        self.outputs = {
-            key: ModelOutput(
-                unit=value.unit,
-                sample_kind="atom",
-                description=value.description,
-            )
-            for key, value in dataset_info.targets.items()
-        }
+        self.outputs: Dict[str, TargetInfo] = dict(dataset_info.targets)
 
         n_types = len(self.atomic_types)
 
@@ -136,7 +129,7 @@ class ZBL(ModelInterface):
         self.outputs.pop(target_name, None)
         self.dataset_info.targets.pop(target_name, None)
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def forward(
@@ -405,7 +398,10 @@ class ZBL(ModelInterface):
         """
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
             interaction_range=self.cutoff_radius,
             length_unit=self.dataset_info.length_unit,

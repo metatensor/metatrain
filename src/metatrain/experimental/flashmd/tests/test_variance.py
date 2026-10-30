@@ -10,6 +10,7 @@ from metatomic.torch import ModelOutput, System
 
 from metatrain.experimental.flashmd import FlashMD, Trainer
 from metatrain.llpr import Trainer as LLPRTrainer
+from metatrain.llpr.trainer import _get_dataloader
 from metatrain.scaler.utils.samples import get_samples_labels
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import (
@@ -257,8 +258,8 @@ def trained(tmp_path_factory):
 
 def _batches(trained):
     """The batches of the dataset, with neighbor lists, in double precision."""
-    loader = trained["llpr"].core._get_dataloader(
-        [trained["dataset"]], batch_size=2, is_distributed=False
+    loader = _get_dataloader(
+        trained["llpr"].core, [trained["dataset"]], batch_size=2, is_distributed=False
     )
     for batch in loader:
         systems, targets, _ = unpack_batch(batch)
@@ -372,17 +373,18 @@ def test_llpr_covariance_is_weighted_by_variance(trained, name):
     weights = squared_scales[:, 0, 0] / variances[:, 0, 0]
     expected = (features * weights[:, None]).T @ features
     torch.testing.assert_close(
-        llpr._get_covariance(f"mtt::aux::{name}_uncertainty").to(DTYPE), expected
+        llpr.targets[name].covariances[0].covariance.to(DTYPE), expected
     )
 
 
 @pytest.mark.parametrize("name", TARGETS)
-def test_llpr_uncertainty_is_total(trained, name):
-    """The LLPR uncertainty is sqrt(aleatoric var + alpha^2 c^2 f^T Lambda^-1 f)."""
+def test_llpr_uncertainty_is_epistemic(trained, name):
+    """The LLPR uncertainty is the epistemic one, alpha c sqrt(f^T Lambda^-1 f): the
+    aleatoric variance stays in the variance output."""
     llpr = trained["llpr"].to(dtype=DTYPE).eval()
     uncertainty_name = f"mtt::aux::{name}_uncertainty"
-    cholesky = llpr.core._get_cholesky(uncertainty_name).to(DTYPE)
-    alpha = llpr.core._get_multiplier(uncertainty_name).to(DTYPE)
+    cholesky = llpr.core.targets[name].covariances[0].cholesky.to(DTYPE)
+    alpha = llpr.core.targets[name].multipliers[0].to(DTYPE)
     precision_inverse = torch.cholesky_inverse(cholesky)
 
     scaler = trained["variance"].scaler
@@ -399,13 +401,12 @@ def test_llpr_uncertainty_is_total(trained, name):
         )
 
         features = outputs[f"mtt::aux::{name}_last_layer_features"].block().values
-        aleatoric = outputs[f"mtt::aux::{name}_variance"].block().values
 
         epistemic = torch.einsum("if,fg,ig->i", features, precision_inverse, features)
         scales = scaler.get_scales(systems, {name: ModelOutput(sample_kind="atom")})
         epistemic = scales[name].block().values ** 2 * epistemic[:, None, None]
 
-        expected = torch.sqrt(aleatoric + alpha**2 * epistemic)
+        expected = alpha * torch.sqrt(epistemic)
         torch.testing.assert_close(outputs[uncertainty_name].block().values, expected)
 
 
@@ -413,10 +414,9 @@ def test_llpr_uncertainty_is_total(trained, name):
 def test_llpr_calibration_minimizes_nll(trained, name):
     """The calibrated alpha minimizes the Gaussian NLL of the total variance."""
     llpr = trained["llpr"].core
-    uncertainty_name = f"mtt::aux::{name}_uncertainty"
-    alpha = llpr._get_multiplier(uncertainty_name).to(DTYPE)
+    alpha = llpr.targets[name].multipliers[0].to(DTYPE)
     precision_inverse = torch.cholesky_inverse(
-        llpr._get_cholesky(uncertainty_name).to(DTYPE)
+        llpr.targets[name].covariances[0].cholesky.to(DTYPE)
     )
 
     features, variances, residuals, squared_scales = _features_and_variances(

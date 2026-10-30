@@ -15,7 +15,7 @@ class RatioCalibrator:
 
     This mirrors the existing implementation:
       - accumulate sum over samples of ratios (dim=0)
-      - accumulate sample count
+      - accumulate sample count, for each property
       - all-reduce once in finalize() if distributed
       - compute alpha per uncertainty head
 
@@ -45,8 +45,11 @@ class RatioCalibrator:
         else:
             ratios = residuals64**2 / uncertainties64**2
 
-        ratios_sum64 = torch.sum(ratios, dim=0)
-        count = torch.tensor(ratios.shape[0], dtype=torch.long, device=ratios.device)
+        # entries without uncertainty are zero by construction (e.g. the properties
+        # that an atomic type does not have), so they carry no information
+        known = uncertainties64 > 0
+        ratios_sum64 = torch.sum(torch.where(known, ratios, 0.0), dim=0)
+        count = torch.sum(known, dim=0)
 
         if uncertainty_name not in self.sums:
             self.sums[uncertainty_name] = ratios_sum64
@@ -76,7 +79,8 @@ class RatioCalibrator:
                 # RMSE-style
                 alpha = torch.sqrt(self.sums[k] / denom)
 
-            multipliers[k] = alpha
+            # properties without any entry keep a factor of 1
+            multipliers[k] = torch.where(denom > 0, alpha, 1.0)
 
         return multipliers
 

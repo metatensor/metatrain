@@ -56,8 +56,8 @@ class ExportedTests(ArchitectureTests):
         strict_evaluation_options = ModelEvaluationOptions(
             length_unit=dataset_info.length_unit,
             outputs={
-                k: v
-                for k, v in model.outputs.items()
+                k: exported.capabilities().outputs[k]
+                for k in model.outputs
                 if k not in self.avoid_consistency_check
             },
         )
@@ -67,6 +67,9 @@ class ExportedTests(ArchitectureTests):
         if len(self.avoid_consistency_check) > 0:
             evaluation_options = ModelEvaluationOptions(
                 length_unit=dataset_info.length_unit,
-                outputs={k: model.outputs[k] for k in self.avoid_consistency_check},
+                outputs={
+                    k: exported.capabilities().outputs[k]
+                    for k in self.avoid_consistency_check
+                },
             )
             exported([system], evaluation_options, check_consistency=False)

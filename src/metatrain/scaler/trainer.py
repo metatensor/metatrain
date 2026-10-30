@@ -1,7 +1,7 @@
 import copy
 import logging
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Sequence, Union, cast
 
 import torch
 from torch.utils.data import DataLoader
@@ -26,6 +26,7 @@ from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
     get_prepare_atomic_basis_targets_transform,
 )
+from metatrain.utils.data.dataset import CollateTransform
 from metatrain.utils.distributed.slurm import (
     initialize_slurm_nccl_process_group,
     resolve_distributed,
@@ -318,7 +319,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         datasets: List[Union[Dataset, torch.utils.data.Subset]],
         batch_size: int,
         is_distributed: bool,
-        initial_transforms: Sequence[Callable],
+        initial_transforms: Sequence[CollateTransform],
     ) -> DataLoader:
         """
         Create a DataLoader for the provided datasets. As the dataloader is only used to

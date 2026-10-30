@@ -202,8 +202,9 @@ subprocess.run(
 # We load the exported LLPR model as an ASE calculator. Its ``run_model`` method gives
 # access to the predicted future ``positions`` and ``momenta``, and to the auxiliary
 # outputs. For the positions, ``mtt::aux::position_variance`` is the aleatoric
-# variance, and ``mtt::aux::position_uncertainty`` the total uncertainty (as a standard
-# deviation). The momenta have the same outputs, with ``momentum`` in their names. The
+# variance, and ``mtt::aux::position_uncertainty`` the epistemic uncertainty (as a
+# standard deviation). The total variance is their sum, the variance plus the squared
+# uncertainty. The momenta have the same outputs, with ``momentum`` in their names. The
 # current momenta, which FlashMD needs as an input, are taken from the ``ase.Atoms``.
 
 calc = MetatomicCalculator("model-llpr.pt", extensions_directory="extensions/")
@@ -247,13 +248,14 @@ def evaluate(pairs: list[ase.Atoms]) -> dict[str, dict[str, np.ndarray]]:
         reference = np.concatenate([s.arrays[target["reference"]] for s in pairs])
 
         # per atom and Cartesian component
-        total_std = predictions[f"mtt::aux::{short_name}_uncertainty"].block().values
+        epistemic_std = predictions[f"mtt::aux::{short_name}_uncertainty"]
+        epistemic_std = epistemic_std.block().values
         aleatoric_var = predictions[f"mtt::aux::{short_name}_variance"].block().values
 
         # average the variances over the three components, like the squared errors
-        total_var = (total_std**2).squeeze(-1).mean(-1).double().numpy()
+        epistemic_var = (epistemic_std**2).squeeze(-1).mean(-1).double().numpy()
         aleatoric_var = aleatoric_var.squeeze(-1).mean(-1).double().numpy()
-        epistemic_var = total_var - aleatoric_var
+        total_var = aleatoric_var + epistemic_var
 
         results[output_name] = {
             "squared_error": ((mean - reference) ** 2).mean(-1),

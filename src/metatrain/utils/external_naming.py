@@ -1,10 +1,15 @@
-from typing import Dict, Union
+from typing import TYPE_CHECKING, Dict, Union
 
 from metatomic.torch import ModelOutput
 
 
+if TYPE_CHECKING:
+    from .data.target_info import TargetInfo
+
+
 def to_external_name(
-    internal_name: str, quantities: Union[Dict[str, ModelOutput]]
+    internal_name: str,
+    quantities: Union[Dict[str, ModelOutput], Dict[str, "TargetInfo"]],
 ) -> str:
     """Converts internal names to external names.
 

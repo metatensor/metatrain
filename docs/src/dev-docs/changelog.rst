@@ -32,17 +32,16 @@ Added
   exposed as ``mtt::aux::{target}_variance`` outputs.
 - New ``gaussian_nll`` loss, using the predicted variance of a target.
 - The LLPR uses the predicted variances of the wrapped model, if any, as
-  heteroscedastic noise of the last-layer Laplace approximation, and returns the total
-  (aleatoric + epistemic) uncertainty for the corresponding targets.
+  heteroscedastic noise of the last-layer Laplace approximation. The uncertainty of
+  these targets stays the epistemic one, and is calibrated by minimizing the Gaussian
+  NLL of the total (aleatoric + epistemic) variance.
 
 Fixed
 #####
 
-- The LLPR now puts the wrapped model in evaluation mode before computing its
-  covariance and calibration residuals. Previously, the predictions compared to the
-  targets did not include the scaler and the additive models (e.g. the atomic
-  baseline).
-
+- Memmap datasets support variant targets such as ``energy/gs`` (#1334).
+- Corrected type annotations to match existing runtime behavior (#1325).
+  Lint and formatting environments now install the project dependencies.
 - PET computes forces and stresses for batches of several structures faster
 - Datasets read using ASE (e.g. ``.xyz`` files) with property names treated specially by
   ASE (e.g. ``charges``, ``magmoms``) can be read (#1320).
@@ -80,6 +79,14 @@ Fixed
   attention output to the node embeddings when ``d_node`` equals ``d_pet``. It was
   previously dropped, so the incoming node embeddings were discarded in each
   transformer layer (#1314).
+- Exporting a SPACE model no longer deletes its gradient models, so the model can
+  still be used after it is exported (#1317).
+- LLPR uncertainties and ensembles of per-atom targets now include the scales of each
+  atomic type, instead of using the same scale for all of them (#1286).
+- Training with rotational augmentation no longer fails on targets split by atomic
+  type when some batches have no atomic type in common (#1286).
+- LLPR accumulates the covariance in float64, so that the uncertainties of float32
+  models no longer depend on the order of the batches (#1286).
 
 Added
 #####
@@ -94,12 +101,27 @@ Added
 - ``mtt eval`` options gained a ``log_separate_blocks`` flag, matching the training
   hyperparameter of the same name, to report all metrics separately for each block of
   each target instead of aggregated over the whole target.
+- LLPR uncertainties and ensembles for targets with several blocks, such as spherical
+  targets and targets in an atomic basis, and for SPACE and MACE (#1286).
+- Ensemble losses for targets with several blocks (#1286).
 
 Changed
 #######
 
+- LLPR calibrates one factor for each property of each block of the targets
+  (#1286).
+- The last-layer features of MACE and SPACE have the keys and components of their
+  target (#1317).
+- ``ModelInterface.supported_outputs()`` returns a ``TargetInfo`` for each output,
+  with its layout, instead of a ``ModelOutput`` (#1317).
+- ``mtt::aux::mace_features`` has one block for each irrep, with repeated irreps
+  along the ``i_irrep`` property (#1317).
+
 Removed
 #######
+
+- SOAP-BPNN no longer exposes last-layer features for its spherical and Cartesian
+  targets, so LLPR is not available for them (#1317).
 
 Version 2026.4.1 - 2026-09-25
 -----------------------------

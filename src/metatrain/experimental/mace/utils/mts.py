@@ -82,24 +82,27 @@ def e3nn_to_tensormap(
     return TensorMap(keys=layout.keys, blocks=blocks)
 
 
-def get_e3nn_mts_layout(target_name: str, target: dict) -> TensorMap:
+def get_e3nn_mts_layout(
+    irreps: o3.Irreps,
+    target_name: str,
+    target: dict,
+) -> TensorMap:
     """Get the tensormap layout corresponding to some e3nn irreps.
 
-    This function follows the API of the ``get_generic_target_info``
-    function of ``metatrain.utils.data.target_info``, because at some
-    point it can be converted to return a ``TargetInfo``.
-
     :param target_name: Name of the target.
-    :param target: Target dictionary containing the irreps and other info.
+    :param irreps: The e3nn irreps to convert.
+    :param target: Target dictionary containing the type and other info.
     :return: The corresponding ``TensorMap`` object.
     """
     sample_names = ["system"]
     if target["sample_kind"] == "atom":
         sample_names.append("atom")
+    elif target["sample_kind"] == "atom_pair":
+        sample_names.append("first_atom")
+        sample_names.append("second_atom")
 
     properties_name = target.get("properties_name", target_name.replace("mtt::", ""))
 
-    irreps = o3.Irreps(target["type"]["spherical"]["irreps"])
     keys = []
     blocks = []
     for i, irrep in enumerate(irreps):
@@ -107,19 +110,39 @@ def get_e3nn_mts_layout(target_name: str, target: dict) -> TensorMap:
         o3_sigma = irrep.ir.p * ((-1) ** o3_lambda)
         num_properties = irrep.mul
 
-        components = [
-            Labels(
-                names=["o3_mu"],
-                values=torch.arange(
-                    -o3_lambda, o3_lambda + 1, dtype=torch.int32
-                ).reshape(-1, 1),
-            )
-        ]
+        if target["type"] == "scalar":
+            if o3_lambda != 0 or o3_sigma != 1:
+                raise ValueError(
+                    f"Target '{target_name}' is scalar, but irreps contain "
+                    f"non-scalar part: {irrep}"
+                )
+            components = []
+        elif target["type"] == "cartesian":
+            if o3_lambda != 1 or o3_sigma != 1:
+                raise ValueError(
+                    f"Target '{target_name}' is cartesian, but irreps contain "
+                    f"non-cartesian part: {irrep}"
+                )
+            components = [
+                Labels(
+                    names=["xyz"],
+                    values=torch.tensor([[0], [1], [2]], dtype=torch.int32),
+                )
+            ]
+        else:
+            components = [
+                Labels(
+                    names=["o3_mu"],
+                    values=torch.arange(
+                        -o3_lambda, o3_lambda + 1, dtype=torch.int32
+                    ).reshape(-1, 1),
+                )
+            ]
         block = TensorBlock(
             # float64: otherwise metatensor can't serialize
             values=torch.empty(
                 0,
-                2 * o3_lambda + 1,
+                *[comp.values.shape[0] for comp in components],
                 num_properties,
                 dtype=torch.float64,
             ),
@@ -130,13 +153,21 @@ def get_e3nn_mts_layout(target_name: str, target: dict) -> TensorMap:
             components=components,
             properties=Labels.range(properties_name, num_properties),
         )
-        keys.append([o3_lambda, o3_sigma, i])
+
+        if target["type"] in ["scalar", "cartesian"]:
+            keys.append([0, i])
+        else:
+            keys.append([o3_lambda, o3_sigma, i])
         blocks.append(block)
 
+    if target["type"] in ["scalar", "cartesian"]:
+        keys_names = ["_"]
+    else:
+        keys_names = ["o3_lambda", "o3_sigma"]
+    keys_names.append("i_irrep")
+
     layout = TensorMap(
-        keys=Labels(
-            ["o3_lambda", "o3_sigma", "i_irrep"], torch.tensor(keys, dtype=torch.int32)
-        ),
+        keys=Labels(names=keys_names, values=torch.tensor(keys, dtype=torch.int32)),
         blocks=blocks,
     )
 
