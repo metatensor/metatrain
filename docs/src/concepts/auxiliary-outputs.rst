@@ -31,18 +31,14 @@ produces multiple targets, the corresponding representations might be different.
 The last-layer features come in one of two forms:
 
 - invariant or non-symmetrized features are a single block, used for all the blocks
-  of the target. When the blocks of the target read different features, the
-  properties are also labelled with some of the key dimensions of the target, and
-  each block reads the features matching its key;
+  of the target;
 - equivariant features have one block for each block of the target, with the same
   keys and components. The last layer maps each block of features to the block of
   the target with the same key, with the same weights for all the components.
 
 When the last layer of a per-atom target has different weights for each atomic
 type, the model defines a ``last_layer_depends_on_atomic_type(target_name)`` method
-returning ``True`` for this target. The features are unchanged, and the
-:ref:`LLPR architecture <arch-llpr>` keeps their covariance for each atomic type
-separately.
+returning ``True`` for this target.
 
 .. list-table:: Metadata for last-layer features
   :widths: 2 3 7

@@ -340,9 +340,7 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
                 checkpoint, version=target_version
             )
     model_data = checkpoint["model_data"]
-    # The model built below only provides the structure of the new checkpoint, and
-    # is built by the current code, so it needs the hypers of ``checkpoint`` upgraded
-    # to the current version.
+    # the current model class needs the hypers of the current version
     upgraded_model_data = model_cls.upgrade_checkpoint(copy.deepcopy(checkpoint))[
         "model_data"
     ]

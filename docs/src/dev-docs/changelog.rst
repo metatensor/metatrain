@@ -94,12 +94,9 @@ Added
 - Ensemble losses for targets with several blocks (#1286).
 - PET heads/readouts can be configured with the ``d_head`` (now optionally separate
   for node and edge heads), ``head_type``, ``num_head_layers`` and
-  ``readout_type`` hyperparameters, globally or per target.
-- LLPR supports last-layer features read by different blocks of the target, labelled
-  by their key in the properties, as PET provides with ``head_type: per_block``.
-- LLPR supports per-atom targets whose last layer has different weights for each
-  atomic type, as PET with ``readout_type: one-hot``, with one covariance for each
-  atomic type.
+  ``readout_type`` hyperparameters, globally or per target (#1308).
+- LLPR supports PET with ``head_type: per_block`` and ``readout_type: one-hot``
+  (#1308).
 
 Changed
 #######

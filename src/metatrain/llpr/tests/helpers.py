@@ -69,6 +69,18 @@ def spherical_dataset_info(sample_kind: str = "system") -> DatasetInfo:
     return target_dataset_info({"spherical": {"irreps": irreps}}, sample_kind)
 
 
+def two_types_dataset_info() -> DatasetInfo:
+    """A dataset info with one per-atom spherical target, with a lambda=0 and a
+    lambda=1 block, for hydrogen and carbon.
+
+    :return: the dataset info.
+    """
+    irreps = [{"o3_lambda": 0, "o3_sigma": 1}, {"o3_lambda": 1, "o3_sigma": 1}]
+    return target_dataset_info(
+        {"spherical": {"irreps": irreps}}, "atom", atomic_types=[1, 6]
+    )
+
+
 def atomic_basis_dataset_info() -> DatasetInfo:
     """A dataset info with one per-atom spherical target in an atomic basis, whose
     lambda=1 block only exists for carbon.
@@ -136,8 +148,20 @@ def dummy_backbone(
         "per_type": per_type,
         "last_layer_features": last_layer_features,
     }
+    return backbone(DummyModel(hypers, model_dataset_info), dataset_info)
+
+
+def backbone(core: ModelInterface, dataset_info: DatasetInfo) -> MetatrainModel:
+    """``core`` with a composition model and a scaler, as trainers set up models, in
+    float64.
+
+    :param core: the core model.
+    :param dataset_info: the dataset info to build the model with.
+    :return: the model.
+    """
+    model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
     return MetatrainModel(
-        core=DummyModel(hypers, model_dataset_info),
+        core=core,
         additive_models=[
             CompositionModel.from_valid_targets(
                 model_dataset_info, model_dataset_info.atomic_types

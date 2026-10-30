@@ -40,16 +40,14 @@ class LinearReadout(torch.nn.Module):
         self.in_features = in_features
         self.out_features = out_features
 
-        # The conditioned weight is stored as ``(n_groups, out, in)`` so that each
-        # group's matrix is a contiguous slice. Each group is initialized as a
-        # ``torch.nn.Linear``: ``kaiming_uniform_`` on the 3-D weight would compute
-        # its fan-in as ``out_features * in_features`` instead of ``in_features``.
+        # each group is initialized as a ``torch.nn.Linear``: ``kaiming_uniform_`` on
+        # the 3-D weight would use ``out_features * in_features`` as the fan-in
         weight = torch.empty(self.n_groups, out_features, in_features)
         bias_tensor = torch.empty(self.n_groups, out_features)
         for group in range(self.n_groups):
             torch.nn.init.kaiming_uniform_(weight[group], a=math.sqrt(5))
         if bias:
-            bound = 1.0 / math.sqrt(in_features) if in_features > 0 else 0.0
+            bound = 1.0 / math.sqrt(in_features)
             bias_tensor.uniform_(-bound, bound)
 
         if not self.conditioned:
@@ -69,6 +67,8 @@ class LinearReadout(torch.nn.Module):
         bias_scale: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
+        Apply the readout of the group of each row.
+
         :param features: ``(n_rows, in_features)`` (e.g. node features) or
             ``(n_rows, n_columns, in_features)`` (e.g. edge features in NEF layout,
             or equivariant features with a component dimension).
@@ -85,37 +85,16 @@ class LinearReadout(torch.nn.Module):
         :return: Same leading dimensions as ``features``, with last dimension
             ``out_features``.
         """
+        bias = self.bias
         if not self.conditioned:
-            bias = self.bias
             if bias_scale is None:
-                out = torch.nn.functional.linear(features, self.weight, bias)
-            else:
-                out = torch.nn.functional.linear(features, self.weight)
-                if bias is not None:
-                    out = out + bias * bias_scale
-        else:
-            out = self._forward_conditioned(
-                features, group_idx, present_groups, bias_scale
-            )
-        return out
+                return torch.nn.functional.linear(features, self.weight, bias)
+            out = torch.nn.functional.linear(features, self.weight)
+            if bias is not None:
+                out = out + bias * bias_scale
+            return out
 
-    def _forward_conditioned(
-        self,
-        features: torch.Tensor,
-        group_idx: torch.Tensor,
-        present_groups: Optional[torch.Tensor] = None,
-        bias_scale: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
-        """One GEMM against every group's weights, then keep the group each row needs.
-
-        :param features: See :meth:`forward`.
-        :param group_idx: See :meth:`forward`.
-        :param present_groups: See :meth:`forward`.
-        :param bias_scale: See :meth:`forward`.
-        :return: See :meth:`forward`.
-        """
-        # Promote 2-D features to 3-D so that both cases are handled uniformly, and
-        # undo it on the way out.
+        # 2-D features are handled as 3-D ones with a single column
         is_2d = features.dim() == 2
         if is_2d:
             features = features.unsqueeze(1)
@@ -123,7 +102,6 @@ class LinearReadout(torch.nn.Module):
         n_columns = features.shape[1]
 
         weight = self.weight
-        bias = self.bias
         n_groups = self.n_groups
         if present_groups is not None:
             # Keep only the present groups, and renumber the rows' groups to match.
@@ -133,8 +111,8 @@ class LinearReadout(torch.nn.Module):
             group_idx = torch.searchsorted(present_groups, group_idx)
             n_groups = present_groups.shape[0]
 
-        # Adding the bias before the gather below means that it picks up the matching
-        # bias for free.
+        # one GEMM against the weights of all groups, keeping below the group of each
+        # row
         flat_bias: Optional[torch.Tensor] = None
         if bias is not None:
             flat_bias = bias.reshape(n_groups * self.out_features)
@@ -147,8 +125,6 @@ class LinearReadout(torch.nn.Module):
                 out = out + flat_bias * bias_scale.unsqueeze(1)
         # out: (n_rows, n_columns, n_groups * out_features)
 
-        # Keep only the group each row belongs to. ``index`` is an expanded view
-        # (stride 0 along the broadcast dimensions), so it costs no real memory.
         out = out.reshape(n_rows, n_columns, n_groups, self.out_features)
         index = group_idx.reshape(n_rows, 1, 1, 1).expand(
             n_rows, n_columns, 1, self.out_features

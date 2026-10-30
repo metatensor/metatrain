@@ -716,7 +716,7 @@ class PET(ModelInterface[ModelHypers]):
             # the features of each head, from all the readout layers
             features_by_head: List[List[torch.Tensor]] = []
             for _ in range(heads_per_readout_layer):
-                features_by_head.append(torch.jit.annotate(List[torch.Tensor], []))
+                features_by_head.append([])
             for i in range(len(node_last_layer_features_dict[output_name])):
                 node_last_layer_features = node_last_layer_features_dict[output_name][i]
                 edge_last_layer_features = edge_last_layer_features_dict[output_name][i]
@@ -946,37 +946,30 @@ class PET(ModelInterface[ModelHypers]):
         num_last_layer_features = self.num_readout_layers * (
             self.backend.d_head_node + self.backend.d_head_edge
         )
+        num_heads = self.backend.heads_per_readout_layer[target_name]
         ll_features_info = get_features_info(
-            num_last_layer_features,
+            num_heads * num_last_layer_features,
             description=f"last layer features for {target_name}",
         )
-        if self.backend.heads_per_readout_layer[target_name] > 1:
+        if num_heads > 1:
             # the features of the heads of each block, labelled by its key
             keys = target_info.layout.keys
-            ll_features_block = ll_features_info.layout.block()
+            features = torch.arange(num_last_layer_features, dtype=torch.int32)
             properties = Labels(
                 keys.names + ["feature"],
                 torch.cat(
                     [
                         keys.values.repeat_interleave(num_last_layer_features, dim=0),
-                        ll_features_block.properties.values.repeat(len(keys), 1),
+                        features.repeat(len(keys)).unsqueeze(1),
                     ],
                     dim=1,
                 ),
             )
+            block = ll_features_info.layout.block()
             ll_features_info = TargetInfo(
                 TensorMap(
-                    ll_features_info.layout.keys,
-                    [
-                        TensorBlock(
-                            values=torch.empty(
-                                0, len(properties), dtype=ll_features_block.values.dtype
-                            ),
-                            samples=ll_features_block.samples,
-                            components=[],
-                            properties=properties,
-                        )
-                    ],
+                    Labels.single(),
+                    [TensorBlock(block.values, block.samples, [], properties)],
                 ),
                 description=ll_features_info.description,
             )

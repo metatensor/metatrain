@@ -108,9 +108,7 @@ class TestCheckpoints(CheckpointTests, PETTests):
     ]
 
     def test_old_checkpoints_keep_scaler_and_composition_model(self):
-        """Old checkpoints, including those from before the ``MetatrainModel``
-        wrapper, keep their scaler and composition model when loaded by the current
-        model, whose hypers they lack."""
+        """Check old checkpoints keep their scaler and composition model."""
         for path in glob.glob("checkpoints/*.ckpt.gz"):
             with gzip.open(path, "rb") as fd:
                 checkpoint = torch.load(fd, weights_only=False)

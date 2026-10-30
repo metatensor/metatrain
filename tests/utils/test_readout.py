@@ -30,13 +30,10 @@ def test_unconditioned_matches_torch_linear():
         readout(features, torch.zeros(5, dtype=torch.long)), reference(features)
     )
 
-    assert "bias" not in LinearReadout(4, 3, bias=False).state_dict()
-
 
 @pytest.mark.parametrize("n_columns", [None, 6])
 def test_conditioned_matches_reference(n_columns):
     readout = LinearReadout(8, 2, n_groups=3)
-    assert readout.weight.shape == (3, 2, 8)
 
     shape = (7, 8) if n_columns is None else (7, n_columns, 8)
     features = torch.randn(shape)

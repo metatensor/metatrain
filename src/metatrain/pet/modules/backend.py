@@ -203,8 +203,8 @@ class PETBackend(torch.nn.Module):
         # one head per block with "per_block", shared by all blocks otherwise
         heads_per_readout_layer = len(output_shapes) if head_type == "per_block" else 1
         self.heads_per_readout_layer[target_name] = heads_per_readout_layer
-        # per-target heads with unconditioned readouts are applied to each edge, as
-        # they always have been, so that their predictions do not change
+        # the edge last layers of per-target heads with unconditioned readouts are
+        # applied to each edge, which reproduces the predictions of older models exactly
         self.pool_edges[target_name] = (
             head_type == "per_block" or readout_type == "one-hot"
         )
@@ -216,10 +216,10 @@ class PETBackend(torch.nn.Module):
         )
 
         self.conditioned_last_layers[target_name] = readout_type == "one-hot"
+        self.has_conditioned_last_layers = any(self.conditioned_last_layers.values())
         n_groups: Optional[int] = None
         if readout_type == "one-hot":
             n_groups = self.num_atomic_species
-            self.has_conditioned_last_layers = True
 
         self.node_last_layers[target_name] = torch.nn.ModuleList(
             [
@@ -299,11 +299,7 @@ class PETBackend(torch.nn.Module):
         self.heads_per_readout_layer.pop(target_name, None)
         self.pool_edges.pop(target_name, None)
         self.conditioned_last_layers.pop(target_name, None)
-        self.has_conditioned_last_layers = any(
-            module.conditioned
-            for module in self.node_last_layers.modules()
-            if isinstance(module, LinearReadout)
-        )
+        self.has_conditioned_last_layers = any(self.conditioned_last_layers.values())
 
     def preprocess(
         self,
@@ -787,22 +783,10 @@ class PETBackend(torch.nn.Module):
         edge contributions with cutoff weighting.
 
         Each block reads the last layer features of its head, see :meth:`_make_heads`.
-        Last layers conditioned on atomic type use the type of the central atom, for
-        both the node and edge features.
-
-        For the outputs with per-block heads or with last layers conditioned on atomic
-        type, the cutoff-weighted sum over neighbors is taken *before* the edge last
-        layers. Since they are linear and conditioned on the central atom only, this is
-        exactly equal to summing the per-edge predictions:
-
-            sum_j c_ij (W_t(i) f_ij + b_t(i)) = W_t(i) (sum_j c_ij f_ij)
-                                                + b_t(i) (sum_j c_ij)
-
-        This avoids evaluating the last layers on every edge, whose cost grows with the
-        number of blocks and of atomic types. The edge last layers of the other outputs
-        (per-target heads with unconditioned last layers), and all of them when
-        ``per_edge_last_layers`` is set (i.e. when diagnostic hooks capture their
-        outputs), are applied to each edge.
+        Last layers conditioned on atomic type use the type of the central atom. The
+        edge last layers of the outputs in ``pool_edges`` are applied to the
+        cutoff-weighted sum of the edge features, which is exact as they are linear,
+        except with ``per_edge_last_layers`` (for the diagnostic hooks).
 
         :param node_last_layer_features_dict: Dictionary mapping output names to
             lists of node last layer features.

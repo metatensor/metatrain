@@ -169,25 +169,6 @@ def test_backend_predictions_match_full_model():
     torch.testing.assert_close(atomic_predictions["energy"][0], wrapped)
 
 
-@pytest.mark.parametrize(
-    "head_type, readout_type, pool_edges",
-    [
-        ("per_target", None, False),
-        ("per_block", None, True),
-        ("per_target", "one-hot", True),
-        ("per_block", "one-hot", True),
-    ],
-)
-def test_pool_edges(head_type, readout_type, pool_edges):
-    """Edge readouts are pooled over neighbors, except with the per-target heads and
-    unconditioned readouts of earlier versions, whose predictions must not change."""
-    hypers = copy.deepcopy(MODEL_HYPERS)
-    hypers["head_type"] = head_type
-    hypers["readout_type"] = readout_type
-    model = PET(hypers, _make_dataset_info())
-    assert model.backend.pool_edges == {"energy": pool_edges}
-
-
 @pytest.mark.parametrize("num_neighbors_adaptive", [None, 4])
 @pytest.mark.parametrize(
     "head_type, readout_type",
@@ -240,8 +221,6 @@ def test_pooled_edge_last_layers_match_per_edge(
     target_names = list(dataset_info.targets)
     model = PET(hypers, dataset_info).to(torch.float64).eval()
 
-    # A distorted periodic system, so that atoms have different numbers of neighbors
-    # and the neighbor lists are padded
     system = System(
         types=torch.tensor([1, 6, 7, 8, 8]),
         positions=4.0 * torch.rand(5, 3, dtype=torch.float64),

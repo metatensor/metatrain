@@ -128,9 +128,7 @@ def test_energy_unaffected_by_hook_changes():
 
 
 def test_edge_last_layer_output_is_per_edge():
-    """Capturing an edge last layer returns its per-edge outputs, although the edge
-    last layers conditioned on atomic type are otherwise applied to features pooled over
-    neighbors."""
+    """Check capturing a conditioned edge last layer gives per-edge outputs."""
     dataset_info = _make_dataset_info()
     model = PET(
         {**MODEL_HYPERS, "readout_type": "one-hot"},

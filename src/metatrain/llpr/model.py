@@ -834,13 +834,15 @@ class _TargetLLPR(torch.nn.Module):
             self.num_types = len(atomic_types)
             type_to_index = torch.zeros(max(atomic_types) + 1, dtype=torch.long)
             type_to_index[atomic_types] = torch.arange(len(atomic_types))
-        # the index of each atomic type among the covariances and the ensemble layers
-        # of a block, 0 for all of them if the last layer does not depend on the type
         self.register_buffer("type_to_index", type_to_index, persistent=False)
 
-        # the covariance of the features read by each block of the core's target
-        self.feature_indices: List[int] = feature_indices
-        # one for each atomic type, at ``feature_index * num_types + type_index``
+        # the covariance read by each block of the core's target and atomic type, at
+        # ``block_index * num_types + type_index`` like the ensemble layers
+        self.covariance_indices: List[int] = [
+            feature_index * self.num_types + type_index
+            for feature_index in feature_indices
+            for type_index in range(self.num_types)
+        ]
         self.covariances = torch.nn.ModuleList(
             [
                 _Covariance(feature_columns, dtype)
@@ -849,8 +851,7 @@ class _TargetLLPR(torch.nn.Module):
             ]
         )
 
-        # shared features are mapped to all the components of a block at once; one
-        # layer for each atomic type, at ``block_index * num_types + type_index``
+        # shared features are mapped to all the components of a block at once
         self.ensemble_layers = torch.nn.ModuleList()
         if self.has_ensemble:
             for index, block in enumerate(core_layout.blocks()):
@@ -860,7 +861,7 @@ class _TargetLLPR(torch.nn.Module):
                 for _ in range(self.num_types):
                     self.ensemble_layers.append(
                         torch.nn.Linear(
-                            len(columns[self.feature_indices[index]]),
+                            len(columns[feature_indices[index]]),
                             num_ensemble_members * num_outputs,
                             bias=False,
                             dtype=dtype,
@@ -937,6 +938,7 @@ class _TargetLLPR(torch.nn.Module):
         one_over_pr: List[torch.Tensor] = []
         for index, covariance in enumerate(self.covariances):
             values = feature_blocks[index].values
+            values = covariance.select(feature_blocks[index].values)
             if self.num_types == 1:
                 one_over_pr.append(covariance.one_over_pr(values))
             else:
@@ -950,16 +952,18 @@ class _TargetLLPR(torch.nn.Module):
 
         blocks: List[TensorBlock] = []
         for index, layout_block in enumerate(self.core_layout.blocks()):
-            feature_index = self.feature_indices[index] * self.num_types
-            values = one_over_pr[feature_index]
+            first = index * self.num_types
+            values = one_over_pr[self.covariance_indices[first]]
             for type_index in range(1, self.num_types):
-                values = values + one_over_pr[feature_index + type_index]
+                values = (
+                    values + one_over_pr[self.covariance_indices[first + type_index]]
+                )
             shape = [values.shape[0]] + list(layout_block.values.shape[1:])
             values = values.expand(-1, _prod(shape[1:-1]), shape[-1]).reshape(shape)
             blocks.append(
                 TensorBlock(
                     values=torch.sqrt(values),
-                    samples=feature_blocks[feature_index].samples,
+                    samples=feature_blocks[self.covariance_indices[first]].samples,
                     components=layout_block.components,
                     properties=layout_block.properties,
                 )
@@ -983,14 +987,12 @@ class _TargetLLPR(torch.nn.Module):
 
         layer_values: List[torch.Tensor] = []
         for index, layer in enumerate(self.ensemble_layers):
-            type_index = index % self.num_types
-            feature_index = self.feature_indices[index // self.num_types]
-            layer_input = selected[feature_index * self.num_types + type_index]
+            layer_input = selected[self.covariance_indices[index]]
             if self.num_types == 1:
                 layer_values.append(layer(layer_input))
             else:
                 # the atoms of this type only, zero for the others
-                mask = type_indices == type_index
+                mask = type_indices == index % self.num_types
                 atoms_values = torch.zeros(
                     (layer_input.shape[0], layer.out_features),
                     dtype=layer_input.dtype,
@@ -1001,14 +1003,11 @@ class _TargetLLPR(torch.nn.Module):
 
         blocks: List[TensorBlock] = []
         for block_index, layout_block in enumerate(self.core_layout.blocks()):
-            values = layer_values[block_index * self.num_types]
+            first = block_index * self.num_types
+            values = layer_values[first]
             for type_index in range(1, self.num_types):
-                values = (
-                    values + layer_values[block_index * self.num_types + type_index]
-                )
-            feature_block = feature_blocks[
-                self.feature_indices[block_index] * self.num_types
-            ]
+                values = values + layer_values[first + type_index]
+            feature_block = feature_blocks[self.covariance_indices[first]]
 
             num_samples = values.shape[0]
             components_shape = list(layout_block.values.shape[1:-1])
@@ -1104,10 +1103,7 @@ class _TargetLLPR(torch.nn.Module):
     def sample_ensemble(self) -> None:
         """Sample the weights of the ensemble members."""
         for index, layer in enumerate(self.ensemble_layers):
-            feature_index = self.feature_indices[index // self.num_types]
-            cholesky = self.covariances[
-                feature_index * self.num_types + index % self.num_types
-            ].cholesky
+            cholesky = self.covariances[self.covariance_indices[index]].cholesky
             z = torch.randn(
                 (layer.in_features, layer.out_features),
                 device=cholesky.device,
@@ -1152,7 +1148,6 @@ class _Covariance(torch.nn.Module):
         :param values: the features.
         :return: the selected features.
         """
-        # sorted indices with as many entries as features are all of them
         if len(self.columns) == values.shape[-1]:
             return values
         return values.index_select(-1, self.columns)
@@ -1164,7 +1159,6 @@ class _Covariance(torch.nn.Module):
         :return: ``1/PR``, with shape ``(samples, components, 1)``, where
             components is 1 for features without components.
         """
-        values = self.select(values)
         values = values.reshape(values.shape[0], -1, values.shape[-1])
         v = torch.linalg.solve_triangular(
             self.cholesky, values.reshape(-1, values.shape[-1]).T, upper=False
@@ -1208,17 +1202,8 @@ class _Covariance(torch.nn.Module):
 def _feature_layout(
     name: str, features_layout: TensorMap, core_layout: TensorMap
 ) -> Tuple[bool, List[int], List[torch.Tensor]]:
-    """How the blocks of a target read its last-layer features: whether the features
-    are a single block, the covariance of the features read by each block of the
-    target, and the columns of the features of each covariance.
-
-    Features in a single block without components are read by all the blocks of the
-    target. The names of their properties are some of the names of the keys of the
-    target, followed by ``"feature"``; each block of the target reads the features
-    whose properties match its key on these names, i.e. all of them when there are
-    none. Blocks reading the same features share their covariance. Otherwise, the
-    features have the keys and components of the target, and each block of the target
-    reads all the features of the block with the same key.
+    """How the blocks of a target read its last-layer features, see
+    :class:`_TargetLLPR`. Blocks reading the same features share their covariance.
 
     :param name: name of the target.
     :param features_layout: layout of the last-layer features of the target.
