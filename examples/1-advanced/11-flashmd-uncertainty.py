@@ -6,25 +6,27 @@ This tutorial shows how to equip a trained :ref:`FlashMD <arch-flashmd>` model w
 uncertainty estimates. The predictions of a FlashMD model (the positions and momenta of
 the atoms some time in the future) are uncertain for two reasons:
 
-- **aleatoric** uncertainty: the future is not fully determined by the current positions
-  and momenta that the model sees, e.g. because of chaotic dynamics over long time lags.
-  This uncertainty depends on the input, and does not go away with more training data;
-- **epistemic** uncertainty: the model itself is uncertain, e.g. because the structure
+- **Aleatoric uncertainty:** although MD is deterministic, it is chaotic. Similar
+  current positions and momenta can thus lead to different future ones if the time lag
+  is large enough, and the model sees this as noise, as if the output were not fully
+  determined by its input.
+- **Epistemic uncertainty:** the model itself is uncertain, e.g. because the structure
   is far from the training data. This uncertainty decreases with more data.
 
 We estimate both in two cheap steps, on top of a frozen pre-trained model:
 
 1. **Variance heads.** A new head predicts the variance :math:`\sigma^2(x)` of the
-   noise on each target. Only these heads are trained, with the Gaussian negative
-   log-likelihood (:ref:`gaussian_nll <loss-functions>`) loss, so the mean predictions
-   of the model do not change. This is a mean-variance estimation (MVE) network.
-2. **Heteroscedastic LLPR.** The :ref:`LLPR <arch-llpr>` (a `last-layer Laplace
-   approximation <https://arxiv.org/abs/2106.14806>`_) is applied to the model. Its
-   precision matrix weights each training sample by the predicted noise,
-   :math:`\Lambda = \sum_i f_i f_i^T / \sigma^2(x_i) + r I`
-   (`Immer et al., 2023 <https://arxiv.org/abs/2304.08501>`_), and the predicted
-   uncertainty is the total one,
-   :math:`\sqrt{\sigma^2(x) + \alpha^2 f^T \Lambda^{-1} f}`.
+   noise on each target (positions, momenta). Only these heads are trained, with the
+   Gaussian negative log-likelihood (:ref:`gaussian_nll <loss-functions>`) loss, so the
+   mean predictions of the model do not change. This is a mean-variance estimation
+   (MVE) network.
+2. **LLPR.** The :ref:`LLPR <arch-llpr>` (a `last-layer Laplace approximation
+   <https://arxiv.org/abs/2106.14806>`_) is applied to the model to estimate the
+   epistemic uncertainty. The difference here compared to the standard LLPR is that
+   the heteroscedastic variances predicted by the variance heads are being considered.
+
+Both steps are needed: the variance heads give the aleatoric uncertainty, and the LLPR
+the epistemic one.
 
 We will reuse the aluminum dataset of the :ref:`FlashMD tutorial
 <sphx_glr_generated_examples_1-advanced_04-flashmd.py>`, which also explains how
@@ -244,18 +246,20 @@ def evaluate(pairs: list[ase.Atoms]) -> dict[str, dict[str, np.ndarray]]:
         mean = predictions[output_name].block().values.squeeze(-1).numpy()
         reference = np.concatenate([s.arrays[target["reference"]] for s in pairs])
 
-        # average the variances over the three Cartesian components, like the errors
-        total = predictions[f"mtt::aux::{short_name}_uncertainty"].block().values ** 2
-        aleatoric = predictions[f"mtt::aux::{short_name}_variance"].block().values
-        total = total.squeeze(-1).mean(-1).double().numpy()
-        aleatoric = aleatoric.squeeze(-1).mean(-1).double().numpy()
+        # per atom and Cartesian component
+        total_std = predictions[f"mtt::aux::{short_name}_uncertainty"].block().values
+        aleatoric_var = predictions[f"mtt::aux::{short_name}_variance"].block().values
+
+        # average the variances over the three components, like the squared errors
+        total_var = (total_std**2).squeeze(-1).mean(-1).double().numpy()
+        aleatoric_var = aleatoric_var.squeeze(-1).mean(-1).double().numpy()
+        epistemic_var = total_var - aleatoric_var
 
         results[output_name] = {
             "squared_error": ((mean - reference) ** 2).mean(-1),
-            "aleatoric": aleatoric,
-            # clip the round-off errors of the subtraction
-            "epistemic": np.clip(total - aleatoric, 0.0, None),
-            "total": total,
+            "aleatoric_var": aleatoric_var,
+            "epistemic_var": epistemic_var,
+            "total_var": total_var,
         }
 
     return results
@@ -271,9 +275,9 @@ for output_name, target in targets.items():
         print(
             f"{output_name} at {name}: "
             f"RMSE = {np.sqrt(r['squared_error'].mean()):.4f} {unit}, "
-            f"aleatoric std = {np.sqrt(r['aleatoric'].mean()):.4f} {unit}, "
-            f"epistemic std = {np.sqrt(r['epistemic'].mean()):.2e} {unit}, "
-            f"total std = {np.sqrt(r['total'].mean()):.4f} {unit}"
+            f"aleatoric std = {np.sqrt(r['aleatoric_var'].mean()):.4f} {unit}, "
+            f"epistemic std = {np.sqrt(r['epistemic_var'].mean()):.2e} {unit}, "
+            f"total std = {np.sqrt(r['total_var'].mean()):.4f} {unit}"
         )
 
 # %%
@@ -294,24 +298,24 @@ for (ax_calibration, ax_epistemic), (output_name, target) in zip(
     unit = target["plot_unit"]
 
     # common histogram bins for the two temperatures
-    all_epistemic = np.concatenate(
-        [np.sqrt(results[name][output_name]["epistemic"]) for name in test_pairs]
+    all_epistemic_std = np.concatenate(
+        [np.sqrt(results[name][output_name]["epistemic_var"]) for name in test_pairs]
     )
-    all_epistemic = all_epistemic[all_epistemic > 0]
+    all_epistemic_std = all_epistemic_std[all_epistemic_std > 0]
     hist_bins = np.logspace(
-        np.log10(all_epistemic.min()), np.log10(all_epistemic.max()), 40
+        np.log10(all_epistemic_std.min()), np.log10(all_epistemic_std.max()), 40
     )
 
     for name in test_pairs:
         r = results[name][output_name]
 
-        bins = np.array_split(np.argsort(r["total"]), 8)
-        predicted = [np.sqrt(r["total"][b].mean()) for b in bins]
+        bins = np.array_split(np.argsort(r["total_var"]), 8)
+        predicted = [np.sqrt(r["total_var"][b].mean()) for b in bins]
         observed = [np.sqrt(r["squared_error"][b].mean()) for b in bins]
         ax_calibration.plot(predicted, observed, "o-", label=name)
 
         ax_epistemic.hist(
-            np.sqrt(r["epistemic"]), bins=hist_bins, alpha=0.6, label=name
+            np.sqrt(r["epistemic_var"]), bins=hist_bins, alpha=0.6, label=name
         )
 
     lims = [0.0, max(ax_calibration.get_xlim()[1], ax_calibration.get_ylim()[1])]
