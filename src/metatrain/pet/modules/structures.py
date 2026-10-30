@@ -178,7 +178,7 @@ def compute_batch_tensors(
         approximately select this number of neighbors.
     :param adaptive_cutoff_method: Algorithm used to compute the per-atom adaptive
         cutoffs when ``num_neighbors_adaptive`` is set. ``"grid"`` uses the legacy
-        probe-grid + Gaussian-weighted average; ``"solver"`` uses a Newton-bisection
+        probe-grid + Gaussian-weighted average; ``"solver"`` uses a bisection
         root finder on the smoothed neighbor count.
     :param cutoff_width_adaptive: Width of the smooth cutoff taper used by the
         adaptive cutoff scheme when ``num_neighbors_adaptive`` is set.
