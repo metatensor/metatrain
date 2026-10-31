@@ -19,10 +19,10 @@ from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.match_tmaps import match_layout
+from metatrain.utils.data.target_info import get_variance_output_name
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.variance import get_variance_output_name
 from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints

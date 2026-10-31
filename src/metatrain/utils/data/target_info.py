@@ -913,6 +913,18 @@ def is_auxiliary_output(name: str) -> bool:
     return is_auxiliary
 
 
+def get_variance_output_name(target_name: str) -> str:
+    """
+    Get the name of the auxiliary output holding the predicted (aleatoric) variance of
+    a target. This output has the same metadata as the target itself.
+
+    :param target_name: The name of the target.
+
+    :return: The name of the variance output, ``mtt::aux::{target}_variance``.
+    """
+    return f"mtt::aux::{target_name.replace('mtt::', '')}_variance"
+
+
 def get_features_info(
     num_features: int, sample_kind: str = "atom", description: str = ""
 ) -> TargetInfo:

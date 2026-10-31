@@ -28,6 +28,7 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.data.target_info import get_variance_output_name
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
@@ -46,7 +47,6 @@ from metatrain.utils.neighbor_lists import (
 )
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.transfer import batch_to
-from metatrain.utils.variance import get_variance_output_name
 from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints

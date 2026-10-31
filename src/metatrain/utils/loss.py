@@ -15,7 +15,7 @@ from torch.nn.modules.loss import _Loss
 from typing_extensions import NotRequired, TypedDict
 
 from metatrain.utils.data import TargetInfo
-from metatrain.utils.variance import get_variance_output_name
+from metatrain.utils.data.target_info import get_variance_output_name
 
 
 @with_config(ConfigDict(extra="allow"))

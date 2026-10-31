@@ -19,10 +19,12 @@ from typing_extensions import TypeVar
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.match_tmaps import match_layout
-from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
+from metatrain.utils.data.target_info import (
+    DEPRECATED_METATOMIC_OUTPUT_NAMES,
+    get_variance_output_name,
+)
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.variance import get_variance_output_name
 
 
 CoreModelClass = TypeVar("CoreModelClass", bound=ModelInterface)
