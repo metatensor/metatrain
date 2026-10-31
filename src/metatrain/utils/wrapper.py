@@ -53,36 +53,6 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         # Compute transformations needed at evaluation time.
         self._eval_transforms = self._get_eval_transforms()
 
-    def get_variance_target_scales(
-        self,
-        systems: List[System],
-        target_name: str,
-        sample_kind: str,
-        selected_atoms: Optional[Labels] = None,
-    ) -> Optional[torch.Tensor]:
-        """Get the scales applied at evaluation to a target with a predicted variance.
-
-        :param systems: The systems the outputs are computed for.
-        :param target_name: The name of the target.
-        :param sample_kind: The sample kind of the requested output.
-        :param selected_atoms: Optional labels for selected atoms.
-        :return: The full scales, with the shape of the target's values, or ``None``
-            if the scaler does not rescale this target.
-        """
-        if self.scaler is None:
-            return None
-
-        if target_name not in self.scaler.model.target_names:
-            return None
-
-        scales = self.scaler.get_scales(
-            systems,
-            {target_name: ModelOutput(sample_kind=sample_kind)},
-            selected_atoms=selected_atoms,
-        )
-
-        return scales[target_name].block().values
-
     def _get_eval_transforms(self) -> dict[str, list[str]]:
         """Finds out which targets need to be transformed at evaluation time to
         make sure that the outputs of the core model, scaler and additive models
@@ -170,16 +140,16 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
                         use_per_property_scales=True,
                     )
 
-                    # A variance scales with the square of its target's scale, so the
-                    # target's scales are applied to it twice. Additive models are not
-                    # applied to variances.
+                    # A variance scales with the square of its target's scale,
+                    # Var(c y) = c^2 Var(y). Additive models are not applied to
+                    # variances.
                     for k in self.scaler.model.target_names:
                         variance_name = get_variance_output_name(k)
                         if variance_name not in return_dict:
                             continue
 
-                        # the variance is not converted to the layout of the scaler,
-                        # like the target is above
+                        # unlike the target above, the variance is not converted to
+                        # the layout of the scaler
                         if k in self._eval_transforms["pre_scaler"]:
                             raise NotImplementedError(
                                 f"The variance of '{k}' can not be scaled, because "
@@ -201,18 +171,12 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
                                 "atom instead."
                             )
 
-                        variance = return_dict[variance_name]
-
-                        for _ in range(2):
-                            variance = self.scaler.apply_scales(
-                                systems,
-                                {k: variance},
-                                selected_atoms=selected_atoms,
-                                use_per_target_scales=True,
-                                use_per_property_scales=True,
-                            )[k]
-
-                        return_dict[variance_name] = variance
+                        # like the LLPR uncertainty, scale the standard deviation
+                        std = mts.pow(return_dict[variance_name], 0.5)
+                        std = self.scaler.apply_scales(
+                            systems, {k: std}, selected_atoms=selected_atoms
+                        )[k]
+                        return_dict[variance_name] = mts.pow(std, 2.0)
 
                 for i, additive_model in enumerate(self.additive_models):
                     # Convert all targets whose layout is different at this point

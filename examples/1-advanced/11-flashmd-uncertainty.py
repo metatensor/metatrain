@@ -22,8 +22,8 @@ We estimate both in two cheap steps, on top of a frozen pre-trained model:
    (MVE) network.
 2. **LLPR.** The :ref:`LLPR <arch-llpr>` (a `last-layer Laplace approximation
    <https://arxiv.org/abs/2106.14806>`_) is applied to the model to estimate the
-   epistemic uncertainty. The difference here compared to the standard LLPR is that
-   the heteroscedastic variances predicted by the variance heads are being considered.
+   epistemic uncertainty. Unlike the standard LLPR, it weights each training sample by
+   the variance predicted by the variance heads.
 
 Both steps are needed: the variance heads give the aleatoric uncertainty, and the LLPR
 the epistemic one.
@@ -203,7 +203,7 @@ subprocess.run(
 # access to the predicted future ``positions`` and ``momenta``, and to the auxiliary
 # outputs. For the positions, ``mtt::aux::position_variance`` is the aleatoric
 # variance, and ``mtt::aux::position_uncertainty`` the epistemic uncertainty (as a
-# standard deviation). The total variance is their sum, the variance plus the squared
+# standard deviation). The total variance is the variance plus the squared
 # uncertainty. The momenta have the same outputs, with ``momentum`` in their names. The
 # current momenta, which FlashMD needs as an input, are taken from the ``ase.Atoms``.
 

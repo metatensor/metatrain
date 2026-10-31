@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Literal, Optional, Union, cast
 
+import metatensor.torch as mts
 import torch
 from metatensor.torch import TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
@@ -727,7 +728,6 @@ def compute_covariance(
                         systems,
                         name,
                         features[get_variance_output_name(name)],
-                        sample_kinds[name],
                     )
                 llpr_target.accumulate(
                     features[llpr_target.features_name],
@@ -747,7 +747,6 @@ def _core_variance(
     systems: List[System],
     name: str,
     variance: TensorMap,
-    sample_kind: str,
 ) -> torch.Tensor:
     """The predicted (aleatoric) variance of each sample of a target, in the units of
     the core of the wrapped model, i.e. without the scales of its scaler.
@@ -759,15 +758,16 @@ def _core_variance(
     :param systems: the systems the variance was predicted for.
     :param name: the name of the target.
     :param variance: the predicted variance, as returned by the wrapped model.
-    :param sample_kind: the sample kind of the variance.
     :return: the variance of each sample, with shape ``(num_samples,)``.
     """
-    values = variance.block().values
-    scales = model.get_variance_target_scales(systems, name, sample_kind)
-    if scales is not None:
-        values = values / scales.to(dtype=values.dtype) ** 2
+    if model.scaler is not None and name in model.scaler.model.target_names:
+        # as in the wrapped model, the scales apply to the standard deviation
+        std = model.scaler.apply_scales(
+            systems, {name: mts.pow(variance, 0.5)}, remove=True
+        )[name]
+        variance = mts.pow(std, 2.0)
 
-    return _per_sample_variance(values, name)
+    return _per_sample_variance(variance.block().values, name)
 
 
 def _per_sample_variance(variance: torch.Tensor, name: str) -> torch.Tensor:
@@ -823,13 +823,11 @@ def calibrate(
     ]
     # for targets with a predicted (aleatoric) variance, only the epistemic part of the
     # total variance is calibrated, by minimizing the Gaussian NLL
-    if len(model.heteroscedastic_outputs) > 0 and calibration_method != (
-        "squared_residuals"
-    ):
+    if len(model.heteroscedastic_outputs) > 0:
         logging.info(
-            f"Calibrating {model.heteroscedastic_outputs}, which have a predicted "
-            "variance, by minimizing the Gaussian NLL (the calibration method "
-            f"'{calibration_method}' is only used for the other targets)"
+            f"Calibrating {model.heteroscedastic_outputs} with the Gaussian NLL of "
+            "the total variance; the calibration method "
+            f"'{calibration_method}' is only used for the other targets"
         )
 
     calibrators: List[
@@ -849,11 +847,13 @@ def calibrate(
                 aleatoric_variances=empty,
                 epistemic_variances=empty,
             )
+        elif calibration_method == "crps":
+            calibrator = GaussianCRPSCalibrator()
+            calibrator.update(
+                uncertainty_name=name, residuals=empty, uncertainties=empty
+            )
         else:
-            if calibration_method == "crps":
-                calibrator = GaussianCRPSCalibrator()
-            else:
-                calibrator = RatioCalibrator(method=calibration_method)
+            calibrator = RatioCalibrator(method=calibration_method)
             calibrator.update(
                 uncertainty_name=name, residuals=empty, uncertainties=empty
             )

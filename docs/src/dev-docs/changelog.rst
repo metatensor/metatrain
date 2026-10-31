@@ -33,8 +33,8 @@ Added
 - New ``gaussian_nll`` loss, using the predicted variance of a target.
 - The LLPR uses the predicted variances of the wrapped model, if any, as
   heteroscedastic noise of the last-layer Laplace approximation. The uncertainty of
-  these targets stays the epistemic one, and is calibrated by minimizing the Gaussian
-  NLL of the total (aleatoric + epistemic) variance.
+  these targets is still the epistemic one, calibrated by minimizing the Gaussian NLL
+  of the total (aleatoric + epistemic) variance.
 
 Fixed
 #####

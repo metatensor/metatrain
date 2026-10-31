@@ -4,7 +4,7 @@ import torch
 from metatrain.llpr.calibration import HeteroscedasticNLLCalibrator
 
 
-@pytest.mark.parametrize("alpha", [0.3, 2.5])
+@pytest.mark.parametrize("alpha", [0.3, 2.5, 20.0])
 @pytest.mark.parametrize("with_nan", [False, True])
 def test_heteroscedastic_calibration_recovers_alpha(alpha, with_nan):
     """With residuals drawn from N(0, s + alpha^2 e), the calibrated multiplier is

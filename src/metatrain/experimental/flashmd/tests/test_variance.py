@@ -9,6 +9,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 
 from metatrain.experimental.flashmd import FlashMD, Trainer
+from metatrain.experimental.flashmd.trainer import _prepare_variances_for_loss
 from metatrain.llpr import Trainer as LLPRTrainer
 from metatrain.llpr.trainer import _get_dataloader
 from metatrain.scaler.utils.samples import get_samples_labels
@@ -47,16 +48,18 @@ SMALL_FLASHMD = {
 
 
 def _systems(model):
+    generator = torch.Generator().manual_seed(0)
+
     systems = [
         System(
             types=torch.tensor([1, 6, 1]),
-            positions=torch.randn(3, 3),
+            positions=torch.randn(3, 3, generator=generator),
             cell=5.0 * torch.eye(3),
             pbc=torch.tensor([True] * 3),
         ),
         System(
             types=torch.tensor([6, 1]),
-            positions=torch.randn(2, 3),
+            positions=torch.randn(2, 3, generator=generator),
             cell=5.0 * torch.eye(3),
             pbc=torch.tensor([True] * 3),
         ),
@@ -73,7 +76,7 @@ def _systems(model):
                 keys=Labels.single(),
                 blocks=[
                     TensorBlock(
-                        values=torch.randn(n_atoms, 3, 1),
+                        values=torch.randn(n_atoms, 3, 1, generator=generator),
                         samples=get_samples_labels([system])["atom"],
                         components=[Labels.range("xyz", 3)],
                         properties=Labels.range("momentum", 1),
@@ -452,6 +455,57 @@ def test_variance_with_different_scaler_layout_is_not_supported(trained, monkeyp
 
     with pytest.raises(NotImplementedError, match="layout"):
         model(systems, {POSITION: ModelOutput(sample_kind="atom")})
+
+
+class _IdentityScaler:
+    def apply_scales(self, systems, outputs, **kwargs):
+        return outputs
+
+
+def test_variances_are_normalized_like_the_predictions():
+    """The prediction of a per-system target is the sum over the atoms divided by N
+    before the loss, so its variance, a sum of per-atom variances, is divided by N^2.
+    Per-structure targets are not averaged."""
+    generator = torch.Generator().manual_seed(0)
+    systems = [
+        System(
+            types=torch.ones(n_atoms, dtype=torch.int32),
+            positions=torch.randn(n_atoms, 3, generator=generator),
+            cell=torch.zeros(3, 3),
+            pbc=torch.tensor([False] * 3),
+        )
+        for n_atoms in [2, 5]
+    ]
+    variance = torch.tensor([[3.0], [7.0]])
+
+    def predictions():
+        tensor_map = TensorMap(
+            Labels.single(),
+            [
+                TensorBlock(
+                    values=variance.clone(),
+                    samples=Labels.range("system", 2),
+                    components=[],
+                    properties=Labels.range("energy", 1),
+                )
+            ],
+        )
+        return {"mtt::aux::energy_variance": tensor_map}
+
+    averaged = _prepare_variances_for_loss(
+        _IdentityScaler(), systems, predictions(), ["energy"], []
+    )
+    torch.testing.assert_close(
+        averaged["mtt::aux::energy_variance"].block().values,
+        variance / torch.tensor([[4.0], [25.0]]),
+    )
+
+    per_structure = _prepare_variances_for_loss(
+        _IdentityScaler(), systems, predictions(), ["energy"], ["energy"]
+    )
+    torch.testing.assert_close(
+        per_structure["mtt::aux::energy_variance"].block().values, variance
+    )
 
 
 def test_only_the_heads_of_requested_outputs_are_evaluated():

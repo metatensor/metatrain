@@ -26,15 +26,20 @@ the single components, not of the magnitude of the vector.
 Some models also predict the (aleatoric) variance :math:`\sigma^2(x)` of a target, as
 the :ref:`mtt-aux-target-variance` output (for example :ref:`arch-flashmd` with
 ``variance_heads``). For such a target, the LLPR is a heteroscedastic last-layer
-Laplace approximation. Its precision matrix is
-:math:`\Lambda = \sum_i f_i f_i^T / \sigma^2(x_i) + r I`, where :math:`f` are the
-last-layer features, :math:`\sigma^2` is the variance in the units of the last layer
-(before the scaler of the wrapped model) and :math:`r` is the ``regularizer``. The
-uncertainty of the target is still the epistemic one,
-:math:`\alpha c \sqrt{f^T \Lambda^{-1} f}`, with :math:`c` the scale of the target, and
-the total predictive variance is :math:`\sigma^2(x) + \alpha^2 c^2 f^T \Lambda^{-1} f`.
-The calibration constant :math:`\alpha` is always fitted by minimizing the Gaussian NLL
-of this total variance on the validation set, whatever the ``calibration_method``.
+Laplace approximation, with the precision matrix
+
+.. math::
+
+    \Lambda = \sum_i \frac{c_i^2 f_i f_i^T}{\sigma^2(x_i)} + r I,
+
+where :math:`f` are the last-layer features, :math:`c` is the scale that the scaler of
+the wrapped model applies to the target, and :math:`r` is the ``regularizer``. The
+uncertainty output is still the epistemic standard deviation,
+:math:`\alpha c \sqrt{f^T \Lambda^{-1} f}`, so the total predictive variance is the
+predicted variance plus its square. The calibration factor :math:`\alpha` always
+minimizes the Gaussian NLL of this total variance on the validation set, whatever the
+``calibration_method``.
+
 Only targets with a single block and a single property are supported, and the
 predicted variance has to be the same for all the components of the target. Ensembles
 are sampled from the last-layer posterior, so they only carry the epistemic

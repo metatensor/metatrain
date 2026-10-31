@@ -133,9 +133,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 "compute any uncertainty"
             )
 
-        # targets for which the wrapped model also predicts an (aleatoric) variance:
-        # their covariance is weighted by the inverse predicted variance
-        # (heteroscedastic LLPR), and their uncertainty stays the epistemic one
+        # targets for which the wrapped model also predicts an (aleatoric) variance.
+        # Their covariance is weighted by the inverse of this variance
+        # (heteroscedastic LLPR), and their uncertainty is still the epistemic one
         self.heteroscedastic_outputs = [
             name for name in names if get_variance_output_name(name) in backbone_outputs
         ]
@@ -144,8 +144,9 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             if len(layout) != 1 or len(layout.block(0).properties) != 1:
                 raise NotImplementedError(
                     "LLPR with predicted variances is only implemented for targets "
-                    f"with a single block and a single property, which '{name}' "
-                    "does not have"
+                    f"with a single block and a single property, but '{name}' has "
+                    f"{len(layout)} blocks and {len(layout.block(0).properties)} "
+                    "properties"
                 )
         if len(self.heteroscedastic_outputs) > 0:
             logging.info(
@@ -1008,9 +1009,8 @@ class _TargetLLPR(torch.nn.Module):
             values = feature_blocks[index].values.detach()
             if variance is not None:
                 # Gauss-Newton Hessian of the Gaussian NLL with predicted variance,
-                # sum_i f_i f_i^T / var_i. There is no need to normalize by n_atoms,
-                # as it cancels out between the features and the variance of
-                # per-system targets
+                # sum_i f_i f_i^T / var_i. Per-system targets are not divided by
+                # n_atoms: the factor cancels between the features and the variance
                 values = values / torch.sqrt(variance).reshape(
                     [-1] + [1] * (values.dim() - 1)
                 )

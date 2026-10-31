@@ -298,6 +298,8 @@ def test_ensemble_spread_matches_epistemic_uncertainty(setup):
     llpr, systems, scales = setup
     precision_inverse = torch.linalg.inv(_closed_form_precision(systems, scales))
 
+    # the ensemble weights are drawn from the global random number generator, which
+    # generate_ensemble does not let us replace by our own
     torch.manual_seed(0)
     llpr.generate_ensemble()
 

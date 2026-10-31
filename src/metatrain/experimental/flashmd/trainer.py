@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import ase.data
+import metatensor.torch as mts
 import torch
 from metatensor.torch import TensorMap
 from metatomic.torch import System
@@ -109,12 +110,10 @@ def _prepare_variances_for_loss(
     Bring the predicted variances to the same normalization as the predictions that
     enter the loss.
 
-    The predictions are (1) averaged by the number of atoms (except for per-structure
-    targets) and (2) multiplied by their per-property scales. The variance of an
-    average picks up a factor :math:`1/N^2` and the variance of a scaled quantity is
-    multiplied by the square of the scale. This function must be called after
-    :py:func:`average_by_num_atoms` was applied to the predictions, with the variances
-    of per-structure targets excluded from the averaging.
+    Before the loss, the predictions are averaged by the number of atoms (except for
+    per-structure targets) and multiplied by their per-property scales. Both are
+    linear, so the standard deviation goes through the same two steps as the mean.
+    The variances must not have been averaged by the number of atoms before.
 
     :param scaler: The scaler of the model.
     :param systems: The systems the predictions were computed for.
@@ -125,24 +124,20 @@ def _prepare_variances_for_loss(
     """
     for target_name in variance_targets:
         variance_name = get_variance_output_name(target_name)
-        variance = predictions[variance_name]
+        std = mts.pow(predictions[variance_name], 0.5)
 
         if target_name not in per_structure_targets:
-            # second 1/N factor (per-atom blocks are left untouched, as for the mean)
-            variance = average_by_num_atoms({variance_name: variance}, systems, [])[
-                variance_name
-            ]
+            std = average_by_num_atoms({variance_name: std}, systems, [])[variance_name]
 
-        for _ in range(2):
-            variance = scaler.apply_scales(
-                systems,
-                {target_name: variance},
-                remove=False,
-                use_per_target_scales=False,
-                use_per_property_scales=True,
-            )[target_name]
+        std = scaler.apply_scales(
+            systems,
+            {target_name: std},
+            remove=False,
+            use_per_target_scales=False,
+            use_per_property_scales=True,
+        )[target_name]
 
-        predictions[variance_name] = variance
+        predictions[variance_name] = mts.pow(std, 2.0)
 
     return predictions
 
@@ -613,10 +608,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             for name in variance_targets
         }
 
-        # the variances of per-structure targets are not averaged either
-        per_structure_outputs = per_structure_targets + [
-            get_variance_output_name(name) for name in per_structure_targets
-        ]
+        # the variances are averaged in _prepare_variances_for_loss
+        per_structure_outputs = per_structure_targets + list(variance_requests)
 
         # Log the initial learning rate:
         logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
