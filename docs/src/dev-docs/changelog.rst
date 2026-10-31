@@ -24,6 +24,18 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 -----------------------------
 
+Added
+#####
+
+- FlashMD can train heteroscedastic variance heads on top of a frozen, trained model,
+  with the new ``variance_heads`` training hyperparameter. The predicted variances are
+  exposed as ``mtt::aux::{target}_variance`` outputs.
+- New ``gaussian_nll`` loss, using the predicted variance of a target.
+- The LLPR uses the predicted variances of the wrapped model, if any, as
+  heteroscedastic noise of the last-layer Laplace approximation. The uncertainty of
+  these targets is still the epistemic one, calibrated by minimizing the Gaussian NLL
+  of the total (aleatoric + epistemic) variance.
+
 Fixed
 #####
 

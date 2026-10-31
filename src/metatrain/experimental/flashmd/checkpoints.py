@@ -204,6 +204,18 @@ def model_update_v6_v7(checkpoint: dict) -> None:
         state_dict["_extra_state"] = {}
 
 
+def model_update_v7_v8(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 7 to version 8.
+
+    Variance heads were added, and the targets which have one are stored in the
+    model data.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["model_data"].setdefault("variance_target_names", [])
+
+
 ###########################
 # TRAINER #################
 ###########################
@@ -296,3 +308,14 @@ def trainer_update_v6_v7(checkpoint: dict) -> None:
     train_hypers = checkpoint["train_hypers"]
     if "distributed" in train_hypers and train_hypers["distributed"] is None:
         train_hypers.pop("distributed")
+
+
+def trainer_update_v7_v8(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 7 to version 8.
+
+    The ``variance_heads`` hyperparameter was added.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    checkpoint["train_hypers"].setdefault("variance_heads", [])
