@@ -7,10 +7,10 @@ The target is an atomic-basis target, densified as during training: one block pe
 """
 
 import copy
-import gzip
 
 import pytest
 import torch
+from metatensor.torch import Labels
 from metatomic.torch import ModelOutput, System
 from omegaconf import OmegaConf
 
@@ -24,7 +24,6 @@ from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
 )
 from metatrain.utils.data.target_info import get_generic_target_info
-from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from . import MODEL_HYPERS
@@ -39,7 +38,6 @@ IRREPS = {
         {"o3_lambda": 1, "o3_sigma": 1, "num": 3},
     ],
 }
-NUM_BLOCKS = 2
 
 
 def _dataset_info():
@@ -129,10 +127,8 @@ def test_predictions_are_linear_in_last_layer_features(head_type, readout_type):
         # with per-block heads, the features labelled by the key of the block
         values = features.values
         if head_type == "per_block":
-            mask = torch.ones(len(features.properties), dtype=torch.bool)
-            for name in key.names:
-                mask &= features.properties.column(name) == key[name]
-            values = values[:, mask]
+            selection = Labels(key.names, key.values.unsqueeze(0))
+            values = values[:, features.properties.select(selection)]
         torch.testing.assert_close(
             block.values.reshape(len(block.samples), -1),
             torch.einsum("sof,sf->so", weight, values),
@@ -145,7 +141,7 @@ def test_per_block_heads_are_independent():
     system = _system(model)
     before = _predict(model, system)
     with torch.no_grad():
-        for parameter in model.backend.node_heads[TARGET][NUM_BLOCKS - 1].parameters():
+        for parameter in model.backend.node_heads[TARGET][-1].parameters():
             parameter += 1.0
     after = _predict(model, system)
 
@@ -173,28 +169,21 @@ def test_per_target_readout_type():
     assert not model.last_layer_depends_on_atomic_type(TARGET)
 
 
-def _check_options(hypers):
-    """Merge options set by users with the defaults, as ``mtt train`` does, and
-    validate them."""
+def test_per_target_readout_type_option_is_valid():
     options = OmegaConf.merge(
-        {"name": "pet", **get_default_hypers("pet")}, {"model": hypers}
+        {"name": "pet", **get_default_hypers("pet")},
+        {"model": {"readout_type": {TARGET: "one-hot"}}},
     )
     check_architecture_options("pet", OmegaConf.to_container(options))
 
 
-def test_per_target_readout_type_option_is_valid():
-    _check_options({"readout_type": {TARGET: "one-hot"}})
-
-
-def test_v18_checkpoint_upgrade():
-    """Check a checkpoint from before these hypers loads with all of its weights."""
-    with gzip.open("checkpoints/model-v18_trainer-v15.ckpt.gz", "rb") as fd:
-        checkpoint = torch.load(fd, weights_only=False)
-    state_dict = checkpoint["core"]["best_model_state_dict"]
-
-    model = model_from_checkpoint(checkpoint, "export").core
-    loaded = model.state_dict()
-    assert state_dict.keys() == loaded.keys()
-    for name, value in state_dict.items():
-        if isinstance(value, torch.Tensor):
-            torch.testing.assert_close(loaded[name], value, rtol=0, atol=0)
+def test_checkpoint():
+    """Check a model with per-block heads and conditioned readouts reloads from its
+    checkpoint."""
+    model = _model(head_type="per_block", readout_type="one-hot")
+    system = _system(model)
+    loaded = PET.load_checkpoint(model.get_checkpoint(), "export").eval()
+    for actual, expected in zip(
+        _predict(loaded, system), _predict(model, system), strict=True
+    ):
+        torch.testing.assert_close(actual, expected)

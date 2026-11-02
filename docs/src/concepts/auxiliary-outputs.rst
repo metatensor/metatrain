@@ -30,8 +30,8 @@ produces multiple targets, the corresponding representations might be different.
 
 The last-layer features come in one of two forms:
 
-- invariant or non-symmetrized features are a single block, used for all the blocks
-  of the target;
+- invariant or non-symmetrized features are a single block, of which each block of
+  the target reads all the features, or those labelled with its key;
 - equivariant features have one block for each block of the target, with the same
   keys and components. The last layer maps each block of features to the block of
   the target with the same key, with the same weights for all the components.
@@ -73,11 +73,9 @@ returning ``True`` for this target.
   * - properties
     - ``"feature"``, optionally preceded by some of the key names of the target
     - the last-layer features have a property dimension named ``"feature"``,
-      with entries ranging from 0 to the number of features in the last layer.
-      Invariant or non-symmetrized features read by different blocks of the target
-      also have dimensions named after some of the keys of the target, e.g.
-      ``["o3_lambda", "o3_sigma", "feature"]``: each block of the target reads the
-      features whose labels match its key on these dimensions.
+      with entries ranging from 0 to the number of features in the last layer,
+      and optionally key dimensions such as ``["o3_lambda", "o3_sigma", "feature"]``
+      labelling the features of each block.
 
 Last-layer features are supported by the following architectures:
 

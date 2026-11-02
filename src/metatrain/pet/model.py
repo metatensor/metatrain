@@ -179,9 +179,7 @@ class PET(ModelInterface[ModelHypers]):
         return self.outputs
 
     def last_layer_depends_on_atomic_type(self, target_name: str) -> bool:
-        """
-        Whether the last layers of a target depend on the atomic type, i.e. with
-        ``readout_type="one-hot"``.
+        """Whether the target has ``readout_type="one-hot"``.
 
         :param target_name: Name of the target.
         :return: Whether the last layers depend on the atomic type.

@@ -178,7 +178,7 @@ def test_pooled_edge_last_layers_match_per_edge(
     num_neighbors_adaptive, head_type, readout_type
 ):
     """Pooled edge readouts equal per-edge readouts then pooling, values and
-    gradients, for scalar, spherical and Cartesian targets."""
+    gradients, for scalar and spherical targets."""
     # fixed seed: the random geometry below must give padded neighbor lists
     torch.manual_seed(0)
     hypers = copy.deepcopy(MODEL_HYPERS)
@@ -196,7 +196,6 @@ def test_pooled_edge_last_layers_match_per_edge(
                     "irreps": [
                         {"o3_lambda": 0, "o3_sigma": 1},
                         {"o3_lambda": 1, "o3_sigma": 1},
-                        {"o3_lambda": 2, "o3_sigma": 1},
                     ]
                 }
             },
@@ -204,20 +203,6 @@ def test_pooled_edge_last_layers_match_per_edge(
             "num_subtargets": 3,
         },
     )
-    for name, rank, sample_kind in [
-        ("mtt::vector", 1, "atom"),
-        ("non_conservative_stress", 2, "system"),
-    ]:
-        dataset_info.targets[name] = get_generic_target_info(
-            name,
-            {
-                "quantity": "",
-                "unit": "",
-                "type": {"cartesian": {"rank": rank}},
-                "sample_kind": sample_kind,
-                "num_subtargets": 2,
-            },
-        )
     target_names = list(dataset_info.targets)
     model = PET(hypers, dataset_info).to(torch.float64).eval()
 

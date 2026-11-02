@@ -12,8 +12,7 @@ class LinearReadout(torch.nn.Module):
 
     With ``n_groups=None`` this is ``torch.nn.Linear`` (same parameter names, shapes
     and initialization). With ``n_groups=G``, each row uses the ``(out, in)`` weight
-    and bias of its group, given by ``group_idx``. This runs as one GEMM against the
-    weights of all groups, followed by a gather of the group each row needs.
+    and bias of its group, given by ``group_idx``.
 
     :param in_features: Input feature dimension.
     :param out_features: Output feature dimension.
@@ -22,7 +21,6 @@ class LinearReadout(torch.nn.Module):
     """
 
     conditioned: bool
-    n_groups: int
     in_features: int
     out_features: int
     bias: Optional[torch.Tensor]
@@ -36,15 +34,15 @@ class LinearReadout(torch.nn.Module):
     ) -> None:
         super().__init__()
         self.conditioned = n_groups is not None
-        self.n_groups = n_groups if n_groups is not None else 1
+        num_groups = 1 if n_groups is None else n_groups
         self.in_features = in_features
         self.out_features = out_features
 
         # each group is initialized as a ``torch.nn.Linear``: ``kaiming_uniform_`` on
         # the 3-D weight would use ``out_features * in_features`` as the fan-in
-        weight = torch.empty(self.n_groups, out_features, in_features)
-        bias_tensor = torch.empty(self.n_groups, out_features)
-        for group in range(self.n_groups):
+        weight = torch.empty(num_groups, out_features, in_features)
+        bias_tensor = torch.empty(num_groups, out_features)
+        for group in range(num_groups):
             torch.nn.init.kaiming_uniform_(weight[group], a=math.sqrt(5))
         if bias:
             bound = 1.0 / math.sqrt(in_features)
@@ -74,14 +72,12 @@ class LinearReadout(torch.nn.Module):
             or equivariant features with a component dimension).
         :param group_idx: Long tensor of shape ``(n_rows,)`` selecting the conditioning
             group for each row of ``features``. Ignored when unconditioned.
-        :param present_groups: Optional sorted, unique long tensor containing every
-            group in ``group_idx`` (e.g. ``torch.unique(group_idx)``), so that only
-            these groups are evaluated. Ignored when unconditioned.
+        :param present_groups: The sorted groups in ``group_idx``, e.g.
+            ``torch.unique(group_idx)``; only these groups are evaluated. Required when
+            conditioned, ignored otherwise.
         :param bias_scale: Optional ``(n_rows, 1)`` factor multiplying the bias of
-            each row, e.g. the total weight of the rows of ``features`` that were
-            summed into it: this makes applying the readout to a weighted sum of
-            features equal to the weighted sum of the readout of each feature. Only
-            for 2-D ``features``.
+            each row, e.g. the total weight of a weighted sum of features. Only for 2-D
+            ``features``.
         :return: Same leading dimensions as ``features``, with last dimension
             ``out_features``.
         """
@@ -101,15 +97,13 @@ class LinearReadout(torch.nn.Module):
         n_rows = features.shape[0]
         n_columns = features.shape[1]
 
-        weight = self.weight
-        n_groups = self.n_groups
-        if present_groups is not None:
-            # Keep only the present groups, and renumber the rows' groups to match.
-            weight = weight.index_select(0, present_groups)
-            if bias is not None:
-                bias = bias.index_select(0, present_groups)
-            group_idx = torch.searchsorted(present_groups, group_idx)
-            n_groups = present_groups.shape[0]
+        # keep only the present groups, and renumber the rows' groups to match
+        assert present_groups is not None
+        weight = self.weight.index_select(0, present_groups)
+        if bias is not None:
+            bias = bias.index_select(0, present_groups)
+        group_idx = torch.searchsorted(present_groups, group_idx)
+        n_groups = present_groups.shape[0]
 
         # one GEMM against the weights of all groups, keeping below the group of each
         # row

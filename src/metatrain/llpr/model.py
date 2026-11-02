@@ -22,7 +22,6 @@ from metatrain.utils.data.match_tmaps import match_layout
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
-from metatrain.utils.readout import LinearReadout
 from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
@@ -785,8 +784,9 @@ class _TargetLLPR(torch.nn.Module):
     the layout of the core, which the wrapped model can transform to give the layout of
     the target.
 
-    When the last layer has different weights for each atomic type, so do the
-    covariances and the ensemble layers, and each atom uses those of its type.
+    The samples of the features are split into groups, each with its own covariances
+    and ensemble weights: a single group, or one for each atomic type when the last
+    layer has different weights for each of them.
 
     :param name: name of the target.
     :param features_layout: layout of the last-layer features of the target.
@@ -797,6 +797,8 @@ class _TargetLLPR(torch.nn.Module):
     :param atomic_types: the atomic types, if the last layer has different weights
         for each of them, or ``None``.
     """
+
+    atomic_types: List[int]
 
     def __init__(
         self,
@@ -820,9 +822,8 @@ class _TargetLLPR(torch.nn.Module):
         self.shared, feature_indices, columns = _feature_layout(
             name, features_layout.to(core_layout.device), self.core_layout
         )
-        self.per_type = atomic_types is not None
-        num_types: Optional[int] = None
-        type_to_index = torch.zeros(1, dtype=torch.long)
+        self.atomic_types = [] if atomic_types is None else atomic_types
+        num_groups = 1
         if atomic_types is not None:
             if not self.shared or "atom" not in core_layout.sample_names:
                 raise ValueError(
@@ -830,35 +831,43 @@ class _TargetLLPR(torch.nn.Module):
                     "LLPR only supports for per-atom targets whose last-layer "
                     "features have no components"
                 )
-            num_types = len(atomic_types)
-            type_to_index = torch.zeros(max(atomic_types) + 1, dtype=torch.long)
-            type_to_index[atomic_types] = torch.arange(num_types)
-        self.register_buffer("type_to_index", type_to_index, persistent=False)
+            num_groups = len(atomic_types)
 
-        # the covariance of the features read by each block of the core's target
+        # the covariance of the features read by each block of the core's target,
+        # for each group one after the other
         self.feature_indices: List[int] = feature_indices
+        self.num_feature_blocks = len(columns)
         self.covariances = torch.nn.ModuleList(
             [
-                _Covariance(feature_columns, dtype, num_types)
+                _Covariance(len(feature_columns), dtype)
+                for _ in range(num_groups)
                 for feature_columns in columns
             ]
         )
 
+        # the columns of the features read by each covariance, one after the other
+        self.column_offsets: List[int] = [0]
+        for feature_columns in columns:
+            self.column_offsets.append(self.column_offsets[-1] + len(feature_columns))
+        self.register_buffer("columns", torch.cat(columns), persistent=False)
+
+        # one layer for each block and group, in the same order as the covariances;
         # shared features are mapped to all the components of a block at once
         self.ensemble_layers = torch.nn.ModuleList()
         if self.has_ensemble:
-            for index, block in enumerate(core_layout.blocks()):
-                num_outputs = len(block.properties)
-                if self.shared:
-                    num_outputs *= _prod([len(c) for c in block.components])
-                self.ensemble_layers.append(
-                    LinearReadout(
-                        len(columns[feature_indices[index]]),
-                        num_ensemble_members * num_outputs,
-                        n_groups=num_types,
-                        bias=False,
-                    ).to(dtype)
-                )
+            for _ in range(num_groups):
+                for index, block in enumerate(core_layout.blocks()):
+                    num_outputs = len(block.properties)
+                    if self.shared:
+                        num_outputs *= _prod([len(c) for c in block.components])
+                    self.ensemble_layers.append(
+                        torch.nn.Linear(
+                            len(columns[feature_indices[index]]),
+                            num_ensemble_members * num_outputs,
+                            bias=False,
+                            dtype=dtype,
+                        )
+                    )
 
         # the multipliers of all the blocks of the target, one after the other
         self.multiplier_offsets: List[int] = [0]
@@ -880,47 +889,52 @@ class _TargetLLPR(torch.nn.Module):
             self.layout_keys = self.layout_keys.to(device)
 
     def _feature_blocks(self, features: TensorMap) -> List[TensorBlock]:
-        """The blocks of ``features`` matching each covariance.
+        """The blocks of ``features`` read by the covariances of each group.
 
         :param features: the last-layer features of the target.
         :return: the blocks.
         """
         if self.shared:
-            return [features.block(0) for _ in range(len(self.covariances))]
+            return [features.block(0) for _ in range(self.num_feature_blocks)]
         return [
             features.block(self.core_layout.keys.entry(index))
             for index in range(len(self.core_layout))
         ]
 
-    def _types(
+    def _select(self, values: torch.Tensor, feature_index: int) -> torch.Tensor:
+        """The columns of ``values`` read by the covariances of a feature block.
+
+        :param values: the values of the feature block.
+        :param feature_index: the index of the feature block.
+        :return: the selected values.
+        """
+        start = self.column_offsets[feature_index]
+        end = self.column_offsets[feature_index + 1]
+        if end - start == values.shape[-1]:
+            return values
+        return values.index_select(-1, self.columns[start:end])
+
+    def _groups(
         self, systems: List[System], samples: Labels
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        """The index of the atomic type of each sample of the features, and the sorted
-        indices of the types present, if the last layer depends on the atomic type.
+    ) -> Dict[int, torch.Tensor]:
+        """The groups of the samples of the features.
 
         :param systems: the systems.
         :param samples: the samples of the last-layer features.
-        :return: the indices of the samples, all zero if the last layer does not
-            depend on the atomic type, and of the types present, or ``None``.
+        :return: the mask of the samples of each group present.
         """
-        if not self.per_type:
-            indices = torch.zeros(
-                len(samples), dtype=torch.long, device=samples.values.device
-            )
-            return indices, None
-        if "atom" not in samples.names:
-            raise ValueError(
-                f"the last layer of '{self.features_name}' depends on the atomic "
-                "type, so LLPR needs per-atom features"
-            )
+        if len(self.atomic_types) == 0:
+            device = samples.values.device
+            return {0: torch.ones(len(samples), dtype=torch.bool, device=device)}
         types = torch.cat([system.types for system in systems])
         lengths = torch.tensor([len(system) for system in systems], device=types.device)
         offsets = torch.cumsum(lengths, dim=0) - lengths
         atoms = offsets[samples.column("system").to(torch.long)] + samples.column(
             "atom"
         ).to(torch.long)
-        indices = self.type_to_index[types[atoms]]
-        return indices, torch.unique(indices)
+        types = types[atoms].to(torch.long)
+        present: List[int] = torch.unique(types).tolist()
+        return {self.atomic_types.index(t): types == t for t in present}
 
     def uncertainty(self, features: TensorMap, systems: List[System]) -> TensorMap:
         """The uncalibrated uncertainty, in the layout and units of the core.
@@ -930,14 +944,27 @@ class _TargetLLPR(torch.nn.Module):
         :return: the uncertainty.
         """
         feature_blocks = self._feature_blocks(features)
-        type_indices, present_types = self._types(systems, feature_blocks[0].samples)
-        # computed once for each feature block, and shared by the blocks reading it
+        groups = self._groups(systems, feature_blocks[0].samples)
+        # computed once for each feature block, and shared by the blocks reading it;
+        # the first group allocates the results, and each group fills its samples
         one_over_pr: List[torch.Tensor] = []
         for index, covariance in enumerate(self.covariances):
-            values = covariance.select(feature_blocks[index].values)
-            one_over_pr.append(
-                covariance.one_over_pr(values, type_indices, present_types)
-            )
+            group = index // self.num_feature_blocks
+            feature_index = index % self.num_feature_blocks
+            values = feature_blocks[feature_index].values
+            if group == 0:
+                one_over_pr.append(
+                    torch.zeros(
+                        [values.shape[0], _prod(list(values.shape[1:-1])), 1],
+                        dtype=values.dtype,
+                        device=values.device,
+                    )
+                )
+            if group in groups:
+                mask = groups[group]
+                one_over_pr[feature_index][mask] = covariance.one_over_pr(
+                    self._select(values[mask], feature_index)
+                )
 
         blocks: List[TensorBlock] = []
         for index, layout_block in enumerate(self.core_layout.blocks()):
@@ -964,18 +991,32 @@ class _TargetLLPR(torch.nn.Module):
         :return: the deviations.
         """
         feature_blocks = self._feature_blocks(features)
-        type_indices, present_types = self._types(systems, feature_blocks[0].samples)
-        # selected once for each covariance, and shared by the blocks reading it
-        selected: List[torch.Tensor] = []
-        for index, covariance in enumerate(self.covariances):
-            selected.append(covariance.select(feature_blocks[index].values))
+        groups = self._groups(systems, feature_blocks[0].samples)
+        # the first group allocates the outputs, and each group fills its samples
+        outputs: List[torch.Tensor] = []
+        for index, layer in enumerate(self.ensemble_layers):
+            group = index // len(self.core_layout)
+            block_index = index % len(self.core_layout)
+            feature_index = self.feature_indices[block_index]
+            values = feature_blocks[feature_index].values
+            if group == 0:
+                outputs.append(
+                    torch.zeros(
+                        list(values.shape[:-1]) + [layer.out_features],
+                        dtype=values.dtype,
+                        device=values.device,
+                    )
+                )
+            if group in groups:
+                mask = groups[group]
+                outputs[block_index][mask] = layer(
+                    self._select(values[mask], feature_index)
+                )
 
         blocks: List[TensorBlock] = []
-        for index, layer in enumerate(self.ensemble_layers):
-            feature_index = self.feature_indices[index]
-            feature_block = feature_blocks[feature_index]
-            layout_block = self.core_layout.block(index)
-            values = layer(selected[feature_index], type_indices, present_types)
+        for index, layout_block in enumerate(self.core_layout.blocks()):
+            feature_block = feature_blocks[self.feature_indices[index]]
+            values = outputs[index]
 
             num_samples = values.shape[0]
             components_shape = list(layout_block.values.shape[1:-1])
@@ -1055,45 +1096,59 @@ class _TargetLLPR(torch.nn.Module):
         """
         self.move_layouts(features.device)
         feature_blocks = self._feature_blocks(features)
-        type_indices, _ = self._types(systems, feature_blocks[0].samples)
+        groups = self._groups(systems, feature_blocks[0].samples)
         for index, covariance in enumerate(self.covariances):
-            values = covariance.select(feature_blocks[index].values.detach())
+            group = index // self.num_feature_blocks
+            feature_index = index % self.num_feature_blocks
+            if group not in groups:
+                continue
+            values = self._select(
+                feature_blocks[feature_index].values.detach(), feature_index
+            )
             # TODO: interface ll_feat calculation with the loss function, paying
             # attention to normalization w.r.t. n_atoms
             if n_atoms is not None:
                 values = values / n_atoms.reshape([-1] + [1] * (values.dim() - 1))
-            covariance.add(values, type_indices)
+            values = values[groups[group]]
+            # components count as samples, as the last layer is shared across them
+            values = values.reshape(-1, values.shape[-1]).to(torch.float64)
+            covariance.covariance += values.T @ values
 
     def sample_ensemble(self) -> None:
         """Sample the weights of the ensemble members."""
         for index, layer in enumerate(self.ensemble_layers):
-            covariance = self.covariances[self.feature_indices[index]]
+            group = index // len(self.core_layout)
+            feature_index = self.feature_indices[index % len(self.core_layout)]
+            cholesky = self.covariances[
+                group * self.num_feature_blocks + feature_index
+            ].cholesky
+            z = torch.randn(
+                (layer.in_features, layer.out_features),
+                device=cholesky.device,
+                dtype=cholesky.dtype,
+            )
             with torch.no_grad():
-                layer.weight.copy_(covariance.sample_weights(layer.out_features))
+                layer.weight.copy_(
+                    torch.linalg.solve_triangular(cholesky.T, z, upper=True).T
+                )
 
 
 class _Covariance(torch.nn.Module):
-    """The covariance of some columns of a block of last-layer features, and its
-    Cholesky factor, for each atomic type if the last layer depends on it.
+    """The covariance of a block of last-layer features, and its Cholesky factor.
 
     The covariance is always in float64: summed over many batches in float32, it loses
     its smallest eigenvalues and depends on the order of the batches.
 
-    :param columns: the sorted indices of the columns of the features.
+    :param size: the number of features.
     :param dtype: dtype of the Cholesky factor.
-    :param num_types: the number of atomic types, if the last layer depends on them,
-        or ``None``.
     """
 
-    def __init__(
-        self, columns: torch.Tensor, dtype: torch.dtype, num_types: Optional[int]
-    ) -> None:
+    def __init__(self, size: int, dtype: torch.dtype) -> None:
         super().__init__()
-        size = len(columns)
-        shape = [size, size] if num_types is None else [num_types, size, size]
-        self.register_buffer("columns", columns, persistent=False)
-        self.register_buffer("covariance", torch.zeros(shape, dtype=torch.float64))
-        self.register_buffer("cholesky", torch.zeros(shape, dtype=dtype))
+        self.register_buffer(
+            "covariance", torch.zeros((size, size), dtype=torch.float64)
+        )
+        self.register_buffer("cholesky", torch.zeros((size, size), dtype=dtype))
 
     def _apply(self, fn: Callable, recurse: bool = True) -> "_Covariance":
         # moves the covariance to other devices, but keeps it in float64
@@ -1102,152 +1157,58 @@ class _Covariance(torch.nn.Module):
         self.register_buffer("covariance", covariance.to(device=self.cholesky.device))
         return self
 
-    def select(self, values: torch.Tensor) -> torch.Tensor:
-        """The columns of the features read by this covariance.
-
-        :param values: the features.
-        :return: the selected features.
-        """
-        if len(self.columns) == values.shape[-1]:
-            return values
-        return values.index_select(-1, self.columns)
-
-    def one_over_pr(
-        self,
-        values: torch.Tensor,
-        type_indices: torch.Tensor,
-        present_types: Optional[torch.Tensor],
-    ) -> torch.Tensor:
+    def one_over_pr(self, values: torch.Tensor) -> torch.Tensor:
         """``1/PR`` for each sample and component; the same for PR and LPR.
 
-        :param values: the selected features.
-        :param type_indices: the index of the atomic type of each sample.
-        :param present_types: the indices of the types present, or ``None`` if the
-            last layer does not depend on the atomic type.
+        :param values: the features.
         :return: ``1/PR``, with shape ``(samples, components, 1)``, where
             components is 1 for features without components.
         """
         values = values.reshape(values.shape[0], -1, values.shape[-1])
-        if present_types is None:
-            return _one_over_pr(self.cholesky, values)
-        result = torch.zeros(
-            (values.shape[0], values.shape[1], 1),
-            dtype=values.dtype,
-            device=values.device,
+        v = torch.linalg.solve_triangular(
+            self.cholesky, values.reshape(-1, values.shape[-1]).T, upper=False
         )
-        types: List[int] = present_types.tolist()
-        for type_index in types:
-            mask = type_indices == type_index
-            result[mask] = _one_over_pr(self.cholesky[type_index], values[mask])
-        return result
-
-    def add(self, values: torch.Tensor, type_indices: torch.Tensor) -> None:
-        """Add the contribution of some features to the covariance.
-
-        :param values: the selected features.
-        :param type_indices: the index of the atomic type of each sample.
-        """
-        # components count as samples, as the last layer is shared across them
-        values = values.reshape(values.shape[0], -1, values.shape[-1])
-        values = values.to(torch.float64)
-        if self.covariance.dim() == 2:
-            values = values.reshape(-1, values.shape[-1])
-            self.covariance += values.T @ values
-            return
-        for type_index in torch.unique(type_indices).tolist():
-            type_values = values[type_indices == type_index]
-            type_values = type_values.reshape(-1, values.shape[-1])
-            self.covariance[type_index] += type_values.T @ type_values
-
-    def sample_weights(self, num_outputs: int) -> torch.Tensor:
-        """Weights of a last layer with ``num_outputs`` outputs, sampled from the
-        normal distribution of zero mean whose covariance is the inverse of this one.
-
-        :param num_outputs: the number of outputs.
-        :return: the weights, with shape ``(num_outputs, features)``, preceded by the
-            atomic types if the last layer depends on them.
-        """
-        size = self.cholesky.shape[-1]
-        weights: List[torch.Tensor] = []
-        for cholesky in self.cholesky.reshape(-1, size, size):
-            z = torch.randn(
-                (size, num_outputs), device=cholesky.device, dtype=cholesky.dtype
-            )
-            weights.append(torch.linalg.solve_triangular(cholesky.T, z, upper=True).T)
-        return torch.stack(weights).reshape(
-            self.cholesky.shape[:-2] + (num_outputs, size)
-        )
+        return torch.sum(v**2, dim=0).reshape(values.shape[0], values.shape[1], 1)
 
     def compute_cholesky(self, regularizer: Optional[float]) -> float:
         """Compute the Cholesky factor of the regularized covariance.
 
         :param regularizer: the regularization, or ``None`` to use the smallest power
             of ten that makes the covariance positive-definite.
-        :return: the regularization used, the largest among the atomic types.
+        :return: the regularization used.
         """
-        size = self.covariance.shape[-1]
-        choleskys = self.cholesky.view(-1, size, size)
-        used = 0.0
-        for index, covariance in enumerate(self.covariance.reshape(-1, size, size)):
-            cholesky, used_regularizer = _regularized_cholesky(covariance, regularizer)
-            choleskys[index] = cholesky.to(self.cholesky.dtype)
-            used = max(used, used_regularizer)
-        return used
+        covariance = 0.5 * (self.covariance + self.covariance.T)
+        identity = torch.eye(
+            covariance.shape[0], device=covariance.device, dtype=torch.float64
+        )
+        if regularizer is not None:
+            cholesky = _cholesky(covariance + regularizer * identity)
+            if cholesky is None:
+                raise ValueError(
+                    f"the covariance with a regularization of {regularizer} is not "
+                    "positive-definite"
+                )
+            self.cholesky[:] = cholesky.to(self.cholesky.dtype)
+            return regularizer
 
-
-def _one_over_pr(cholesky: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
-    """``1/PR`` of features with a component dimension, for one Cholesky factor.
-
-    :param cholesky: the Cholesky factor of the covariance.
-    :param values: the features, with shape ``(samples, components, features)``.
-    :return: ``1/PR``, with shape ``(samples, components, 1)``.
-    """
-    v = torch.linalg.solve_triangular(
-        cholesky, values.reshape(-1, values.shape[-1]).T, upper=False
-    )
-    return torch.sum(v**2, dim=0).reshape(values.shape[0], values.shape[1], 1)
-
-
-def _regularized_cholesky(
-    covariance: torch.Tensor, regularizer: Optional[float]
-) -> Tuple[torch.Tensor, float]:
-    """The Cholesky factor of the regularized covariance.
-
-    :param covariance: the covariance.
-    :param regularizer: the regularization, or ``None`` to use the smallest power of
-        ten that makes the covariance positive-definite.
-    :return: the Cholesky factor, and the regularization used.
-    """
-    covariance = 0.5 * (covariance + covariance.T)
-    identity = torch.eye(
-        covariance.shape[0], device=covariance.device, dtype=torch.float64
-    )
-    if regularizer is not None:
-        cholesky = _cholesky(covariance + regularizer * identity)
-        if cholesky is None:
-            raise ValueError(
-                f"the covariance with a regularization of {regularizer} is not "
-                "positive-definite"
-            )
-        return cholesky, regularizer
-
-    r = 1e-20
-    while r < 1e16:
-        cholesky = _cholesky(covariance + r * identity)
-        if cholesky is not None:
-            return cholesky, r
-        r *= 10.0
-    raise RuntimeError(
-        "Could not compute Cholesky decomposition. Something went wrong. Please "
-        "contact the metatrain developers"
-    )
+        r = 1e-20
+        while r < 1e16:
+            cholesky = _cholesky(covariance + r * identity)
+            if cholesky is not None:
+                self.cholesky[:] = cholesky.to(self.cholesky.dtype)
+                return r
+            r *= 10.0
+        raise RuntimeError(
+            "Could not compute Cholesky decomposition. Something went wrong. Please "
+            "contact the metatrain developers"
+        )
 
 
 def _feature_layout(
     name: str, features_layout: TensorMap, core_layout: TensorMap
 ) -> Tuple[bool, List[int], List[torch.Tensor]]:
-    """How the blocks of a target read its last-layer features, see
-    :class:`_TargetLLPR`. Blocks reading the same features share their covariance.
+    """How the blocks of a target read its last-layer features. Blocks reading the same
+    features share their covariance.
 
     :param name: name of the target.
     :param features_layout: layout of the last-layer features of the target.

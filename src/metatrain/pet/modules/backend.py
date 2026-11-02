@@ -4,9 +4,9 @@ from typing import Dict, List, Optional, Tuple
 import torch
 
 from ...utils.hypers import resolve_per_target
-from ...utils.readout import LinearReadout
 from ..documentation import ModelHypers
 from .conditioning import SystemConditioningEmbedding
+from .readout import LinearReadout
 from .structures import compute_batch_tensors
 from .transformer import CartesianTransformer
 
@@ -74,7 +74,6 @@ class PETBackend(torch.nn.Module):
         self.featurizer_type = hypers["featurizer_type"]
 
         num_atomic_species = len(atomic_types)
-        self.num_atomic_species = num_atomic_species
 
         # ``species_to_species_index`` is registered first so that it remains the first
         # entry of the ``state_dict`` (an integer buffer), which the checkpoint dtype
@@ -154,13 +153,10 @@ class PETBackend(torch.nn.Module):
         # ``head_type="per_target"``, the number of blocks for ``"per_block"``.
         self.heads_per_readout_layer: Dict[str, int] = {}
         # Whether the edge last layers of each output are applied to the edge features
-        # pooled over neighbors, see ``_calculate_atomic_predictions``
+        # pooled over neighbors
         self.pool_edges: Dict[str, bool] = {}
         # Whether the last layers of each output are conditioned on the atomic type
         self.conditioned_last_layers: Dict[str, bool] = {}
-        # Whether any last layer is conditioned on the atomic type, in which case
-        # ``predict`` finds the atomic types present in the batch once for all of them
-        self.has_conditioned_last_layers = False
 
         # ===== BEGIN DIAGNOSTIC-RELATED ATTRIBUTES
         # These are used to capture the node and edge features from each GNN layer post
@@ -200,11 +196,8 @@ class PETBackend(torch.nn.Module):
         )
         readout_type = resolve_per_target(self.readout_type, target_name, default=None)
 
-        # one head per block with "per_block", shared by all blocks otherwise
         heads_per_readout_layer = len(output_shapes) if head_type == "per_block" else 1
         self.heads_per_readout_layer[target_name] = heads_per_readout_layer
-        # the edge last layers of per-target heads with unconditioned readouts are
-        # applied to each edge, which reproduces the predictions of older models exactly
         self.pool_edges[target_name] = (
             head_type == "per_block" or readout_type == "one-hot"
         )
@@ -216,10 +209,9 @@ class PETBackend(torch.nn.Module):
         )
 
         self.conditioned_last_layers[target_name] = readout_type == "one-hot"
-        self.has_conditioned_last_layers = any(self.conditioned_last_layers.values())
         n_groups: Optional[int] = None
         if readout_type == "one-hot":
-            n_groups = self.num_atomic_species
+            n_groups = self.edge_embedder.num_embeddings
 
         self.node_last_layers[target_name] = torch.nn.ModuleList(
             [
@@ -299,7 +291,6 @@ class PETBackend(torch.nn.Module):
         self.heads_per_readout_layer.pop(target_name, None)
         self.pool_edges.pop(target_name, None)
         self.conditioned_last_layers.pop(target_name, None)
-        self.has_conditioned_last_layers = any(self.conditioned_last_layers.values())
 
     def preprocess(
         self,
@@ -507,8 +498,8 @@ class PETBackend(torch.nn.Module):
             normalize non-conservative stress predictions by cell volume.
         :param system_indices: System index for each atom, shape ``(num_nodes,)``.
         :param requested_output_names: Names of the target outputs to compute.
-        :param per_edge_last_layers: Whether to apply the edge last layers per edge,
-            see :meth:`_calculate_atomic_predictions`.
+        :param per_edge_last_layers: Whether to apply all the edge last layers to each
+            edge before pooling over neighbors.
         :return: A tuple ``(atomic_predictions, node_ll_features, edge_ll_features)``
             where ``atomic_predictions`` maps each requested output to a list of
             per-block flat prediction tensors, and the last-layer feature dictionaries
@@ -518,7 +509,7 @@ class PETBackend(torch.nn.Module):
         cutoff_factors = batch_data["cutoff_factors"]
         element_indices_nodes = batch_data["element_indices_nodes"]
         present_types: Optional[torch.Tensor] = None
-        if self.has_conditioned_last_layers:
+        if any(self.conditioned_last_layers.values()):
             present_types = torch.unique(element_indices_nodes)
 
         node_ll_features, edge_ll_features = self._calculate_last_layer_features(
@@ -731,8 +722,6 @@ class PETBackend(torch.nn.Module):
         Apply output-specific heads to node and edge features from each GNN layer.
         Returns dictionaries mapping output names to lists of head-transformed features.
 
-        The lists are indexed as the heads, see :meth:`_make_heads`.
-
         :param node_features_list: List of node feature tensors from each GNN layer.
         :param edge_features_list: List of edge feature tensors from each GNN layer.
         :return: Tuple of two dictionaries:
@@ -782,7 +771,7 @@ class PETBackend(torch.nn.Module):
         per-atom predictions. Handles multiple blocks per output and sums
         edge contributions with cutoff weighting.
 
-        Each block reads the last layer features of its head, see :meth:`_make_heads`.
+        Each block reads the last layer features of its head.
         Last layers conditioned on atomic type use the type of the central atom. The
         edge last layers of the outputs in ``pool_edges`` are applied to the
         cutoff-weighted sum of the edge features, which is exact as they are linear,
@@ -800,7 +789,7 @@ class PETBackend(torch.nn.Module):
         :param element_indices_nodes: Index of the atomic type of each atom
             [n_atoms].
         :param present_types: Sorted indices of the atomic types present in the
-            batch, used to speed up the last layers conditioned on atomic type.
+            batch, required by the last layers conditioned on atomic type.
         :param per_edge_last_layers: Whether to apply all the edge last layers to each
             edge before pooling over neighbors.
         :return: Tuple of two dictionaries:
