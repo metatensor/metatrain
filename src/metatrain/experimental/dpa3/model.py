@@ -26,6 +26,7 @@ from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.dataset import DatasetInfo
+from metatrain.utils.data.target_info import get_features_info
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
@@ -256,6 +257,10 @@ class DPA3(ModelInterface[ModelHypers]):
                 self.model = get_standard_model(deepmd_hypers)
             _register_untracked_tensors(self.model)
 
+        self._last_layer_feature_size = int(
+            self.model.atomic_model.fitting_net.neuron[-1]
+        )
+
         self.outputs: Dict[str, TargetInfo] = {}
 
         self.num_properties: Dict[str, Dict[str, int]] = {}
@@ -284,6 +289,16 @@ class DPA3(ModelInterface[ModelHypers]):
             block.properties for block in target.layout.blocks()
         ]
         self.outputs[target_name] = target
+        features_name = self._last_layer_features_name(target_name)
+        self.outputs[features_name] = get_features_info(
+            self._last_layer_feature_size,
+            sample_kind="atom",
+            description=f"last-layer features for {target_name}",
+        )
+
+    @staticmethod
+    def _last_layer_features_name(target_name: str) -> str:
+        return f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
 
     def get_rcut(self):
         return self.model.atomic_model.get_rcut()
@@ -345,6 +360,17 @@ class DPA3(ModelInterface[ModelHypers]):
 
         return result
 
+    @torch.jit.unused
+    def _forward_from_batch_with_grad(
+        self,
+        positions: torch.Tensor,
+        atype: torch.Tensor,
+        box: Optional[torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        """Run deepmd-kit with autograd enabled in eager no-grad contexts."""
+        with torch.enable_grad():
+            return self._forward_from_batch(positions, atype, box)
+
     def forward(
         self,
         systems: List[System],
@@ -369,11 +395,6 @@ class DPA3(ModelInterface[ModelHypers]):
         else:
             box = cells
 
-        raw = self._forward_from_batch(positions, atype, box)
-
-        atomic_properties: Dict[str, TensorMap] = {}
-        blocks: List[TensorBlock] = []
-
         values = torch.stack([system_index, atom_index], dim=0).transpose(0, 1)
         invariant_coefficients = Labels(
             names=["system", "atom"], values=values.to(device)
@@ -382,36 +403,67 @@ class DPA3(ModelInterface[ModelHypers]):
         # Use species to identify real atoms (>=0) vs padding (-1).
         # This is robust across platforms, unlike energy-magnitude thresholding
         # which can incorrectly mask real atoms with near-zero initial energies.
-        batch_size, max_atoms = species.shape
-        atom_energy = raw["atom_energy"].reshape(batch_size, max_atoms)
         mask = species >= 0
-        atomic_property_tensor = atom_energy[mask].unsqueeze(-1)
 
-        blocks.append(
-            TensorBlock(
-                values=atomic_property_tensor,
-                samples=invariant_coefficients,
-                components=self.component_labels[self.targets_keys][0],
-                properties=self.property_labels[self.targets_keys][0],
+        if self.targets_keys in outputs:
+            # deepmd-kit obtains forces and virials through autograd inside its
+            # forward. Eager LLPR covariance collection can run under no-grad, so
+            # gradients need to be re-enabled locally in that case.
+            if torch.jit.is_scripting():
+                raw = self._forward_from_batch(positions, atype, box)
+            else:
+                raw = self._forward_from_batch_with_grad(positions, atype, box)
+
+            batch_size, max_atoms = species.shape
+            atom_energy = raw["atom_energy"].reshape(batch_size, max_atoms)
+            atomic_property = TensorMap(
+                self.key_labels[self.targets_keys],
+                [
+                    TensorBlock(
+                        values=atom_energy[mask].unsqueeze(-1),
+                        samples=invariant_coefficients,
+                        components=self.component_labels[self.targets_keys][0],
+                        properties=self.property_labels[self.targets_keys][0],
+                    )
+                ],
             )
-        )
 
-        atomic_properties[self.targets_keys] = TensorMap(
-            self.key_labels[self.targets_keys], blocks
-        )
-
-        if selected_atoms is not None:
-            for output_name, tmap in atomic_properties.items():
-                atomic_properties[output_name] = mts.slice(
-                    tmap, axis="samples", selection=selected_atoms
+            if selected_atoms is not None:
+                atomic_property = mts.slice(
+                    atomic_property, axis="samples", selection=selected_atoms
                 )
 
-        for output_name, atomic_property in atomic_properties.items():
-            if outputs[output_name].sample_kind == "atom":
-                return_dict[output_name] = atomic_property
+            if outputs[self.targets_keys].sample_kind == "atom":
+                return_dict[self.targets_keys] = atomic_property
             else:
                 # sum the atomic property to get the total property
-                return_dict[output_name] = sum_over_atoms(atomic_property)
+                return_dict[self.targets_keys] = sum_over_atoms(atomic_property)
+
+        features_name = self._last_layer_features_name(self.targets_keys)
+        if features_name in outputs:
+            # The public deepmd-kit embedding API does not return energies. When both
+            # outputs are requested, energy and features therefore require separate
+            # calls, which rebuild the neighbor list and descriptor.
+            embedding = self.model.forward_embedding(positions, atype, box=box)
+            atomic_features = embedding["atomic_feature"][mask]
+            features_layout = self.outputs[features_name].layout
+            features_block = features_layout.block(0)
+            features = TensorMap(
+                features_layout.keys.to(device),
+                [
+                    TensorBlock(
+                        values=atomic_features,
+                        samples=invariant_coefficients,
+                        components=[],
+                        properties=features_block.properties.to(device),
+                    )
+                ],
+            )
+            if selected_atoms is not None:
+                features = mts.slice(features, axis="samples", selection=selected_atoms)
+            if outputs[features_name].sample_kind == "system":
+                features = sum_over_atoms(features)
+            return_dict[features_name] = features
 
         return return_dict
 
