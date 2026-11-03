@@ -1,10 +1,12 @@
-from typing import Callable, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 import torch
 from metatensor.torch import TensorMap
 from metatomic.torch import System
 
 from metatrain.scaler import Scaler
+
+from ..data.dataset import CollateTransform
 
 
 def remove_scale(
@@ -30,7 +32,7 @@ def remove_scale(
     )
 
 
-def get_remove_scale_transform(scaler: Scaler) -> Callable:
+def get_remove_scale_transform(scaler: Scaler) -> CollateTransform:
     """
     Remove the scaling from the targets using the provided scaler.
 

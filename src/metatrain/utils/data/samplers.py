@@ -79,7 +79,10 @@ def _pack_batches_csr(
             f"{indices_arr.shape} vs {counts_arr.shape}"
         )
 
-    empty_csr = (np.empty(0, dtype=np.int64), np.zeros(1, dtype=np.int64))
+    empty_csr: Tuple[np.ndarray, np.ndarray] = (
+        np.empty(0, dtype=np.int64),
+        np.zeros(1, dtype=np.int64),
+    )
 
     n_total = indices_arr.size
     if n_total == 0:
@@ -105,7 +108,7 @@ def _pack_batches_csr(
     if n == 0:
         return empty_csr
 
-    cumsum = np.cumsum(counts_arr)
+    cumsum: np.ndarray = np.cumsum(counts_arr)
 
     # Walk batch boundaries. Each iteration is a single ``searchsorted`` call
     # — typically orders of magnitude fewer iterations than the structure count.
@@ -141,8 +144,8 @@ def _pack_batches_csr(
     if not kept_starts:
         return empty_csr
 
-    starts_arr = np.asarray(kept_starts, dtype=np.int64)
-    ends_arr = np.asarray(kept_ends, dtype=np.int64)
+    starts_arr: np.ndarray = np.asarray(kept_starts, dtype=np.int64)
+    ends_arr: np.ndarray = np.asarray(kept_ends, dtype=np.int64)
     lengths = ends_arr - starts_arr
 
     offsets = np.empty(lengths.size + 1, dtype=np.int64)

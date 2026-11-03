@@ -1,9 +1,11 @@
-from typing import Any, Dict
-
 import torch.nn as nn
 
+from metatrain.pet.modules.finetuning import FullFinetuneHypers
 
-def apply_finetuning_strategy(model: nn.Module, strategy: Dict[str, Any]) -> nn.Module:
+
+def apply_finetuning_strategy(
+    model: nn.Module, strategy: FullFinetuneHypers
+) -> nn.Module:
     """
     Apply the specified finetuning strategy to the model.
     This function modifies the model in place based on the provided strategy.

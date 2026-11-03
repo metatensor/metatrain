@@ -38,6 +38,19 @@ quantities, such as energies or extra data like ``charge``, are read from
 ``atoms.arrays[key]``. Not every target type can be stored this way, spherical tensors
 with more than one irreducible representation cannot be read by the ASE reader.
 
+ASE stores recognized properties, such as ``charges``, ``dipole``, and ``magmoms``,
+in calculator results. Metatrain makes existing results available in ``atoms.info``
+or ``atoms.arrays`` according to the installed ASE version's property classification.
+The ``stress`` result is converted from six-component Voigt notation to a 3 x 3
+matrix; other result shapes are unchanged.
+
+.. note::
+
+    When reading extended XYZ files with ASE 3.22, ``charges`` columns are stored as
+    ``atoms.arrays["initial_charges"]``, not as calculator results. Use
+    ``key: initial_charges`` for these per-atom targets with ASE 3.22. With ASE 3.23
+    and newer, use ``key: charges``.
+
 Targets can also be read from metatensor ``.mts`` files (one ``TensorMap`` per
 structure) by setting the target's ``read_from`` option to the corresponding file. See
 :ref:`train_yaml_config` for the full data configuration reference and
@@ -75,7 +88,7 @@ Memory-mapped directories
 A memory-mapped dataset (:py:class:`metatrain.utils.data.dataset.MemmapDataset`) is a
 directory of NumPy and raw binary arrays. It uses the following files:
 
-- ``ns.npy``: number of structures, shape ``(1,)``
+- ``ns.npy``: number of structures, stored as a scalar, shape ``()``
 - ``na.npy``: cumulative number of atoms per structure, shape ``(ns + 1,)``, ``int64``
 - ``x.bin``: positions of all atoms, concatenated, shape ``(na[-1], 3)``, ``float32``
 - ``a.bin``: atomic types of all atoms, concatenated, shape ``(na[-1],)``, ``int32``

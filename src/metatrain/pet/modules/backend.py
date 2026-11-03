@@ -241,9 +241,8 @@ class PETBackend(torch.nn.Module):
         centers: torch.Tensor,
         neighbors: torch.Tensor,
         species: torch.Tensor,
-        cells: torch.Tensor,
+        cell_contributions: torch.Tensor,
         cell_shifts: torch.Tensor,
-        system_indices: torch.Tensor,
         cutoff_width_adaptive: float,
     ) -> Dict[str, torch.Tensor]:
         """
@@ -260,9 +259,9 @@ class PETBackend(torch.nn.Module):
         :param centers: Flat center atom global indices, shape ``(n_edges,)``.
         :param neighbors: Flat neighbor atom global indices, shape ``(n_edges,)``.
         :param species: Concatenated atomic species, shape ``(num_nodes,)``.
-        :param cells: Stacked cell tensors, shape ``(num_systems, 3, 3)``.
+        :param cell_contributions: Contributions of the cell shifts to the edge
+            vectors, shape ``(n_edges, 3)``.
         :param cell_shifts: Integer cell shift vectors, shape ``(n_edges, 3)``.
-        :param system_indices: System index for each atom, shape ``(num_nodes,)``.
         :param cutoff_width_adaptive: Width of the smooth cutoff taper used by the
             adaptive cutoff scheme when ``num_neighbors_adaptive`` is set.
         :return: A dictionary ``batch_data`` of the intermediate tensors:
@@ -312,9 +311,8 @@ class PETBackend(torch.nn.Module):
             centers,
             neighbors,
             species,
-            cells,
+            cell_contributions,
             cell_shifts,
-            system_indices,
             self.species_to_species_index,
             self.cutoff,
             self.cutoff_function,
@@ -480,7 +478,7 @@ class PETBackend(torch.nn.Module):
                     )
                 block_sums.append(block_sum)
 
-            if output_name == "non_conservative_stress":  # TODO: variants
+            if output_name.split("/")[0] == "non_conservative_stress":
                 num_properties = block_sums[0].shape[1] // 9
                 block_sums[0] = process_non_conservative_stress(
                     block_sums[0],

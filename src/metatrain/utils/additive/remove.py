@@ -1,5 +1,5 @@
 import warnings
-from typing import Callable, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 import metatensor.torch as mts
 import torch
@@ -9,6 +9,8 @@ from metatensor.torch.operations._multiply import _multiply_block_constant
 from metatomic.torch import System
 
 from ..data import TargetInfo
+from ..data.dataset import CollateTransform
+from ..data.match_tmaps import match_layout
 from ..evaluate_model import evaluate_model
 
 
@@ -35,12 +37,7 @@ def remove_additive(
             "require grad and does not have a grad_fn"
         ),
     )
-    # The additive model's output layout follows its module mode (additive models
-    # predict atomic-basis targets in their dense layout in training mode, and
-    # sparsify them in eval mode). The subtraction below happens in dense space,
-    # against transform-densified targets, so force train mode for the evaluation.
-    was_training = additive_model.training
-    additive_model.train(True)
+
     additive_contribution = evaluate_model(
         additive_model,
         systems,
@@ -51,19 +48,32 @@ def remove_additive(
         },
         is_training=False,  # we don't need any gradients w.r.t. any parameters
     )
-    additive_model.train(was_training)
 
     for target_key in additive_contribution.keys():
         if (
             additive_contribution[target_key].keys.names
             != targets[target_key].keys.names
         ):
-            raise ValueError(
-                f"The additive contribution for target {target_key} has key "
-                f"dimensions {additive_contribution[target_key].keys.names}, while "
-                f"the target has {targets[target_key].keys.names}. The subtraction "
-                "of additive contributions must happen in the same layout."
+            # Layouts don't match, try to make them match
+            additive_contribution[target_key] = match_layout(
+                additive_contribution[target_key],
+                targets[target_key],
+                target_info_dict[target_key].layout,
+                systems,
             )
+
+            # If they still don't match, raise an error
+            if (
+                additive_contribution[target_key].keys.names
+                != targets[target_key].keys.names
+            ):
+                raise ValueError(
+                    f"The additive contribution for target {target_key} has key "
+                    f"dimensions {additive_contribution[target_key].keys.names}, "
+                    f"while the target has {targets[target_key].keys.names}. The "
+                    "subtraction of additive contributions must happen in the "
+                    "same layout."
+                )
 
     for target_key in additive_contribution.keys():
         # note that we loop over the keys of additive_contribution, not targets,
@@ -171,7 +181,7 @@ def remove_additive(
 def get_remove_additive_transform(
     additive_models: List[torch.nn.Module],
     target_info_dict: Dict[str, TargetInfo],
-) -> Callable:
+) -> CollateTransform:
     """
     Get a function that removes the additive contributions from the targets.
 

@@ -15,6 +15,7 @@ from metatomic.torch import AtomisticModel, ModelOutput
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import Subset
 
+from metatrain.share.base_hypers import EquivarianceHypers, EvalDatasetDictHypers
 from metatrain.utils.data import (
     CollateFn,
     Dataset,
@@ -33,8 +34,10 @@ from metatrain.utils.data.writers import (
     get_writer,
 )
 from metatrain.utils.devices import pick_devices
+from metatrain.utils.equivariance import EquivarianceEvaluation
 from metatrain.utils.errors import ArchitectureError
 from metatrain.utils.evaluate_model import evaluate_model
+from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import load_model
 from metatrain.utils.logging import MetricLogger
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator
@@ -108,8 +111,12 @@ def _add_eval_model_parser(subparser: argparse._SubParsersAction) -> None:
         dest="batch_size",
         required=False,
         type=int,
-        default=1,
-        help="batch size for evaluation (default: %(default)s)",
+        default=None,
+        help=(
+            "batch size for evaluation, also used for the rotated copies of each "
+            "system when measuring the equivariance error (default: 16 if any "
+            "dataset measures the equivariance error, 1 otherwise)"
+        ),
     )
     parser.add_argument(
         "--check-consistency",
@@ -153,6 +160,8 @@ def _eval_targets(
     check_consistency: bool = False,
     writer: Optional[Writer] = None,
     warm_up: bool = True,
+    equivariance: Optional[Dict] = None,
+    log_separate_blocks: bool = False,
 ) -> None:
     """
     Evaluate `model` on `dataset`, accumulate RMSE/MAE, and (if `writer` is provided)
@@ -165,6 +174,11 @@ def _eval_targets(
     :param check_consistency: Whether to run consistency checks during model evaluation.
     :param writer: Optional writer to write out per-sample predictions.
     :param warm_up: Whether to do a warm-up of the model before evaluation.
+    :param equivariance: If not :obj:`python:None`, also measure the O(3)
+        equivariance error of the model and the accuracy of its O(3)-averaged
+        predictions, with these ``EquivarianceHypers`` (defaults included).
+    :param log_separate_blocks: Report metrics separately for each block of each
+        target, instead of aggregated over the whole target.
     """
     # Disable static fusion. Besides the fact that atomistic batches have variable
     # sizes, statically fused CUDA kernels cannot allocate new tensors at runtime,
@@ -213,8 +227,18 @@ def _eval_targets(
         dataset, batch_size=batch_size, collate_fn=collate_fn, shuffle=False
     )
 
-    rmse_acc = RMSEAccumulator()
-    mae_acc = MAEAccumulator()
+    rmse_acc = RMSEAccumulator(separate_blocks=log_separate_blocks)
+    mae_acc = MAEAccumulator(separate_blocks=log_separate_blocks)
+
+    not_per_atom = ["positions_gradients"]
+
+    equivariance_evaluation = (
+        EquivarianceEvaluation(
+            model, options, equivariance, batch_size, log_separate_blocks
+        )
+        if equivariance is not None
+        else None
+    )
 
     # Warm-up
     if warm_up:
@@ -277,6 +301,15 @@ def _eval_targets(
         rmse_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
         mae_acc.update(preds_per_atom, targ_per_atom, batch_extra_data)
 
+        # Equivariance error, deliberately outside of the timed region above so
+        # that it does not pollute the reported evaluation timings
+        if equivariance_evaluation is not None:
+            batch_predictions.update(
+                equivariance_evaluation.update(
+                    systems, targ_per_atom, batch_extra_data, not_per_atom
+                )
+            )
+
         # Write out each sample if a writer is configured
         if writer:
             writer.write(systems, batch_predictions)
@@ -291,9 +324,11 @@ def _eval_targets(
         writer.finish()
 
     # Finalize metrics and log
-    rmse_vals = rmse_acc.finalize(not_per_atom=["positions_gradients"])
-    mae_vals = mae_acc.finalize(not_per_atom=["positions_gradients"])
+    rmse_vals = rmse_acc.finalize(not_per_atom=not_per_atom)
+    mae_vals = mae_acc.finalize(not_per_atom=not_per_atom)
     metrics = {**rmse_vals, **mae_vals}
+    if equivariance_evaluation is not None:
+        metrics.update(equivariance_evaluation.finalize(not_per_atom))
     metric_logger = MetricLogger(
         log_obj=logger, dataset_info=model.capabilities(), initial_metrics=metrics
     )
@@ -314,7 +349,7 @@ def eval_model(
     model: Union[AtomisticModel, torch.jit.RecursiveScriptModule],
     options: DictConfig,
     output: Union[Path, str] = "output.xyz",
-    batch_size: int = 1,
+    batch_size: Optional[int] = None,
     check_consistency: bool = False,
     append: Optional[bool] = None,
     warm_up: bool = True,
@@ -331,7 +366,10 @@ def eval_model(
     :param output: Path to save the predicted values. A path ending in a path
         separator (e.g. ``"predictions/"``) writes a memmap dataset directory instead
         of a single file.
-    :param batch_size: Batch size for evaluation.
+    :param batch_size: Batch size for evaluation. When measuring the equivariance
+        error, this is also the number of rotated copies of a system evaluated in a
+        single call to the model. If :obj:`python:None`, 16 if any dataset measures
+        the equivariance error, and 1 otherwise.
     :param check_consistency: Whether to run consistency checks during model evaluation.
     :param append: If ``True``, open the output file in append mode.
     :param warm_up: Whether to do a warm-up of the model before evaluation.
@@ -345,7 +383,13 @@ def eval_model(
     options = validate_eval_options(OmegaConf.to_container(options))
     options = OmegaConf.create(options)
     options_list = expand_dataset_config(options)
+    if batch_size is None:
+        # one rotated copy per call to the model would make measuring the
+        # equivariance error very slow
+        measures_equivariance = any("equivariance" in o for o in options_list)
+        batch_size = 16 if measures_equivariance else 1
     for i, options in enumerate(options_list):
+        options = OmegaConf.merge(init_with_defaults(EvalDatasetDictHypers), options)
         idx_suffix = f"_{i}" if len(options_list) > 1 else ""
         extra_log_message = f" with index {i}" if len(options_list) > 1 else ""
         logging.info(f"Evaluating dataset{extra_log_message}")
@@ -364,6 +408,11 @@ def eval_model(
                 raise ValueError(
                     "Writing to DiskDataset or MemmapDataset is not allowed without"
                     " explicitly defining targets in the input file."
+                )
+            if "equivariance" in options:
+                raise ValueError(
+                    "measuring the equivariance error requires a `targets` section in "
+                    "the eval options file"
                 )
             eval_systems = read_systems(
                 filename=options["systems"]["read_from"],
@@ -397,6 +446,13 @@ def eval_model(
                 eval_indices = load_indices(eval_indices)
             eval_dataset = Subset(eval_dataset, eval_indices)
 
+        equivariance_options: Optional[Dict] = None
+        if "equivariance" in options:
+            equivariance_options = {
+                **init_with_defaults(EquivarianceHypers),
+                **OmegaConf.to_container(options["equivariance"]),  # type: ignore[dict-item]
+            }
+
         # run evaluation & writing
         try:
             # we always let the writer handle I/O, so we never need return_predictions
@@ -409,6 +465,8 @@ def eval_model(
                 check_consistency=check_consistency,
                 writer=writer,
                 warm_up=warm_up,
+                equivariance=equivariance_options,
+                log_separate_blocks=options["log_separate_blocks"],
             )
         except Exception as e:
             raise ArchitectureError(e)

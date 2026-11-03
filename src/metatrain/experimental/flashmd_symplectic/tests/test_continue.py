@@ -5,9 +5,10 @@ import metatensor
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
-from metatrain.experimental.flashmd_symplectic import FlashMDSymplectic, Trainer
+from metatrain.experimental.flashmd_symplectic import Trainer
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
 from metatrain.utils.io import model_from_checkpoint
@@ -70,7 +71,7 @@ def test_continue(monkeypatch, tmp_path):
         },
     )
 
-    model = FlashMDSymplectic(MODEL_HYPERS, dataset_info)
+    model = Trainer(DEFAULT_HYPERS["training"]).setup(MODEL_HYPERS, dataset_info)
     requested_neighbor_lists = get_requested_neighbor_lists(model)
     systems = [
         get_system_with_neighbor_lists(system, requested_neighbor_lists)
@@ -79,7 +80,10 @@ def test_continue(monkeypatch, tmp_path):
 
     output_before = model(
         [system.to(torch.float32) for system in systems[:5]],
-        {"position": model.outputs["position"], "momentum": model.outputs["momentum"]},
+        {
+            "position": ModelOutput(sample_kind="atom"),
+            "momentum": ModelOutput(sample_kind="atom"),
+        },
     )
 
     positions_target = {
@@ -147,7 +151,6 @@ def test_continue(monkeypatch, tmp_path):
     trainer.save_checkpoint(model, "temp.ckpt")
     checkpoint = torch.load("temp.ckpt", weights_only=False, map_location="cpu")
     model_after = model_from_checkpoint(checkpoint, context="restart")
-    assert isinstance(model_after, FlashMDSymplectic)
     model_after.restart(dataset_info)
 
     hypers["training"]["num_epochs"] = 0
@@ -170,13 +173,16 @@ def test_continue(monkeypatch, tmp_path):
     # Predict on the first five systems
     output_before = model(
         [system.to(torch.float32) for system in systems[:5]],
-        {"position": model.outputs["position"], "momentum": model.outputs["momentum"]},
+        {
+            "position": ModelOutput(sample_kind="atom"),
+            "momentum": ModelOutput(sample_kind="atom"),
+        },
     )
     output_after = model_after(
         [system.to(torch.float32) for system in systems[:5]],
         {
-            "position": model_after.outputs["position"],
-            "momentum": model_after.outputs["momentum"],
+            "position": ModelOutput(sample_kind="atom"),
+            "momentum": ModelOutput(sample_kind="atom"),
         },
     )
 

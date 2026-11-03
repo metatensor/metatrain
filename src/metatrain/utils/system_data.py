@@ -1,18 +1,17 @@
 """Utilities for attaching per-system data to :class:`System` objects."""
 
-from typing import Callable, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
+from .data.dataset import CollateTransform
+
 
 def get_system_data_transform(
     data_keys: List[str],
-) -> Callable[
-    [List[System], Dict[str, TensorMap], Dict[str, TensorMap]],
-    Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]],
-]:
+) -> CollateTransform:
     """Return a :class:`CollateFn` callable that moves per-system scalar data
     from the ``extra`` dict into each :class:`System` via ``add_data``.
 

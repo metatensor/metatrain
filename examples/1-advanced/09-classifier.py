@@ -167,8 +167,8 @@ structures = ase.io.read("carbon_allotropes.xyz", index=":")
 
 # Get predictions and compute per-class accuracy
 class_names = ["Diamond", "Graphite", "Graphene"]
-correct_per_class = {0: 0, 1: 0, 2: 0}
-total_per_class = {0: 0, 1: 0, 2: 0}
+correct_per_class: dict[int | np.integer, int] = {0: 0, 1: 0, 2: 0}
+total_per_class: dict[int | np.integer, int] = {0: 0, 1: 0, 2: 0}
 
 for structure in structures:
     probabilities = (

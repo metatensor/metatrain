@@ -25,6 +25,7 @@ def concatenate_structures(
     torch.Tensor,
     torch.Tensor,
     torch.Tensor,
+    torch.Tensor,
     Labels,
 ]:
     """
@@ -33,7 +34,8 @@ def concatenate_structures(
     :param systems: List of systems to concatenate.
     :param neighbor_list_options: Options for the neighbor list.
     :return: A tuple containing the concatenated positions, centers, neighbors,
-        species, cells, cell shifts, system indices, and sample labels.
+        species, cells, cell shifts, contributions of the cell shifts to the edge
+        vectors, system indices, and sample labels.
     """
 
     device = systems[0].positions.device
@@ -42,6 +44,7 @@ def concatenate_structures(
     species_list: List[torch.Tensor] = []
     cells_list: List[torch.Tensor] = []
     nl_values_list: List[torch.Tensor] = []
+    cell_contributions_list: List[torch.Tensor] = []
     sizes: List[int] = []
     num_edges: List[int] = []
     node_offsets_list: List[int] = []
@@ -56,6 +59,11 @@ def concatenate_structures(
         species_list.append(system.types)
         cells_list.append(system.cell)
         nl_values_list.append(nl_values)
+        # one product per system, so that the gradient with respect to the cell
+        # is also a matrix product
+        cell_contributions_list.append(
+            nl_values[:, 2:].to(system.cell.dtype) @ system.cell
+        )
 
         system_size = len(system)
         node_offsets_list.append(node_counter)
@@ -67,6 +75,7 @@ def concatenate_structures(
     species = torch.cat(species_list)
     cells = torch.stack(cells_list)
     nl_values = torch.cat(nl_values_list)
+    cell_contributions = torch.cat(cell_contributions_list)
 
     centers = nl_values[:, 0]
     neighbors = nl_values[:, 1]
@@ -107,6 +116,7 @@ def concatenate_structures(
         species,
         cells,
         cell_shifts,
+        cell_contributions,
         system_indices,
         sample_labels,
     )
@@ -117,9 +127,8 @@ def compute_batch_tensors(
     centers: torch.Tensor,
     neighbors: torch.Tensor,
     species: torch.Tensor,
-    cells: torch.Tensor,
+    cell_contributions: torch.Tensor,
     cell_shifts: torch.Tensor,
-    system_indices: torch.Tensor,
     species_to_species_index: torch.Tensor,
     cutoff: float,
     cutoff_function: str,
@@ -157,9 +166,9 @@ def compute_batch_tensors(
     :param neighbors: Flat neighbor atom global indices for each edge, shape
         ``(n_edges,)``.
     :param species: Concatenated atomic species, shape ``(num_nodes,)``.
-    :param cells: Stacked cell tensors, shape ``(num_systems, 3, 3)``.
+    :param cell_contributions: Contributions of the cell shifts to the edge vectors,
+        shape ``(n_edges, 3)``.
     :param cell_shifts: Integer cell shift vectors per edge, shape ``(n_edges, 3)``.
-    :param system_indices: System index for each atom, shape ``(num_nodes,)``.
     :param species_to_species_index: Mapping from atomic species to species indices.
     :param cutoff: Neighbor list cutoff radius.
     :param cutoff_function: Type of the smoothing function at the cutoff.
@@ -206,17 +215,6 @@ def compute_batch_tensors(
           cell_shift_c)``. Suitable for use with :func:`get_pair_sample_labels`.
 
     """
-    # somehow the backward of this operation is very slow at evaluation,
-    # where there is only one cell, therefore we simplify the calculation
-    # for that case
-    if len(cells) == 1:
-        cell_contributions = cell_shifts.to(cells.dtype) @ cells[0]
-    else:
-        cell_contributions = torch.einsum(
-            "ab, abc -> ac",
-            cell_shifts.to(cells.dtype),
-            cells[system_indices[centers]],
-        )
     edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
     edge_distances = torch.norm(edge_vectors, dim=-1) + 1e-15
 

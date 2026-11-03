@@ -147,9 +147,10 @@ def test_non_strict_nl_does_not_inflate_nef_tensors():
             centers,
             neighbors,
             species,
-            cells,
+            _cells,
             cell_shifts,
-            system_indices,
+            cell_contributions,
+            _system_indices,
             _sample_labels,
         ) = concatenate_structures([system], nl_options)
         batch_data.append(
@@ -158,9 +159,8 @@ def test_non_strict_nl_does_not_inflate_nef_tensors():
                 centers,
                 neighbors,
                 species,
-                cells,
+                cell_contributions,
                 cell_shifts,
-                system_indices,
                 model.cutoff_width_adaptive,
             )
         )

@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -330,6 +331,29 @@ def test_dataset_info_eq_other_objects(layout_scalar):
     info = DatasetInfo(length_unit="angstrom", atomic_types=[1, 6], targets=targets)
 
     assert not info == [1, 2, 3]
+
+
+@pytest.mark.parametrize(
+    "length_unit, other_length_unit, equivalent",
+    [
+        pytest.param("angstrom", "A", True, id="unit-alias"),
+        pytest.param("angstrom", "nm", False, id="different-scales"),
+    ],
+)
+def test_dataset_info_eq_length_units(
+    layout_scalar: TensorMap,
+    length_unit: str,
+    other_length_unit: str,
+    equivalent: bool,
+) -> None:
+    targets: dict[str, TargetInfo] = {
+        "energy": TargetInfo(layout_scalar, quantity="energy", unit="eV")
+    }
+    info = DatasetInfo(length_unit, [1, 6], targets)
+    other = DatasetInfo(other_length_unit, [1, 6], targets)
+
+    assert (info == other) is equivalent
+    assert (other == info) is equivalent
 
 
 def test_dataset_info_update_different_target_info(layout_scalar):
@@ -763,6 +787,39 @@ def test_memmap_per_atom_labels_use_local_indices(tmp_path):
     assert values == [2.0, 3.0, 4.0], (
         f"Expected per-atom values [2.0, 3.0, 4.0] for system 1, got {values}."
     )
+
+
+@pytest.mark.parametrize(
+    "target_name", ["non_conservative_stress", "non_conservative_stress/variant"]
+)
+def test_memmap_variant_target_property_labels(tmp_path, target_name):
+    """The property label name of generic targets must not contain the variant, so
+    that it matches the layout from get_generic_target_info."""
+    ns = 1
+    na = np.array([0, 2], dtype=np.int64)
+    np.save(tmp_path / "ns.npy", ns)
+    np.save(tmp_path / "na.npy", na)
+    np.zeros((2, 3), dtype="float32").tofile(tmp_path / "x.bin")
+    np.array([1, 1], dtype="int32").tofile(tmp_path / "a.bin")
+    np.eye(3, dtype="float32").reshape(ns, 3, 3).tofile(tmp_path / "c.bin")
+    np.ones((ns, 3, 3, 1), dtype="float32").tofile(tmp_path / "s.bin")
+
+    target_options = {
+        target_name: {
+            "key": "s",
+            "sample_kind": "system",
+            "num_subtargets": 1,
+            "type": {"cartesian": {"rank": 2}},
+            "quantity": "",
+            "unit": "",
+        }
+    }
+    dataset = MemmapDataset(tmp_path, target_options)
+
+    properties = dataset[0][1].block().properties
+    assert properties.names == ["non_conservative_stress"]
+    # checks that the TensorMaps are consistent with the target info layout
+    dataset.get_target_info()
 
 
 @pytest.mark.parametrize("bad_dtype", [np.int32, np.uint64, np.float64])
@@ -1370,3 +1427,100 @@ def test_memmap_masses_attached(tmp_path):
     # the atom label is local (0), not the global offset (1)
     assert block.samples.values.tolist() == [[1, 0]]
     assert block.values.squeeze(-1).tolist() == [12.0]
+
+
+@pytest.mark.parametrize("merge", ["update", "union"], ids=["update", "union"])
+@pytest.mark.parametrize(
+    "length_unit, other_length_unit",
+    [
+        pytest.param("A", "angstrom", id="symbol-to-name"),
+        pytest.param("angstrom", "A", id="name-to-symbol"),
+    ],
+)
+def test_dataset_info_merge_unit_aliases(
+    layout_cartesian: TensorMap,
+    merge: Literal["update", "union"],
+    length_unit: str,
+    other_length_unit: str,
+) -> None:
+    stress = TargetInfo(layout_cartesian, quantity="pressure", unit="eV/A^3")
+    other_stress = TargetInfo(
+        layout_cartesian, quantity="pressure", unit="eV/angstrom^3"
+    )
+    info = DatasetInfo(length_unit, [1, 6], {"non_conservative_stress": stress})
+    other = DatasetInfo(
+        other_length_unit,
+        [8],
+        {"non_conservative_stress": other_stress},
+    )
+
+    if merge == "update":
+        info.update(other)
+        merged = info
+    else:
+        merged = info.union(other)
+        assert info.atomic_types == [1, 6]
+        assert info.targets["non_conservative_stress"] is stress
+
+    assert merged.length_unit == length_unit
+    assert merged.atomic_types == [1, 6, 8]
+    assert merged.targets["non_conservative_stress"] is other_stress
+    assert other.length_unit == other_length_unit
+    assert other.atomic_types == [8]
+
+
+@pytest.mark.parametrize("merge", ["update", "union"], ids=["update", "union"])
+@pytest.mark.parametrize(
+    "length_unit, other_length_unit",
+    [
+        pytest.param("angstrom", "nm", id="different-length-scales"),
+        pytest.param("", "angstrom", id="empty-length-unit"),
+        pytest.param("angstrom", "", id="empty-other-length-unit"),
+    ],
+)
+def test_dataset_info_merge_incompatible_length_units(
+    merge: Literal["update", "union"], length_unit: str, other_length_unit: str
+) -> None:
+    info = DatasetInfo(length_unit, [1], {})
+    other = DatasetInfo(other_length_unit, [8], {})
+
+    with pytest.raises(ValueError, match="different `length_unit`"):
+        if merge == "update":
+            info.update(other)
+        else:
+            info.union(other)
+    assert info.atomic_types == [1]
+
+
+@pytest.mark.parametrize("merge", ["update", "union"], ids=["update", "union"])
+@pytest.mark.parametrize("extra_data", [False, True], ids=["target", "extra-data"])
+@pytest.mark.parametrize(
+    "other_unit",
+    [
+        pytest.param("meV", id="different-energy-scales"),
+        pytest.param("angstrom", id="different-dimensions"),
+        pytest.param("", id="empty-other-unit"),
+    ],
+)
+def test_dataset_info_merge_incompatible_target_units(
+    layout_scalar: TensorMap,
+    merge: Literal["update", "union"],
+    extra_data: bool,
+    other_unit: str,
+) -> None:
+    target = TargetInfo(layout_scalar, quantity="energy", unit="eV")
+    other_target = TargetInfo(layout_scalar, quantity="energy", unit=other_unit)
+    if extra_data:
+        info = DatasetInfo("angstrom", [1], {}, {"custom": target})
+        other = DatasetInfo("angstrom", [1], {}, {"custom": other_target})
+        match = "different extra data information"
+    else:
+        info = DatasetInfo("angstrom", [1], {"energy": target})
+        other = DatasetInfo("angstrom", [1], {"energy": other_target})
+        match = "different target information"
+
+    with pytest.raises(ValueError, match=match):
+        if merge == "update":
+            info.update(other)
+        else:
+            info.union(other)

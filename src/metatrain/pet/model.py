@@ -1,12 +1,12 @@
 import logging
 import typing
 import warnings
+from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -16,21 +16,19 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.composition import CompositionModel
-from metatrain.scaler import Scaler
-from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.atom_pair_helpers import (
     check_no_atom_pair_targets,
     get_pair_sample_labels,
 )
-from metatrain.utils.data.atomic_basis_helpers import (
-    densify_atomic_basis_dataset_info,
-    sparsify_atomic_basis_target,
+from metatrain.utils.data.target_info import (
+    get_features_info,
+    get_generic_target_info,
 )
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.long_range import DummyLongRangeFeaturizer, LongRangeFeaturizer
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.sum_over_atoms import sum_over_atoms
@@ -45,7 +43,7 @@ from .modules.diagnostic import (
     prepare_diagnostic_handles,
     standardize_featurizer_input_tensor,
 )
-from .modules.finetuning import apply_finetuning_strategy, compute_stale_targets
+from .modules.finetuning import apply_finetuning_strategy
 from .modules.structures import concatenate_structures
 
 
@@ -64,12 +62,15 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 16
+    __checkpoint_version__ = 18
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
         references={"architecture": ["https://arxiv.org/abs/2305.19302v3"]}
     )
+    single_label: Labels
+    key_labels: Dict[str, Labels]
+    property_labels: Dict[str, List[Labels]]
     component_labels: Dict[str, List[List[Labels]]]
     NUM_FEATURE_TYPES: int = 2  # node + edge features
 
@@ -115,34 +116,38 @@ class PET(ModelInterface[ModelHypers]):
         self.backend = PETBackend(self.hypers, self.atomic_types)
         self.num_readout_layers = self.backend.num_readout_layers
         self.system_conditioning = self.backend.system_conditioning
-        self.last_layer_feature_size = (
-            self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES
-        )  # for LLPR
 
-        # the model is always capable of outputting the internal features
-        self.outputs = {
-            "feature": ModelOutput(sample_kind="atom", description="internal features"),
-            "mtt::aux::cutoff_stats": ModelOutput(
-                sample_kind="atom",
-                description=(
-                    "Per-atom adaptive-cutoff diagnostics: column 0 = atomic_cutoff, "
-                    "column 1 = num_neighbors. If requested per structure, "
-                    "averages across all atoms are returned."
-                ),
+        # the model is always capable of outputting the internal features: the node
+        # and edge features of each readout layer
+        self.outputs: Dict[str, TargetInfo] = {
+            "feature": get_features_info(
+                self.num_readout_layers * (self.backend.d_node + self.backend.d_pet),
+                description="internal features",
+            ),
+            "mtt::aux::cutoff_stats": get_generic_target_info(
+                "property",
+                {
+                    "quantity": "",
+                    "unit": "",
+                    "type": "scalar",
+                    "num_subtargets": 2,
+                    "sample_kind": "atom",
+                    "description": (
+                        "Per-atom adaptive-cutoff diagnostics: column 0 = "
+                        "atomic_cutoff, column 1 = num_neighbors. If requested per "
+                        "structure, averages across all atoms are returned."
+                    ),
+                },
             ),
         }
 
-        # Modified dataset_info with the targets as they will be seen by PET
-        # during training.
-        train_dataset_info = self._train_dataset_info(dataset_info)
+        self.register_buffer("key_labels", {}, persistent=False)
+        self.register_buffer("property_labels", {}, persistent=False)
+        self.register_buffer("component_labels", {}, persistent=False)
 
         self.output_shapes: Dict[str, Dict[str, List[int]]] = {}
-        self.key_labels: Dict[str, Labels] = {}
-        self.property_labels: Dict[str, List[Labels]] = {}
-        self.component_labels: Dict[str, List[List[Labels]]] = {}
         self.target_names: List[str] = []
-        self.last_layer_parameter_names: Dict[str, List[str]] = {}  # for LLPR
-        for target_name, target_info in train_dataset_info.targets.items():
+        for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
 
@@ -167,44 +172,24 @@ class PET(ModelInterface[ModelHypers]):
             self.long_range = False
             self.long_range_featurizer = DummyLongRangeFeaturizer()  # for torchscript
 
-        # additive models: these are handled by the trainer at training
-        # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel.from_valid_targets(
-            dataset_info, self.atomic_types
-        )
-        additive_models = [composition_model]
-
-        # Adds the ZBL repulsion model if requested
-        if self.hypers["zbl"]:
-            zbl_targets = {
-                target_name: target_info
-                for target_name, target_info in train_dataset_info.targets.items()
-                if ZBL.is_valid_target(target_name, target_info)
-            }
-            additive_models.append(
-                ZBL(
-                    {},
-                    dataset_info=DatasetInfo(
-                        length_unit=train_dataset_info.length_unit,
-                        atomic_types=self.atomic_types,
-                        targets=zbl_targets,
-                    ),
-                )
-            )
-        self.additive_models = torch.nn.ModuleList(additive_models)
-
-        # scaler: this is also handled by the trainer at training time
-        scaler_hypers = get_default_hypers("scaler")["model"]
-        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
-
-        self.single_label = Labels.single()
-
+        self.register_buffer("single_label", Labels.single())
         self.finetune_config: Dict[str, Any] = {}
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
-    def restart(self, dataset_info: DatasetInfo) -> "PET":
+    def restart(
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
+    ) -> "PET":
+
+        if model_hypers is not None:
+            default_hypers = get_default_hypers("pet")["model"]
+            raise_if_hypers_mismatch(
+                self.hypers, model_hypers, default_hypers=default_hypers
+            )
+
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -215,52 +200,18 @@ class PET(ModelInterface[ModelHypers]):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
-        self.has_new_targets = len(new_targets) > 0
-
-        # Targets that were present before this run but are not part of the current
-        # run's dataset: with a backbone-altering finetuning method (full/lora), their
-        # heads are no longer meaningful and are dropped once training starts, by
-        # ``apply_finetuning_strategy`` (which decides based on the method).
-        stale_targets = compute_stale_targets(
-            self.dataset_info.targets, dataset_info.targets
-        )
-
         if len(new_atomic_types) > 0:
             raise ValueError(
                 f"New atomic types found in the dataset: {new_atomic_types}. "
                 "The PET model does not support adding new atomic types."
             )
 
-        # Modified dataset_info with the targets as they will be seen by PET
-        # during training.
-        train_dataset_info = self._train_dataset_info(dataset_info)
-
         # register new outputs as new last layers
         for target_name in new_targets:
             self.target_names.append(target_name)
-            self._add_output(target_name, train_dataset_info.targets[target_name])
+            self._add_output(target_name, dataset_info.targets[target_name])
 
         self.dataset_info = merged_info
-
-        # restart the composition and scaler models
-        self.additive_models[0] = self.additive_models[0].restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        self.scaler = self.scaler.restart(dataset_info)
-
-        # Actual removal (if any) is deferred to ``apply_finetuning_strategy``
-        # (called later, once training starts), since ``inherit_heads`` needs these
-        # stale targets' heads to still be around to copy weights from, and only
-        # backbone-altering methods (``full``/``lora``) actually drop them.
-        self._stale_finetune_targets = stale_targets
 
         return self
 
@@ -395,9 +346,6 @@ class PET(ModelInterface[ModelHypers]):
         return_dict: Dict[str, TensorMap] = {}
         nl_options = self.requested_neighbor_lists()[0]
 
-        if self.single_label.values.device != device:
-            self._move_labels_to_device(device)
-
         with torch.profiler.record_function("PET::concatenate_structures"):
             # **Stage 0: Input Preparation**
             # Read the metatomic ``System`` objects into plain tensors. Everything
@@ -409,6 +357,7 @@ class PET(ModelInterface[ModelHypers]):
                 species,
                 cells,
                 cell_shifts,
+                cell_contributions,
                 system_indices,
                 sample_labels,
             ) = concatenate_structures(systems, nl_options)
@@ -419,9 +368,8 @@ class PET(ModelInterface[ModelHypers]):
                 centers,
                 neighbors,
                 species,
-                cells,
+                cell_contributions,
                 cell_shifts,
-                system_indices,
                 self.cutoff_width_adaptive,
             )
 
@@ -587,77 +535,6 @@ class PET(ModelInterface[ModelHypers]):
             for h in _diagnostic_handles:
                 h.remove()
         # ===== END DIAGNOSTIC-RELATED BLOCK
-
-        # **Post-processing (Evaluation Only)**
-        with torch.profiler.record_function("PET::post-processing"):
-            if not self.training:
-                # at evaluation, we also introduce the scaler and additive contributions
-                return_dict = self.scaler.apply_scales(
-                    systems,
-                    return_dict,
-                    selected_atoms=selected_atoms,
-                    use_per_target_scales=True,
-                    use_per_property_scales=True,
-                )
-
-                # For atomic basis targets, sparsify to create blocks with "atom_type"
-                # in the key dimensions, and ensure properties are unpadded. This is
-                # done before adding the additive contributions, which are also
-                # sparsified (by the additive models themselves, in eval mode).
-                for k in atomic_predictions_dict.keys():
-                    if self.dataset_info.targets[k].is_atomic_basis:
-                        return_dict[k] = sparsify_atomic_basis_target(
-                            systems,
-                            return_dict[k],
-                            self.dataset_info.targets[k].layout,
-                            species,
-                        )
-
-                for additive_model in self.additive_models:
-                    outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                    for name, output in outputs.items():
-                        if name in additive_model.outputs:
-                            outputs_for_additive_model[name] = output
-                    additive_contributions = additive_model(
-                        systems,
-                        outputs_for_additive_model,
-                        selected_atoms,
-                    )
-                    for name in additive_contributions:
-                        # TODO: uncomment this after metatensor.torch.add
-                        # is updated to handle sparse sums
-                        # return_dict[name] = metatensor.torch.add(
-                        #     return_dict[name],
-                        #     additive_contributions[name].to(
-                        #         device=return_dict[name].device,
-                        #         dtype=return_dict[name].dtype
-                        #         ),
-                        # )
-                        # TODO: "manual" sparse sum: update to metatensor.torch.add
-                        # after sparse sum is implemented in metatensor.operations
-                        output_blocks: List[TensorBlock] = []
-                        for k, b in return_dict[name].items():
-                            if k in additive_contributions[name].keys:
-                                output_blocks.append(
-                                    _add_block_block(
-                                        b,
-                                        additive_contributions[name]
-                                        .block(k)
-                                        .to(device=b.device, dtype=b.dtype),
-                                    )
-                                )
-                            else:
-                                output_blocks.append(
-                                    TensorBlock(
-                                        values=b.values,
-                                        samples=b.samples,
-                                        components=b.components,
-                                        properties=b.properties,
-                                    )
-                                )
-                        return_dict[name] = TensorMap(
-                            return_dict[name].keys, output_blocks
-                        )
 
         return return_dict
 
@@ -975,12 +852,13 @@ class PET(ModelInterface[ModelHypers]):
             model = apply_finetuning_strategy(
                 model, finetune_config, apply_inherit_heads=False
             )
-        state_dict_iter = iter(model_state_dict.values())
-        next(state_dict_iter)  # skip the species_to_species_index
-        dtype = next(state_dict_iter).dtype
+        state_dict_iter = iter(model_state_dict.keys())
+        while True:
+            key = next(state_dict_iter)
+            if key.endswith("weight"):
+                break
+        dtype = model_state_dict[key].dtype
         model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -997,18 +875,20 @@ class PET(ModelInterface[ModelHypers]):
         # float64
         self.to(dtype)
 
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
-
-        interaction_ranges = [self.num_gnn_layers * self.cutoff]
-        for additive_model in self.additive_models:
-            if hasattr(additive_model, "cutoff_radius"):
-                interaction_ranges.append(additive_model.cutoff_radius)
-        interaction_range = max(interaction_ranges)
+        if self.long_range:
+            interaction_range = torch.inf
+        else:
+            # feedforward also combines reversed messages after the last layer
+            num_message_passing_steps = self.num_gnn_layers
+            if self.featurizer_type == "feedforward":
+                num_message_passing_steps += 1
+            interaction_range = num_message_passing_steps * self.cutoff
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
             interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
@@ -1019,18 +899,6 @@ class PET(ModelInterface[ModelHypers]):
         metadata = merge_metadata(self.metadata, metadata)
 
         return AtomisticModel(self.eval(), metadata, capabilities)
-
-    def _train_dataset_info(self, dataset_info: DatasetInfo) -> DatasetInfo:
-        """Converts the original dataset info to one corresponding to what PET
-        will see during training, which depends on transforms applied to the
-        targets during data loading.
-
-        :param dataset_info: Original dataset info describing the targets as
-            they are in the raw data.
-        :return: Modified dataset info describing the targets as they will be
-            seen by PET during training.
-        """
-        return densify_atomic_basis_dataset_info(dataset_info)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         """
@@ -1050,30 +918,16 @@ class PET(ModelInterface[ModelHypers]):
                 len(comp.values) for comp in block.components
             ] + [len(block.properties.values)]
 
-        self.outputs[target_name] = ModelOutput(
-            unit=target_info.unit,
-            sample_kind="atom",
-            description=target_info.description,
-        )
+        self.outputs[target_name] = target_info
 
         # The learnable heads and last layers live on the pure-PyTorch backend.
         self.backend.add_output(target_name, self.output_shapes[target_name])
 
-        # Register last-layer parameters, in the same order as they are returned as
-        # last-layer features in the model (the modules live on ``self.backend``).
-        self.last_layer_parameter_names[target_name] = []
-        for layer_index in range(self.num_readout_layers):
-            for key in self.output_shapes[target_name].keys():
-                self.last_layer_parameter_names[target_name].append(
-                    f"backend.node_last_layers.{target_name}.{layer_index}.{key}.weight"
-                )
-                self.last_layer_parameter_names[target_name].append(
-                    f"backend.edge_last_layers.{target_name}.{layer_index}.{key}.weight"
-                )
-
         ll_features_name = get_last_layer_features_name(target_name)
-        self.outputs[ll_features_name] = ModelOutput(
-            sample_kind="atom", description=f"last layer features for {target_name}"
+        # shared by all the blocks of the target
+        self.outputs[ll_features_name] = get_features_info(
+            self.num_readout_layers * self.d_head * self.NUM_FEATURE_TYPES,
+            description=f"last layer features for {target_name}",
         )
         self.key_labels[target_name] = target_info.layout.keys
         self.component_labels[target_name] = [
@@ -1096,49 +950,31 @@ class PET(ModelInterface[ModelHypers]):
         self.outputs.pop(target_name, None)
         self.outputs.pop(get_last_layer_features_name(target_name), None)
         self.backend.remove_output(target_name)
-        self.last_layer_parameter_names.pop(target_name, None)
         self.key_labels.pop(target_name, None)
         self.component_labels.pop(target_name, None)
         self.property_labels.pop(target_name, None)
-
-    def _move_labels_to_device(self, device: torch.device) -> None:
-        self.single_label = self.single_label.to(device)
-        self.key_labels = {
-            output_name: label.to(device)
-            for output_name, label in self.key_labels.items()
-        }
-        self.component_labels = {
-            output_name: [
-                [labels.to(device) for labels in components_block]
-                for components_block in components_tmap
-            ]
-            for output_name, components_tmap in self.component_labels.items()
-        }
-        self.property_labels = {
-            output_name: [labels.to(device) for labels in properties_tmap]
-            for output_name, properties_tmap in self.property_labels.items()
-        }
+        self.target_names.remove(target_name)
+        self.dataset_info.targets.pop(target_name, None)
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["model_ckpt_version"] == v:
-                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
+    def upgrade_checkpoint(
+        cls, checkpoint: Dict, version: Optional[int] = None
+    ) -> Dict:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
 
-        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {checkpoint['model_ckpt_version']}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
-            )
-
-        return checkpoint
-
-    def get_checkpoint(self) -> Dict:
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> Dict:
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
+
+        if best_model_state_dict is None:
+            best_model_state_dict = model_state_dict
+        else:
+            best_model_state_dict["finetune_config"] = self.finetune_config
+
         checkpoint = {
             "architecture_name": "pet",
             "model_ckpt_version": self.__checkpoint_version__,
@@ -1150,7 +986,7 @@ class PET(ModelInterface[ModelHypers]):
             "epoch": None,
             "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": self.state_dict(),
+            "best_model_state_dict": best_model_state_dict,
         }
         return checkpoint
 

@@ -80,6 +80,11 @@ component_management:
       paths:
         - "src/metatrain/experimental/dpa3/.*"
 
+    - component_id: lorem
+      name: LOREM
+      paths:
+        - "src/metatrain/experimental/lorem/.*"
+
 ignore:
   # no need to report coverage of the test code themself
   - "src/metatrain/utils/testing/.*"

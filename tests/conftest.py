@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from filelock import FileLock
 
 from metatrain.utils.architectures import get_default_hypers
 
@@ -13,7 +14,11 @@ from metatrain.utils.architectures import get_default_hypers
 def pytest_xdist_auto_num_workers():
     """Limit the number of workers used by pytest"""
     n_processes = os.cpu_count() or 1
-    return min(12, math.ceil(n_processes * 0.8))
+    # We are setting the maximum to 1 because there
+    # are some tests that fail on the CI when using more
+    # than 1 worker. We need to investigate this and hopefully
+    # bring the maximum back to 12 (the previous value)
+    return min(1, math.ceil(n_processes * 0.8))
 
 
 MODEL_HYPERS = get_default_hypers("soap_bpnn")["model"]
@@ -74,9 +79,21 @@ def ensure_path(mode: str) -> Path:
     """Checks if the path for a model exists, and if not
     runs the training script to generate it."""
     path = RESOURCES_PATH / f"train_{mode}" / f"model-{mode}.pt"
-    if not path.exists():
+    if path.exists():
+        return path
+
+    # Use a file lock to serialize access across xdist workers, ensuring only
+    # one worker trains at a time. FileLock is released automatically on process
+    # exit, so it cannot leave stale locks behind.
+    lock_path = RESOURCES_PATH / f"{mode}.trainlock"
+    with FileLock(str(lock_path)):
+        # Re-check after acquiring the lock — another worker may have generated
+        # the model while we were waiting.
+        if path.exists():
+            return path
+
         result = subprocess.run(
-            [_find_bash(), str(RESOURCES_PATH / "run_trainings.sh"), mode, "1"],
+            [_find_bash(), str(RESOURCES_PATH / "run_trainings.sh"), mode],
             stderr=subprocess.STDOUT,
             stdout=subprocess.PIPE,
         )

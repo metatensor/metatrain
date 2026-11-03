@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 from metatensor.torch import TensorMap
 from omegaconf import DictConfig
@@ -11,7 +11,11 @@ from .target_info import TargetInfo
 
 def get_dataset(
     options: DictConfig,
-) -> Tuple[Dataset, Dict[str, TargetInfo], Dict[str, TargetInfo]]:
+) -> Tuple[
+    Union[Dataset, DiskDataset, MemmapDataset],
+    Dict[str, TargetInfo],
+    Dict[str, TargetInfo],
+]:
     """
     Gets a dataset given a configuration dictionary.
 
@@ -22,12 +26,13 @@ def get_dataset(
         This configuration dictionary must contain keys for both the
         systems and targets in the dataset.
 
-    :return: A tuple containing a ``Dataset`` object and a
+    :return: A tuple containing a dataset and a
         ``Dict[str, TargetInfo]`` containing additional information (units,
         physical quantities, ...) on the targets in the dataset
     """
 
     extra_data_info_dictionary = {}
+    dataset: Union[Dataset, DiskDataset, MemmapDataset]
 
     if options["systems"]["read_from"].endswith(".zip"):  # disk dataset
         dataset = DiskDataset(

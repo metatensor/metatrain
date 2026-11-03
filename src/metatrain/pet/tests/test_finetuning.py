@@ -3,16 +3,20 @@ import shutil
 
 import pytest
 import torch
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
 from metatrain.pet import PET, Trainer
 from metatrain.pet.modules.finetuning import apply_finetuning_strategy
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.readers import read_systems, read_targets
-from metatrain.utils.data.target_info import get_energy_target_info
+from metatrain.utils.data.target_info import (
+    get_energy_target_info,
+    get_generic_target_info,
+)
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.io import model_from_checkpoint, trainer_from_checkpoint
 from metatrain.utils.loss import LossSpecification
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import DATASET_PATH, DEFAULT_HYPERS, MODEL_HYPERS
 
@@ -149,7 +153,6 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=target_info_dict
     )
-    model = PET(MODEL_HYPERS, dataset_info)
 
     conf = {
         "mtt::U0": {
@@ -183,6 +186,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
 
     # Pre-training
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(MODEL_HYPERS, dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float32,
@@ -196,7 +200,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     # Finetuning
     checkpoint = torch.load("tmp.ckpt", weights_only=False, map_location="cpu")
     model_finetune = model_from_checkpoint(checkpoint, context="finetune")
-    assert isinstance(model_finetune, PET)
+    assert isinstance(model_finetune, MetatrainModel)
     model_finetune.restart(dataset_info)
 
     hypers = copy.deepcopy(DEFAULT_HYPERS)
@@ -232,7 +236,7 @@ def test_finetuning_restart(monkeypatch, tmp_path):
     # Finetuning restart
     checkpoint = torch.load("finetuned.ckpt", weights_only=False, map_location="cpu")
     model_finetune_restart = model_from_checkpoint(checkpoint, context="restart")
-    assert isinstance(model_finetune_restart, PET)
+    assert isinstance(model_finetune_restart, MetatrainModel)
     model_finetune_restart.restart(dataset_info)
 
     assert any(
@@ -276,31 +280,43 @@ def _two_target_setup():
         atomic_types=[1, 6, 7, 8],
         targets={"energy": old_target},
     )
-    model = PET(MODEL_HYPERS, old_dataset_info)
+    trainer = Trainer(DEFAULT_HYPERS["training"])
+    model = trainer.setup(MODEL_HYPERS, old_dataset_info)
 
     new_dataset_info = DatasetInfo(
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={"mtt::U0": new_target},
     )
-    return model, new_dataset_info
+    return model, trainer, new_dataset_info
 
 
 def _assert_target_absent(model, target_name):
     assert target_name not in model.dataset_info.targets
     assert target_name not in model.supported_outputs()
+    for additive_model in model.additive_models:
+        assert target_name not in additive_model.outputs
+    assert target_name not in model.scaler.outputs
+    if isinstance(model, MetatrainModel):
+        model = model.core
+        assert target_name not in model.dataset_info.targets
+        assert target_name not in model.supported_outputs()
     assert target_name not in model.backend.node_heads
     assert target_name not in model.backend.edge_heads
     assert target_name not in model.backend.node_last_layers
     assert target_name not in model.backend.edge_last_layers
-    for additive_model in model.additive_models:
-        assert target_name not in additive_model.outputs
-    assert target_name not in model.scaler.outputs
 
 
 def _assert_target_present(model, target_name):
     assert target_name in model.dataset_info.targets
     assert target_name in model.supported_outputs()
+    for additive_model in model.additive_models:
+        assert target_name in additive_model.outputs
+    assert target_name in model.scaler.outputs
+    if isinstance(model, MetatrainModel):
+        model = model.core
+        assert target_name in model.dataset_info.targets
+        assert target_name in model.supported_outputs()
     assert target_name in model.backend.node_heads
     assert target_name in model.backend.edge_heads
     assert target_name in model.backend.node_last_layers
@@ -339,12 +355,16 @@ def test_finetune_full_lora_prunes_stale_targets(method):
     training actually starts): ``restart`` alone must not remove it yet, since
     ``inherit_heads`` (applied within ``apply_finetuning_strategy``) may still need
     to copy weights from the stale target's head."""
-    model, new_dataset_info = _two_target_setup()
+    model, trainer, new_dataset_info = _two_target_setup()
 
-    model.restart(new_dataset_info)
+    model = trainer.restart(model, new_dataset_info, model_hypers={})
     _assert_target_present(model, "energy")
 
-    apply_finetuning_strategy(model, _finetuning_strategy(method))
+    apply_finetuning_strategy(
+        model,
+        _finetuning_strategy(method),
+        stale_targets=trainer._stale_finetune_targets,
+    )
 
     _assert_target_absent(model, "energy")
     _assert_target_present(model, "mtt::U0")
@@ -353,11 +373,13 @@ def test_finetune_full_lora_prunes_stale_targets(method):
 def test_finetune_full_inherit_heads_then_prunes_source_target():
     """``inherit_heads`` can copy weights from a stale target's head into the new
     target's head; the stale target is only removed afterwards."""
-    model, new_dataset_info = _two_target_setup()
+    model, trainer, new_dataset_info = _two_target_setup()
 
-    model.restart(new_dataset_info)
+    model = trainer.restart(model, new_dataset_info, model_hypers={})
     apply_finetuning_strategy(
-        model, _finetuning_strategy("full", inherit_heads={"mtt::U0": "energy"})
+        model,
+        _finetuning_strategy("full", inherit_heads={"mtt::U0": "energy"}),
+        stale_targets=trainer._stale_finetune_targets,
     )
 
     _assert_target_absent(model, "energy")
@@ -367,10 +389,14 @@ def test_finetune_full_inherit_heads_then_prunes_source_target():
 def test_finetune_heads_keeps_stale_targets():
     """With heads-only finetuning, the backbone is unchanged, so a target not part
     of the current run's dataset must be kept."""
-    model, new_dataset_info = _two_target_setup()
+    model, trainer, new_dataset_info = _two_target_setup()
 
-    model.restart(new_dataset_info)
-    apply_finetuning_strategy(model, _finetuning_strategy("heads"))
+    model = trainer.restart(model, new_dataset_info, model_hypers={})
+    apply_finetuning_strategy(
+        model,
+        _finetuning_strategy("heads"),
+        stale_targets=trainer._stale_finetune_targets,
+    )
 
     _assert_target_present(model, "energy")
     _assert_target_present(model, "mtt::U0")
@@ -378,9 +404,9 @@ def test_finetune_heads_keeps_stale_targets():
 
 def test_plain_restart_keeps_stale_targets():
     """A plain restart (not part of a finetuning run) must not prune any target."""
-    model, new_dataset_info = _two_target_setup()
+    model, trainer, new_dataset_info = _two_target_setup()
 
-    model.restart(new_dataset_info)
+    model = trainer.restart(model, new_dataset_info, model_hypers={})
 
     _assert_target_present(model, "energy")
     _assert_target_present(model, "mtt::U0")
@@ -414,7 +440,6 @@ def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path
         atomic_types=[1, 6, 7, 8],
         targets={"energy": old_target},
     )
-    model = PET(MODEL_HYPERS, old_dataset_info)
 
     energy_conf = {
         "energy": {
@@ -445,6 +470,7 @@ def test_finetuning_restart_does_not_reapply_inherit_heads(monkeypatch, tmp_path
 
     # Pre-training on "energy".
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(MODEL_HYPERS, old_dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float32,
@@ -565,7 +591,6 @@ def test_restart_with_fewer_targets_does_not_crash(monkeypatch, tmp_path):
     all_dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=all_targets
     )
-    model = PET(MODEL_HYPERS, all_dataset_info)
 
     conf = {
         name: {
@@ -599,6 +624,7 @@ def test_restart_with_fewer_targets_does_not_crash(monkeypatch, tmp_path):
 
     # Pre-training on all 3 targets.
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(MODEL_HYPERS, all_dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float32,
@@ -666,3 +692,56 @@ def test_restart_with_fewer_targets_does_not_crash(monkeypatch, tmp_path):
     _assert_target_present(model_restart, "mtt::target_c")
     for name, param in _target_params(model_restart, "mtt::target_c").items():
         torch.testing.assert_close(param, target_c_snapshot[name])
+
+
+@pytest.mark.parametrize(
+    "length_unit, stress_unit, compatible",
+    [
+        pytest.param("A", "eV/angstrom^3", True, id="stress-unit-alias"),
+        pytest.param("angstrom", "eV/A^3", True, id="length-unit-alias"),
+        pytest.param("angstrom", "eV/angstrom^3", True, id="both-unit-aliases"),
+        pytest.param("A", "meV/A^3", False, id="different-energy-scales"),
+        pytest.param("nm", "eV/A^3", False, id="different-length-scales"),
+    ],
+)
+def test_finetuning_restart_unit_aliases(
+    length_unit: str, stress_unit: str, compatible: bool
+) -> None:
+    stress_config = DictConfig(
+        {
+            "quantity": "pressure",
+            "unit": "eV/A^3",
+            "type": {"Cartesian": {"rank": 2}},
+            "sample_kind": "system",
+            "num_subtargets": 1,
+        }
+    )
+    stress = get_generic_target_info("non_conservative_stress", stress_config)
+    energy = get_energy_target_info(
+        "energy", DictConfig({"quantity": "energy", "unit": "eV"})
+    )
+    info = DatasetInfo(
+        "A", [1, 6], {"energy": energy, "non_conservative_stress": stress}
+    )
+    model = PET(MODEL_HYPERS, info)
+    parameters = {
+        name: value.detach().clone() for name, value in model.named_parameters()
+    }
+
+    stress_config["unit"] = stress_unit
+    other_stress = get_generic_target_info("non_conservative_stress", stress_config)
+    other = DatasetInfo(
+        length_unit, [1, 6], {"energy": energy, "non_conservative_stress": other_stress}
+    )
+    if not compatible:
+        with pytest.raises(ValueError, match="Can't update DatasetInfo"):
+            model.restart(other)
+        return
+
+    assert model.restart(other) is model
+    assert model.dataset_info.length_unit == "A"
+    assert model.dataset_info.targets["non_conservative_stress"] is other_stress
+    for name, value in model.named_parameters():
+        torch.testing.assert_close(value, parameters[name], rtol=0, atol=0)
+
+    torch.jit.script(model.export())

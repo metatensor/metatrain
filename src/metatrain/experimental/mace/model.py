@@ -1,6 +1,7 @@
 import copy
 import logging
 import warnings
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -11,7 +12,6 @@ from e3nn import o3
 from e3nn.util import jit
 from mace.modules import MACE
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -21,17 +21,12 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.composition import CompositionModel
-from metatrain.scaler import Scaler
-from metatrain.utils.abc import ModelInterface
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
-from metatrain.utils.data.atomic_basis_helpers import (
-    densify_atomic_basis_dataset_info,
-    sparsify_atomic_basis_target,
-)
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.sum_over_atoms import sum_over_atoms
 
@@ -53,7 +48,7 @@ from .utils.structures import create_batch
 class MetaMACE(ModelInterface[ModelHypers]):
     """Interface of MACE for metatrain."""
 
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 7
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64, torch.float32]
     __default_metadata__ = ModelMetadata(
@@ -64,6 +59,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             ]
         }
     )
+    raw_layouts: Dict[str, TensorMap]
 
     # Attributes of the model. We can't uncomment these descriptions because
     # torchscript complains.
@@ -100,10 +96,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
     # Each TensorMap contains the layout needed to build the tensormap
     # corresponding to that output, from the raw torch tensor produced by the model.
     # """
-    # additive_models: torch.nn.ModuleList
-    # """List of additive models to compute additive contributions."""
-    # scaler: Scaler
-    # """Scaler to bring all targets to a scale that is optimal for training."""
 
     def __init__(self, hypers: ModelHypers, dataset_info: DatasetInfo) -> None:
         super().__init__(hypers, dataset_info, self.__default_metadata__)
@@ -246,6 +238,12 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
         # Atomic species information
         self.atomic_types = self.mace_model.atomic_numbers.tolist()
+        self.dataset_info = DatasetInfo(
+            length_unit=dataset_info.length_unit,
+            atomic_types=self.atomic_types,
+            targets=dataset_info.targets,
+            extra_data=dataset_info.extra_data,
+        )
         self.register_buffer(
             "atomic_types_to_species_index",
             torch.zeros(max(self.atomic_types) + 1, dtype=torch.int64),
@@ -262,52 +260,43 @@ class MetaMACE(ModelInterface[ModelHypers]):
         # ---------------------------
         #    Add heads for targets
         # ---------------------------
-        # Modified dataset_info with the targets as they will be seen by
-        # the model during training.
-        train_dataset_info = self._train_dataset_info(dataset_info)
 
         # Create heads for each target, store the layout for each of them.
         self.heads = torch.nn.ModuleDict()
-        self.layouts: Dict[str, TensorMap] = {}
-        for target_name, target_info in train_dataset_info.targets.items():
+        self.outputs: Dict[str, TargetInfo] = {}
+        self.register_buffer("raw_layouts", {}, persistent=False)
+        for target_name, target_info in dataset_info.targets.items():
             self._add_output(target_name, target_info)
 
-        self.layouts["mtt::aux::mace_features"] = get_e3nn_mts_layout(
+        self.raw_layouts["mtt::aux::mace_features"] = get_e3nn_mts_layout(
+            self.features_irreps,
             "mtt::aux::mace_features",
             {
-                "type": {"spherical": {"irreps": self.features_irreps}},
+                "type": "spherical",
                 "sample_kind": "atom",
                 "properties_name": "feature",
             },
         )
-
-        targets = dataset_info.targets
-        self.outputs = {
-            k: ModelOutput(
-                unit=targets[k].unit if k in targets else "",
-                sample_kind="atom",
+        self.outputs["mtt::aux::mace_features"] = TargetInfo(
+            layout=self.raw_layouts["mtt::aux::mace_features"].keys_to_properties(
+                "i_irrep"
             )
-            for k in self.layouts
-        }
-
-        # ---------------------------
-        # Data preprocessing modules
-        # ---------------------------
-
-        # The composition model and scaler are handled by the trainer during training.
-        # Their purpose is to adapt the data for optimal training.
-        # At evaluation time, the model applies them on forward.
-        composition_model = CompositionModel.from_valid_targets(
-            dataset_info, self.atomic_types
         )
-        self.additive_models = torch.nn.ModuleList([composition_model])
-
-        scaler_hypers = get_default_hypers("scaler")["model"]
-        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
 
         self.finetune_config: Dict[str, Any] = {}
 
-    def restart(self, dataset_info: DatasetInfo) -> "MetaMACE":
+    def restart(
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
+    ) -> "MetaMACE":
+
+        if model_hypers is not None:
+            default_hypers = get_default_hypers("experimental.mace")["model"]
+            raise_if_hypers_mismatch(
+                self.hypers, model_hypers, default_hypers=default_hypers
+            )
+
         # Check that the new dataset info does not contain new atomic types
         if new_atomic_types := set(dataset_info.atomic_types) - set(
             self.dataset_info.atomic_types
@@ -326,31 +315,12 @@ class MetaMACE(ModelInterface[ModelHypers]):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
-        self.has_new_targets = len(new_targets) > 0
-
-        # Modified dataset_info with the targets as they will be seen by
-        # the model during training.
-        train_dataset_info = self._train_dataset_info(dataset_info)
 
         # Add extra heads for the new targets
         for target_name in new_targets:
-            self._add_output(target_name, train_dataset_info.targets[target_name])
+            self._add_output(target_name, dataset_info.targets[target_name])
 
         self.dataset_info = merged_info
-
-        # restart the composition and scaler models
-        self.additive_models[0] = self.additive_models[0].restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.dataset_info.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        self.scaler = self.scaler.restart(dataset_info)
 
         return self
 
@@ -360,17 +330,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-
-        # --------------------------
-        # Moving to device and dtype
-        # --------------------------
-        # We can't overwrite the to() method because this does not work with
-        # torchscript, so we do the necessary operations here.
-        # Get device and dtype from the first system
-        device = systems[0].device
-        # Move layouts to the correct device
-        self.layouts = {k: v.to(device=device) for k, v in self.layouts.items()}
-
         # --------------------------
         #  Prepare inputs for MACE
         # --------------------------
@@ -449,8 +408,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
             per_atom_output = e3nn_to_tensormap(
                 model_output,
                 samples=samples,
-                layout=self.layouts[output_name],
+                layout=self.raw_layouts[output_name],
             )
+            if "i_irrep" in per_atom_output.keys.names:
+                # e3nn irreps can be something like "3x0e + 2x1o + 4x0e".
+                # Move to one block per irrep, i.e. "7x0e + 2x1o" in the example.
+                per_atom_output = per_atom_output.keys_to_properties("i_irrep")
+                if output_name.endswith("_last_layer_features"):
+                    per_atom_output = self.to_llf_layout(per_atom_output)
 
             if selected_atoms is not None:
                 per_atom_output = mts.slice(
@@ -463,92 +428,9 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 else sum_over_atoms(per_atom_output)
             )
 
-        # -----------------------------------------
-        #   Undo data preprocessing (eval only)
-        # -----------------------------------------
-
-        # At evaluation, we also introduce the scaler and additive contributions
-        if not self.training:
-            return_dict = self.scaler.apply_scales(
-                systems,
-                return_dict,
-                selected_atoms=selected_atoms,
-                use_per_target_scales=True,
-                use_per_property_scales=True,
-            )
-            # For atomic basis targets, sparsify to create blocks with "atom_type"
-            # in the key dimensions, and ensure properties are unpadded. This is
-            # done before adding the additive contributions, which are also
-            # sparsified (by the additive models themselves, in eval mode).
-            targets = self.dataset_info.targets
-            for k, v in return_dict.items():
-                if k in targets and targets[k].is_atomic_basis:
-                    return_dict[k] = sparsify_atomic_basis_target(
-                        systems,
-                        v,
-                        targets[k].layout,
-                    )
-            self.add_additive_contributions(
-                return_dict, systems, outputs, selected_atoms
-            )
-
         return return_dict
 
-    def add_additive_contributions(
-        self,
-        values: Dict[str, TensorMap],
-        systems: List[System],
-        outputs: Dict[str, ModelOutput],
-        selected_atoms: Optional[Labels] = None,
-    ) -> None:
-        """Adds the contributions from all additive models to the passed values.
-
-        :param values: Dictionary of TensorMaps containing the current outputs
-          (without additive contributions). The additive contributions will be added
-          in place to this dictionary.
-        :param systems: List of systems that have been evaluated to produce the outputs.
-        :param outputs: Dictionary of requested ModelOutputs.
-        :param selected_atoms: Optional Labels selecting a subset of atoms.
-        """
-        for additive_model in self.additive_models:
-            outputs_for_additive_model: Dict[str, ModelOutput] = {}
-            for name, output in outputs.items():
-                if name in additive_model.outputs:
-                    outputs_for_additive_model[name] = output
-            additive_contributions = additive_model.forward(
-                systems,
-                outputs_for_additive_model,
-                selected_atoms,
-            )
-            for name in additive_contributions:
-                # # TODO: uncomment this after metatensor.torch.add is updated to
-                # # handle sparse sums
-                # return_dict[name] = metatensor.torch.add(
-                #     return_dict[name],
-                #     additive_contributions[name].to(
-                #         device=return_dict[name].device,
-                #         dtype=return_dict[name].dtype
-                #         ),
-                # )
-
-                # TODO: "manual" sparse sum: update to metatensor.torch.add after
-                # sparse sum is implemented in metatensor.operations
-                output_blocks: List[TensorBlock] = []
-                for k, b in values[name].items():
-                    if k in additive_contributions[name].keys:
-                        output_blocks.append(
-                            _add_block_block(
-                                b,
-                                additive_contributions[name]
-                                .block(k)
-                                .to(device=b.device, dtype=b.dtype),
-                            )
-                        )
-                    else:
-                        output_blocks.append(b.copy(deep=False))
-                values[name] = TensorMap(values[name].keys, output_blocks)
-
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def requested_neighbor_lists(
@@ -610,9 +492,6 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 f"Error loading the checkpoint: missing keys {missing_keys}, "
                 f"unexpected keys {unexpected_keys}."
             )
-        # Set up composition and scaler models
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -625,7 +504,10 @@ class MetaMACE(ModelInterface[ModelHypers]):
         interaction_range = self.hypers["num_interactions"] * self.cutoff
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
             interaction_range=interaction_range,
             length_unit=self.dataset_info.length_unit,
@@ -641,13 +523,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             raise ValueError(f"unsupported dtype {dtype} for MACE")
 
         # Make sure the model is all in the same dtype
-        # For example, after training, the additive models could still be in
-        # float64
         self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
 
         capabilities = self._get_capabilities()
 
@@ -663,21 +539,14 @@ class MetaMACE(ModelInterface[ModelHypers]):
             to_export = copy.copy(to_export.to(device="cpu"))
             to_export.mace_model = copy.deepcopy(to_export.mace_model)
 
-        model = AtomisticModel(jit.compile(to_export), metadata, capabilities)
+        with warnings.catch_warnings():
+            # Don't show torch.jit warnings to user
+            warnings.filterwarnings("ignore", "`torch.jit.*` is deprecated")
+            compiled = jit.compile(to_export)
+
+        model = AtomisticModel(compiled, metadata, capabilities)
 
         return model
-
-    def _train_dataset_info(self, dataset_info: DatasetInfo) -> DatasetInfo:
-        """Converts the original dataset info to one corresponding to what the
-        model will see during training, which depends on transforms applied to
-        the targets during data loading.
-
-        :param dataset_info: Original dataset info describing the targets as
-            they are in the raw data.
-        :return: Modified dataset info describing the targets as they will be
-            seen by the model during training.
-        """
-        return densify_atomic_basis_dataset_info(dataset_info)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
         """
@@ -695,7 +564,8 @@ class MetaMACE(ModelInterface[ModelHypers]):
                     f"{len(target_info.layout.block(0).components)}."
                 )
 
-        self.layouts[target_name] = target_info.layout
+        self.raw_layouts[target_name] = target_info.layout
+        self.outputs[target_name] = target_info
 
         if target_name == self.hypers["mace_head_target"]:
             # Fake head that will not compute the target, but will help
@@ -715,15 +585,61 @@ class MetaMACE(ModelInterface[ModelHypers]):
 
             self.heads[target_name] = head.to(torch.float64)
 
-        llf_irreps = self.heads[target_name].last_layer_features_irreps
+        # Build last layer features. Their layout has to match the layout of
+        # the target.
+        if target_info.is_scalar:
+            target_type = "scalar"
+        elif target_info.is_cartesian:
+            target_type = "cartesian"
+        elif target_info.is_spherical:
+            target_type = "spherical"
+        else:
+            raise ValueError(
+                f"Target {target_name} has unknown type. "
+                "Only scalar, cartesian and spherical are supported."
+            )
 
-        self.layouts[self._llf_name(target_name)] = get_e3nn_mts_layout(
-            f"{target_name}_last_layer_features",
+        llf_name = self._llf_name(target_name)
+        llf_layout = get_e3nn_mts_layout(
+            self.heads[target_name].last_layer_features_irreps,
+            self._llf_name(target_name),
             {
-                "type": {"spherical": {"irreps": llf_irreps}},
+                "type": target_type,
                 "sample_kind": "atom",
                 "properties_name": "feature",
             },
+        )
+
+        self.raw_layouts[llf_name] = llf_layout
+        self.outputs[llf_name] = TargetInfo(
+            layout=self.to_llf_layout(llf_layout.keys_to_properties("i_irrep"))
+        )
+
+    @staticmethod
+    def to_llf_layout(llf: TensorMap) -> TensorMap:
+        """Takes the output of MACE for last layer features and makes sure
+        it has the layout expected for last layer features.
+
+        :param llf: TensorMap of last layer features.
+        :return: TensorMap of last layer features rearranged to match the
+          layout of the target.
+        """
+        return TensorMap(
+            llf.keys,
+            [
+                TensorBlock(
+                    values=block.values,
+                    samples=block.samples,
+                    components=block.components,
+                    properties=Labels(
+                        names=["feature"],
+                        values=torch.arange(
+                            len(block.properties), device=block.properties.device
+                        ).reshape(-1, 1),
+                    ),
+                )
+                for block in llf.blocks()
+            ],
         )
 
     def _llf_name(self, target_name: str) -> str:
@@ -735,25 +651,23 @@ class MetaMACE(ModelInterface[ModelHypers]):
         return f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["model_ckpt_version"] == v:
-                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
 
-        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {checkpoint['model_ckpt_version']}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
-            )
-
-        return checkpoint
-
-    def get_checkpoint(self) -> Dict:
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> Dict:
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
+
+        if best_model_state_dict is None:
+            best_model_state_dict = model_state_dict
+        else:
+            best_model_state_dict["finetune_config"] = self.finetune_config
 
         # If the MACE model was passed as part of the hypers, we store it
         # again as part of the hypers.
@@ -766,6 +680,10 @@ class MetaMACE(ModelInterface[ModelHypers]):
                 if k.startswith("mace_model."):
                     model_state_dict.pop(k)
 
+            for k in list(best_model_state_dict.keys()):
+                if k.startswith("mace_model."):
+                    best_model_state_dict.pop(k)
+
         checkpoint = {
             "architecture_name": "experimental.mace",
             "model_ckpt_version": self.__checkpoint_version__,
@@ -777,7 +695,7 @@ class MetaMACE(ModelInterface[ModelHypers]):
             "epoch": None,
             "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": model_state_dict,
+            "best_model_state_dict": best_model_state_dict,
         }
         return checkpoint
 

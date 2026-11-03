@@ -103,12 +103,19 @@ class O3Augmenter:
     ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
         new_systems = transformations.transform_systems(systems)
 
-        n_systems = len(systems)
+        # the tensors of a batch share their "system" labels, taken from the first
+        # tensor containing every system (blocks split by atom type might not)
+        tensors = list(targets.values())
+        if extra_data is not None:
+            tensors += list(extra_data.values())
+        system_ids: Optional[torch.Tensor] = None
+        for tmap in tensors:
+            system_ids = _tensor_system_ids(tmap, len(systems))
+            if system_ids is not None:
+                break
 
         def _transform(tmap: TensorMap) -> TensorMap:
-            return transformations.transform_tensormap(
-                tmap, _tensor_system_ids(tmap, n_systems)
-            )
+            return transformations.transform_tensormap(tmap, system_ids)
 
         new_targets = {name: _transform(tmap) for name, tmap in targets.items()}
 
@@ -126,15 +133,10 @@ class O3Augmenter:
 
 def _tensor_system_ids(tensor: TensorMap, n_systems: int) -> Optional[torch.Tensor]:
     """Recover the "system" label value assigned to each of the ``n_systems``
-    systems in this batch, in the same order as the ``systems`` list, as used by
-    this specific tensor.
+    systems in this batch, in the same order as the ``systems`` list.
 
-    The "system" sample label is normally the absolute dataset index of each system
-    (see ``dataset.py``), but some collate transforms (e.g. atomic-basis target
-    preparation) reindex it to a batch-local ``0..n_systems-1`` before augmentation
-    runs. Different tensors in the same batch can therefore use different "system"
-    numbering, so the mapping must be recovered independently for each tensor rather
-    than shared across the whole batch.
+    The "system" sample label is the absolute dataset index of each system (see
+    ``dataset.py``), so it cannot be inferred from the position in the batch.
 
     :param tensor: the tensor to recover the per-system "system" label values from.
     :param n_systems: the number of systems in the batch.

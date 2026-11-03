@@ -321,21 +321,11 @@ def test_adapted_cutoffs(num_neighbors_adaptive, get_adaptive_cutoffs):
         species,
         cells,
         cell_shifts,
+        cell_contributions,
         system_indices,
         sample_labels,
     ) = concatenate_structures(systems, options)
 
-    # somehow the backward of this operation is very slow at evaluation,
-    # where there is only one cell, therefore we simplify the calculation
-    # for that case
-    if len(cells) == 1:
-        cell_contributions = cell_shifts.to(cells.dtype) @ cells[0]
-    else:
-        cell_contributions = torch.einsum(
-            "ab, abc -> ac",
-            cell_shifts.to(cells.dtype),
-            cells[system_indices[centers]],
-        )
     edge_vectors = positions[neighbors] - positions[centers] + cell_contributions
     edge_distances = torch.norm(edge_vectors, dim=-1) + 1e-15
     num_nodes = len(positions)

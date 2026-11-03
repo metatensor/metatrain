@@ -27,11 +27,112 @@ Unreleased
 Fixed
 #####
 
+- Memmap datasets support variant targets such as ``energy/gs`` (#1334).
+- Corrected type annotations to match existing runtime behavior (#1325).
+  Lint and formatting environments now install the project dependencies.
+- PET computes forces and stresses for batches of several structures faster
+- Datasets read using ASE (e.g. ``.xyz`` files) with property names treated specially by
+  ASE (e.g. ``charges``, ``magmoms``) can be read (#1320).
+- PET models with ``featurizer_type: feedforward`` (the default) now export an
+  ``interaction_range`` of ``(num_gnn_layers + 1) * cutoff`` instead of
+  ``num_gnn_layers * cutoff``. The feedforward featurizer performs one more
+  message passing step after the last GNN layer, so the previous value was too
+  small by one cutoff, which could lead to truncated atomic environments in
+  simulation engines relying on ``interaction_range`` (e.g. for domain
+  decomposition) (#1296).
+- Ensemble losses (``gaussian_nll_ensemble``, ``gaussian_crps_ensemble`` and
+  ``empirical_crps_ensemble``) now work for targets with components, such as
+  ``non_conservative_force``, instead of failing when the mean and variance
+  blocks are built.
+- PET now symmetrizes and divides by the cell volume the predictions of
+  ``non_conservative_stress/<variant>`` targets, as it already did for
+  ``non_conservative_stress``.
+- ``MemmapDataset`` can now load generic targets with a variant (e.g.
+  ``non_conservative_stress/<variant>``), instead of failing with
+  ``'<name>/<variant>' is not a valid label name``.
+- Dataset merging and training restarts now accept equivalent unit spellings
+  such as ``A`` and ``angstrom`` or ``eV/A^3`` and
+  ``eV/angstrom^3``, avoiding false unit incompatibility errors.
+- PET attention now excludes keys with a zero cutoff factor with ``-inf`` instead of
+  penalising them with ``log(1e-15)``.
+- SPACE now creates the property labels of the ``feature`` output on the device of the
+  systems.
+- Continuing training from a SPACE checkpoint fine-tuned with ``inherit_heads`` no
+  longer copies the inherited weights again.
+- SPACE's per-block validation errors (``log_separate_blocks``) are now correct for
+  atomic-basis targets.
+- LLPR uncertainties of SPACE models trained on several targets are now correct.
+- FlashMD models can now be evaluated for any subset of their outputs.
+- PET with ``transformer_type: PreLN`` now adds the residual connection of the
+  attention output to the node embeddings when ``d_node`` equals ``d_pet``. It was
+  previously dropped, so the incoming node embeddings were discarded in each
+  transformer layer (#1314).
+- Exporting a SPACE model no longer deletes its gradient models, so the model can
+  still be used after it is exported (#1317).
+- LLPR uncertainties and ensembles of per-atom targets now include the scales of each
+  atomic type, instead of using the same scale for all of them (#1286).
+- Training with rotational augmentation no longer fails on targets split by atomic
+  type when some batches have no atomic type in common (#1286).
+- LLPR accumulates the covariance in float64, so that the uncertainties of float32
+  models no longer depend on the order of the batches (#1286).
+
 Added
 #####
 
+- SPACE models can now be fine-tuned on targets they were not trained on, optionally
+  initializing the new heads from existing ones with ``inherit_heads``.
+- Added ``experimental.lorem`` architecture (*Learning Long-Range
+  Representations with Equivariant Messages*, https://arxiv.org/abs/2507.19382).
+- ``mtt eval`` can measure the O(3) equivariance error of a model (``equivariance``
+  section of the eval options), optionally saving the O(3)-averaged predictions and
+  their variance.
+- ``mtt eval`` options gained a ``log_separate_blocks`` flag, matching the training
+  hyperparameter of the same name, to report all metrics separately for each block of
+  each target instead of aggregated over the whole target.
+- LLPR uncertainties and ensembles for targets with several blocks, such as spherical
+  targets and targets in an atomic basis, and for SPACE and MACE (#1286).
+- Ensemble losses for targets with several blocks (#1286).
+
 Changed
 #######
+
+- LLPR calibrates one factor for each property of each block of the targets
+  (#1286).
+- The last-layer features of MACE and SPACE have the keys and components of their
+  target (#1317).
+- ``ModelInterface.supported_outputs()`` returns a ``TargetInfo`` for each output,
+  with its layout, instead of a ``ModelOutput`` (#1317).
+- ``mtt::aux::mace_features`` has one block for each irrep, with repeated irreps
+  along the ``i_irrep`` property (#1317).
+
+Removed
+#######
+
+- SOAP-BPNN no longer exposes last-layer features for its spherical and Cartesian
+  targets, so LLPR is not available for them (#1317).
+
+Version 2026.4.1 - 2026-09-25
+-----------------------------
+
+Fixed
+#####
+
+- ``ZBL`` now accepts every spelling of the angstrom that metatomic accepts
+  (``angstrom``, ``Angstrom``, ``A``, ...), instead of only the exact string
+  ``angstrom``.
+
+Added
+#####
+
+- The DPA3 architecture now can load pretrained multi-task DPA3 models.
+
+Changed
+#######
+
+- Models now check that the model hypers passed for restarting are the same as
+  those used for the original training. If no model hypers are specified in the
+  yaml file for restarting, that is fine, only the ones explicitly specified
+  will be checked.
 
 Removed
 #######

@@ -3,6 +3,7 @@ import glob
 import gzip
 import logging
 import os
+import warnings
 from typing import Any, Dict, Literal
 
 import pytest
@@ -11,6 +12,7 @@ from omegaconf import OmegaConf
 
 from metatrain.utils.abc import ModelInterface, TrainerInterface
 from metatrain.utils.hypers import init_with_defaults
+from metatrain.utils.io import model_from_checkpoint, trainer_from_checkpoint
 from metatrain.utils.loss import LossSpecification
 
 from .architectures import ArchitectureTests
@@ -24,7 +26,7 @@ ALLOWED_NEW_KEYS_CONDITIONS = [
 # Wrapper architectures can embed a full checkpoint from another architecture.
 # That inner checkpoint has its own versioning and upgrade path, so we don't
 # recurse into it when checking the outer checkpoint structure.
-NONRECURSIVE_CHECKPOINT_KEYS = {"wrapped_model_checkpoint"}
+NONRECURSIVE_CHECKPOINT_KEYS = {"wrapped_model_checkpoint", "additive_models", "scaler"}
 
 
 def check_same_checkpoint_structure(
@@ -100,9 +102,6 @@ class CheckpointTests(ArchitectureTests):
             dataset_targets, dataset_path
         )
 
-        # Initialize model
-        model = self.model_cls(minimal_model_hypers, dataset_info)
-
         # Set the training hyperparameters:
         #  - Just 1 epoch to keep the test fast
         #  - Default loss for each target
@@ -116,11 +115,13 @@ class CheckpointTests(ArchitectureTests):
 
         # Initialize trainer
         trainer = self.trainer_cls(hypers["training"])
+        # Initialize model
+        model = trainer.setup(minimal_model_hypers, dataset_info)
 
         # Train the model.
         trainer.train(
             model,
-            dtype=model.__supported_dtypes__[0],
+            dtype=model.core.__supported_dtypes__[0],
             devices=[torch.device("cpu")],
             train_datasets=[dataset],
             val_datasets=[dataset],
@@ -133,7 +134,6 @@ class CheckpointTests(ArchitectureTests):
     def test_loading_old_checkpoints(
         self,
         default_hypers: dict,
-        model_trainer: tuple[ModelInterface, TrainerInterface],
         context: Literal["restart", "finetune", "export"],
     ) -> None:
         """Tests that checkpoints from previous versions can be loaded.
@@ -148,11 +148,8 @@ class CheckpointTests(ArchitectureTests):
         ``restart``.
 
         :param default_hypers: Default hyperparameters to initialize the trainer.
-        :param model_trainer: Model and trainer to be used for loading the checkpoints.
         :param context: The context in which to load the checkpoint.
         """
-        model, trainer = model_trainer
-
         for path in glob.glob("checkpoints/*.ckpt.gz"):
             if path in self.incompatible_trainer_checkpoints and context == "restart":
                 continue
@@ -160,15 +157,16 @@ class CheckpointTests(ArchitectureTests):
             with gzip.open(path, "rb") as fd:
                 checkpoint = torch.load(fd, weights_only=False)
 
-            if checkpoint["model_ckpt_version"] != model.__checkpoint_version__:
-                checkpoint = model.__class__.upgrade_checkpoint(checkpoint)
-            model.load_checkpoint(checkpoint, context)
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        message=".*checkpoint with unknown version.*",
+                        category=UserWarning,
+                    )
+                    model_from_checkpoint(checkpoint, context)
 
-            if context == "restart":
-                if checkpoint["trainer_ckpt_version"] != trainer.__checkpoint_version__:
-                    checkpoint = trainer.__class__.upgrade_checkpoint(checkpoint)
-
-                trainer.load_checkpoint(checkpoint, default_hypers, context)
+                    if context == "restart":
+                        trainer_from_checkpoint(checkpoint, context, default_hypers)
 
     def test_checkpoint_did_not_change(
         self,
@@ -198,7 +196,7 @@ class CheckpointTests(ArchitectureTests):
         checkpoint = torch.load("checkpoint.ckpt", weights_only=False)
         monkeypatch.chdir(cwd)
 
-        model_version = model.__checkpoint_version__
+        model_version = model.core.__checkpoint_version__
         trainer_version = trainer.__checkpoint_version__
 
         ckpt_name = f"model-v{model_version}_trainer-v{trainer_version}.ckpt.gz"
@@ -258,7 +256,7 @@ class CheckpointTests(ArchitectureTests):
         checkpoint = model.get_checkpoint()
 
         caplog.set_level(logging.INFO)
-        self.model_cls.load_checkpoint(checkpoint, context)
+        model_from_checkpoint(checkpoint, context)
 
         if context == "restart":
             assert "Using latest model from epoch None" in caplog.text

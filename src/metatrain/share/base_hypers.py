@@ -446,6 +446,17 @@ ValOrTestSetSpec = Annotated[
 
 
 @with_config(ConfigDict(extra="forbid", strict=True))
+class EquivarianceHypers(TypedDict):
+    max_angular_momentum_grid: NotRequired[int | None] = None
+    """Degree of the O(3) quadrature used to measure the equivariance error.
+
+    When ``None``, metatomic picks a default from the maximum angular momentum
+    of the targets, which is exact only for models that are equivariant by
+    construction. The cost grows steeply with this value.
+    """
+
+
+@with_config(ConfigDict(extra="forbid", strict=True))
 class EvalDatasetDictHypers(TypedDict):
     systems: str | SystemsHypers
     """Path to the dataset file or a dictionary specifying the dataset."""
@@ -461,6 +472,25 @@ class EvalDatasetDictHypers(TypedDict):
     Can be either a list of integers (e.g., ``[0, 1, 5, 10]``) or a path to a
     text file containing one index per line. When specified, only the structures
     at these indices will be used from the dataset.
+    """
+    equivariance: NotRequired[EquivarianceHypers]
+    """Also measure the O(3) equivariance error of the model.
+
+    Requires a ``targets`` section. Use ``equivariance: {}`` to enable it with
+    the default settings. Every system is additionally evaluated on many rotated
+    and inverted copies, so evaluation becomes substantially slower. The
+    O(3)-averaged predictions and their variance over the orientations are written
+    to the output file next to the predictions, as ``o3::average::<target>`` and
+    ``o3::variance::<target>``.
+    """
+    log_separate_blocks: NotRequired[bool] = False
+    """Report metrics separately for each block of each target, instead of
+    aggregated over the whole target.
+
+    Each per-block metric is labeled with the block's key, e.g. for a spherical
+    target decomposed by ``o3_lambda``/``o3_sigma``/``atom_type``:
+    ``"<target> (o3_lambda=1,o3_sigma=1,atom_type=6) RMSE"``. Matches the
+    ``log_separate_blocks`` training hyperparameter.
     """
 
 

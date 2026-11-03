@@ -1,20 +1,33 @@
-from typing import Dict, List, Optional
+from collections.abc import Mapping
+from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import ModelOutput, NeighborListOptions, System
+from metatomic.torch import (
+    AtomisticModel,
+    ModelCapabilities,
+    ModelMetadata,
+    ModelOutput,
+    NeighborListOptions,
+    System,
+)
 from pydantic import TypeAdapter
 from typing_extensions import TypedDict
 
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.metadata import merge_metadata
+
+from . import additive_checkpoints as checkpoints
 
 
 class PositionAdditiveHypers(TypedDict):
     also_momenta: bool
 
 
-class PositionAdditive(torch.nn.Module):
+class PositionAdditive(ModelInterface):
     """
     A simple additive model that adds the positions of the system to any outputs that
     is either "position" or one of its variants.
@@ -22,8 +35,13 @@ class PositionAdditive(torch.nn.Module):
     Optionally, it can also do the same with momenta.
     """
 
+    __checkpoint_version__ = 2
+    __supported_devices__ = ["cuda", "cpu"]
+    __supported_dtypes__ = [torch.float32, torch.float64]
+    __default_metadata__ = ModelMetadata()
+
     def __init__(self, hypers: PositionAdditiveHypers, dataset_info: DatasetInfo):
-        super().__init__()
+        super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         TypeAdapter(PositionAdditiveHypers).validate_python(
             hypers, strict=True, extra="forbid"
@@ -33,23 +51,24 @@ class PositionAdditive(torch.nn.Module):
         self.dataset_info = dataset_info
         self.atomic_types = sorted(dataset_info.atomic_types)
 
-        self.outputs = {}
+        self.outputs: Dict[str, TargetInfo] = {}
         for key, value in dataset_info.targets.items():
             if (
                 key == "momentum" or key.startswith("momentum/")
             ) and not self.do_momenta:
                 # skip momenta targets unless `also_momenta` is True
                 continue
-            self.outputs[key] = ModelOutput(
-                unit=value.unit,
-                sample_kind="atom",
-                description=value.description,
-            )
+            self.outputs[key] = value
 
-    def restart(self, dataset_info: DatasetInfo) -> "PositionAdditive":
+    def restart(
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
+    ) -> "PositionAdditive":
         """Restart the model with a new dataset info.
 
         :param dataset_info: New dataset information to be used.
+        :param model_hypers: Not used.
         :return: The restarted model.
         """
 
@@ -61,11 +80,7 @@ class PositionAdditive(torch.nn.Module):
             ) and not self.do_momenta:
                 # skip momenta targets unless `also_momenta` is True
                 continue
-            self.outputs[key] = ModelOutput(
-                unit=value.unit,
-                sample_kind="atom",
-                description=value.description,
-            )
+            self.outputs[key] = value
         return self
 
     def remove_output(self, target_name: str) -> None:
@@ -77,7 +92,7 @@ class PositionAdditive(torch.nn.Module):
         self.outputs.pop(target_name, None)
         self.dataset_info.targets.pop(target_name, None)
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def forward(
@@ -149,9 +164,11 @@ class PositionAdditive(torch.nn.Module):
                 )
             ],
         )
-        return_dict["position"] = position_tensor_map
+        # TODO: variants (position/<variant>, momentum/<variant>) get no contribution
+        if "position" in outputs:
+            return_dict["position"] = position_tensor_map
 
-        if self.do_momenta:
+        if self.do_momenta and "momentum" in outputs:
             all_momenta = torch.concatenate(
                 [system.get_data("momentum").block().values for system in systems]
             )
@@ -193,3 +210,88 @@ class PositionAdditive(torch.nn.Module):
         if target_name == "momentum" or target_name.startswith("momentum/"):
             return True
         return False
+
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Get the checkpoint of the model. This should contain all the information
+        needed by `load_checkpoint` to recreate the same model instance.
+
+        :return: The model's checkpoint.
+        """
+        model_state_dict = self.state_dict()
+        checkpoint = {
+            "architecture_name": "flashmd_position_additive",
+            "model_ckpt_version": self.__checkpoint_version__,
+            "model_data": {
+                "hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "model_state_dict": model_state_dict,
+            "best_model_state_dict": best_model_state_dict or model_state_dict,
+        }
+        return checkpoint
+
+    @classmethod
+    def load_checkpoint(
+        cls,
+        checkpoint: Dict[str, Any],
+        context: Literal["restart", "finetune", "export"],
+    ) -> "PositionAdditive":
+        """
+        Create a model from a checkpoint (i.e. state dictionary).
+
+        :param checkpoint: Checkpoint's state dictionary.
+        :param context: Context in which to load the model. Not used.
+
+        :return: An instance of the model.
+        """
+        model = cls(
+            hypers=checkpoint["model_data"]["hypers"],
+            dataset_info=checkpoint["model_data"]["dataset_info"],
+        )
+        model.load_state_dict(checkpoint["model_state_dict"])
+        return model
+
+    @classmethod
+    def upgrade_checkpoint(
+        cls, checkpoint: Dict, version: Optional[int] = None
+    ) -> Dict:
+        """
+        Upgrade the checkpoint to the current version of the model.
+
+        :param checkpoint: Checkpoint's state dictionary.
+        :param version: Version to which the checkpoint should be upgraded. If ``None``,
+            the checkpoint will be upgraded to the current version of the model.
+
+        :return: The upgraded checkpoint.
+        """
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
+
+    def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
+        """
+        Turn this model into an :py:class:`metatomic.torch.AtomisticModel`,
+        containing the model itself, its capabilities and its metadata.
+
+        :param metadata: Additional metadata to add to the model, as specified
+            by the user.
+        :return: An instance of :py:class:`metatomic.torch.AtomisticModel`.
+        """
+        capabilities = ModelCapabilities(
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
+            atomic_types=self.atomic_types,
+            interaction_range=0.0,
+            length_unit=self.dataset_info.length_unit,
+            supported_devices=self.__supported_devices__,
+            dtype=dtype_to_str(torch.float64),
+        )
+
+        metadata = merge_metadata(self.metadata, metadata)
+
+        return AtomisticModel(self.eval(), metadata, capabilities)

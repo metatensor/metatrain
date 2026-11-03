@@ -7,7 +7,7 @@ import random
 import re
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Literal, Optional, Union, cast
 
 import numpy as np
 import torch
@@ -293,6 +293,7 @@ def train_model(
     # MERGE OPTIONS ###########
     ###########################
 
+    input_options = copy.deepcopy(options)
     options = OmegaConf.merge(
         BASE_OPTIONS,
         {"architecture": get_default_hypers(architecture_name)},
@@ -586,10 +587,11 @@ def train_model(
             sum(len(d) for d in train_datasets + val_datasets + test_datasets)
             < 1_000_000
         )
-        logging.info(
-            "Datasets are too large (>1M total structures) to calculate statistics "
-            "quickly."
-        )
+        if not should_print_stats:
+            logging.info(
+                "Datasets are too large (>1M total structures) to calculate statistics "
+                "quickly."
+            )
 
     if should_print_stats:
         _print_stats("Training", train_datasets, dataset_info)
@@ -635,48 +637,49 @@ def train_model(
         training_context = None
 
     try:
-        if training_context == "restart" and restart_from is not None:
-            logging.info(f"Restarting training from '{restart_from}'")
+        if restart_from is not None:
             checkpoint = torch.load(
                 restart_from, weights_only=False, map_location="cpu"
             )
+            new_model_hypers = input_options.get("architecture", {}).get("model", {})
+
+            # Initialize the trainer.
+            if training_context == "restart":
+                logging.info(f"Restarting training from '{restart_from}'")
+                try:
+                    trainer = trainer_from_checkpoint(
+                        checkpoint=checkpoint,
+                        hypers=hypers["training"],
+                        context=training_context,  # type: ignore
+                    )
+                except Exception as e:
+                    raise ValueError(
+                        f"The file {restart_from} does not contain a valid checkpoint"
+                        f"for the '{architecture_name}' trainer state"
+                    ) from e
+            else:
+                logging.info(f"Starting finetuning from '{restart_from}'")
+                trainer = Trainer(hypers["training"])
+
+            # Load the model from the checkpoint.
             try:
-                model = model_from_checkpoint(checkpoint, context="restart")
+                training_context = cast(
+                    Literal["restart", "finetune"], training_context
+                )  # for mypy
+                model = model_from_checkpoint(checkpoint, context=training_context)
             except Exception as e:
                 raise ValueError(
                     f"The file {restart_from} does not contain a valid checkpoint for "
                     f"the '{architecture_name}' architecture"
                 ) from e
-            model = model.restart(dataset_info)
-            try:
-                trainer = trainer_from_checkpoint(
-                    checkpoint=checkpoint,
-                    hypers=hypers["training"],
-                    context=training_context,  # type: ignore
-                )
-            except Exception as e:
-                raise ValueError(
-                    f"The file {restart_from} does not contain a valid checkpoint for "
-                    f"the '{architecture_name}' trainer state"
-                ) from e
-        elif training_context == "finetune" and restart_from is not None:
-            logging.info(f"Starting finetuning from '{restart_from}'")
-            checkpoint = torch.load(
-                restart_from, weights_only=False, map_location="cpu"
-            )
-            try:
-                model = model_from_checkpoint(checkpoint, context="finetune")
-            except Exception as e:
-                raise ValueError(
-                    f"The file {restart_from} does not contain a valid checkpoint for "
-                    f"the '{architecture_name}' architecture"
-                ) from e
-            model = model.restart(dataset_info)
-            trainer = Trainer(hypers["training"])
+
+            # Make the trainer setup the model to continue training.
+            model = trainer.restart(model, dataset_info, model_hypers=new_model_hypers)
+
         else:
             logging.info("Starting training from scratch")
-            model = Model(hypers["model"], dataset_info)
             trainer = Trainer(hypers["training"])
+            model = trainer.setup(hypers["model"], dataset_info)
     except Exception as e:
         raise ArchitectureError(e) from e
 

@@ -1,10 +1,10 @@
 import logging
 import warnings
-from typing import Dict, List, Literal, Optional, Union
+from collections.abc import Mapping
+from typing import Any, Dict, List, Literal, Optional, Union
 
-import metatensor.torch as mts
 import torch
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import Labels, TensorMap
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -14,21 +14,19 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.utils.abc import ModelInterface
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
-from metatrain.utils.data.atomic_basis_helpers import (
-    densify_atomic_basis_dataset_info,
-    sparsify_atomic_basis_target,
-)
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
 from ._base_composition import (
     BaseCompositionModel,
     FixedCompositionWeights,
-    _include_key,
 )
 from .documentation import ModelHypers
 
@@ -46,7 +44,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
         model.
     """
 
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -57,7 +55,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
         }
     )
 
-    outputs: Dict[str, ModelOutput]
+    outputs: Dict[str, TargetInfo]
     atomic_types: List[int]
     target_infos: Dict[str, TargetInfo]
     _new_outputs: List[str]
@@ -92,16 +90,9 @@ class CompositionModel(ModelInterface[ModelHypers]):
                     "Please report this issue and help us improve!"
                 )
 
-        # The composition model always fits and stores dense weights (a single
-        # block per o3_lambda/o3_sigma, with properties padded to the union
-        # across atomic types), regardless of whether the target's native
-        # layout is sparse (atom_type as a key dimension). This keeps
-        # checkpoints portable across every architecture: standalone training
-        # and training embedded in e.g. PET both produce the same layout.
-        dense_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
         self.target_infos = {
             target_name: target_info
-            for target_name, target_info in dense_dataset_info.targets.items()
+            for target_name, target_info in dataset_info.targets.items()
         }
 
         self.model: BaseCompositionModel = BaseCompositionModel(
@@ -112,9 +103,9 @@ class CompositionModel(ModelInterface[ModelHypers]):
             },
         )
 
-        self.outputs: Dict[str, ModelOutput] = {}
+        self.outputs: Dict[str, TargetInfo] = {}
 
-        self.register_buffer("dummy_buffer", torch.randn(1, dtype=torch.float64))
+        self.register_buffer("dummy_buffer", torch.randn(1))
 
         self._new_outputs = []
         for target_name in self.dataset_info.targets:
@@ -196,7 +187,9 @@ class CompositionModel(ModelInterface[ModelHypers]):
         trainer = CompositionTrainer(hypers=hypers)
         trainer._additive_models = additive_models
         trainer.train(
-            model=self,
+            model=MetatrainModel(
+                self, additive_models=[], scaler=None, dataset_info=self.dataset_info
+            ),
             dtype=torch.float64,
             devices=[self.dummy_buffer.device],
             train_datasets=datasets,
@@ -204,7 +197,11 @@ class CompositionModel(ModelInterface[ModelHypers]):
             checkpoint_dir="",
         )
 
-    def restart(self, dataset_info: DatasetInfo) -> "CompositionModel":
+    def restart(
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
+    ) -> "CompositionModel":
         """
         Update the model to continue training, possibly with new targets.
 
@@ -214,20 +211,28 @@ class CompositionModel(ModelInterface[ModelHypers]):
 
         :param dataset_info: Information about the new dataset, including the
             targets that will be used for training.
+        :param model_hypers: New hyperparameters for the model. They must match
+            the checkpoint's hyperparameters, otherwise an error is raised.
         :return: The updated model.
         """
-        raw_targets = {}
+        if model_hypers is not None:
+            default_hypers = get_default_hypers("composition")["model"]
+            raise_if_hypers_mismatch(
+                self.hypers, model_hypers, default_hypers=default_hypers
+            )
+
+        valid_targets = {}
         for target_name in dataset_info.targets:
             target_info = dataset_info.targets[target_name]
             if self.is_valid_target(target_name, target_info):
-                raw_targets[target_name] = target_info
+                valid_targets[target_name] = target_info
             else:
                 logging.debug(
                     f"Composition model does not support target "
                     f"'{target_name}', skipping."
                 )
 
-        if len(raw_targets) == 0:
+        if len(valid_targets) == 0:
             # No new targets to fit: reset so a subsequent Trainer.train() does not
             # refit (and zero out) the already-fitted targets from __init__.
             self.target_infos = {}
@@ -238,7 +243,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
             DatasetInfo(
                 length_unit=dataset_info.length_unit,
                 atomic_types=dataset_info.atomic_types,
-                targets=raw_targets,
+                targets=valid_targets,
             )
         )
         new_atomic_types = [
@@ -250,25 +255,17 @@ class CompositionModel(ModelInterface[ModelHypers]):
                 "The composition model does not support adding new atomic types."
             )
 
-        dense_new_targets = densify_atomic_basis_dataset_info(
-            DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=merged_info.atomic_types,
-                targets=raw_targets,
-            )
-        ).targets
         self.target_infos = {
-            target_name: dense_new_targets[target_name]
-            for target_name in raw_targets
+            target_name: target
+            for target_name, target in valid_targets.items()
             if target_name not in self.dataset_info.targets
         }
 
         self.dataset_info = merged_info
 
         self._new_outputs = []
-        buffer_names = [n for n, _ in self.named_buffers()]
         for target_name, target_info in self.target_infos.items():
-            if target_name + "_composition_buffer" in buffer_names:
+            if target_name in self.model.weights:
                 continue
             self._new_outputs.append(target_name)
             self.model.add_output(target_name, target_info.layout)
@@ -298,11 +295,6 @@ class CompositionModel(ModelInterface[ModelHypers]):
         :return: A dictionary mapping each requested output name to the
             corresponding ``TensorMap`` containing the computed values.
         """
-        dtype = systems[0].positions.dtype
-        device = systems[0].positions.device
-
-        self.weights_to(device, dtype)
-
         for output_name in outputs.keys():
             if output_name not in self.outputs:
                 raise ValueError(
@@ -317,23 +309,9 @@ class CompositionModel(ModelInterface[ModelHypers]):
             selected_atoms=selected_atoms,
         )
 
-        if not self.training:
-            # For atomic basis targets, sparsify to create blocks with "atom_type"
-            # in the key dimensions, and ensure properties are unpadded. In training
-            # mode, predictions stay dense: remove_additive subtracts them from
-            # transform-densified targets.
-            targets = self.dataset_info.targets
-            for k, v in pred.items():
-                if k in targets and targets[k].is_atomic_basis:
-                    pred[k] = sparsify_atomic_basis_target(
-                        systems,
-                        v,
-                        targets[k].layout,
-                    )
-
         return pred
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         """
         Get the outputs currently supported by this model.
 
@@ -342,48 +320,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
         return self.outputs
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-        self.outputs[target_name] = ModelOutput(
-            unit=target_info.unit,
-            sample_kind="atom",
-            description=target_info.description,
-        )
-
-        layout = mts.filter_blocks(
-            target_info.layout,
-            Labels(
-                target_info.layout.keys.names,
-                torch.vstack(
-                    [key.values for key in target_info.layout.keys if _include_key(key)]
-                ),
-                assume_unique=True,
-            ),
-        )
-
-        fake_weights = TensorMap(
-            keys=layout.keys,
-            blocks=[
-                TensorBlock(
-                    values=torch.zeros(
-                        (len(self.atomic_types),) + b.values.shape[1:],
-                        dtype=torch.float64,
-                    ),
-                    samples=Labels(
-                        names=["center_type"],
-                        values=torch.tensor(self.atomic_types, dtype=torch.int).reshape(
-                            -1, 1
-                        ),
-                        assume_unique=True,
-                    ),
-                    components=b.components,
-                    properties=b.properties,
-                )
-                for b in layout.blocks()
-            ],
-        )
-        self.register_buffer(
-            target_name + "_composition_buffer",
-            mts.save_buffer(mts.make_contiguous(fake_weights)),
-        )
+        self.outputs[target_name] = target_info
 
     def remove_output(self, target_name: str) -> None:
         """
@@ -394,32 +331,6 @@ class CompositionModel(ModelInterface[ModelHypers]):
         self.outputs.pop(target_name, None)
         self.dataset_info.targets.pop(target_name, None)
         self.model.remove_output(target_name)
-        buffer_name = target_name + "_composition_buffer"
-        if hasattr(self, buffer_name):
-            delattr(self, buffer_name)
-
-    def weights_to(self, device: torch.device, dtype: torch.dtype) -> None:
-        """
-        Move the fitted weights and the accumulated quantities to the given
-        device and dtype.
-
-        Needed because they are stored as ``TensorMap`` attributes, which
-        ``torch.nn.Module.to`` does not move.
-
-        :param device: Device to move the weights to.
-        :param dtype: Dtype to convert the weights to.
-        """
-        if len(self.model.weights) != 0:
-            if self.model.weights[list(self.model.weights.keys())[0]].device != device:
-                self.model.weights = {
-                    k: v.to(device) for k, v in self.model.weights.items()
-                }
-            if self.model.weights[list(self.model.weights.keys())[0]].dtype != dtype:
-                self.model.weights = {
-                    k: v.to(dtype) for k, v in self.model.weights.items()
-                }
-
-        self.model._sync_device_dtype(device, dtype)
 
     @staticmethod
     def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
@@ -471,28 +382,9 @@ class CompositionModel(ModelInterface[ModelHypers]):
 
         return True
 
-    def sync_tensor_maps(self) -> None:
-        """
-        Reload the weight ``TensorMap`` objects from the registered buffers.
-
-        Must be called after the buffers change through means that bypass the
-        model, e.g. ``load_state_dict``.
-        """
-        for k in self.dataset_info.targets:
-            buffer = self.__getattr__(k + "_composition_buffer")
-            # ``mts.load_buffer`` dereferences the buffer on the host, so it
-            # segfaults on a GPU buffer: deserialize on the CPU and move the
-            # weights back to the buffer's device.
-            weights = mts.load_buffer(buffer.to(device="cpu"))
-            self.model.weights[k] = weights.to(device=buffer.device)
-
-    def get_checkpoint(self) -> Dict:
-        """
-        Get the checkpoint of the model.
-
-        :return: The model's checkpoint, containing all the information needed
-            by ``load_checkpoint`` to recreate the same model instance.
-        """
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> Dict:
         model_state_dict = self.state_dict()
         checkpoint = {
             "architecture_name": "composition",
@@ -505,7 +397,7 @@ class CompositionModel(ModelInterface[ModelHypers]):
             "epoch": None,
             "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": model_state_dict,
+            "best_model_state_dict": best_model_state_dict or model_state_dict,
         }
         return checkpoint
 
@@ -542,35 +434,18 @@ class CompositionModel(ModelInterface[ModelHypers]):
         )
 
         model.load_state_dict(model_state_dict)
-        model.sync_tensor_maps()
 
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
 
         return model
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        """
-        Upgrade the checkpoint to the current version of the model.
-
-        :param checkpoint: Checkpoint's state dictionary.
-        :return: The upgraded checkpoint.
-        """
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint.get("model_ckpt_version") == v:
-                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
-
-        version = checkpoint.get("model_ckpt_version")
-        if version != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {version}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
-            )
-
-        return checkpoint
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         """
@@ -582,18 +457,16 @@ class CompositionModel(ModelInterface[ModelHypers]):
         :return: An instance of :py:class:`metatomic.torch.AtomisticModel`.
         """
         dtype = self.dummy_buffer.dtype
-        if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for composition model")
 
         self.to(dtype)
-        self.weights_to(torch.device("cpu"), torch.float64)
-
-        interaction_range = 0.0
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
-            interaction_range=interaction_range,
+            interaction_range=0.0,
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
             dtype=dtype_to_str(dtype),

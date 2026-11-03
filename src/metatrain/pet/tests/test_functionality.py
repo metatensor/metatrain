@@ -10,8 +10,8 @@ from metatomic.torch import ModelOutput, System
 from metatomic_ase import MetatomicCalculator
 
 from metatrain.composition import Trainer as CompositionTrainer
-from metatrain.pet import PET
-from metatrain.pet.modules.transformer import AttentionBlock
+from metatrain.pet import PET, Trainer
+from metatrain.pet.modules.transformer import AttentionBlock, TransformerLayer
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo
 from metatrain.utils.data.target_info import (
@@ -19,6 +19,7 @@ from metatrain.utils.data.target_info import (
     get_generic_target_info,
 )
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import MODEL_HYPERS
 
@@ -223,7 +224,10 @@ def test_attention_above_cuda_grid_limit():
 
 
 @pytest.mark.parametrize("sample_kind", ["atom", "system"])
-def test_nc_stress(sample_kind):
+@pytest.mark.parametrize(
+    "target_name", ["non_conservative_stress", "non_conservative_stress/variant"]
+)
+def test_nc_stress(sample_kind, target_name):
     """Tests that the model can predict a symmetric rank-2 tensor as the NC stress."""
     # (note that no composition energies are supplied or calculated here)
 
@@ -231,8 +235,8 @@ def test_nc_stress(sample_kind):
         length_unit="Angstrom",
         atomic_types=[1, 6, 7, 8],
         targets={
-            "non_conservative_stress": get_generic_target_info(
-                "non_conservative_stress",
+            target_name: get_generic_target_info(
+                target_name,
                 {
                     "quantity": "stress",
                     "unit": "",
@@ -253,8 +257,8 @@ def test_nc_stress(sample_kind):
         pbc=torch.tensor([True, True, True]),
     )
     system = get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
-    outputs = {"non_conservative_stress": ModelOutput(sample_kind=sample_kind)}
-    stress = model([system], outputs)["non_conservative_stress"].block().values
+    outputs = {target_name: ModelOutput(sample_kind=sample_kind)}
+    stress = model([system], outputs)[target_name].block().values
     assert torch.allclose(stress, stress.transpose(1, 2))
 
 
@@ -351,12 +355,6 @@ def test_composition_contribution_in_eval_atomic_basis():
         },
     )
 
-    model = PET(MODEL_HYPERS, dataset_info)
-    # Identical PET weights, but its composition model stays unfitted (zero
-    # weights): the difference between the two eval outputs must be exactly
-    # the composition contribution.
-    model_no_composition = copy.deepcopy(model)
-
     # Fit the composition model of ``model`` on two synthetic structures:
     # - O atom, with an invariant of 1.0
     # - H2O molecule, with invariants of 1.0, 1.5, 2.0
@@ -444,6 +442,13 @@ def test_composition_contribution_in_eval_atomic_basis():
             "mtt::aux::system_index": system_indices,
         }
     )
+
+    trainer = Trainer(get_default_hypers("composition")["training"])
+    model = trainer.setup(MODEL_HYPERS, dataset_info)
+    # Identical PET weights, but its composition model stays unfitted (zero
+    # weights): the difference between the two eval outputs must be exactly
+    # the composition contribution.
+    model_no_composition = copy.deepcopy(model)
     composition_trainer = CompositionTrainer(
         hypers={
             **get_default_hypers("composition")["training"],
@@ -451,8 +456,14 @@ def test_composition_contribution_in_eval_atomic_basis():
             "batch_size": 1,
         }
     )
+    composition_model = model.additive_models[0]
     composition_trainer.train(
-        model=model.additive_models[0],
+        model=MetatrainModel(
+            composition_model,
+            additive_models=[],
+            scaler=None,
+            dataset_info=model.dataset_info,
+        ),
         dtype=torch.float64,
         devices=[torch.device("cpu")],
         train_datasets=[dataset],
@@ -494,3 +505,28 @@ def test_composition_contribution_in_eval_atomic_basis():
     torch.testing.assert_close(
         out.block(o_l1_key).values, out_no_composition.block(o_l1_key).values
     )
+
+
+def test_pre_ln_node_residual_when_dimensions_match():
+    """The PreLN node token keeps its residual when node and model dimensions match."""
+    layer = TransformerLayer(
+        d_model=2,
+        n_heads=1,
+        dim_node_features=2,
+        transformer_type="PreLN",
+    )
+    torch.nn.init.zeros_(layer.attention.output_linear.weight)
+    torch.nn.init.zeros_(layer.attention.output_linear.bias)
+
+    node_embeddings = torch.tensor([[[1.0, 2.0]]])
+    edge_embeddings = torch.zeros((1, 1, 2))
+    cutoff_factors = torch.ones((1, 2, 2))
+
+    output_node_embeddings, _ = layer(
+        node_embeddings,
+        edge_embeddings,
+        cutoff_factors,
+        use_manual_attention=False,
+    )
+
+    torch.testing.assert_close(output_node_embeddings, node_embeddings)

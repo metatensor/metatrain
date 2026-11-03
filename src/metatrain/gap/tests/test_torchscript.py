@@ -1,6 +1,7 @@
 import copy
 
 import torch
+from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
 from metatrain.gap import GAP, Trainer
@@ -43,8 +44,8 @@ def test_torchscript():
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
-    gap = GAP(DEFAULT_HYPERS["model"], dataset_info)
     trainer = Trainer(hypers["training"])
+    gap = trainer.setup(DEFAULT_HYPERS["model"], dataset_info)
     trainer.train(
         model=gap,
         dtype=torch.float64,
@@ -55,9 +56,11 @@ def test_torchscript():
     )
     scripted_gap = torch.jit.script(gap)
 
-    ref_output = gap.forward(systems[:5], {"mtt::U0": gap.outputs["mtt::U0"]})
+    ref_output = gap.forward(
+        systems[:5], {"mtt::U0": ModelOutput(sample_kind="system")}
+    )
     scripted_output = scripted_gap.forward(
-        systems[:5], {"mtt::U0": gap.outputs["mtt::U0"]}
+        systems[:5], {"mtt::U0": ModelOutput(sample_kind="system")}
     )
 
     assert torch.allclose(
@@ -120,8 +123,8 @@ def test_torchscript_integers():
     dataset = Dataset.from_dict({"system": systems, "mtt::U0": targets["mtt::U0"]})
 
     hypers = DEFAULT_HYPERS.copy()
-    gap = GAP(new_hypers, dataset_info)
     trainer = Trainer(hypers["training"])
+    gap = trainer.setup(new_hypers, dataset_info)
     trainer.train(
         model=gap,
         dtype=torch.float64,
@@ -132,9 +135,11 @@ def test_torchscript_integers():
     )
     scripted_gap = torch.jit.script(gap)
 
-    ref_output = gap.forward(systems[:5], {"mtt::U0": gap.outputs["mtt::U0"]})
+    ref_output = gap.forward(
+        systems[:5], {"mtt::U0": ModelOutput(sample_kind="system")}
+    )
     scripted_output = scripted_gap.forward(
-        systems[:5], {"mtt::U0": gap.outputs["mtt::U0"]}
+        systems[:5], {"mtt::U0": ModelOutput(sample_kind="system")}
     )
 
     assert torch.allclose(

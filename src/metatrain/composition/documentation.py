@@ -81,6 +81,10 @@ class ModelHypers(TypedDict):
 class TrainerHypers(TypedDict):
     """Hyperparameters for the composition trainer."""
 
+    densify_atomic_basis: bool = True
+    """Whether to densify the atomic basis targets when computing the composition
+    weights. This can only be done if the target is loaded from a DiskDataset.
+    """
     distributed: NotRequired[bool]
     """Whether to use distributed training. When not set, distributed training
     is enabled automatically when running under more than one SLURM task.

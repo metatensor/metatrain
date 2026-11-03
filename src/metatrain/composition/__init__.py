@@ -8,6 +8,7 @@ from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset
 from metatrain.utils.data.dataset import Subset
 from metatrain.utils.io import load_model
+from metatrain.utils.wrapper import MetatrainModel
 
 from ._base_composition import FixedCompositionWeights
 from .model import CompositionModel
@@ -27,10 +28,11 @@ __maintainers__ = [
 
 
 def train_or_load_composition_model(
-    composition_model: CompositionModel,
+    composition_model: Union[CompositionModel, MetatrainModel[CompositionModel]],
     atomic_baseline: FixedCompositionWeights | str,
     train_datasets: List[Union[Dataset, Subset]],
     other_additive_models: List[nn.Module],
+    device: torch.device,
     batch_size: int,
     is_distributed: bool,
     checkpoint_dir: str = "",
@@ -46,13 +48,28 @@ def train_or_load_composition_model(
     :param train_datasets: Training datasets
     :param other_additive_models: Other additive models (e.g. ZBL) to
         subtract before fitting
+    :param device: Device on which to train the composition model. This should
+        be a device that supports float64 (e.g. CPU or CUDA, but not MPS).
     :param batch_size: Batch size for data loading
     :param is_distributed: Whether training is distributed
     :param checkpoint_dir: Directory to save the composition model checkpoint
     """
+    if isinstance(composition_model, CompositionModel):
+        model = MetatrainModel(
+            core=composition_model,
+            additive_models=[],
+            scaler=None,
+            dataset_info=composition_model.dataset_info,
+        )
+    else:
+        model = composition_model
+        composition_model = model.core
+
     if isinstance(atomic_baseline, str):
         logging.info(f"Loading composition model from {atomic_baseline}")
         loaded = load_model(atomic_baseline)
+        if isinstance(loaded, MetatrainModel):
+            loaded = loaded.core
         if not isinstance(loaded, CompositionModel):
             raise ValueError(
                 f"The model loaded from {atomic_baseline} is a "
@@ -86,7 +103,6 @@ def train_or_load_composition_model(
                     f"'{target_info.unit}'."
                 )
         composition_model.load_state_dict(loaded.state_dict())
-        composition_model.sync_tensor_maps()
     else:
         assert isinstance(atomic_baseline, dict)
         logging.info("Calculating composition weights")
@@ -98,12 +114,10 @@ def train_or_load_composition_model(
         hypers["distributed"] = is_distributed
         trainer = Trainer(hypers=hypers)
         trainer._additive_models = other_additive_models
-        # The trainer fits on devices[0]; pass the model's current device so
-        # embedded training stays where the parent architecture put the model.
         trainer.train(
-            model=composition_model,
+            model=model,
             dtype=torch.float64,
-            devices=[composition_model.dummy_buffer.device],
+            devices=[device],
             train_datasets=train_datasets,
             val_datasets=train_datasets,
             checkpoint_dir=checkpoint_dir,

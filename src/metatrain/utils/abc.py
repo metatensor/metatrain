@@ -1,18 +1,12 @@
 from abc import ABCMeta, abstractmethod
+from collections.abc import Mapping
 from pathlib import Path
-from typing import (
-    Any,
-    Dict,
-    Generic,
-    List,
-    Literal,
-    Optional,
-    TypeVar,
-    Union,
-)
+from types import ModuleType
+from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 
 import torch
 from metatensor.torch import Labels, TensorMap
+from metatensor.torch.learn import nn
 from metatomic.torch import (
     AtomisticModel,
     ModelMetadata,
@@ -21,17 +15,26 @@ from metatomic.torch import (
 )
 
 from metatrain.utils.data.dataset import Dataset, DatasetInfo
+from metatrain.utils.data.target_info import TargetInfo
 
 
-HypersType = TypeVar("HypersType")
+ModelHypersType = TypeVar("ModelHypersType")
+TrainerHypersType = TypeVar("TrainerHypersType")
 
 
-class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
+class ModelInterface(nn.Module, Generic[ModelHypersType], metaclass=ABCMeta):
     """
     Abstract base class for a machine learning model in metatrain.
 
     All architectures in metatrain must be implemented as sub-class of this class,
     and implement the corresponding methods.
+
+    This class derives from :py:class:`metatensor.learn.nn.Module`, which is a custom
+    :py:class:`torch.nn.Module` with added support for metatensor's data types. Any
+    :py:class:`metatensor.torch.Labels`, :py:class:`metatensor.torch.TensorBlock`, or
+    :py:class:`metatensor.torch.TensorMap` can be registered as a buffer with
+    ``register_buffer``. This data will be included in the ``state_dict()`` (if the
+    buffer is ``persistent``) and moved to the correct dtype/device by ``to()``.
 
     :param hypers: A dictionary with the model's hyper-parameters.
     :param dataset_info: Information containing details about the dataset, such as
@@ -45,8 +48,8 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
 
     This is used to upgrade checkpoints produced with earlier versions of the code.
     See :ref:`ckpt_version` for more information."""
-    __supported_devices__: List[torch.device]
-    """List of torch devices supported by this model architecture.
+    __supported_devices__: List[str]
+    """List of torch device names supported by this model architecture.
 
     They should be sorted in order of preference since ``metatrain``  will use
     this and ``__supported_dtypes__`` to determine, based on the user request
@@ -69,8 +72,25 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
     ``architecture`` key should contain references about the general architecture.
     """
 
+    def __init_subclass__(cls) -> None:
+        super().__init_subclass__()
+
+        # Add annotation for `_mts_buffer_names` in the class. Without this, TorchScript
+        # is unable to determing the type of an empty attribute (which is the case when
+        # a class does not register any buffers), and removes it from the scripted
+        # model. In turn, this causes metatensor-torch to fall back to the old code for
+        # `to()`, which requires dumping the scripted model to a string, taking 10s and
+        # more for each call.
+        #
+        # This is a temporary workaround, and can be removed once metatensor-torch drops
+        # the fallback path.
+        cls.__annotations__["_mts_buffer_names"] = List[str]
+
     def __init__(
-        self, hypers: HypersType, dataset_info: DatasetInfo, metadata: ModelMetadata
+        self,
+        hypers: ModelHypersType,
+        dataset_info: DatasetInfo,
+        metadata: ModelMetadata,
     ) -> None:
         """"""
         super().__init__()
@@ -124,18 +144,23 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         """
-        Get the outputs currently supported by this model.
+        Get the outputs currently supported by this model, with their layout.
 
-        This will likely be the same outputs that are set as this model capabilities in
-        :py:func:`ModelInterface.export`.
+        These are the same outputs that are set as this model capabilities in
+        :py:func:`ModelInterface.export`, where they are described by
+        :py:class:`metatomic.torch.ModelOutput`.
 
         :return: A dictionary of the supported outputs by this model.
         """
 
     @abstractmethod
-    def restart(self, dataset_info: DatasetInfo) -> "ModelInterface":
+    def restart(
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
+    ) -> "ModelInterface":
         """
         Update a model to restart training, potentially with different dataset and/or
         targets.
@@ -146,6 +171,8 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
 
         :param dataset_info: Information about the new dataset, including the targets
             that will be used for training.
+
+        :param model_hypers: The new hyperparameters for the model.
 
         :return: The updated model, or a new instance of the model, that is able to
             handle the new dataset.
@@ -207,29 +234,38 @@ class ModelInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
 
     @classmethod
     @abstractmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict["str", Any]) -> Dict["str", Any]:
+    def upgrade_checkpoint(
+        cls, checkpoint: Dict["str", Any], version: Optional[int] = None
+    ) -> Dict["str", Any]:
         """
         Upgrade the checkpoint to the current version of the model.
 
         :param checkpoint: Checkpoint's state dictionary.
-
-        :raises RuntimeError: if the checkpoint cannot be upgraded to the current
-            version of the model.
+        :param version: Version to which the checkpoint should be upgraded. If ``None``,
+            the checkpoint will be upgraded to the current version of the model.
+        :raises RuntimeError: if the checkpoint cannot be upgraded to the desired
+            version.
 
         :return: The upgraded checkpoint.
         """
 
     @abstractmethod
-    def get_checkpoint(self) -> Dict[str, Any]:
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Get the checkpoint of the model. This should contain all the information
         needed by `load_checkpoint` to recreate the same model instance.
+
+        :param best_model_state_dict: Optional state dictionary of the best model
+            (if available). If provided, it should likely be included in the checkpoint
+            to allow for resuming training or evaluation from the best model state.
 
         :return: The model's checkpoint.
         """
 
 
-class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
+class TrainerInterface(Generic[TrainerHypersType, ModelHypersType], metaclass=ABCMeta):
     """
     Abstract base class for a model trainer in metatrain.
 
@@ -246,7 +282,7 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
     This is used to upgrade checkpoints produced with earlier versions of the code.
     See :ref:`ckpt_version` for more information."""
 
-    def __init__(self, hypers: HypersType):
+    def __init__(self, hypers: TrainerHypersType):
         required_attributes = [
             "__checkpoint_version__",
         ]
@@ -270,9 +306,44 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
         super().__setattr__(name, value)
 
     @abstractmethod
+    def setup(
+        self, model_hypers: ModelHypersType, dataset_info: DatasetInfo
+    ) -> Any:  # "MetatrainModel"
+        """
+        Setup the trainer and return an initialized model ready for training.
+
+        :param model_hypers: The hyper-parameters of the model to be trained.
+        :param dataset_info: Information about the dataset to be used for training.
+
+        :return: An initialized MetatrainModel ready for training.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support the `setup` method. "
+        )
+
+    @abstractmethod
+    def restart(
+        self,
+        model: Any,  # MetatrainModel
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypersType,
+    ) -> Any:  # MetatrainModel
+        """Restart a model for training with a new dataset info.
+
+        :param model: The model to be restarted.
+        :param dataset_info: Information about the new dataset to be used for training.
+        :param model_hypers: The new hyperparameters to set for the model.
+
+        :return: The restarted model, ready for training with the new dataset info.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support the `restart` method. "
+        )
+
+    @abstractmethod
     def train(
         self,
-        model: ModelInterface,
+        model: Any,  # MetatrainModel
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -304,11 +375,15 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
 
     @classmethod
     @abstractmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
         """
         Upgrade the checkpoint to the current version of the trainer.
 
         :param checkpoint: Checkpoint's state dictionary.
+        :param version: Version to which the checkpoint should be upgraded. If ``None``,
+            the checkpoint should be upgraded to the current version of the trainer.
 
         :raises RuntimeError: if the checkpoint cannot be upgraded to the current
             version of the trainer.
@@ -321,7 +396,7 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
     def load_checkpoint(
         cls,
         checkpoint: Dict[str, Any],
-        hypers: HypersType,
+        hypers: TrainerHypersType,
         context: Literal["restart", "finetune"],
     ) -> "TrainerInterface":
         """
@@ -337,3 +412,72 @@ class TrainerInterface(Generic[HypersType], metaclass=ABCMeta):
 
         :return: The loaded trainer instance.
         """
+
+
+def common_upgrade_checkpoint(
+    checkpoint: dict[str, Any],
+    version: Optional[int],
+    current_version: int,
+    checkpoint_type: Literal["model", "trainer"],
+    checkpoints: ModuleType,
+) -> dict[str, Any]:
+    """Generic function to apply checkpoint upgrades for both models and trainers.
+
+    The models and trainers can use it if their checkpoint upgrade logic
+    follows the same pattern of having a module with upgrade functions named as
+    ``model_update_v{v}_v{v + 1}`` and ``trainer_update_v{v}_v{v + 1}``,
+    where ``v`` is the version number.
+
+    Otherwise, they can implement their own upgrade logic in their
+    ``upgrade_checkpoint`` method, they are not forced to use this function.
+
+    :param checkpoint: Checkpoint's dictionary to upgrade.
+    :param version: Version to which the checkpoint should be upgraded. If ``None``,
+        the checkpoint will be upgraded to the current version of the model/trainer.
+    :param current_version: The current version of the model/trainer.
+    :param checkpoint_type: Whether the checkpoint upgrade corresponds to
+        a model or a trainer.
+    :param checkpoints: The module containing the upgrade functions for the
+        model/trainer.
+
+    :raises RuntimeError: if the checkpoint cannot be upgraded to the current
+        version of the model/trainer.
+
+    :return: The upgraded checkpoint.
+    """
+    version_key = f"{checkpoint_type}_ckpt_version"
+    if version is None:
+        version = current_version
+    elif version > current_version:
+        raise ValueError(
+            f"Was asked to upgrade checkpoint to version {version},"
+            f"which is higher than the current {checkpoint_type} version:"
+            f" {current_version}."
+        )
+    elif version < checkpoint[version_key]:
+        raise ValueError(
+            f"Was asked to upgrade checkpoint to version {version},"
+            "but the checkpoint is at a higher version:"
+            f" {checkpoint[version_key]}."
+        )
+
+    for v in range(1, version):
+        if checkpoint[version_key] == v:
+            update = getattr(checkpoints, f"{checkpoint_type}_update_v{v}_v{v + 1}")
+            update(checkpoint)
+            checkpoint[version_key] = v + 1
+
+    if checkpoint[version_key] != version:
+        if version == current_version:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint: the checkpoint is using "
+                f"{checkpoint_type} version {checkpoint[version_key]}, while the "
+                f"current {checkpoint_type} version is {version}."
+            )
+        else:
+            raise RuntimeError(
+                f"Unable to upgrade the checkpoint from version"
+                f" {checkpoint[version_key]} to version {version}."
+            )
+
+    return checkpoint

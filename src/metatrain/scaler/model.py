@@ -1,9 +1,8 @@
-import itertools
 import logging
 import warnings
-from typing import Dict, List, Literal, Optional, Union
+from collections.abc import Mapping
+from typing import Any, Dict, List, Literal, Optional, Union
 
-import metatensor.torch as mts
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import (
@@ -15,14 +14,13 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.utils.abc import ModelInterface
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
-from metatrain.utils.data.atomic_basis_helpers import (
-    densify_atomic_basis_dataset_info,
-    sparsify_atomic_basis_target,
-)
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
 from ._base_scaler import BaseScaler
@@ -31,7 +29,7 @@ from .utils.samples import get_samples_labels
 
 
 class Scaler(ModelInterface[ModelHypers]):
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 3
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -40,7 +38,7 @@ class Scaler(ModelInterface[ModelHypers]):
         }
     )
 
-    outputs: Dict[str, ModelOutput]
+    outputs: Dict[str, TargetInfo]
     atomic_types: List[int]
     target_infos: Dict[str, TargetInfo]
     new_outputs: List[str]
@@ -53,10 +51,6 @@ class Scaler(ModelInterface[ModelHypers]):
         super().__init__(hypers, dataset_info, self.__default_metadata__)
 
         self.atomic_types = sorted(dataset_info.atomic_types)
-        self.densify_atomic_basis = self.hypers.get("densify_atomic_basis", True)
-
-        if self.densify_atomic_basis:
-            dataset_info = densify_atomic_basis_dataset_info(dataset_info)
 
         self.target_infos = {
             target_name: target_info
@@ -71,7 +65,7 @@ class Scaler(ModelInterface[ModelHypers]):
                 for target_name, target_info in self.target_infos.items()
             },
         )
-        self.outputs: Dict[str, ModelOutput] = {}
+        self.outputs: Dict[str, TargetInfo] = {}
 
         # keeps track of dtype and device of the scaler
         self.register_buffer("dummy_buffer", torch.randn(1))
@@ -80,6 +74,56 @@ class Scaler(ModelInterface[ModelHypers]):
         for target_name, target_info in self.target_infos.items():
             self.new_outputs.append(target_name)
             self._add_output(target_name, target_info)
+
+    @classmethod
+    def from_valid_targets(
+        cls,
+        hypers: ModelHypers,
+        dataset_info: DatasetInfo,
+    ) -> "Scaler":
+        """Build a scaler from the valid targets of ``dataset_info``.
+
+        Targets the scaler cannot handle (see ``is_valid_target``)
+        are dropped.
+
+        :param hypers: hyperparameters for the model.
+        :param dataset_info: dataset information to build the model from.
+        :return: a scaler for the valid targets.
+        """
+        targets = {
+            name: info
+            for name, info in dataset_info.targets.items()
+            if cls.is_valid_target(name, info)
+        }
+        return cls(
+            hypers=hypers,
+            dataset_info=DatasetInfo(
+                length_unit=dataset_info.length_unit,
+                atomic_types=dataset_info.atomic_types,
+                targets=targets,
+                extra_data=dataset_info.extra_data,
+            ),
+        )
+
+    @staticmethod
+    def is_valid_target(target_name: str, target_info: TargetInfo) -> bool:
+        """
+        Check whether the scaler can work with the given target.
+
+        The scaler currently does not support targets with
+        sample kind "atom_pair".
+
+        :param target_name: Name of the target, used for logging.
+        :param target_info: Information about the target.
+        :return: Whether the target can be fitted by the composition model.
+        """
+        if target_info.sample_kind == "atom_pair":
+            logging.debug(
+                f"Scaler does not support target {target_name} "
+                "since sample kind 'atom_pair' is not implemented yet."
+            )
+            return False
+        return True
 
     def train_model(
         self,
@@ -100,50 +144,54 @@ class Scaler(ModelInterface[ModelHypers]):
             datasets = [datasets]
 
         train_or_load_scaler(
-            scaler=self,
-            fixed_weights=fixed_weights if fixed_weights is not None else {},
+            scaler=MetatrainModel(
+                self, additive_models=[], scaler=None, dataset_info=self.dataset_info
+            ),
             train_datasets=datasets,
             additive_models=additive_models,
+            device=self.dummy_buffer.device,
             batch_size=batch_size,
             is_distributed=is_distributed,
+            fixed_weights=fixed_weights if fixed_weights is not None else {},
         )
 
-    def restart(self, dataset_info: DatasetInfo) -> "Scaler":
+    def restart(
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
+    ) -> "Scaler":
         """
         Restart the model with a new dataset info.
 
         :param dataset_info: New dataset information to be used.
+        :param model_hypers: New hyperparameters for the model. They must match
+            the existing hyperparameters, otherwise an error is raised.
         :return: The restarted Scaler.
         """
+        if model_hypers is not None:
+            default_hypers = get_default_hypers("scaler")["model"]
+            raise_if_hypers_mismatch(
+                self.hypers, model_hypers, default_hypers=default_hypers
+            )
 
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
 
-        dense_new_targets = densify_atomic_basis_dataset_info(
-            DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=merged_info.atomic_types,
-                targets=dataset_info.targets,
-            )
-        ).targets
-
         self.target_infos = {
-            target_name: dense_new_targets[target_name]
+            target_name: merged_info.targets[target_name]
             for target_name in merged_info.targets
-            if target_name not in self.dataset_info.targets
         }
-
-        self.dataset_info = merged_info
 
         # register new outputs
         self.new_outputs = []
-        buffer_names = [n for n, _ in self.named_buffers()]
         for target_name, target_info in self.target_infos.items():
-            if target_name + "_scaler_buffer" in buffer_names:
+            if target_name in self.dataset_info.targets:
                 continue
             self.new_outputs.append(target_name)
             self.model.add_output(target_name, target_info.layout)
             self._add_output(target_name, target_info)
+
+        self.dataset_info = merged_info
 
         return self
 
@@ -168,20 +216,6 @@ class Scaler(ModelInterface[ModelHypers]):
             outputs,
             selected_atoms=selected_atoms,
         )
-
-        if not self.training and self.densify_atomic_basis:
-            # For atomic basis targets, sparsify to create blocks with "atom_type"
-            # in the key dimensions, and ensure properties are unpadded. In training
-            # mode, predictions stay dense: remove_additive subtracts them from
-            # transform-densified targets.
-            targets = self.dataset_info.targets
-            for k, v in scales.items():
-                if k in targets and targets[k].is_atomic_basis:
-                    scales[k] = sparsify_atomic_basis_target(
-                        systems,
-                        v,
-                        targets[k].layout,
-                    )
 
         return scales
 
@@ -213,11 +247,6 @@ class Scaler(ModelInterface[ModelHypers]):
         """
         if len(outputs) == 0:
             return {}
-
-        device = list(outputs.values())[0][0].values.device
-        dtype = list(outputs.values())[0][0].values.dtype
-
-        self.scales_to(device, dtype)
 
         scaled_outputs = self.model.forward(
             systems,
@@ -299,15 +328,11 @@ class Scaler(ModelInterface[ModelHypers]):
 
         return scales
 
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-        self.outputs[target_name] = ModelOutput(
-            unit=target_info.unit,
-            sample_kind="atom",
-            description=target_info.description,
-        )
+        self.outputs[target_name] = target_info
 
         layout = target_info.layout
 
@@ -324,92 +349,12 @@ class Scaler(ModelInterface[ModelHypers]):
             ],
         ]
 
-        if layout.sample_names == valid_sample_names[0]:
-            samples = Labels(["atomic_type"], torch.tensor([[-1]]))
-
-        elif layout.sample_names == valid_sample_names[1]:
-            samples = Labels(
-                ["atomic_type"], torch.arange(len(self.atomic_types)).reshape(-1, 1)
-            )
-
-        elif layout.sample_names == valid_sample_names[2]:
-            index_pairs = list(
-                itertools.product(range(len(self.atomic_types)), repeat=2)
-            )
-            samples = Labels(
-                ["first_atomic_type", "second_atomic_type"],
-                torch.tensor(index_pairs, dtype=torch.int32),
-            )
-
-        else:
+        if layout.sample_names not in valid_sample_names:
             raise ValueError(
                 "unknown sample kind. TensorMap has sample names"
                 f" {layout.sample_names} but expected one of "
                 f"{valid_sample_names}."
             )
-
-        fake_scales = TensorMap(
-            keys=layout.keys,
-            blocks=[
-                TensorBlock(
-                    values=torch.ones(  # important when scale_targets=False
-                        len(samples),
-                        len(block.properties),
-                        dtype=torch.float64,
-                    ),
-                    samples=samples,
-                    components=[],
-                    properties=block.properties,
-                )
-                for block in layout.blocks()
-            ],
-        )
-        self.register_buffer(
-            target_name + "_scaler_buffer",
-            mts.save_buffer(mts.make_contiguous(fake_scales)),
-        )
-
-        fake_scales_per_target = TensorMap(
-            keys=layout.keys,
-            blocks=[
-                TensorBlock(
-                    values=torch.ones(
-                        len(samples),
-                        len(block.properties),
-                        dtype=torch.float64,
-                    ),
-                    samples=samples,
-                    components=[],
-                    properties=block.properties,
-                )
-                for block in layout.blocks()
-            ],
-        )
-        self.register_buffer(
-            target_name + "_per_target_scaler_buffer",
-            mts.save_buffer(mts.make_contiguous(fake_scales_per_target)),
-        )
-
-        fake_scales_per_property = TensorMap(
-            keys=layout.keys,
-            blocks=[
-                TensorBlock(
-                    values=torch.ones(
-                        len(samples),
-                        len(block.properties),
-                        dtype=torch.float64,
-                    ),
-                    samples=samples,
-                    components=[],
-                    properties=block.properties,
-                )
-                for block in layout.blocks()
-            ],
-        )
-        self.register_buffer(
-            target_name + "_per_property_scaler_buffer",
-            mts.save_buffer(mts.make_contiguous(fake_scales_per_property)),
-        )
 
     def remove_output(self, target_name: str) -> None:
         """
@@ -420,83 +365,10 @@ class Scaler(ModelInterface[ModelHypers]):
         self.outputs.pop(target_name, None)
         self.dataset_info.targets.pop(target_name, None)
         self.model.remove_output(target_name)
-        for suffix in (
-            "_scaler_buffer",
-            "_per_target_scaler_buffer",
-            "_per_property_scaler_buffer",
-        ):
-            buffer_name = target_name + suffix
-            if hasattr(self, buffer_name):
-                delattr(self, buffer_name)
 
-    def scales_to(self, device: torch.device, dtype: torch.dtype) -> None:
-        if len(self.model.scales) != 0:
-            if self.model.scales[list(self.model.scales.keys())[0]].device != device:
-                self.model.scales = {
-                    k: v.to(device) for k, v in self.model.scales.items()
-                }
-            if self.model.scales[list(self.model.scales.keys())[0]].dtype != dtype:
-                self.model.scales = {
-                    k: v.to(dtype) for k, v in self.model.scales.items()
-                }
-        if len(self.model.per_target_scales) != 0:
-            if (
-                self.model.per_target_scales[
-                    list(self.model.per_target_scales.keys())[0]
-                ].device
-                != device
-            ):
-                self.model.per_target_scales = {
-                    k: v.to(device) for k, v in self.model.per_target_scales.items()
-                }
-            if (
-                self.model.per_target_scales[
-                    list(self.model.per_target_scales.keys())[0]
-                ].dtype
-                != dtype
-            ):
-                self.model.per_target_scales = {
-                    k: v.to(dtype) for k, v in self.model.per_target_scales.items()
-                }
-        if len(self.model.per_property_scales) != 0:
-            if (
-                self.model.per_property_scales[
-                    list(self.model.per_property_scales.keys())[0]
-                ].device
-                != device
-            ):
-                self.model.per_property_scales = {
-                    k: v.to(device) for k, v in self.model.per_property_scales.items()
-                }
-            if (
-                self.model.per_property_scales[
-                    list(self.model.per_property_scales.keys())[0]
-                ].dtype
-                != dtype
-            ):
-                self.model.per_property_scales = {
-                    k: v.to(dtype) for k, v in self.model.per_property_scales.items()
-                }
-
-        self.model._sync_device_dtype(device, dtype)
-
-    def sync_tensor_maps(self) -> None:
-        # Reload the scales of the (old) targets, which are not stored in the model
-        # state_dict, from the buffers
-        for k in self.dataset_info.targets:
-            buffer = self.__getattr__(k + "_scaler_buffer")
-            weights = mts.load_buffer(buffer.to(device="cpu"))
-            self.model.scales[k] = weights.to(device=buffer.device)
-
-            buffer = self.__getattr__(k + "_per_target_scaler_buffer")
-            weights = mts.load_buffer(buffer.to(device="cpu"))
-            self.model.per_target_scales[k] = weights.to(device=buffer.device)
-
-            buffer = self.__getattr__(k + "_per_property_scaler_buffer")
-            weights = mts.load_buffer(buffer.to(device="cpu"))
-            self.model.per_property_scales[k] = weights.to(device=buffer.device)
-
-    def get_checkpoint(self) -> Dict:
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
         model_state_dict = self.state_dict()
         checkpoint = {
             "architecture_name": "scaler",
@@ -509,7 +381,7 @@ class Scaler(ModelInterface[ModelHypers]):
             "epoch": None,
             "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": model_state_dict,
+            "best_model_state_dict": best_model_state_dict or model_state_dict,
             "training_additive_models": getattr(self, "training_additive_models", []),
         }
 
@@ -538,11 +410,7 @@ class Scaler(ModelInterface[ModelHypers]):
             dataset_info=model_data["dataset_info"],
         )
 
-        dtype = model_state_dict["dummy_buffer"].dtype
-        model.to(dtype)
-
         model.load_state_dict(model_state_dict)
-        model.sync_tensor_maps()
 
         model.training_additive_models = checkpoint["training_additive_models"]
 
@@ -551,37 +419,23 @@ class Scaler(ModelInterface[ModelHypers]):
         return model
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint.get("model_ckpt_version") == v:
-                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
-
-        version = checkpoint.get("model_ckpt_version")
-        if version != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {version}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
-            )
-
-        return checkpoint
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
 
     def export(self, metadata: Optional[ModelMetadata] = None) -> AtomisticModel:
         dtype = self.dummy_buffer.dtype
-        if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for scaler")
-
-        self.to(dtype)
-        self.scales_to(torch.device("cpu"), torch.float64)
-
-        interaction_range = 0.0
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
-            interaction_range=interaction_range,
+            interaction_range=0.0,
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
             dtype=dtype_to_str(dtype),

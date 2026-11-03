@@ -2,7 +2,7 @@ import argparse
 import copy
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
 from mace.tools.scripts_utils import (
@@ -12,14 +12,19 @@ from mace.tools.scripts_utils import (
 )
 from torch.utils.data import DistributedSampler
 
-from metatrain.composition import train_or_load_composition_model
-from metatrain.scaler import train_or_load_scaler
-from metatrain.utils.abc import ModelInterface, TrainerInterface
+from metatrain.composition import CompositionModel, train_or_load_composition_model
+from metatrain.scaler import Scaler, train_or_load_scaler
+from metatrain.utils.abc import (
+    TrainerInterface,
+    common_upgrade_checkpoint,
+)
 from metatrain.utils.additive import get_remove_additive_transform
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    DatasetInfo,
     build_train_dataloaders,
     build_val_dataloaders,
     get_num_workers,
@@ -27,6 +32,7 @@ from metatrain.utils.data import (
     validate_num_workers,
 )
 from metatrain.utils.data.atomic_basis_helpers import (
+    densify_atomic_basis_dataset_info,
     get_prepare_atomic_basis_targets_transform,
 )
 from metatrain.utils.distributed.distributed_data_parallel import (
@@ -39,7 +45,7 @@ from metatrain.utils.distributed.slurm import (
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import LossAggregator
+from metatrain.utils.loss import LossAggregator, LossSpecification
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -48,9 +54,10 @@ from metatrain.utils.neighbor_lists import (
 from metatrain.utils.per_atom import average_by_num_atoms
 from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import batch_to
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .documentation import TrainerHypers
+from .documentation import ModelHypers, TrainerHypers
 from .model import MetaMACE
 from .modules.finetuning import apply_finetuning_strategy
 
@@ -58,6 +65,7 @@ from .modules.finetuning import apply_finetuning_strategy
 def get_optimizer_and_scheduler(
     trainer_hypers: TrainerHypers,
     model: MetaMACE,
+    has_new_targets: bool,
     optimizer_state_dict: Optional[dict[str, Any]] = None,
     scheduler_state_dict: Optional[dict[str, Any]] = None,
     is_distributed: bool = False,
@@ -68,6 +76,8 @@ def get_optimizer_and_scheduler(
 
     :param trainer_hypers: The trainer hyperparameters as provided in metatrain.yaml
     :param model: The MetaMACE model to optimize.
+    :param has_new_targets: Whether the model has new targets compared to the previous
+        training session.
     :param optimizer_state_dict: The state dict of the optimizer to resume from, if any.
     :param scheduler_state_dict: The state dict of the scheduler to resume from, if any.
     :param is_distributed: Whether the training is distributed over GPUs or not.
@@ -91,10 +101,8 @@ def get_optimizer_and_scheduler(
 
     opt_options = get_params_options(opt_args, model.mace_model)
 
-    # Add heads, additive models and scaler parameters to the optimizer. Although the
-    # additive models and scaler weights are not optimized, this maintains consistency
-    # with PET, where all model parameters (including the additive models stored as
-    # attributes) are passed to the optimizer.
+    # Add the heads' parameters to the optimizer.
+    # Get them for all heads except the wrapper for the internal MACE head
     head_parameters = []
     for k, v in model.heads.items():
         if k != model.hypers["mace_head_target"]:
@@ -102,18 +110,9 @@ def get_optimizer_and_scheduler(
 
     opt_options["params"].extend(
         [
-            # Parameters of all heads except the wrapper for the internal MACE head
             {
                 "name": "heads",
                 "params": head_parameters,
-            },
-            {
-                "name": "additive_models",
-                "params": model.additive_models.parameters(),
-            },
-            {
-                "name": "scaler",
-                "params": model.scaler.parameters(),
             },
         ]
     )
@@ -125,22 +124,21 @@ def get_optimizer_and_scheduler(
     if optimizer_state_dict is not None and not is_finetune:
         # try to load the optimizer state dict, but this is only possible
         # if there are no new targets in the model (new parameters)
-        if not model.has_new_targets:
+        if not has_new_targets:
             optimizer.load_state_dict(optimizer_state_dict)
 
     scheduler = LRScheduler(optimizer, opt_args)
 
     if scheduler_state_dict is not None and not is_finetune:
         # same as the optimizer, try to load the scheduler state dict
-        if not model.has_new_targets:
+        if not has_new_targets:
             scheduler.load_state_dict(scheduler_state_dict)
 
     return optimizer, scheduler
 
 
-class Trainer(TrainerInterface):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 4
-    __hypers_cls__ = TrainerHypers
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -152,6 +150,102 @@ class Trainer(TrainerInterface):
         self.best_metric: Optional[float] = None
         self.best_model_state_dict: Optional[Dict[str, Any]] = None
         self.best_optimizer_state_dict: Optional[Dict[str, Any]] = None
+        self.has_new_targets: bool = False
+
+    def setup(
+        self, model_hypers: ModelHypers, dataset_info: DatasetInfo
+    ) -> MetatrainModel[MetaMACE]:
+
+        model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+
+        model = MetaMACE(hypers=model_hypers, dataset_info=model_dataset_info)
+
+        # If a MACE model has been loaded from a checkpoint, the atomic types
+        # that it supports have been loaded from the checkpoint. So get back
+        # the dataset info from the model.
+        model_dataset_info = model.dataset_info
+        # Also update the atomic types for the wrapper
+        dataset_info = DatasetInfo(
+            length_unit=dataset_info.length_unit,
+            atomic_types=model_dataset_info.atomic_types,
+            targets=dataset_info.targets,
+            extra_data=dataset_info.extra_data,
+        )
+
+        # Set up additive models
+        composition_model = CompositionModel.from_valid_targets(
+            model_dataset_info, model_dataset_info.atomic_types
+        )
+        additive_models = [composition_model]
+
+        # Initialize scaler
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        scaler = Scaler.from_valid_targets(
+            hypers=scaler_hypers,
+            dataset_info=model_dataset_info,
+        )
+
+        return MetatrainModel(
+            core=model,
+            additive_models=additive_models,
+            scaler=scaler,
+            dataset_info=dataset_info,
+        )
+
+    def restart(
+        self,
+        model: MetatrainModel[MetaMACE],
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypers,
+    ) -> MetatrainModel[MetaMACE]:
+
+        # -------------------------------------------------
+        #        Find out what are the new targets
+        # --------------------------------------------------
+        merged_info = model.dataset_info.union(dataset_info)
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in model.dataset_info.targets
+        }
+        self.has_new_targets = len(new_targets) > 0
+
+        # ------------------------------------------------------
+        #  Ask the models to restart with the new dataset info
+        # -------------------------------------------------------
+        model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+
+        comp_model_info = DatasetInfo(
+            length_unit=model_dataset_info.length_unit,
+            atomic_types=model_dataset_info.atomic_types,
+            targets={
+                target_name: target_info
+                for target_name, target_info in model_dataset_info.targets.items()
+                if model.additive_models[0].is_valid_target(target_name, target_info)
+            },
+        )
+
+        scaler_info = DatasetInfo(
+            length_unit=model_dataset_info.length_unit,
+            atomic_types=model_dataset_info.atomic_types,
+            targets={
+                target_name: target_info
+                for target_name, target_info in model_dataset_info.targets.items()
+                if Scaler.is_valid_target(target_name, target_info)
+            },
+            extra_data=model_dataset_info.extra_data,
+        )
+
+        model.restart(
+            dataset_info,
+            model_dataset_info,
+            additive_models_dataset_info=[comp_model_info]
+            + [model_dataset_info] * (len(model.additive_models) - 1),
+            scaler_dataset_info=scaler_info,
+            model_hypers=model_hypers,
+        )
+
+        return model
 
     def train(
         self,
@@ -163,6 +257,9 @@ class Trainer(TrainerInterface):
         checkpoint_dir: str,
     ) -> None:
         assert dtype in MetaMACE.__supported_dtypes__
+        assert isinstance(model, MetatrainModel)
+        mace_model = model.core
+        assert isinstance(mace_model, MetaMACE)
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
         is_finetune = "finetune" in self.hypers
@@ -205,27 +302,19 @@ class Trainer(TrainerInterface):
                 f"[{num_trainable_params / num_params:.2%} %]"
             )
 
-        # Move the model to the device and dtype:
-        model.to(device=device, dtype=dtype)
-        # The additive models of MetaMACE are always in float64 (to avoid numerical
-        # errors in the composition weights, which can be very large).
-        for additive_model in model.additive_models:
-            additive_model.to(dtype=torch.float64)
-        model.scaler.to(dtype=torch.float64)
-
         # Set up transformations
         dataset_info = model.dataset_info
         train_targets = dataset_info.targets
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         atomic_basis_transform, atomic_basis_reverse_transform = (
             get_prepare_atomic_basis_targets_transform(
-                train_targets, dataset_info.extra_data
+                model.dataset_info, mace_model.dataset_info
             )
         )
 
         atomic_baseline = self.hypers["atomic_baseline"]
         if isinstance(atomic_baseline, str):
-            if model.get_fixed_composition_weights():
+            if mace_model.get_fixed_composition_weights():
                 raise ValueError(
                     "The loaded MACE model provides its own atomic baselines, "
                     "which cannot be combined with a composition model "
@@ -234,21 +323,27 @@ class Trainer(TrainerInterface):
                 )
         else:
             atomic_baseline = {
-                **model.get_fixed_composition_weights(),
+                **mace_model.get_fixed_composition_weights(),
                 **atomic_baseline,
             }
         train_or_load_composition_model(
-            composition_model=model.additive_models[0],
+            composition_model=MetatrainModel(
+                core=model.additive_models[0],
+                additive_models=[],
+                scaler=None,
+                dataset_info=model.dataset_info,
+            ),
             atomic_baseline=atomic_baseline,
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
+            device=device,
             batch_size=self.hypers["batch_size"],
             is_distributed=is_distributed,
             checkpoint_dir=checkpoint_dir,
         )
         scaling_weights = self.hypers["fixed_scaling_weights"]
         if isinstance(scaling_weights, str):
-            if model.get_fixed_scaling_weights():
+            if mace_model.get_fixed_scaling_weights():
                 raise ValueError(
                     "The loaded MACE model provides its own scaling weights, "
                     "which cannot be combined with a scaler checkpoint passed as "
@@ -257,7 +352,7 @@ class Trainer(TrainerInterface):
                 )
         else:
             scaling_weights = {
-                **model.get_fixed_scaling_weights(),
+                **mace_model.get_fixed_scaling_weights(),
                 **scaling_weights,
             }
 
@@ -270,14 +365,20 @@ class Trainer(TrainerInterface):
                     "a checkpoint also for the composition model."
                 )
             train_or_load_scaler(
-                scaler=model.scaler,
-                fixed_weights=scaling_weights,
+                scaler=MetatrainModel(
+                    core=model.scaler,
+                    additive_models=[],
+                    scaler=None,
+                    dataset_info=model.dataset_info,
+                ),
                 train_datasets=train_datasets,
                 additive_models=model.additive_models,
+                device=device,
                 batch_size=self.hypers["batch_size"],
                 is_distributed=is_distributed,
-                checkpoint_dir=checkpoint_dir,
+                fixed_weights=scaling_weights,
                 per_structure_targets=self.hypers["per_structure_targets"],
+                checkpoint_dir=checkpoint_dir,
             )
 
         logging.info("Setting up data loaders")
@@ -308,17 +409,11 @@ class Trainer(TrainerInterface):
             val_samplers = [None] * len(val_datasets)
 
         # Extract additive models and scaler and move them to CPU/float64 so they
-        # can be used in the collate function
-        model.additive_models[0].weights_to(device="cpu", dtype=torch.float64)
-        additive_models = copy.deepcopy(
-            model.additive_models.to(dtype=torch.float64, device="cpu")
+        # can be used in the collate function.
+        additive_models = copy.deepcopy(model.additive_models).to(
+            dtype=torch.float64, device="cpu"
         )
-        model.additive_models.to(device)
-        model.additive_models[0].weights_to(device=device, dtype=torch.float64)
-        model.scaler.scales_to(device="cpu", dtype=torch.float64)
-        scaler = copy.deepcopy(model.scaler.to(dtype=torch.float64, device="cpu"))
-        model.scaler.to(device)
-        model.scaler.scales_to(device=device, dtype=torch.float64)
+        scaler = copy.deepcopy(model.scaler).to(dtype=torch.float64, device="cpu")
 
         # Create a collate function:
         collate_fn = CollateFn(
@@ -330,6 +425,10 @@ class Trainer(TrainerInterface):
                 get_remove_scale_transform(scaler),
             ],
         )
+
+        # Now move the whole model (including the composition model and scaler,
+        # which were trained in float64 above) to the training device and dtype.
+        model.to(device=device, dtype=dtype)
 
         if self.hypers["num_workers"] is None:
             num_workers = get_num_workers()
@@ -376,7 +475,7 @@ class Trainer(TrainerInterface):
                 outputs_list.append(f"{target_name}_{gradient_name}_gradients")
 
         # Create a loss function:
-        loss_hypers = self.hypers["loss"]
+        loss_hypers = cast(dict[str, LossSpecification], self.hypers["loss"])  # mypy
         loss_fn = LossAggregator(
             targets=train_targets,
             config=loss_hypers,
@@ -394,7 +493,8 @@ class Trainer(TrainerInterface):
 
         optimizer, lr_scheduler = get_optimizer_and_scheduler(
             self.hypers,
-            model,
+            mace_model,
+            self.has_new_targets,
             self.optimizer_state_dict,
             self.scheduler_state_dict,
             is_distributed,
@@ -704,10 +804,12 @@ class Trainer(TrainerInterface):
         if is_distributed:
             torch.distributed.destroy_process_group()
 
-    def save_checkpoint(self, model: ModelInterface, path: Union[str, Path]) -> None:
-        checkpoint = model.get_checkpoint()
-        if self.best_model_state_dict is not None:
-            self.best_model_state_dict["finetune_config"] = model.finetune_config
+    def save_checkpoint(
+        self, model: MetatrainModel[MetaMACE], path: Union[str, Path]
+    ) -> None:
+        checkpoint = model.get_checkpoint(self.best_model_state_dict)
+        checkpoint["core"]["epoch"] = self.epoch
+        checkpoint["core"]["best_epoch"] = self.best_epoch
         checkpoint.update(
             {
                 "trainer_ckpt_version": self.__checkpoint_version__,
@@ -717,7 +819,6 @@ class Trainer(TrainerInterface):
                 "scheduler_state_dict": self.scheduler_state_dict,
                 "best_epoch": self.best_epoch,
                 "best_metric": self.best_metric,
-                "best_model_state_dict": self.best_model_state_dict,
                 "best_optimizer_state_dict": self.best_optimizer_state_dict,
             }
         )
@@ -743,23 +844,17 @@ class Trainer(TrainerInterface):
             trainer.epoch = None  # interpreted as zero in the training loop
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
-        trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
+        trainer.best_model_state_dict = MetatrainModel.get_state_dict_from_checkpoint(
+            checkpoint, "best_model_state_dict"
+        )
         trainer.best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         return trainer
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["trainer_ckpt_version"] == v:
-                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["trainer_ckpt_version"] = v + 1
-
-        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using "
-                f"trainer version {checkpoint['trainer_ckpt_version']}, while the "
-                f"current trainer version is {cls.__checkpoint_version__}."
-            )
-        return checkpoint
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "trainer", checkpoints
+        )

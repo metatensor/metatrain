@@ -4,6 +4,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatrain.utils.metrics import (
+    EquivarianceAccumulator,
     MAEAccumulator,
     RMSEAccumulator,
     _get_global_keys,
@@ -456,6 +457,12 @@ def test_mae_finalize_distributed_missing_key_on_local_rank(monkeypatch):
     [
         (RMSEAccumulator, "RMSE (per atom)", (1.0 / 2) ** 0.5, 1.0),
         (MAEAccumulator, "MAE (per atom)", 1.0 / 2, 1.0),
+        (
+            EquivarianceAccumulator,
+            "equivariance RMSE (per atom)",
+            (1.0 / 2) ** 0.5,
+            1.0,
+        ),
     ],
 )
 def test_finalize_distributed_separate_blocks_missing_block_on_local_rank(
@@ -509,7 +516,23 @@ def test_finalize_distributed_separate_blocks_missing_block_on_local_rank(
     prediction_tm = TensorMap(keys=block_keys, blocks=[prediction_block])
 
     acc = accumulator_class(separate_blocks=True)
-    acc.update({"energy": prediction_tm}, {"energy": target_tm})
+    if accumulator_class is EquivarianceAccumulator:
+        # the variances play the role of the squared errors
+        squared_errors = TensorMap(
+            keys=block_keys,
+            blocks=[
+                TensorBlock(
+                    values=(prediction_tm.block().values - target_tm.block().values)
+                    ** 2,
+                    samples=Labels.range("samples", 2),
+                    components=[],
+                    properties=Labels("energy", torch.tensor([[0]])),
+                )
+            ],
+        )
+        acc.update({"energy": squared_errors})
+    else:
+        acc.update({"energy": prediction_tm}, {"energy": target_tm})
 
     result = acc.finalize(
         not_per_atom=[], is_distributed=True, device=torch.device("cpu")
@@ -525,3 +548,80 @@ def test_finalize_distributed_separate_blocks_missing_block_on_local_rank(
     assert (
         abs(result[f"energy (label_name=1) {metric_suffix}"] - expected_block1) < 1e-6
     )
+
+
+@pytest.fixture
+def o3_variance():
+    """O(3) variance of a target, as returned by a metatomic ``SymmetrizedModel``,
+    spread over an o3_lambda=0 and an o3_lambda=2 block."""
+    return TensorMap(
+        Labels(["o3_lambda", "o3_sigma"], torch.tensor([[0, 1], [2, 1]])),
+        [
+            TensorBlock(
+                values=torch.tensor([[1.0], [2.0]]),
+                samples=Labels.range("system", 2),
+                components=[],
+                properties=Labels.range("p", 1),
+            ),
+            TensorBlock(
+                values=torch.tensor([[0.5], [1.5]]),
+                samples=Labels.range("system", 2),
+                components=[],
+                properties=Labels.range("p", 1),
+            ),
+        ],
+    )
+
+
+def test_equivariance_accumulator(o3_variance):
+    """Pools the variances of the blocks of a target, weighted by their number of
+    components ``2 * o3_lambda + 1``."""
+    accumulator = EquivarianceAccumulator()
+    accumulator.update({"mtt::target": o3_variance})
+
+    # (1 * (1.0 + 2.0) + 5 * (0.5 + 1.5)) / (1 * 2 + 5 * 2)
+    expected = (13.0 / 12.0) ** 0.5
+    metrics = accumulator.finalize(not_per_atom=[])
+    assert metrics == {
+        "mtt::target equivariance RMSE (per atom)": pytest.approx(expected)
+    }
+    metrics = accumulator.finalize(not_per_atom=["target"])
+    assert metrics == {"mtt::target equivariance RMSE": pytest.approx(expected)}
+
+
+def test_equivariance_accumulator_separate_blocks(o3_variance):
+    """With ``separate_blocks=True``, each block gets its own (unweighted) RMSE."""
+    accumulator = EquivarianceAccumulator(separate_blocks=True)
+    accumulator.update({"mtt::target": o3_variance})
+
+    metrics = accumulator.finalize(not_per_atom=[])
+    assert metrics == {
+        "mtt::target (o3_lambda=0,o3_sigma=1) equivariance RMSE (per atom)": (
+            pytest.approx(((1.0 + 2.0) / 2) ** 0.5)
+        ),
+        "mtt::target (o3_lambda=2,o3_sigma=1) equivariance RMSE (per atom)": (
+            pytest.approx(((0.5 + 1.5) / 2) ** 0.5)
+        ),
+    }
+
+
+def test_equivariance_accumulator_without_o3_lambda():
+    """Targets that metatomic does not decompose carry no ``o3_lambda`` key, and
+    every block has the same number of components, so the weight cancels."""
+    variance = TensorMap(
+        Labels(["_"], torch.tensor([[0]])),
+        [
+            TensorBlock(
+                values=torch.full((3, 1), 4.0),
+                samples=Labels.range("atom", 3),
+                components=[],
+                properties=Labels.range("p", 1),
+            )
+        ],
+    )
+
+    accumulator = EquivarianceAccumulator()
+    accumulator.update({"mtt::custom": variance})
+
+    metrics = accumulator.finalize(not_per_atom=[])
+    assert metrics == {"mtt::custom equivariance RMSE (per atom)": pytest.approx(2.0)}

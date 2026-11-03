@@ -16,4 +16,7 @@ ENV PATH="/root/.local/bin:$PATH"
 ENV PIP_EXTRA_INDEX_URL="https://download.pytorch.org/whl/cu129"
 ENV UV_EXTRA_INDEX_URL="https://download.pytorch.org/whl/cu129"
 ENV UV_INDEX_STRATEGY="unsafe-best-match"
+# takes torch only from the CUDA 12.9 index: the default wheels of newer
+# versions are built for CUDA 13, which the drivers of the nodes do not support
+ENV UV_TORCH_BACKEND="cu129"
 ENV CUDA_HOME="/usr/local/cuda"

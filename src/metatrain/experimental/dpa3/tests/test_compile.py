@@ -39,6 +39,7 @@ def _make_model_and_systems():
         length_unit="Angstrom", atomic_types=[1, 6, 7, 8], targets=targets
     )
     model = DPA3(hypers, dataset_info)
+    model.to(torch.float64)
 
     systems = read_systems(DATASET_PATH)[:3]
     systems = [s.to(torch.float64) for s in systems]

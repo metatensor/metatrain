@@ -64,7 +64,7 @@ class NonLinearHead(torch.nn.Module):
             logging.warning(
                 f"The output irreps '{irreps_out}' contain irreps not present in the "
                 f"input irreps '{irreps_in}'. "
-                "The following irreps are missing: {missing_ir}."
+                f"The following irreps are missing: {missing_ir}."
             )
 
         # Get the irreps present in the output, so that we can filter

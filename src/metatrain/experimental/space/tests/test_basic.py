@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 import torch
-from metatomic.torch import System
+from metatomic.torch import ModelOutput, System
 
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import DatasetInfo
@@ -11,6 +11,7 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.testing import (
     ArchitectureTests,
     CheckpointTests,
+    InputTests,
     OutputTests,
     TorchscriptTests,
 )
@@ -31,14 +32,34 @@ class SPACETests(ArchitectureTests):
         return hypers
 
 
+class TestInput(InputTests, SPACETests): ...
+
+
 class TestOutput(OutputTests, SPACETests):
     is_equivariant_reflections = False
     equivariance_error_tolerance = 1e-4  # due to many layers in the default hypers
+    supports_spherical_atomic_basis_outputs = False
     supports_spherical_rank2_outputs = False
 
+    # We need a batch size larger than the number of last layer features
+    # in order to test that outputs are linear with respect to the
+    # last layer features.
+    batch_size = 34
+    atoms_per_system = 2
+
     @pytest.fixture
-    def n_last_layer_features(self) -> int:
-        return 256
+    def model_hypers(
+        self,
+    ) -> dict:
+        """Model hypers that make sure the last layer features are
+        not so large.
+
+        :param mace_init_mode: How to initialize the MACE model.
+        :return: Hyperparameters for the model.
+        """
+        defaults = get_default_hypers(self.architecture)["model"]
+        defaults["num_element_channels"] = 16
+        return defaults
 
 
 class TestTorchscript(TorchscriptTests, SPACETests):
@@ -75,7 +96,7 @@ class TestTorchscript(TorchscriptTests, SPACETests):
         model = torch.jit.script(model)
         model(
             [system],
-            model.outputs,
+            {name: ModelOutput(sample_kind="atom") for name in model.outputs},
         )
 
     def test_torchscript_save_load(
@@ -139,7 +160,7 @@ class TestTorchscript(TorchscriptTests, SPACETests):
         model = torch.jit.script(model)
         model(
             [system],
-            model.outputs,
+            {name: ModelOutput(sample_kind="atom") for name in model.outputs},
         )
 
     def test_torchscript_dtypechange(

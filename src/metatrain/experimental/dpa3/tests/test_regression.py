@@ -62,7 +62,10 @@ def test_regression_init():
     # torch.set_printoptions(precision=12)
     # print(output["mtt::U0"].block().values)
 
-    torch.testing.assert_close(output["mtt::U0"].block().values, expected_output)
+    # The model runs in float32, so float64-default atol=1e-7 is too tight.
+    torch.testing.assert_close(
+        output["mtt::U0"].block().values, expected_output, atol=1e-5, rtol=1e-5
+    )
 
 
 def test_regression_energies_forces_train():
@@ -102,8 +105,8 @@ def test_regression_energies_forces_train():
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[6], targets=target_info_dict
     )
-    model = DPA3(MODEL_HYPERS, dataset_info).to("cpu")
     trainer = Trainer(hypers["training"])
+    model = trainer.setup(MODEL_HYPERS, dataset_info).to("cpu")
     trainer.train(
         model=model,
         dtype=torch.float32,
@@ -139,9 +142,9 @@ def test_regression_energies_forces_train():
     )
 
     # if you need to change the hardcoded values:
-    torch.set_printoptions(precision=12)
-    print(output["energy"].block().values)
-    print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
+    # torch.set_printoptions(precision=12)
+    # print(output["energy"].block().values)
+    # print(output["energy"].block().gradient("positions").values.squeeze(-1)[0])
 
     # Training is done in float32, so float64-default atol=1e-7 is too tight.
     torch.testing.assert_close(

@@ -72,8 +72,8 @@ def test_train_float32_raises():
             )
         },
     )
-    model = CompositionModel(hypers={}, dataset_info=dataset_info)
     trainer = Trainer(hypers={**DEFAULT_HYPERS["training"]})
+    model = trainer.setup(model_hypers={}, dataset_info=dataset_info)
 
     with pytest.raises(
         ValueError,

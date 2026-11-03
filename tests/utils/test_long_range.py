@@ -1,6 +1,6 @@
 import pytest
 import torch
-from metatomic.torch import systems_to_torch
+from metatomic.torch import ModelOutput, systems_to_torch
 
 from metatrain.utils.architectures import get_default_hypers, import_architecture
 from metatrain.utils.data import DatasetInfo
@@ -46,17 +46,17 @@ def test_long_range(periodicity, architecture_name, tmpdir):
         get_system_with_neighbor_lists(system, requested_nls) for system in systems
     ]
 
-    model(systems, {"energy": model.outputs["energy"]})
+    model(systems, {"energy": ModelOutput(sample_kind="atom")})
 
     # now torchscripted
     model = torch.jit.script(model)
-    model(systems, {"energy": model.outputs["energy"]})
+    model(systems, {"energy": ModelOutput(sample_kind="atom")})
 
     # torch.jit.save and torch.jit.load
     with tmpdir.as_cwd():
         torch.jit.save(model, "model.pt")
         model = torch.jit.load("model.pt")
-        model(systems, {"energy": model.outputs["energy"]})
+        model(systems, {"energy": ModelOutput(sample_kind="atom")})
 
 
 @pytest.mark.parametrize("architecture_name", ["pet", "soap_bpnn"])
@@ -89,4 +89,4 @@ def test_long_range_1d_structure(architecture_name):
     with pytest.raises(
         NotImplementedError, match="Long-range featurizer does not support 1D systems."
     ):
-        model(systems, {"energy": model.outputs["energy"]})
+        model(systems, {"energy": ModelOutput(sample_kind="atom")})

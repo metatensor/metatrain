@@ -8,6 +8,7 @@ This sections describes how to install the package, and its most basic commands.
 
    quickstart
    train_yaml_config
+   eval_yaml_config
    override
    checkpoints
    units

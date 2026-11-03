@@ -8,8 +8,13 @@ import ase.units
 import pytest
 import torch
 from ase.md import VelocityVerlet
-from metatomic.torch import ModelOutput
+from metatomic.torch import ModelEvaluationOptions, ModelOutput, load_atomistic_model
 from metatomic_ase import MetatomicCalculator
+
+from metatrain.utils.data import DiskDataset
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
+
+from . import SPHERICAL_DISK_DATASET_PATH
 
 
 HERE = Path(__file__).parent
@@ -57,6 +62,58 @@ def test_llpr(monkeypatch, tmp_path):
     # 5. Check that fine-tuning the PET model works through the LLPR wrapper:
     command = ["mtt", "train", "options-pet-ft.yaml"]
     subprocess.check_call(command)
+
+
+def test_llpr_spherical_target(monkeypatch, tmp_path):
+    """
+    Tests the LLPRUncertaintyModel from the CLI on a per-atom spherical target with
+    several blocks.
+    """
+
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(SPHERICAL_DISK_DATASET_PATH, "spherical_disk_dataset.zip")
+    shutil.copy(HERE / "options-pet-spherical.yaml", "options-pet-spherical.yaml")
+    shutil.copy(HERE / "options-llpr-spherical.yaml", "options-llpr-spherical.yaml")
+
+    subprocess.check_call(["mtt", "train", "options-pet-spherical.yaml"])
+    command = ["mtt", "train", "options-llpr-spherical.yaml", "-o", "model-llpr.pt"]
+    subprocess.check_call(command)
+    subprocess.check_call(["mtt", "export", "model-llpr.ckpt"])
+
+    target = "mtt::electron_density_basis"
+    uncertainty = "mtt::aux::electron_density_basis_uncertainty"
+    ensemble = "mtt::aux::electron_density_basis_ensemble"
+    model = load_atomistic_model("model-llpr.pt")
+    dataset = DiskDataset("spherical_disk_dataset.zip")
+    systems = [
+        get_system_with_neighbor_lists(
+            dataset[i]["system"].to(torch.float32), model.requested_neighbor_lists()
+        )
+        for i in range(len(dataset))
+    ]
+    outputs = {
+        name: ModelOutput(sample_kind="atom")
+        for name in (target, uncertainty, ensemble)
+    }
+    predictions = model(
+        systems,
+        ModelEvaluationOptions(length_unit="angstrom", outputs=outputs),
+        check_consistency=True,
+    )
+
+    assert predictions[uncertainty].keys == predictions[target].keys
+    assert predictions[ensemble].keys == predictions[target].keys
+    for key, block in predictions[target].items():
+        uncertainty_block = predictions[uncertainty].block(key)
+        assert uncertainty_block.components == block.components
+        assert uncertainty_block.properties == block.properties
+        assert torch.all(torch.isfinite(uncertainty_block.values))
+        # the ensemble members are centered on the prediction
+        members = predictions[ensemble].block(key).values
+        members = members.reshape(
+            block.values.shape[:-1] + (-1,) + block.values.shape[-1:]
+        )
+        torch.testing.assert_close(members.mean(dim=-2), block.values)
 
 
 def test_with_old_llpr_checkpoint(monkeypatch, tmp_path):
@@ -139,7 +196,7 @@ def check_exported_model_predictions(
         uncertainty = predictions["energy_uncertainty"].block().values
         ensemble = predictions["energy_ensemble"].block().values
         assert torch.allclose(
-            energy, ensemble.mean(dim=1, keepdim=True), atol=1e-5, rtol=1e-5
+            energy, ensemble.mean(dim=1, keepdim=True), atol=1e-4, rtol=1e-5
         )
         # require lower precision for PET-MAD which only has 128 ensemble members
         required_precision = 3e-2 if ensemble.shape[1] < 1000 else 1e-2

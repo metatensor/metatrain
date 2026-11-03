@@ -13,6 +13,7 @@ from metatrain.utils.io import (
     model_from_checkpoint,
     trainer_from_checkpoint,
 )
+from metatrain.utils.wrapper import MetatrainModel
 
 
 @pytest.fixture(scope="module", params=["pathlib", "str", "file_url"])
@@ -71,11 +72,24 @@ def test_is_exported_file(MODEL_PATH):
 
 def test_load_model_checkpoint(load_path_ckpt):
     model = load_model(load_path_ckpt)
-    assert type(model) is SoapBpnn
+    assert isinstance(model, MetatrainModel)
+    assert isinstance(model.core, SoapBpnn)
 
     # TODO: test that weights are the expected if loading with `context == 'export'`.
     # One can use `list(model.bpnn[0].parameters())[0][0]` to get some weights. But,
     # currently weights of the `"export"` and the `"restart"` context are the same...
+
+
+def test_load_model_from_arch(monkeypatch, tmp_path, MODEL_PATH):
+    """Tests that a checkpoint containing only the 'core' architecture
+    can be loaded into a full MetatrainModel."""
+    monkeypatch.chdir(tmp_path)
+    path = MODEL_PATH.with_suffix(".ckpt")
+    ckpt = torch.load(path, weights_only=False, map_location="cpu")
+    model = model_from_checkpoint(ckpt["core"], context="restart")
+
+    assert isinstance(model, MetatrainModel)
+    assert isinstance(model.core, SoapBpnn)
 
 
 def test_load_model_checkpoint_newer_version(monkeypatch, tmp_path, MODEL_PATH_64_BIT):
@@ -85,7 +99,7 @@ def test_load_model_checkpoint_newer_version(monkeypatch, tmp_path, MODEL_PATH_6
     monkeypatch.chdir(tmp_path)
     path = MODEL_PATH_64_BIT.with_suffix(".ckpt")
     model = torch.load(path, weights_only=False, map_location="cpu")
-    model["model_ckpt_version"] = 5000000
+    model["core"]["model_ckpt_version"] = 5000000
 
     file = "model-version-5000000.ckpt"
     torch.save(model, file)
@@ -110,7 +124,7 @@ def test_load_model_checkpoint_older_version_upgrade_fails(
     monkeypatch.chdir(tmp_path)
     path = MODEL_PATH_64_BIT.with_suffix(".ckpt")
     model = torch.load(path, weights_only=False, map_location="cpu")
-    model["model_ckpt_version"] = 0
+    model["core"]["model_ckpt_version"] = 0
 
     file = "model-version-0.ckpt"
     torch.save(model, file)
@@ -125,9 +139,11 @@ def test_load_model_checkpoint_older_version_upgrade_fails(
         model_from_checkpoint(checkpoint, context="restart")
 
 
-def test_load_trainer_checkpoint_wrong_version(
+def test_load_trainer_checkpoint_newer_version(
     monkeypatch, tmp_path, MODEL_PATH_64_BIT
 ):
+    """A newer trainer checkpoint version than installed should tell the user to upgrade
+    metatrain, instead of trying (and failing) to upgrade the checkpoint."""
     monkeypatch.chdir(tmp_path)
     path = MODEL_PATH_64_BIT.with_suffix(".ckpt")
     model = torch.load(path, weights_only=False, map_location="cpu")
@@ -138,8 +154,10 @@ def test_load_trainer_checkpoint_wrong_version(
 
     message = (
         "Unable to load the trainer checkpoint for the 'soap_bpnn' architecture: the "
-        r"checkpoint is using version 5000000, while the current version is \d+; "
-        "and trying to upgrade the checkpoint failed."
+        r"checkpoint uses checkpoint format version 5000000, but the installed "
+        r"'soap_bpnn' architecture only supports up to version \d+\. You are using "
+        r"metatrain version .*, which is too old to read this checkpoint\. Please "
+        "upgrade metatrain to a newer version."
     )
 
     with pytest.raises(RuntimeError, match=message):

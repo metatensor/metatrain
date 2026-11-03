@@ -1,18 +1,19 @@
-from typing import Callable, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 import ase.neighborlist
 import numpy as np
 import torch
 import vesin
-from metatensor.torch import Labels, TensorBlock
+from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import NeighborListOptions, System, register_autograd_neighbors
 
+from .data.dataset import CollateTransform
 from .data.system_to_ase import system_to_ase
 
 
 def get_system_with_neighbor_lists_transform(
     requested_neighbor_lists: List[NeighborListOptions],
-) -> Callable:
+) -> CollateTransform:
     """
     Returns a function that adds the requested neighbor lists to each system.
 
@@ -24,13 +25,13 @@ def get_system_with_neighbor_lists_transform(
 
     def transform(
         systems: List[System],
-        targets: Dict[str, TensorBlock],
-        extra: Dict[str, TensorBlock],
-    ) -> Tuple[List[System], Dict[str, TensorBlock], Dict[str, TensorBlock]]:
+        targets: Dict[str, TensorMap],
+        extra: Dict[str, TensorMap],
+    ) -> Tuple[List[System], Dict[str, TensorMap], Dict[str, TensorMap]]:
         """
         :param systems: A list of `System` objects.
-        :param targets: A dictionary of target `TensorBlock` objects.
-        :param extra: A dictionary of extra `TensorBlock` objects.
+        :param targets: A dictionary of target `TensorMap` objects.
+        :param extra: A dictionary of extra `TensorMap` objects.
         :return: The systems with the requested neighbor lists added, along with
             the original targets and extra data.
         """

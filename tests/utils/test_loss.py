@@ -12,6 +12,7 @@ from metatrain.utils.loss import (
     GaussianCRPSLoss,
     LossAggregator,
     LossType,
+    TensorMapEmpiricalCRPSLoss,
     TensorMapGaussianCRPSLoss,
     TensorMapGaussianNLLLoss,
     TensorMapHuberLoss,
@@ -712,6 +713,90 @@ def ensemble_tensor_maps():
         "mean": mean_map,
         "ensemble": ensemble_map,
     }
+
+
+@pytest.fixture
+def spherical_ensemble_tensor_maps():
+    """Same as ``ensemble_tensor_maps``, for a spherical target with a lambda=0 and
+    a lambda=2 block."""
+    n_samples = 2
+    n_ensemble = 3
+    n_properties = 2
+
+    samples = Labels.range("sample", n_samples)
+    properties_mean = Labels.range("property", n_properties)
+    properties_ensemble = Labels.range("property", n_ensemble * n_properties)
+    keys = Labels(["o3_lambda", "o3_sigma"], torch.tensor([[0, 1], [2, 1]]))
+
+    generator = torch.Generator().manual_seed(0)
+    maps = {"target": [], "mean": [], "ensemble": []}
+    for o3_lambda in (0, 2):
+        components = [Labels.range("o3_mu", 2 * o3_lambda + 1)]
+        ensemble_values = torch.randn(
+            n_samples, 2 * o3_lambda + 1, n_ensemble, n_properties, generator=generator
+        )
+        mean_values = ensemble_values.mean(dim=-2)
+        values = {
+            "target": (mean_values + 0.1, properties_mean),
+            "mean": (mean_values, properties_mean),
+            "ensemble": (ensemble_values.flatten(-2), properties_ensemble),
+        }
+        for name, (block_values, properties) in values.items():
+            maps[name].append(
+                TensorBlock(
+                    values=block_values,
+                    samples=samples,
+                    components=components,
+                    properties=properties,
+                )
+            )
+    return {name: TensorMap(keys=keys, blocks=blocks) for name, blocks in maps.items()}
+
+
+@pytest.mark.parametrize(
+    "loss_class",
+    [TensorMapGaussianNLLLoss, TensorMapGaussianCRPSLoss, TensorMapEmpiricalCRPSLoss],
+)
+def test_ensemble_losses_with_components(loss_class, spherical_ensemble_tensor_maps):
+    """Ensemble losses must also work for targets that have components and
+    multiple blocks."""
+    tensor_maps = spherical_ensemble_tensor_maps
+    loss_fn = loss_class(
+        name="mtt::target",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+    )
+
+    predictions = {
+        "mtt::target": tensor_maps["mean"],
+        "mtt::aux::target_ensemble": tensor_maps["ensemble"],
+    }
+    targets = {"mtt::target": tensor_maps["target"]}
+
+    result = loss_fn.compute(predictions, targets)
+
+    # Each (sample, component) pair of each block must behave as an independent
+    # scalar target
+    def _as_scalar(tmap):
+        values = torch.cat(
+            [
+                block.values.reshape(-1, block.values.shape[-1])
+                for block in tmap.blocks()
+            ]
+        )
+        block = TensorBlock(
+            values=values,
+            samples=Labels.range("sample", values.shape[0]),
+            components=[],
+            properties=tmap.block(0).properties,
+        )
+        return TensorMap(keys=Labels.single(), blocks=[block])
+
+    scalar_predictions = {k: _as_scalar(v) for k, v in predictions.items()}
+    scalar_targets = {k: _as_scalar(v) for k, v in targets.items()}
+    expected = loss_fn.compute(scalar_predictions, scalar_targets)
+    torch.testing.assert_close(result, expected)
 
 
 def test_tensormap_gaussian_nll_loss(ensemble_tensor_maps):

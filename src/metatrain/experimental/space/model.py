@@ -1,11 +1,12 @@
+import copy
 import logging
 import warnings
+from collections.abc import Mapping
 from typing import Any, Dict, List, Literal, Optional
 
 import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatensor.torch.operations._add import _add_block_block
 from metatomic.torch import (
     AtomisticModel,
     ModelCapabilities,
@@ -15,7 +16,6 @@ from metatomic.torch import (
     System,
 )
 
-from metatrain.composition import CompositionModel
 from metatrain.experimental.space.documentation import ModelHypers
 from metatrain.experimental.space.modules.base_model import (
     BaseModel,
@@ -25,18 +25,13 @@ from metatrain.experimental.space.modules.base_model import (
 from metatrain.experimental.space.modules.cg_coefficients import ClebschGordanReal
 from metatrain.experimental.space.modules.finetuning import apply_finetuning_strategy
 from metatrain.experimental.space.utils import systems_to_batch
-from metatrain.pet.modules.finetuning import compute_stale_targets
-from metatrain.scaler import Scaler
-from metatrain.utils.abc import ModelInterface
-from metatrain.utils.additive import ZBL
+from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
-from metatrain.utils.data.atomic_basis_helpers import (
-    densify_atomic_basis_dataset_info,
-    sparsify_atomic_basis_target,
-)
 from metatrain.utils.data.dataset import DatasetInfo, TargetInfo
+from metatrain.utils.data.target_info import get_features_info
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.metadata import merge_metadata
 
 from . import checkpoints
@@ -58,12 +53,15 @@ class SPACE(ModelInterface[ModelHypers]):
     """SPACE model: metatomic-based wrapper around ``BaseModel``
     and/or ``GradientModel``."""
 
-    __checkpoint_version__ = 3
+    __checkpoint_version__ = 5
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(references={})
 
+    single_label: Labels
+    key_labels: Dict[str, Labels]
     component_labels: Dict[str, List[List[Labels]]]
+    property_labels: Dict[str, List[Labels]]
     U_dict: Dict[int, torch.Tensor]
     cartesian_rank2_targets: List[str]  # torchscript needs this
     _sph_to_cart_rank2: torch.Tensor  # torchscript needs this
@@ -72,20 +70,15 @@ class SPACE(ModelInterface[ModelHypers]):
         super().__init__(hypers, dataset_info, self.__default_metadata__)
         check_no_atom_pair_targets(dataset_info.targets, self.__class__.__name__)
 
-        self.new_outputs = list(dataset_info.targets.keys())
         self.atomic_types = sorted(dataset_info.atomic_types)
 
         self.cutoff_radius = float(hypers["cutoff"])
         self.dataset_info = dataset_info
         self.hypers = hypers
 
-        # Modified dataset_info with the targets as they will be seen by
-        # the model during training.
-        train_dataset_info = self._train_dataset_info(dataset_info)
-
         # Two types of model wrapper: one with gradients (training) and one without
         # (torchscript-based export).
-        base_model = BaseModel(hypers, train_dataset_info)
+        base_model = BaseModel(hypers, dataset_info)
         self.fake_gradient_model = FakeGradientModel(base_model)
         self.gradient_model = GradientModel(base_model)
         self.module = self.fake_gradient_model
@@ -95,19 +88,15 @@ class SPACE(ModelInterface[ModelHypers]):
 
         self.final_scaling = hypers["final_scaling"]
 
-        self.outputs = {
-            "feature": ModelOutput(unit="", sample_kind="atom")
-        }  # the model is always capable of outputting the internal features
-        for target_name in dataset_info.targets.keys():
-            # the model can always output the last-layer features for the targets
-            ll_features_name = (
-                f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
-            )
-            self.outputs[ll_features_name] = ModelOutput(sample_kind="atom")
+        # the model is always capable of outputting the internal features, of which
+        # only the lambda=0 ones are output
+        self.outputs: Dict[str, TargetInfo] = {
+            "feature": get_features_info(self.k_max_l[0])
+        }
 
-        self.key_labels: Dict[str, Labels] = {}
-        self.component_labels: Dict[str, List[List[Labels]]] = {}
-        self.property_labels: Dict[str, List[Labels]] = {}
+        self.register_buffer("key_labels", {}, persistent=False)
+        self.register_buffer("component_labels", {}, persistent=False)
+        self.register_buffer("property_labels", {}, persistent=False)
         self.cartesian_rank2_targets: List[str] = []
 
         # Pre-compute spherical→Cartesian conversion matrix for rank-2 tensors.
@@ -126,49 +115,29 @@ class SPACE(ModelInterface[ModelHypers]):
 
         self.mlp_head_num_layers = self.hypers["mlp_head_num_layers"]
         self.target_names: List[str] = []
-        for target_name, target_info in train_dataset_info.targets.items():
+        for target_name, target_info in dataset_info.targets.items():
             self.target_names.append(target_name)
             self._add_output(target_name, target_info)
 
-        self.last_layer_feature_size = self.k_max_l[0]
-
-        # additive models: these are handled by the trainer at training
-        # time, and they are added to the output at evaluation time
-        composition_model = CompositionModel.from_valid_targets(
-            dataset_info, self.atomic_types
-        )
-        additive_models = [composition_model]
-        if self.hypers["zbl"]:
-            zbl_targets = {
-                target_name: target_info
-                for target_name, target_info in train_dataset_info.targets.items()
-                if ZBL.is_valid_target(target_name, target_info)
-            }
-            additive_models.append(
-                ZBL(
-                    {},
-                    dataset_info=DatasetInfo(
-                        length_unit=train_dataset_info.length_unit,
-                        atomic_types=self.atomic_types,
-                        targets=zbl_targets,
-                    ),
-                )
-            )
-        self.additive_models = torch.nn.ModuleList(additive_models)
-
-        # scaler: this is also handled by the trainer at training time
-        scaler_hypers = get_default_hypers("scaler")["model"]
-        self.scaler = Scaler(hypers=scaler_hypers, dataset_info=dataset_info)
-
-        self.single_label = Labels.single()
+        self.register_buffer("single_label", Labels.single(), persistent=False)
 
         self.finetune_config: Dict[str, Any] = {}
 
-    @torch.jit.export
-    def supported_outputs(self) -> Dict[str, ModelOutput]:
+    def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
-    def restart(self, dataset_info: DatasetInfo) -> "SPACE":
+    def restart(
+        self,
+        dataset_info: DatasetInfo,
+        model_hypers: Optional[Mapping[str, Any]] = None,
+    ) -> "SPACE":
+
+        if model_hypers is not None:
+            default_hypers = get_default_hypers("experimental.space")["model"]
+            raise_if_hypers_mismatch(
+                self.hypers, model_hypers, default_hypers=default_hypers
+            )
+
         # merge old and new dataset info
         merged_info = self.dataset_info.union(dataset_info)
         new_atomic_types = [
@@ -179,15 +148,6 @@ class SPACE(ModelInterface[ModelHypers]):
             for key, value in merged_info.targets.items()
             if key not in self.dataset_info.targets
         }
-        self.has_new_targets = len(new_targets) > 0
-
-        # Targets that were present before this run but are not part of the current
-        # run's dataset: with a backbone-altering finetuning method (full/lora), their
-        # heads are no longer meaningful and are dropped once training starts, by
-        # ``apply_finetuning_strategy`` (which decides based on the method).
-        stale_targets = compute_stale_targets(
-            self.dataset_info.targets, dataset_info.targets
-        )
 
         if len(new_atomic_types) > 0:
             raise ValueError(
@@ -195,36 +155,12 @@ class SPACE(ModelInterface[ModelHypers]):
                 "The SPACE model does not support adding new atomic types."
             )
 
-        # Modified dataset_info with the targets as they will be seen by
-        # the model during training.
-        train_dataset_info = self._train_dataset_info(dataset_info)
-
         # register new outputs as new last layers
         for target_name in new_targets:
             self.target_names.append(target_name)
-            self._add_output(target_name, train_dataset_info.targets[target_name])
+            self._add_output(target_name, dataset_info.targets[target_name])
 
         self.dataset_info = merged_info
-
-        # restart the composition and scaler models
-        self.additive_models[0].restart(
-            dataset_info=DatasetInfo(
-                length_unit=dataset_info.length_unit,
-                atomic_types=self.atomic_types,
-                targets={
-                    target_name: target_info
-                    for target_name, target_info in dataset_info.targets.items()
-                    if CompositionModel.is_valid_target(target_name, target_info)
-                },
-            ),
-        )
-        self.scaler.restart(dataset_info)
-
-        # Actual removal (if any) is deferred to ``apply_finetuning_strategy``
-        # (called later, once training starts), since ``inherit_heads`` needs these
-        # stale targets' heads to still be around to copy weights from, and only
-        # backbone-altering methods (``full``/``lora``) actually drop them.
-        self._stale_finetune_targets = stale_targets
 
         return self
 
@@ -234,25 +170,7 @@ class SPACE(ModelInterface[ModelHypers]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        # transfer labels, if needed
         device = systems[0].device
-        if self.single_label.values.device != device:
-            self.single_label = self.single_label.to(device)
-            self.key_labels = {
-                output_name: label.to(device)
-                for output_name, label in self.key_labels.items()
-            }
-            self.component_labels = {
-                output_name: [
-                    [label.to(device) for label in component]
-                    for component in components
-                ]
-                for output_name, components in self.component_labels.items()
-            }
-            self.property_labels = {
-                output_name: [label.to(device) for label in labels]
-                for output_name, labels in self.property_labels.items()
-            }
 
         # Convert systems to batch format
         neighbor_list_options = self.requested_neighbor_lists()[0]  # there is only one
@@ -289,9 +207,9 @@ class SPACE(ModelInterface[ModelHypers]):
                         components=[],
                         properties=Labels(
                             names=["feature"],
-                            values=torch.arange(features_tensor.shape[-1]).unsqueeze(
-                                -1
-                            ),
+                            values=torch.arange(
+                                features_tensor.shape[-1], device=device
+                            ).unsqueeze(-1),
                         ),
                     )
                 ],
@@ -322,23 +240,21 @@ class SPACE(ModelInterface[ModelHypers]):
                 base_name = f"mtt::{base_name}"
 
             last_layer_features_as_dict_of_tensors = predictions[f"{base_name}__llf"]
-            return_dict[output_name] = TensorMap(
-                keys=Labels(
-                    names=["o3_lambda"],
-                    values=torch.arange(self.l_max + 1, device=device).unsqueeze(-1),
-                ),
-                blocks=[
+            llf_blocks: List[TensorBlock] = []
+            for c in self.component_labels[base_name]:
+                o3_lambda = (len(c[0]) - 1) // 2 if len(c) > 0 else 0
+                t = last_layer_features_as_dict_of_tensors[o3_lambda]
+                if len(c) == 0:
+                    t = t.squeeze(1)
+                elif c[0].names == ["xyz"]:
+                    # rank-1 Cartesian targets are the l=1 readout, reordered to
+                    # (x, y, z)
+                    t = t[:, [2, 0, 1], :]
+                llf_blocks.append(
                     TensorBlock(
                         values=t,
                         samples=samples,
-                        components=[
-                            Labels(
-                                names=["o3_mu"],
-                                values=torch.arange(-l, l + 1, device=device).unsqueeze(
-                                    -1
-                                ),
-                            )
-                        ],
+                        components=c,
                         properties=Labels(
                             names=["feature"],
                             values=torch.arange(t.shape[-1], device=device).unsqueeze(
@@ -346,9 +262,20 @@ class SPACE(ModelInterface[ModelHypers]):
                             ),
                         ),
                     )
-                    for l, t in last_layer_features_as_dict_of_tensors.items()  # noqa: E741
-                ],
+                )
+            return_dict[output_name] = TensorMap(
+                keys=self.key_labels[base_name], blocks=llf_blocks
             )
+            if base_name in self.cartesian_rank2_targets:
+                return_dict[output_name] = _features_to_cartesian_rank_2(
+                    return_dict[output_name], self._sph_to_cart_rank2
+                )
+                if "non_conservative_stress" in base_name:
+                    return_dict[output_name] = _process_non_conservative_stress(
+                        return_dict[output_name],
+                        systems,
+                        batch["structure_centers"].to(torch.int64),
+                    )
             if selected_atoms is not None:
                 return_dict[output_name] = metatensor.torch.slice(
                     return_dict[output_name], axis="samples", selection=selected_atoms
@@ -487,66 +414,6 @@ class SPACE(ModelInterface[ModelHypers]):
                 return_dict[output_name], self.final_scaling
             )
 
-        if not self.training:
-            # at evaluation, we also introduce the scaler and additive contributions
-            return_dict = self.scaler.apply_scales(
-                systems,
-                return_dict,
-                selected_atoms=selected_atoms,
-                use_per_target_scales=True,
-                use_per_property_scales=True,
-            )
-
-            # For atomic basis targets, sparsify to create blocks with "atom_type"
-            # in the key dimensions, and ensure properties are unpadded. This is
-            # done before adding the additive contributions, which are also
-            # sparsified (by the additive models themselves, in eval mode).
-            targets = self.dataset_info.targets
-            for k, v in return_dict.items():
-                if k in targets and targets[k].is_atomic_basis:
-                    return_dict[k] = sparsify_atomic_basis_target(
-                        systems,
-                        v,
-                        targets[k].layout,
-                    )
-
-            for additive_model in self.additive_models:
-                outputs_for_additive_model: Dict[str, ModelOutput] = {}
-                for name, output in outputs.items():
-                    if name in additive_model.outputs:
-                        outputs_for_additive_model[name] = output
-                additive_contributions = additive_model(
-                    systems,
-                    outputs_for_additive_model,
-                    selected_atoms,
-                )
-                for name in additive_contributions:
-                    # TODO: uncomment this after metatensor.torch.add
-                    # is updated to handle sparse sums
-                    # return_dict[name] = metatensor.torch.add(
-                    #     return_dict[name],
-                    #     additive_contributions[name].to(
-                    #         device=return_dict[name].device,
-                    #         dtype=return_dict[name].dtype
-                    #         ),
-                    # )
-                    # TODO: "manual" sparse sum: update to metatensor.torch.add
-                    # after sparse sum is implemented in metatensor.operations
-                    output_blocks: List[TensorBlock] = []
-                    for k, b in return_dict[name].items():
-                        if k in additive_contributions[name].keys:
-                            output_blocks.append(
-                                _add_block_block(
-                                    b,
-                                    additive_contributions[name]
-                                    .block(k)
-                                    .to(device=b.device, dtype=b.dtype),
-                                )
-                            )
-                        else:
-                            output_blocks.append(b.copy(deep=False))
-                    return_dict[name] = TensorMap(return_dict[name].keys, output_blocks)
-
         return return_dict
 
     @classmethod
@@ -574,14 +441,17 @@ class SPACE(ModelInterface[ModelHypers]):
         # dict, since it can change the set of parameters (LoRA injects layers).
         finetune_config = model_state_dict.pop("finetune_config", {})
         if finetune_config:
-            model = apply_finetuning_strategy(model, finetune_config)
+            # ``inherit_heads`` is skipped here: it is a one-time weight-copy
+            # initialization step that already ran when finetuning first started,
+            # and by now its source target may have been pruned as stale.
+            model = apply_finetuning_strategy(
+                model, finetune_config, apply_inherit_heads=False
+            )
         state_dict_iterator = iter(model_state_dict.values())
         next(state_dict_iterator)  # skip an int tensor
         next(state_dict_iterator)  # skip another int tensor
         dtype = next(state_dict_iterator).dtype
         model.to(dtype).load_state_dict(model_state_dict)
-        model.additive_models[0].sync_tensor_maps()
-        model.scaler.sync_tensor_maps()
 
         # Loading the metadata from the checkpoint
         model.metadata = merge_metadata(model.metadata, checkpoint.get("metadata"))
@@ -594,33 +464,26 @@ class SPACE(ModelInterface[ModelHypers]):
         #   the functional way they're used in the GradientModel)
         # - delete the other models: even if the forward function doesn't use them,
         #   torchscript will try to compile them anyway
-        self.module = self.fake_gradient_model
-        del self.gradient_model
-        del self.fake_gradient_model
+        # This is done on a copy, so that the model itself stays usable.
+        model = copy.deepcopy(self)
+        model.module = model.fake_gradient_model
+        del model.gradient_model
+        del model.fake_gradient_model
 
         dtype = next(self.parameters()).dtype
         if dtype not in self.__supported_dtypes__:
-            raise ValueError(f"unsupported dtype {dtype} for PET")
+            raise ValueError(f"unsupported dtype {dtype} for SPACE")
 
         # Make sure the model is all in the same dtype
-        # For example, after training, the additive models could still be in
-        # float64
-        self.to(dtype)
-
-        # Additionally, the composition model contains some `TensorMap`s that cannot
-        # be registered correctly with Pytorch. This function moves them:
-        self.additive_models[0].weights_to(torch.device("cpu"), torch.float64)
-
-        interaction_ranges = [self.hypers["num_gnn_layers"] * self.hypers["cutoff"]]
-        for additive_model in self.additive_models:
-            if hasattr(additive_model, "cutoff_radius"):
-                interaction_ranges.append(additive_model.cutoff_radius)
-        interaction_range = max(interaction_ranges)
+        model.to(dtype)
 
         capabilities = ModelCapabilities(
-            outputs=self.outputs,
+            outputs={
+                name: info.to_model_output(sample_kind="atom")
+                for name, info in self.outputs.items()
+            },
             atomic_types=self.atomic_types,
-            interaction_range=interaction_range,
+            interaction_range=self.hypers["num_gnn_layers"] * self.hypers["cutoff"],
             length_unit=self.dataset_info.length_unit,
             supported_devices=self.__supported_devices__,
             dtype=dtype_to_str(dtype),
@@ -628,31 +491,27 @@ class SPACE(ModelInterface[ModelHypers]):
 
         metadata = merge_metadata(self.metadata, metadata)
 
-        return AtomisticModel(self.eval(), metadata, capabilities)
-
-    def _train_dataset_info(self, dataset_info: DatasetInfo) -> DatasetInfo:
-        """Converts the original dataset info to one corresponding to what the
-        model will see during training, which depends on transforms applied to
-        the targets during data loading.
-
-        :param dataset_info: Original dataset info describing the targets as
-            they are in the raw data.
-        :return: Modified dataset info describing the targets as they will be
-            seen by the model during training.
-        """
-        return densify_atomic_basis_dataset_info(dataset_info)
+        return AtomisticModel(model.eval(), metadata, capabilities)
 
     def _add_output(self, target_name: str, target_info: TargetInfo) -> None:
-        self.outputs[target_name] = ModelOutput(
-            unit=target_info.unit,
-            sample_kind="atom",
-        )
+        self.outputs[target_name] = target_info
 
         if target_info.is_spherical and len(target_info.layout.block(0).components) > 1:
             raise ValueError(
                 "SPACE does not support target spherical tensors with rank > 1."
                 f"'{target_name}' has rank "
                 f"{len(target_info.layout.block(0).components)}."
+            )
+
+        # targets added by ``restart`` need their own heads and last layers
+        if target_name not in self.module.module.last_layers:
+            reference = self.module.module.center_embedder.weight
+            self.module.module._add_output(target_name, target_info)
+            self.module.module.heads[target_name].to(
+                device=reference.device, dtype=reference.dtype
+            )
+            self.module.module.last_layers[target_name].to(
+                device=reference.device, dtype=reference.dtype
             )
 
         if target_info.is_cartesian and len(target_info.layout.block().components) == 2:
@@ -688,6 +547,33 @@ class SPACE(ModelInterface[ModelHypers]):
                 block.properties for block in target_info.layout.blocks()
             ]
 
+        # the features of order lambda have k_max_l[lambda] channels
+        llf_blocks: List[TensorBlock] = []
+        for components in self.component_labels[target_name]:
+            o3_lambda = (len(components[0]) - 1) // 2 if len(components) > 0 else 0
+            num_features = self.k_max_l[o3_lambda]
+            llf_blocks.append(
+                TensorBlock(
+                    values=torch.empty(
+                        [0] + [len(c) for c in components] + [num_features],
+                        dtype=torch.float64,
+                    ),
+                    samples=Labels(
+                        ["system", "atom"], torch.empty((0, 2), dtype=torch.int32)
+                    ),
+                    components=components,
+                    properties=Labels.range("feature", num_features),
+                )
+            )
+        llf_layout = TensorMap(self.key_labels[target_name], llf_blocks)
+        if target_name in self.cartesian_rank2_targets:
+            llf_layout = _features_to_cartesian_rank_2(
+                llf_layout, self._sph_to_cart_rank2
+            )
+        # the model can always output the last-layer features for its targets
+        llf_name = f"mtt::aux::{target_name.replace('mtt::', '')}_last_layer_features"
+        self.outputs[llf_name] = TargetInfo(llf_layout)
+
     def remove_output(self, target_name: str) -> None:
         """
         Remove a previously registered output target, mirroring ``_add_output``.
@@ -709,6 +595,8 @@ class SPACE(ModelInterface[ModelHypers]):
         self.property_labels.pop(target_name, None)
         if target_name in self.cartesian_rank2_targets:
             self.cartesian_rank2_targets.remove(target_name)
+        self.dataset_info.targets.pop(target_name, None)
+        self.target_names.remove(target_name)
 
     def requested_neighbor_lists(
         self,
@@ -721,9 +609,19 @@ class SPACE(ModelInterface[ModelHypers]):
             )
         ]
 
-    def get_checkpoint(self) -> Dict:
+    def get_checkpoint(
+        self, best_model_state_dict: Optional[dict[str, Any]] = None
+    ) -> Dict:
         model_state_dict = self.state_dict()
         model_state_dict["finetune_config"] = self.finetune_config
+        model_state_dict = self.state_dict()
+        model_state_dict["finetune_config"] = self.finetune_config
+
+        if best_model_state_dict is None:
+            best_model_state_dict = model_state_dict
+        else:
+            best_model_state_dict["finetune_config"] = self.finetune_config
+
         checkpoint = {
             "architecture_name": "experimental.space",
             "model_ckpt_version": self.__checkpoint_version__,
@@ -735,26 +633,17 @@ class SPACE(ModelInterface[ModelHypers]):
             "epoch": None,
             "best_epoch": None,
             "model_state_dict": model_state_dict,
-            "best_model_state_dict": self.state_dict(),
+            "best_model_state_dict": best_model_state_dict,
         }
         return checkpoint
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["model_ckpt_version"] == v:
-                update = getattr(checkpoints, f"model_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["model_ckpt_version"] = v + 1
-
-        if checkpoint["model_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using model "
-                f"version {checkpoint['model_ckpt_version']}, while the current model "
-                f"version is {cls.__checkpoint_version__}."
-            )
-
-        return checkpoint
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "model", checkpoints
+        )
 
 
 def _to_cartesian_rank_2(tensor_map: TensorMap, W: torch.Tensor) -> TensorMap:
@@ -791,6 +680,50 @@ def _to_cartesian_rank_2(tensor_map: TensorMap, W: torch.Tensor) -> TensorMap:
         properties=tensor_map.block(0).properties,
     )
     return TensorMap(keys=keys, blocks=[block])
+
+
+def _features_to_cartesian_rank_2(tensor_map: TensorMap, W: torch.Tensor) -> TensorMap:
+    """
+    Convert the last-layer features of a rank-2 Cartesian target to Cartesian, like
+    :func:`_to_cartesian_rank_2` does for the target.
+
+    :param tensor_map: the features of the l=0, l=1 and l=2 blocks.
+    :param W: conversion matrix of shape ``(3, 3, 9)``.
+    :return: a single block with the features of the three blocks one after the
+        other.
+    """
+    sph_values = [block.values for block in tensor_map.blocks()]
+    W = W.to(dtype=sph_values[0].dtype, device=sph_values[0].device)
+
+    cart_values: List[torch.Tensor] = []
+    offset = 0
+    for values in sph_values:
+        n_components = values.shape[1]
+        cart_values.append(
+            torch.einsum(
+                "ijM,nMf->nijf", W[:, :, offset : offset + n_components], values
+            )
+        )
+        offset += n_components
+    cart = torch.cat(cart_values, dim=-1)
+
+    device = cart.device
+    block = TensorBlock(
+        values=cart,
+        samples=tensor_map.block(0).samples,
+        components=[
+            Labels("xyz_1", torch.arange(3, device=device).reshape(-1, 1)),
+            Labels("xyz_2", torch.arange(3, device=device).reshape(-1, 1)),
+        ],
+        properties=Labels(
+            names=["feature"],
+            values=torch.arange(cart.shape[-1], device=device).unsqueeze(-1),
+        ),
+    )
+    return TensorMap(
+        keys=Labels(names=["_"], values=torch.tensor([[0]], device=device)),
+        blocks=[block],
+    )
 
 
 def _process_non_conservative_stress(

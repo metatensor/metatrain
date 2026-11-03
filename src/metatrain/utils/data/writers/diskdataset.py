@@ -78,7 +78,7 @@ class DiskDatasetWriter(Writer):
     ):
         super().__init__(filename=path, capabilities=capabilities, append=append)
         self._finished = False
-        self._atom_counts_prefix = np.empty(0, dtype=np.int64)
+        self._atom_counts_prefix: np.ndarray = np.empty(0, dtype=np.int64)
         self.index = 0
 
         if append and os.path.exists(path) and os.path.getsize(path) > 0:
@@ -147,6 +147,7 @@ class DiskDatasetWriter(Writer):
                     "re-write the dataset."
                 )
             num_existing = len(entry_numbers)
+        prefix: np.ndarray
 
         if counts is not None and len(counts) >= num_existing:
             prefix = counts[:num_existing].astype(np.int64, copy=False)

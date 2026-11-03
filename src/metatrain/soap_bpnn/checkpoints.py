@@ -5,6 +5,7 @@ import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatrain.scaler.checkpoints import update_per_property_scales
+from metatrain.utils.data.atomic_basis_helpers import densify_atomic_basis_dataset_info
 
 
 ###########################
@@ -247,6 +248,74 @@ def model_update_v8_v9(checkpoint: dict) -> None:
     :param checkpoint: The checkpoint to update.
     """
     update_per_property_scales(checkpoint)
+
+
+def model_update_v9_v10(checkpoint: dict) -> None:
+    """
+    Update a v9 checkpoint to v10.
+
+    It removes the additive models and scaler from the model checkpoint,
+    as this is now handled by the MetatrainModel wrapper.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    removed_prefixes = (
+        "additive_models.",
+        "scaler.",
+    )
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            for k in list(state_dict):
+                for prefix in removed_prefixes:
+                    if k.startswith(prefix):
+                        state_dict.pop(k)
+
+    # Before this update, the model stored the dataset_info in a sparse format
+    # for atomic basis targets but worked in the dense format. After this update,
+    # the model works in whatever format the dataset_info is stored in,
+    # so to keep the checkpoint compatible we need to densify the stored dataset_info.
+    checkpoint["model_data"]["dataset_info"] = densify_atomic_basis_dataset_info(
+        checkpoint["model_data"]["dataset_info"]
+    )
+
+
+def model_update_v10_v11(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 10 to version 11.
+
+    The embedded composition model and scaler now use
+    ``metatensor.torch.learn.nn.Module`` with ``register_buffer`` instead of
+    manually tracked buffers.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is None:
+            continue
+
+        # If both model_state_dict and best_model_state_dict point to the same
+        # dict, the upgrade was already applied in the first iteration.
+        if "_mts_helper" in state_dict:
+            continue
+
+        # The basis calculators exist if the last layers exist
+        basis_prefixes = {
+            "basis_calculators." + ".".join(name.split(".")[1:3]) + "."
+            for name in state_dict
+            if name.startswith("last_layers.")
+        }
+        prefixes = ["", "soap_calculator."]
+        for basis in sorted(basis_prefixes):
+            prefixes += [basis, f"{basis}lambda_basis_module."]
+            for vector_basis in ["vector_basis.", "vector_basis_pseudotensor."]:
+                if any(name.startswith(basis + vector_basis) for name in state_dict):
+                    prefixes.append(basis + vector_basis)
+
+        reference = next(v for v in state_dict.values() if isinstance(v, torch.Tensor))
+        empty_tensor = torch.zeros(0, dtype=reference.dtype, device=reference.device)
+        for prefix in prefixes:
+            state_dict[f"{prefix}_mts_helper"] = empty_tensor
+            state_dict[f"{prefix}_extra_state"] = {}
 
 
 ###########################

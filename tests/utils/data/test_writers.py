@@ -509,6 +509,55 @@ def test_memmap_writer_streams_to_disk(monkeypatch, tmp_path):
     np.testing.assert_allclose(energy, expected_energy, atol=1e-6)
 
 
+def test_memmap_writer_variant_target(monkeypatch, tmp_path):
+    """The ``/`` of variant target names (``energy/gs``) is written as ``__`` in the
+    file names, and ``MemmapDataset`` maps it back when reading."""
+    monkeypatch.chdir(tmp_path)
+
+    systems, _, predictions = systems_capabilities_predictions()
+    predictions = {"energy/gs": predictions["energy"]}
+    capabilities = ModelCapabilities(
+        length_unit="angstrom",
+        outputs={"energy/gs": ModelOutput(quantity="energy", unit="eV")},
+        interaction_range=1.0,
+        dtype="float32",
+    )
+
+    writer = MemmapWriter("test_variant/", capabilities=capabilities)
+    writer.write(systems, predictions)
+    writer.finish()
+
+    directory = Path("test_variant")
+    assert (directory / "energy__gs.bin").is_file()
+    assert (directory / "energy__gs_forces.bin").is_file()
+    assert not (directory / "energy").exists()
+
+    target_options = {
+        "energy/gs": {
+            "key": "energy/gs",
+            "quantity": "energy",
+            "sample_kind": "system",
+            "type": "scalar",
+            "num_subtargets": 1,
+            "forces": {"key": "energy/gs_forces"},
+            "stress": False,
+            "virial": False,
+        }
+    }
+    dataset = MemmapDataset(directory, target_options)
+
+    block = predictions["energy/gs"].block()
+    for i in range(len(systems)):
+        read = dataset[i]._asdict()["energy/gs"].block()
+        torch.testing.assert_close(
+            read.values[0], block.values[i].to(read.values.dtype)
+        )
+        gradient = block.gradient("positions").values[2 * i : 2 * i + 2]
+        torch.testing.assert_close(
+            read.gradient("positions").values, gradient.to(read.values.dtype)
+        )
+
+
 def test_memmap_writer_append_not_supported(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(ValueError, match="Appending is not supported"):

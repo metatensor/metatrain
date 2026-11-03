@@ -6,6 +6,7 @@ import torch
 from metatensor.torch import TensorMap
 from metatomic.torch import ModelCapabilities, System
 
+from ..dataset import memmap_file_name
 from .writers import Writer, _split_tensormaps
 
 
@@ -15,8 +16,10 @@ class MemmapWriter(Writer):
     :py:class:`metatrain.utils.data.dataset.MemmapDataset`: a directory containing
     ``ns.npy``, ``na.npy``, ``x.bin``, ``a.bin``, ``c.bin``, and one ``<target>.bin``
     file per target (plus ``<target>_forces.bin``/``<target>_stress.bin`` for
-    position/strain gradients). The resulting directory can be passed straight back to
-    ``metatrain`` as a ``systems: read_from:`` dataset, which makes this format well
+    position/strain gradients; the ``/`` of variant targets such as ``energy/gs`` is
+    written as ``__``, e.g. ``energy__gs.bin``). The resulting directory can be passed
+    straight back to ``metatrain`` as a ``systems: read_from:`` dataset (which maps
+    ``/`` in ``key`` options to ``__`` the same way), making this format well
     suited for very large evaluation runs (e.g. >1M structures) that should not be
     re-read as a single in-memory XYZ file.
 
@@ -92,7 +95,7 @@ class MemmapWriter(Writer):
                     )
                 block = tensor_map.block()
                 values = block.values.detach().cpu().to(torch.float32)
-                values.numpy().tofile(self._file(f"{target_name}.bin"))
+                values.numpy().tofile(self._file(memmap_file_name(target_name)))
 
                 for gradient_name, gradient_block in block.gradients():
                     gvalues = gradient_block.values.detach().cpu().to(torch.float32)
@@ -114,7 +117,7 @@ class MemmapWriter(Writer):
                         key = f"{target_name}_stress"
                     else:
                         continue
-                    gvalues.numpy().tofile(self._file(f"{key}.bin"))
+                    gvalues.numpy().tofile(self._file(memmap_file_name(key)))
 
     def finish(self) -> None:
         """Write ``ns.npy``/``na.npy`` and close all open binary files."""

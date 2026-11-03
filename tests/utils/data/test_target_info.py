@@ -5,6 +5,7 @@ import torch
 from omegaconf import DictConfig
 
 from metatrain.utils.data.target_info import (
+    TargetInfo,
     get_energy_target_info,
     get_generic_target_info,
     is_auxiliary_output,
@@ -489,3 +490,51 @@ def test_layout_spherical_atomicbasis_with_variant(
             assert block.properties.names == ["l_1", "l_2", "n_1", "n_2"]
         else:
             assert block.properties.names == ["n"]
+
+
+@pytest.mark.parametrize(
+    "unit, other_unit, compatible",
+    [
+        pytest.param("eV/A^3", "eV/angstrom^3", True, id="powered-unit-alias"),
+        pytest.param("eV/A", "eV/angstrom", True, id="derived-unit-alias"),
+        pytest.param("A", "angstrom", True, id="length-alias"),
+        pytest.param("eV", "meV", False, id="different-energy-scales"),
+        pytest.param("angstrom", "nm", False, id="different-length-scales"),
+        pytest.param("eV", "angstrom", False, id="different-dimensions"),
+        pytest.param("", "eV", False, id="one-unit-empty"),
+        pytest.param("", "", True, id="both-units-empty"),
+    ],
+)
+def test_is_compatible_with_units(
+    energy_target_config: DictConfig, unit: str, other_unit: str, compatible: bool
+) -> None:
+    layout = get_energy_target_info("energy", energy_target_config).layout
+    target = TargetInfo(layout, quantity="custom", unit=unit)
+    other = TargetInfo(layout, quantity="custom", unit=other_unit)
+
+    assert target.is_compatible_with(other) is compatible
+    assert other.is_compatible_with(target) is compatible
+    assert (target == other) is (unit == other_unit)
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        pytest.param("quantity", "other", id="different-quantity"),
+        pytest.param("description", "other", id="different-description"),
+        pytest.param("num_subtargets", 2, id="different-num-subtargets"),
+    ],
+)
+def test_unit_aliases_do_not_override_other_metadata(
+    energy_target_config: DictConfig,
+    field: Literal["quantity", "description", "num_subtargets"],
+    value: str | int,
+) -> None:
+    energy_target_config.unit = "eV/A"
+    target = get_generic_target_info("target", energy_target_config)
+    energy_target_config.unit = "eV/angstrom"
+    energy_target_config[field] = value
+    other = get_generic_target_info("target", energy_target_config)
+
+    assert not target.is_compatible_with(other)
+    assert not other.is_compatible_with(target)

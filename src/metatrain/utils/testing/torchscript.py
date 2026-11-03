@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 import torch
-from metatomic.torch import System
+from metatomic.torch import ModelOutput, System
 
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo
@@ -70,7 +70,7 @@ class TorchscriptTests(ArchitectureTests):
         model = self.jit_compile(model)
         model(
             [system],
-            model.outputs,
+            {name: ModelOutput(sample_kind="atom") for name in model.outputs},
         )
 
     def test_torchscript_dtypechange(
@@ -105,7 +105,7 @@ class TorchscriptTests(ArchitectureTests):
         model = model.to(dtype)
         model(
             [system],
-            model.outputs,
+            {name: ModelOutput(sample_kind="atom") for name in model.outputs},
         )
 
     def test_torchscript_spherical(

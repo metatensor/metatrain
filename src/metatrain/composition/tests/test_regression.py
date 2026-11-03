@@ -3,6 +3,7 @@ import gzip
 import pytest
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import ModelOutput
 
 from metatrain.composition import CompositionModel, Trainer
 from metatrain.utils.data import Dataset, DatasetInfo
@@ -11,6 +12,8 @@ from metatrain.utils.data.target_info import (
     get_energy_target_info,
     get_generic_target_info,
 )
+from metatrain.utils.io import model_from_checkpoint
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import DATASET_PATH, DEFAULT_HYPERS
 
@@ -95,7 +98,7 @@ def test_composition_forward_after_fitting():
     model, _ = _train_composition_model(systems, target_values)
     model.eval()
 
-    output = model(systems[:5], {"energy": model.outputs["energy"]})
+    output = model(systems[:5], {"energy": ModelOutput(sample_kind="atom")})
     assert "energy" in output
     predicted = output["energy"].block().values
     # model outputs per-atom energies; sum per system
@@ -131,16 +134,21 @@ def test_restart_no_new_targets_preserves_weights():
             "sample_kind": "atom",
         },
     )
-    model.restart(
-        DatasetInfo(
-            length_unit="Angstrom",
-            atomic_types=[1, 6, 7, 8],
-            targets={"vector_target": vector_info},
-        )
-    )
 
     dataset_without_energy = Dataset.from_dict({"system": systems[:4]})
     trainer = Trainer(hypers={**DEFAULT_HYPERS["training"], "batch_size": 2})
+    model = MetatrainModel(
+        model, additive_models=[], scaler=None, dataset_info=model.dataset_info
+    )
+    trainer.restart(
+        model=model,
+        dataset_info=DatasetInfo(
+            length_unit="Angstrom",
+            atomic_types=[1, 6, 7, 8],
+            targets={"vector_target": vector_info},
+        ),
+        model_hypers={},
+    )
     trainer.train(
         model=model,
         dtype=torch.float64,
@@ -151,7 +159,7 @@ def test_restart_no_new_targets_preserves_weights():
     )
 
     torch.testing.assert_close(
-        model.model.weights["energy"].block().values, weights_before
+        model.core.model.weights["energy"].block().values, weights_before
     )
 
 
@@ -190,11 +198,10 @@ def test_multi_dataset_fixed_and_fitted_targets():
             "energy_b": get_energy_target_info("energy_b", {"unit": "eV"}),
         },
     )
-    model = CompositionModel(hypers={}, dataset_info=dataset_info)
-
     trainer = Trainer(
         hypers={**DEFAULT_HYPERS["training"], "atomic_baseline": {"energy_a": 0.0}}
     )
+    model = trainer.setup(model_hypers={}, dataset_info=dataset_info)
     trainer.train(
         model=model,
         dtype=torch.float64,
@@ -204,7 +211,7 @@ def test_multi_dataset_fixed_and_fitted_targets():
         checkpoint_dir="",
     )
 
-    fitted_weights = model.model.weights["energy_b"].block().values
+    fitted_weights = model.core.model.weights["energy_b"].block().values
     fitted = dict(zip([1, 6, 7, 8], fitted_weights.flatten().tolist(), strict=True))
     for species, expected in per_species_energies.items():
         assert fitted[species] == pytest.approx(expected, abs=1e-8)
@@ -219,13 +226,13 @@ def test_checkpoint_roundtrip_predictions():
     model, _ = _train_composition_model(systems, target_values)
     model.eval()
 
-    reference_output = model(systems[:5], {"energy": model.outputs["energy"]})
+    reference_output = model(systems[:5], {"energy": ModelOutput(sample_kind="atom")})
 
     loaded_model = CompositionModel.load_checkpoint(model.get_checkpoint(), "export")
     loaded_model.eval()
 
     loaded_output = loaded_model(
-        systems[:5], {"energy": loaded_model.outputs["energy"]}
+        systems[:5], {"energy": ModelOutput(sample_kind="atom")}
     )
     assert torch.allclose(
         reference_output["energy"].block().values,
@@ -236,11 +243,12 @@ def test_checkpoint_roundtrip_predictions():
 def test_regression_checkpoint():
     with gzip.open("regression_checkpoint.ckpt.gz", "rb") as fd:
         checkpoint = torch.load(fd, weights_only=False)
-    model = CompositionModel.load_checkpoint(checkpoint, context="export")
-    model.eval()
+
+    model = model_from_checkpoint(checkpoint, context="export")
+    model = model.eval()
 
     systems = read_systems(DATASET_PATH)[:5]
-    output = model(systems, {"mtt::U0": model.outputs["mtt::U0"]})
+    output = model(systems, {"mtt::U0": ModelOutput(sample_kind="atom")})
 
     block = output["mtt::U0"].block(0)
     system_energies = torch.zeros(len(systems))

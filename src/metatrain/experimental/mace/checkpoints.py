@@ -1,4 +1,7 @@
+import torch
+
 from metatrain.scaler.checkpoints import update_per_property_scales
+from metatrain.utils.data.atomic_basis_helpers import densify_atomic_basis_dataset_info
 
 
 ###########################
@@ -37,6 +40,75 @@ def model_update_v3_v4(checkpoint: dict) -> None:
     """
     if "mace_head_name" not in checkpoint["model_data"]["hypers"]:
         checkpoint["model_data"]["hypers"]["mace_head_name"] = None
+
+
+def model_update_v4_v5(checkpoint: dict) -> None:
+    """
+    Update a v4 checkpoint to v5.
+
+    It removes the additive models and scaler from the model checkpoint,
+    as this is now handled by the MetatrainModel wrapper.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    removed_prefixes = (
+        "additive_models.",
+        "scaler.",
+    )
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is not None:
+            for k in list(state_dict):
+                for prefix in removed_prefixes:
+                    if k.startswith(prefix):
+                        state_dict.pop(k)
+
+    # Before this update, the model stored the dataset_info in a sparse format
+    # for atomic basis targets but worked in the dense format. After this update,
+    # the model works in whatever format the dataset_info is stored in,
+    # so to keep the checkpoint compatible we need to densify the stored dataset_info.
+    checkpoint["model_data"]["dataset_info"] = densify_atomic_basis_dataset_info(
+        checkpoint["model_data"]["dataset_info"]
+    )
+
+
+def model_update_v5_v6(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 5 to version 6.
+
+    The embedded composition model and scaler now use
+    ``metatensor.torch.learn.nn.Module`` with ``register_buffer`` instead of
+    manually tracked buffers.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is None:
+            continue
+
+        # If both model_state_dict and best_model_state_dict point to the same
+        # dict, the upgrade was already applied in the first iteration.
+        if "_mts_helper" in state_dict:
+            continue
+
+        reference = next(v for v in state_dict.values() if isinstance(v, torch.Tensor))
+        empty_tensor = torch.zeros(0, dtype=reference.dtype, device=reference.device)
+
+        state_dict["_mts_helper"] = empty_tensor
+        state_dict["_extra_state"] = {}
+
+
+def model_update_v6_v7(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 6 to version 7.
+
+    The `layouts` buffer was made persistent by mistake in the previous version.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    for key in ["model_state_dict", "best_model_state_dict"]:
+        if (state_dict := checkpoint.get(key)) is None:
+            continue
+        state_dict["_extra_state"].pop("layouts", None)
 
 
 ###########################

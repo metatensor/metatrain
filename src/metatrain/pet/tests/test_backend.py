@@ -6,8 +6,10 @@ runs on plain tensors and is ``torch.compile``-able, matching eager execution.
 """
 
 import contextlib
+import time
 import warnings
 
+import ase.build
 import metatensor.torch as mts
 import pytest
 import torch
@@ -97,6 +99,7 @@ def _energy_forces_and_strain_grad(energy_fn, base_positions):
 
 
 def _backend_inputs(model, system):
+    """The inputs of ``backend.preprocess``, and the cells and system indices."""
     (
         positions,
         centers,
@@ -104,36 +107,27 @@ def _backend_inputs(model, system):
         species,
         cells,
         cell_shifts,
+        cell_contributions,
         system_indices,
         _sample_labels,
     ) = concatenate_structures([system], model.requested_neighbor_lists()[0])
-    return (
+    inputs = (
         positions,
         centers,
         neighbors,
         species,
-        cells,
+        cell_contributions,
         cell_shifts,
-        system_indices,
         model.cutoff_width_adaptive,
     )
+    return inputs, cells, system_indices
 
 
 def test_backend_runs_on_plain_tensors():
     """The backend consumes and returns only plain tensors (no metatensor objects)."""
     model = PET(MODEL_HYPERS, _make_dataset_info()).eval()
     backend = model.backend
-    inputs = _backend_inputs(model, _make_system(model))
-    (
-        positions,
-        centers,
-        neighbors,
-        species,
-        cells,
-        cell_shifts,
-        system_indices,
-        cutoff_width_adaptive,
-    ) = inputs
+    inputs, cells, system_indices = _backend_inputs(model, _make_system(model))
 
     batch_data = backend.preprocess(*inputs)
     assert isinstance(batch_data, dict)
@@ -161,9 +155,7 @@ def test_backend_predictions_match_full_model():
     wrapped = per_atom["energy"].block().values
 
     backend = model.backend
-    inputs = _backend_inputs(model, system)
-    cells = inputs[4]
-    system_indices = inputs[6]
+    inputs, cells, system_indices = _backend_inputs(model, system)
     batch_data = backend.preprocess(*inputs)
     node_list, edge_list = backend.calculate_features(batch_data)
     atomic_predictions, _, _ = backend.predict(
@@ -219,27 +211,16 @@ def test_backend_torch_compile(fullgraph):
         full_energy, system.positions
     )
 
+    inputs, cells, system_indices = _backend_inputs(model, system)
     (
         positions,
         centers,
         neighbors,
         species,
-        cells,
+        cell_contributions,
         cell_shifts,
-        system_indices,
         cutoff_width_adaptive,
-    ) = _backend_inputs(model, system)
-
-    inputs = (
-        positions,
-        centers,
-        neighbors,
-        species,
-        cells,
-        cell_shifts,
-        system_indices,
-        cutoff_width_adaptive,
-    )
+    ) = inputs
     batch_data_e = backend.preprocess(*inputs)
 
     # The Dynamo flags must be active while the compiled functions actually trace,
@@ -259,15 +240,13 @@ def test_backend_torch_compile(fullgraph):
         backend.predict = torch.compile(backend.predict, fullgraph=fullgraph)
 
         def backend_energy(positions, strain):
-            strained_cells = cells @ strain
             batch_data = backend.preprocess(
                 positions @ strain,
                 centers,
                 neighbors,
                 species,
-                strained_cells,
+                cell_contributions @ strain,
                 cell_shifts,
-                system_indices,
                 cutoff_width_adaptive,
             )
             node_list, edge_list = backend.calculate_features(batch_data)
@@ -275,7 +254,7 @@ def test_backend_torch_compile(fullgraph):
                 node_list,
                 edge_list,
                 batch_data,
-                strained_cells,
+                cells @ strain,
                 system_indices,
                 ["energy"],
             )
@@ -301,3 +280,65 @@ def test_backend_torch_compile(fullgraph):
     torch.testing.assert_close(energy_backend, energy_full)
     torch.testing.assert_close(forces_backend, forces_full)
     torch.testing.assert_close(strain_grad_backend, strain_grad_full)
+
+
+def test_batched_preprocessing_is_not_slower():
+    """Preprocessing two structures in one batch, with the backward pass for the
+    forces and stress, is not much slower than preprocessing them one at a time. A
+    gather of the cell of each edge made it more than twice as slow, as its backward
+    sums the gradients of each cell over all of its edges one after the other."""
+    model = PET(MODEL_HYPERS, _make_dataset_info())
+    options = model.requested_neighbor_lists()[0]
+    atoms = ase.build.bulk("C", "diamond", a=3.57, cubic=True).repeat(4)
+    systems = []
+    for seed in range(2):
+        atoms.rattle(0.05, seed=seed)
+        system = System(
+            types=torch.tensor(atoms.numbers),
+            positions=torch.tensor(atoms.positions, dtype=torch.float32),
+            cell=torch.tensor(atoms.cell.array, dtype=torch.float32),
+            pbc=torch.tensor([True, True, True]),
+        )
+        system.positions.requires_grad_(True)
+        system.cell.requires_grad_(True)
+        systems.append(get_system_with_neighbor_lists(system, [options]))
+
+    def elapsed(systems):
+        start = time.perf_counter()
+        (
+            positions,
+            centers,
+            neighbors,
+            species,
+            _cells,
+            cell_shifts,
+            cell_contributions,
+            _system_indices,
+            _sample_labels,
+        ) = concatenate_structures(systems, options)
+        batch_data = model.backend.preprocess(
+            positions,
+            centers,
+            neighbors,
+            species,
+            cell_contributions,
+            cell_shifts,
+            model.cutoff_width_adaptive,
+        )
+        torch.autograd.grad(
+            batch_data["edge_vectors"].sum(),
+            [s.positions for s in systems] + [s.cell for s in systems],
+        )
+        return time.perf_counter() - start
+
+    # on the CPU, the slow gather shows up with several threads, as on CI runners
+    n_threads = torch.get_num_threads()
+    torch.set_num_threads(4)
+    elapsed(systems)
+    single, batched = [], []
+    for _ in range(5):
+        single.append(elapsed(systems[:1]) + elapsed(systems[1:]))
+        batched.append(elapsed(systems))
+    torch.set_num_threads(n_threads)
+
+    assert min(batched) < 1.5 * min(single)

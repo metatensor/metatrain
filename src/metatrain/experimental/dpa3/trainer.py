@@ -1,20 +1,22 @@
 import copy
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import torch
 import torch.distributed
 from torch.utils.data import DistributedSampler
 
-from metatrain.composition import train_or_load_composition_model
-from metatrain.scaler import train_or_load_scaler
-from metatrain.utils.abc import TrainerInterface
-from metatrain.utils.additive import remove_additive
+from metatrain.composition import CompositionModel, train_or_load_composition_model
+from metatrain.scaler import Scaler, train_or_load_scaler
+from metatrain.utils.abc import TrainerInterface, common_upgrade_checkpoint
+from metatrain.utils.additive import get_remove_additive_transform
+from metatrain.utils.architectures import get_default_hypers
 from metatrain.utils.data import (
     CollateFn,
     CombinedDataLoader,
     Dataset,
+    DatasetInfo,
     _is_disk_dataset,
     build_train_dataloaders,
     build_val_dataloaders,
@@ -41,13 +43,14 @@ from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
 )
 from metatrain.utils.per_atom import average_by_num_atoms
-from metatrain.utils.scaler import remove_scale
+from metatrain.utils.scaler import get_remove_scale_transform
 from metatrain.utils.transfer import (
     batch_to,
 )
+from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .documentation import TrainerHypers
+from .documentation import ModelHypers, TrainerHypers
 from .model import DPA3
 
 
@@ -60,7 +63,7 @@ def _get_raw_model(model: Union[DPA3, DistributedDataParallel], is_distributed: 
     return model.module if is_distributed else model
 
 
-class Trainer(TrainerInterface[TrainerHypers]):
+class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     __checkpoint_version__ = 3
 
     def __init__(self, hypers: TrainerHypers):
@@ -71,12 +74,96 @@ class Trainer(TrainerInterface[TrainerHypers]):
         self.epoch: int | None = None
         self.best_epoch: int | None = None
         self.best_metric: float | None = None
-        self.best_model_state_dict = None
+        self.best_model_state_dict: dict[str, Any] | None = None
         self.best_optimizer_state_dict = None
+
+    def setup(
+        self, model_hypers: ModelHypers, dataset_info: DatasetInfo
+    ) -> MetatrainModel[DPA3, Scaler]:
+
+        model = DPA3(hypers=model_hypers, dataset_info=dataset_info)
+
+        # If a DPA3 model has been loaded from a checkpoint, the atomic types
+        # that it supports have been loaded from the checkpoint. So get back
+        # the dataset info from the model.
+        dataset_info = model.dataset_info
+
+        # Set up additive models
+        composition_model = CompositionModel.from_valid_targets(
+            dataset_info, dataset_info.atomic_types
+        )
+        additive_models = [composition_model]
+
+        # Initialize scaler
+        scaler_hypers = get_default_hypers("scaler")["model"]
+        scaler = Scaler.from_valid_targets(
+            hypers=scaler_hypers, dataset_info=dataset_info
+        )
+
+        return MetatrainModel(
+            core=model,
+            additive_models=additive_models,
+            scaler=scaler,
+            dataset_info=dataset_info,
+        )
+
+    def restart(
+        self,
+        model: MetatrainModel[DPA3, Scaler],
+        dataset_info: DatasetInfo,
+        model_hypers: ModelHypers,
+    ) -> MetatrainModel[DPA3, Scaler]:
+
+        # -------------------------------------------------
+        #        Find out what are the new targets
+        # --------------------------------------------------
+        merged_info = model.dataset_info.union(dataset_info)
+        new_targets = {
+            key: value
+            for key, value in merged_info.targets.items()
+            if key not in model.dataset_info.targets
+        }
+        self.has_new_targets = len(new_targets) > 0
+
+        # ------------------------------------------------------
+        #  Ask the models to restart with the new dataset info
+        # -------------------------------------------------------
+
+        comp_model_info = DatasetInfo(
+            length_unit=dataset_info.length_unit,
+            atomic_types=dataset_info.atomic_types,
+            targets={
+                target_name: target_info
+                for target_name, target_info in dataset_info.targets.items()
+                if model.additive_models[0].is_valid_target(target_name, target_info)
+            },
+        )
+
+        scaler_info = DatasetInfo(
+            length_unit=dataset_info.length_unit,
+            atomic_types=dataset_info.atomic_types,
+            targets={
+                target_name: target_info
+                for target_name, target_info in dataset_info.targets.items()
+                if Scaler.is_valid_target(target_name, target_info)
+            },
+            extra_data=dataset_info.extra_data,
+        )
+
+        model.restart(
+            dataset_info,
+            dataset_info,
+            additive_models_dataset_info=[comp_model_info]
+            + [dataset_info] * (len(model.additive_models) - 1),
+            scaler_dataset_info=scaler_info,
+            model_hypers=model_hypers,
+        )
+
+        return model
 
     def train(
         self,
-        model: DPA3,
+        model: MetatrainModel[DPA3, Scaler],
         dtype: torch.dtype,
         devices: List[torch.device],
         train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -84,6 +171,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
         checkpoint_dir: str,
     ):
         assert dtype in DPA3.__supported_dtypes__
+        assert isinstance(model, MetatrainModel)
+        dpa3 = model.core
+        assert isinstance(dpa3, DPA3)
 
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
 
@@ -141,7 +231,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         # precision.  deepmd-kit's internal self.prec is set at construction
         # and is NOT updated by .to(dtype=...), so a mismatch would cause
         # silent precision loss.
-        model_dtype = next(model.model.parameters()).dtype
+        model_dtype = next(dpa3.model.parameters()).dtype
         if dtype != model_dtype:
             from .model import _PRECISION_INT_TO_DTYPE
 
@@ -155,16 +245,9 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 f"descriptor.precision."
             )
 
-        # Move the model to the device (dtype already matches construction):
-        model.to(device=device)
-        # The additive models are always kept in float64 to avoid numerical
-        # errors in the composition weights, which can be very large.
-        for additive_model in model.additive_models:
-            additive_model.to(dtype=torch.float64)
-
         atomic_baseline = self.hypers["fixed_composition_weights"]
         if isinstance(atomic_baseline, str):
-            if model.get_fixed_composition_weights():
+            if dpa3.get_fixed_composition_weights():
                 raise ValueError(
                     "The loaded DPA3 model provides its own atomic baselines, "
                     "which cannot be combined with a composition model "
@@ -173,7 +256,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 )
         else:
             atomic_baseline = {
-                **model.get_fixed_composition_weights(),
+                **dpa3.get_fixed_composition_weights(),
                 **atomic_baseline,
             }
 
@@ -182,6 +265,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             atomic_baseline=atomic_baseline,
             train_datasets=train_datasets,
             other_additive_models=list(model.additive_models[1:]),
+            device=device,
             batch_size=self.hypers["batch_size"],
             is_distributed=is_distributed,
             checkpoint_dir=checkpoint_dir,
@@ -190,14 +274,26 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.hypers["scale_targets"]:
             train_or_load_scaler(
                 scaler=model.scaler,
-                fixed_weights=model.get_fixed_scaling_weights(),
+                fixed_weights=dpa3.get_fixed_scaling_weights(),
                 train_datasets=train_datasets,
                 additive_models=model.additive_models,
+                device=device,
                 batch_size=self.hypers["batch_size"],
                 is_distributed=is_distributed,
-                checkpoint_dir=checkpoint_dir,
                 per_structure_targets=self.hypers["per_structure_targets"],
+                checkpoint_dir=checkpoint_dir,
             )
+
+        # Extract additive models and scaler and move them to CPU/float64 so they
+        # can be used in the collate function.
+        additive_models = copy.deepcopy(model.additive_models).to(
+            dtype=torch.float64, device="cpu"
+        )
+        scaler = copy.deepcopy(model.scaler).to(dtype=torch.float64, device="cpu")
+
+        # Now move the whole model (including the composition model and scaler,
+        # which were trained in float64 above) to the training device and dtype.
+        model.to(device=device, dtype=dtype)
 
         if is_distributed:
             model = DistributedDataParallel(model, device_ids=[device])
@@ -232,8 +328,14 @@ class Trainer(TrainerInterface[TrainerHypers]):
             val_samplers = [None] * len(val_datasets)
 
         # Create a collate function:
-        targets_keys = list(raw_model.dataset_info.targets.keys())
-        collate_fn = CollateFn(target_keys=targets_keys)
+        train_targets = raw_model.dataset_info.targets
+        collate_fn = CollateFn(
+            target_keys=list(train_targets.keys()),
+            callables=[
+                get_remove_additive_transform(additive_models, train_targets),
+                get_remove_scale_transform(scaler),
+            ],
+        )
 
         max_atoms = self.hypers["max_atoms_per_batch"]
 
@@ -261,7 +363,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
         val_dataloader = CombinedDataLoader(val_dataloaders, shuffle=False)
 
         # Extract all the possible outputs and their gradients:
-        train_targets = raw_model.dataset_info.targets
         outputs_list = []
         for target_name, target_info in train_targets.items():
             outputs_list.append(target_name)
@@ -292,7 +393,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if self.optimizer_state_dict is not None:
             # try to load the optimizer state dict, but this is only possible
             # if there are no new targets in the model (new parameters)
-            if not raw_model.has_new_targets:
+            if not self.has_new_targets:
                 optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a scheduler:
@@ -305,7 +406,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
         )
         if self.scheduler_state_dict is not None:
             # same as the optimizer, try to load the scheduler state dict
-            if not raw_model.has_new_targets:
+            if not self.has_new_targets:
                 lr_scheduler.load_state_dict(self.scheduler_state_dict)
 
         # per-atom targets:
@@ -341,15 +442,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
 
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
-                )
-                for additive_model in raw_model.additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(systems, targets, raw_model.scaler)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
+                    systems, targets, extra_data, device=device, dtype=dtype
                 )
 
                 predictions = evaluate_model(
@@ -428,15 +521,7 @@ class Trainer(TrainerInterface[TrainerHypers]):
             for batch in val_dataloader:
                 systems, targets, extra_data = unpack_batch(batch)
                 systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, device=device
-                )
-                for additive_model in raw_model.additive_models:
-                    targets = remove_additive(
-                        systems, targets, additive_model, train_targets
-                    )
-                targets = remove_scale(systems, targets, raw_model.scaler)
-                systems, targets, extra_data = batch_to(
-                    systems, targets, extra_data, dtype=dtype
+                    systems, targets, extra_data, device=device, dtype=dtype
                 )
 
                 predictions = evaluate_model(
@@ -589,8 +674,12 @@ class Trainer(TrainerInterface[TrainerHypers]):
         if is_distributed:
             torch.distributed.destroy_process_group()
 
-    def save_checkpoint(self, model, path: Union[str, Path]):
-        checkpoint = model.get_checkpoint()
+    def save_checkpoint(
+        self, model: MetatrainModel[DPA3, Scaler], path: Union[str, Path]
+    ):
+        checkpoint = model.get_checkpoint(self.best_model_state_dict)
+        checkpoint["core"]["epoch"] = self.epoch
+        checkpoint["core"]["best_epoch"] = self.best_epoch
         checkpoint.update(
             {
                 "train_hypers": self.hypers,
@@ -600,7 +689,6 @@ class Trainer(TrainerInterface[TrainerHypers]):
                 "scheduler_state_dict": self.scheduler_state_dict,
                 "best_epoch": self.best_epoch,
                 "best_metric": self.best_metric,
-                "best_model_state_dict": self.best_model_state_dict,
                 "best_optimizer_state_dict": self.best_optimizer_state_dict,
             }
         )
@@ -626,23 +714,17 @@ class Trainer(TrainerInterface[TrainerHypers]):
             trainer.epoch = None
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
-        trainer.best_model_state_dict = checkpoint["best_model_state_dict"]
+        trainer.best_model_state_dict = MetatrainModel.get_state_dict_from_checkpoint(
+            checkpoint, "best_model_state_dict"
+        )
         trainer.best_optimizer_state_dict = checkpoint["best_optimizer_state_dict"]
 
         return trainer
 
     @classmethod
-    def upgrade_checkpoint(cls, checkpoint: Dict) -> Dict:
-        for v in range(1, cls.__checkpoint_version__):
-            if checkpoint["trainer_ckpt_version"] == v:
-                update = getattr(checkpoints, f"trainer_update_v{v}_v{v + 1}")
-                update(checkpoint)
-                checkpoint["trainer_ckpt_version"] = v + 1
-
-        if checkpoint["trainer_ckpt_version"] != cls.__checkpoint_version__:
-            raise RuntimeError(
-                f"Unable to upgrade the checkpoint: the checkpoint is using trainer "
-                f"version {checkpoint['trainer_ckpt_version']}, while the current "
-                f"trainer version is {cls.__checkpoint_version__}."
-            )
-        return checkpoint
+    def upgrade_checkpoint(
+        cls, checkpoint: dict[str, Any], version: Optional[int] = None
+    ) -> dict[str, Any]:
+        return common_upgrade_checkpoint(
+            checkpoint, version, cls.__checkpoint_version__, "trainer", checkpoints
+        )

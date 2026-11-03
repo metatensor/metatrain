@@ -172,3 +172,42 @@ def test_multiple_targets():
     stress = result["non_conservative_stress"].block().values
     assert stress.shape == (1, 3, 3, 1)
     assert torch.allclose(stress, stress.transpose(-3, -2))
+
+
+def test_last_layer_features_do_not_depend_on_other_targets():
+    """Check the last-layer features of a target are the same whether or not the
+    model has other targets."""
+    targets = {
+        name: get_generic_target_info(
+            name,
+            {
+                "quantity": "",
+                "unit": "",
+                "num_subtargets": 1,
+                "type": "scalar",
+                "sample_kind": "system",
+            },
+        )
+        for name in ("mtt::scalar_a", "mtt::scalar_b")
+    }
+    model = SPACE(
+        _make_hypers(),
+        DatasetInfo(length_unit="Angstrom", atomic_types=[6], targets=targets),
+    )
+    model_b = SPACE(
+        _make_hypers(),
+        DatasetInfo(
+            length_unit="Angstrom",
+            atomic_types=[6],
+            targets={"mtt::scalar_b": targets["mtt::scalar_b"]},
+        ),
+    )
+    model_b.load_state_dict(model.state_dict(), strict=False)
+
+    system = _make_system(model)
+    name = "mtt::aux::scalar_b_last_layer_features"
+    outputs = {name: ModelOutput(sample_kind="atom")}
+    torch.testing.assert_close(
+        model([system], outputs)[name].block(0).values,
+        model_b([system], outputs)[name].block(0).values,
+    )

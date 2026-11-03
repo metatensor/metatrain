@@ -27,6 +27,13 @@ formats. You can choose the one that best fits your needs.
 We start by importing the necessary packages.
 """
 
+# sphinx_gallery_start_ignore
+# TODO: With follow_imports="skip", mypy cannot infer some NumPy dtype parameters.
+#       Rather than cluttering the docs, blanket ignore here. Remove this ignore when
+#       possible.
+# mypy: disable-error-code="var-annotated"
+# sphinx_gallery_end_ignore
+
 # %%
 #
 import subprocess
@@ -37,6 +44,7 @@ import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import systems_to_torch
+from numpy.typing import NDArray
 
 from metatrain.utils.data.writers import DiskDatasetWriter
 
@@ -194,7 +202,9 @@ f_path = root / "f.bin"
 s_path = root / "s.bin"
 
 ns = len(structures)
-na = np.cumsum(np.array([0] + [len(s) for s in structures], dtype=np.int64))
+na: NDArray[np.int64] = np.cumsum(
+    np.array([0] + [len(s) for s in structures], dtype=np.int64)
+)
 np.save(ns_path, ns)
 np.save(na_path, na)
 
