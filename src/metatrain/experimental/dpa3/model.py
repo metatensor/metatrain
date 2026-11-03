@@ -11,6 +11,7 @@ import ase.data
 import metatensor.torch as mts
 import torch
 from deepmd.pt.model.model import get_standard_model
+from deepmd.pt.utils.nlist import extend_input_and_build_neighbor_list
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import (
     AtomisticModel,
@@ -371,6 +372,54 @@ class DPA3(ModelInterface[ModelHypers]):
         with torch.enable_grad():
             return self._forward_from_batch(positions, atype, box)
 
+    def _forward_embedding_from_batch(
+        self,
+        positions: torch.Tensor,
+        atype: torch.Tensor,
+        box: Optional[torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        """Return DPA3 fitting features without changing the model mode.
+
+        Deepmd-kit's public ``model.forward_embedding`` API is restricted to
+        evaluation mode, while metatrain models must also provide last-layer
+        features when ``forward`` is called in training mode. Prepare the
+        deepmd-kit inputs here and call the atomic-model embedding API directly
+        to avoid changing the model mode inside ``forward``.
+        """
+        coord, cast_box, fparam, aparam, _ = self.model._input_type_cast(
+            positions,
+            box=box,
+            fparam=None,
+            aparam=None,
+        )
+        (
+            extended_coord,
+            extended_atype,
+            mapping,
+            nlist,
+        ) = extend_input_and_build_neighbor_list(
+            coord,
+            atype,
+            self.model.get_rcut(),
+            self.model.get_sel(),
+            mixed_types=True,
+            box=cast_box,
+        )
+        extended_coord = extended_coord.view(extended_atype.shape[0], -1, 3)
+        nlist = self.model.format_nlist(
+            extended_coord,
+            extended_atype,
+            nlist,
+        )
+        return self.model.atomic_model.forward_embedding(
+            extended_coord,
+            extended_atype,
+            nlist,
+            mapping=mapping,
+            fparam=fparam,
+            aparam=aparam,
+        )
+
     def forward(
         self,
         systems: List[System],
@@ -441,10 +490,10 @@ class DPA3(ModelInterface[ModelHypers]):
 
         features_name = self._last_layer_features_name(self.targets_keys)
         if features_name in outputs:
-            # The public deepmd-kit embedding API does not return energies. When both
-            # outputs are requested, energy and features therefore require separate
-            # calls, which rebuild the neighbor list and descriptor.
-            embedding = self.model.forward_embedding(positions, atype, box=box)
+            # The embedding path does not return energies. When both outputs are
+            # requested, energy and features therefore require separate calls,
+            # which rebuild the neighbor list and descriptor.
+            embedding = self._forward_embedding_from_batch(positions, atype, box)
             atomic_features = embedding["atomic_feature"][mask]
             features_layout = self.outputs[features_name].layout
             features_block = features_layout.block(0)
