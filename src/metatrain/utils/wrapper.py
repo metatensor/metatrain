@@ -404,6 +404,11 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             name: core.capabilities().outputs[name]
             for name in self.core.supported_outputs()
         }
+        # Outputs produced by the forward hooks, which the core does not know about
+        for hook in self.forward_hooks:
+            for name, info in hook.supported_outputs().items():
+                target_info = self.dataset_info.targets.get(name, info)
+                outputs[name] = target_info.to_model_output()
         # Clean deprecated names that ModelCapabilities add automatically for
         # compatibility, to avoid warnings.
         for k, v in DEPRECATED_METATOMIC_OUTPUT_NAMES.items():
