@@ -129,13 +129,20 @@ def _compute_single_neighbor_list(
     # vesin does not support autograd, gradients are attached afterwards by
     # `register_autograd_neighbors`. Periodicity is taken from the non-zero cell
     # vectors, as was done when converting to ASE.
-    nl_i, nl_j, nl_S, nl_D = calculator.compute(
-        quantities="ijSD",
-        points=system.positions.detach(),
-        box=system.cell.detach(),
-        periodic=system.cell.detach().any(dim=1),
-        copy=True,
-    )
+    if len(system) == 0:
+        # vesin rejects the NULL data pointer of empty tensors
+        nl_i = torch.empty(0, dtype=torch.int64, device=system.device)
+        nl_j = torch.empty(0, dtype=torch.int64, device=system.device)
+        nl_S = torch.empty((0, 3), dtype=torch.int32, device=system.device)
+        nl_D = torch.empty((0, 3), dtype=system.positions.dtype, device=system.device)
+    else:
+        nl_i, nl_j, nl_S, nl_D = calculator.compute(
+            quantities="ijSD",
+            points=system.positions.detach(),
+            box=system.cell.detach(),
+            periodic=system.cell.detach().any(dim=1),
+            copy=True,
+        )
 
     # vesin returns `i` and `j` as uint64, which torch can not promote
     samples = torch.hstack(
