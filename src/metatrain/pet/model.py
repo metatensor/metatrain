@@ -178,14 +178,6 @@ class PET(ModelInterface[ModelHypers]):
     def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
-    def last_layer_depends_on_atomic_type(self, target_name: str) -> bool:
-        """Whether the target has ``readout_type="one-hot"``.
-
-        :param target_name: Name of the target.
-        :return: Whether the last layers depend on the atomic type.
-        """
-        return self.backend.conditioned_last_layers[target_name]
-
     def restart(
         self,
         dataset_info: DatasetInfo,
@@ -971,6 +963,8 @@ class PET(ModelInterface[ModelHypers]):
                 ),
                 description=ll_features_info.description,
             )
+        if self.backend.conditioned_last_layers[target_name]:
+            ll_features_info.layout.set_info("last_layer_per_atomic_type", "true")
         self.last_layer_features_properties[target_name] = (
             ll_features_info.layout.block().properties
         )

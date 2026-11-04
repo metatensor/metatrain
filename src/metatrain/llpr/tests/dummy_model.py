@@ -59,7 +59,10 @@ class DummyModel(ModelInterface):
         for name, target in dataset_info.targets.items():
             self.outputs[name] = target
             if hypers["last_layer_features"]:
-                self.outputs[_features_name(name)] = self._features_info(target)
+                features_info = self._features_info(target)
+                if self.per_type:
+                    features_info.layout.set_info("last_layer_per_atomic_type", "true")
+                self.outputs[_features_name(name)] = features_info
             self.layouts[name] = target.layout
             # shared features map to all the components of a block at once
             self.last_layers[name] = torch.nn.ModuleList(
@@ -119,9 +122,6 @@ class DummyModel(ModelInterface):
 
     def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
-
-    def last_layer_depends_on_atomic_type(self, target_name: str) -> bool:
-        return self.per_type
 
     def requested_neighbor_lists(self) -> List[NeighborListOptions]:
         return []

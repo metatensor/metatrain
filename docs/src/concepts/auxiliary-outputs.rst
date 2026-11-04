@@ -37,8 +37,9 @@ The last-layer features come in one of two forms:
   the target with the same key, with the same weights for all the components.
 
 When the last layer of a per-atom target has different weights for each atomic
-type, the model defines a ``last_layer_depends_on_atomic_type(target_name)`` method
-returning ``True`` for this target.
+type, the layout of its last-layer features has the info
+``"last_layer_per_atomic_type"`` set to ``"true"`` (see
+:py:meth:`metatensor.torch.TensorMap.set_info`).
 
 .. list-table:: Metadata for last-layer features
   :widths: 2 3 7

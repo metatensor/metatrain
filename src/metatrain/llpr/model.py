@@ -137,10 +137,11 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         outputs = {name: old_capabilities.outputs[name] for name in backbone_outputs}
         for name in names:
             output = outputs[name]
-            depends_on_type = self.model.core.last_layer_depends_on_atomic_type(name)
+            features = backbone_outputs[_get_last_layer_features_name(name)].layout
+            depends_on_type = features.get_info("last_layer_per_atomic_type") == "true"
             target = _TargetLLPR(
                 name,
-                backbone_outputs[_get_last_layer_features_name(name)].layout,
+                features,
                 self.model.core.dataset_info.targets[name].layout,
                 self.model.dataset_info.targets[name].layout,
                 num_ensemble_members.get(name, 0),

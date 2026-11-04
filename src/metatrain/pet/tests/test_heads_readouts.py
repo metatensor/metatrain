@@ -163,10 +163,12 @@ def test_invalid_num_head_layers():
 
 def test_per_target_readout_type():
     model = _model(readout_type={TARGET: "one-hot"})
-    assert model.last_layer_depends_on_atomic_type(TARGET)
+    layout = model.outputs["mtt::aux::basis_last_layer_features"].layout
+    assert layout.get_info("last_layer_per_atomic_type") == "true"
     # targets that are not listed use the default
     model = _model(readout_type={"mtt::other": "one-hot"})
-    assert not model.last_layer_depends_on_atomic_type(TARGET)
+    layout = model.outputs["mtt::aux::basis_last_layer_features"].layout
+    assert layout.get_info("last_layer_per_atomic_type") is None
 
 
 def test_per_target_readout_type_option_is_valid():
