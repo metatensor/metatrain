@@ -306,6 +306,7 @@ _mtt_model_versions = {
     "scaler": (1, 2),
     "experimental.mace": (5, 4),
     "experimental.dpa3": (4, 3),
+    "experimental.se_e2_a": (1, 1),
     "experimental.space": (4, 4),
     "experimental.flashmd": (6, 7),
     "experimental.flashmd_symplectic": (4, 3),

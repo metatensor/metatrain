@@ -315,6 +315,25 @@ flashmd-symplectic-tests:
     SLURM_TIMELIMIT: '00:06:00'
     GIT_STRATEGY: fetch
 
+se-e2-a-tests:
+  stage: test
+  # Trigger tests as soon as base image is ready
+  needs:
+    - build base
+  extends: .container-runner-daint-gh200
+  image: $BASE_IMAGE
+  timeout: 24h
+  script:
+    - rm -rf /tmp/tox/
+    - tox -e check-cuda-available --workdir /tmp/tox/ --list-dependencies
+    - tox -e se-e2-a-tests --workdir /tmp/tox/ --list-dependencies
+  variables:
+    SLURM_JOB_NUM_NODES: 1
+    SLURM_PARTITION: normal
+    SLURM_NTASKS: 1
+    SLURM_TIMELIMIT: '00:07:00'
+    GIT_STRATEGY: fetch
+
 dpa3-tests:
   stage: test
   # Trigger tests as soon as base image is ready
