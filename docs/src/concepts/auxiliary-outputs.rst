@@ -30,11 +30,16 @@ produces multiple targets, the corresponding representations might be different.
 
 The last-layer features come in one of two forms:
 
-- invariant or non-symmetrized features are a single block, used for all the blocks
-  of the target;
+- invariant or non-symmetrized features are a single block, of which each block of
+  the target reads all the features, or those labelled with its key;
 - equivariant features have one block for each block of the target, with the same
   keys and components. The last layer maps each block of features to the block of
   the target with the same key, with the same weights for all the components.
+
+When the last layer of a per-atom target has different weights for each atomic
+type, the layout of its last-layer features has the info
+``"last_layer_per_atomic_type"`` set to ``"true"`` (see
+:py:meth:`metatensor.torch.TensorMap.set_info`).
 
 .. list-table:: Metadata for last-layer features
   :widths: 2 3 7
@@ -67,10 +72,11 @@ The last-layer features come in one of two forms:
       equivariant.
 
   * - properties
-    - ``"feature"``
-    - the last-layer features have a single property dimension named
-      ``"feature"``, with entries ranging from 0 to the number of features
-      in the last layer.
+    - ``"feature"``, optionally preceded by some of the key names of the target
+    - the last-layer features have a property dimension named ``"feature"``,
+      with entries ranging from 0 to the number of features in the last layer,
+      and optionally key dimensions such as ``["o3_lambda", "o3_sigma", "feature"]``
+      labelling the features of each block.
 
 Last-layer features are supported by the following architectures:
 
