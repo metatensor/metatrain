@@ -51,8 +51,7 @@ class TestInputs(InputTests, IntensiveGapTests): ...
 class TestOutputs(OutputTests, IntensiveGapTests): ...
 
 
-LEARNABLE_POOLING = {
-    "type": "softmax",
+LEARNABLE_ALPHA = {
     "alpha_bottom": 10.0,
     "alpha_top": -10.0,
     "learnable_alpha": True,
@@ -64,7 +63,7 @@ class IntensiveGapLearnableTests(IntensiveGapTests):
 
     @pytest.fixture
     def hypers(self):
-        return {"outputs": "mtt::energy", "pooling": dict(LEARNABLE_POOLING)}
+        return {"outputs": "mtt::energy", **LEARNABLE_ALPHA}
 
     @pytest.fixture
     def dataset_info(self) -> DatasetInfo:
@@ -94,7 +93,7 @@ class IntensiveGapLearnableTests(IntensiveGapTests):
 
     def build_hypers(self, input, output):
         hypers, input_names, output_names = super().build_hypers(input, output)
-        hypers["pooling"] = dict(LEARNABLE_POOLING)
+        hypers.update(LEARNABLE_ALPHA)
         if input is None:
             base_name = output["energy"].replace("mtt::", "")
             input_names += [
