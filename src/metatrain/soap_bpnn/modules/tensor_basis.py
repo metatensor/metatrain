@@ -1,6 +1,7 @@
 """Modules to allow SOAP-BPNN to fit arbitrary spherical tensor targets."""
 
 import copy
+import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 import metatensor.torch as mts
@@ -894,7 +895,7 @@ class ClebschGordanReal:
             np.logical_and(np.abs(rcg) > 0, np.abs(rcg) < 1e-14)
         )
         if len(where_almost_zero[0] != 0):
-            print("INFO: Found almost-zero CG!")
+            logging.info("Found almost-zero CG!")
         for i0, i1, i2 in zip(
             where_almost_zero[0],
             where_almost_zero[1],

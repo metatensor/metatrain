@@ -1495,8 +1495,6 @@ def test_composition_spherical_atomic_basis_dense():
         ],
         dtype=torch.float64,
     )
-    print("Composition weights:\n", W)
-    print("Expected weights:\n", expected)
     torch.testing.assert_close(W, expected, rtol=1e-10, atol=1e-10, equal_nan=True)
 
     # Check predictions
@@ -1514,8 +1512,6 @@ def test_composition_spherical_atomic_basis_dense():
         ],
         dtype=torch.float64,
     )
-    print("Predicted values:\n", pred_values)
-    print("Expected values:\n", expected_preds)
     torch.testing.assert_close(
         pred_values, expected_preds, rtol=1e-10, atol=1e-10, equal_nan=True
     )
