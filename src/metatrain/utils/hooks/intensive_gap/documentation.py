@@ -21,12 +21,26 @@ LUMO and HOMO energies, respectively.
 The hook takes care of a global scalar output by requesting two separate
 local scalar quantities as inputs and performing the min/max pooling.
 
+Pooling
+-------
+
+The hard minimum and maximum are replaced by a self-weighted softmax pool,
+whose weights are computed from the per-atom values themselves:
+
+.. math::
+    E = \sum_i \frac{e^{\alpha h_i}}{\sum_j e^{\alpha h_j}} h_i
+
+The sign of :math:`\alpha` (``alpha_bottom`` or ``alpha_top``) selects max-
+vs min-pooling and its magnitude sets the sharpness: the pool recovers a hard
+max/min as :math:`|\alpha| \to \infty`. The weights sum to one in each system,
+so the pooled value is strictly intensive.
+
 Learnable sharpness
 -------------------
 
-With ``pooling.learnable_alpha: true`` (only for ``softmax`` pooling), each atom
-gets its own sharpness, predicted by the model through two extra per-atom
-outputs :math:`u_i` (one for the bottom and one for the top of the gap):
+With ``learnable_alpha: true``, each atom gets its own sharpness, predicted by
+the model through two extra per-atom outputs :math:`u_i` (one for the bottom
+and one for the top of the gap):
 
 .. math::
     \alpha_i = A \, e^{u_i}, \qquad
@@ -35,53 +49,15 @@ outputs :math:`u_i` (one for the bottom and one for the top of the gap):
 where :math:`A` is ``alpha_bottom`` or ``alpha_top``, acting as a global scale
 whose sign selects max- vs min-pooling. The weights are not invariant to a
 constant shift of all :math:`h_i`. :math:`u_i = 0` reduces exactly to the
-fixed-sharpness softmax pooling.
+fixed-sharpness pooling.
 
 """
 
-from typing import Literal, TypedDict
+from typing import TypedDict
 
 from typing_extensions import NotRequired
 
 from metatrain.utils.hypers import init_with_defaults
-
-
-class PoolingHypers(TypedDict):
-    """Hyperparameters for the per-system pooling step.
-
-    Two pooling types are supported, both controlled by the same
-    ``alpha_bottom`` / ``alpha_top`` parameters (sign selects max- vs min-pool,
-    magnitude sets the sharpness):
-
-    - ``"softmax"`` (default): ``E = sum_i softmax(alpha * h_i) * h_i``. A
-      self-weighted softmax pool: the softmax weights are computed from the
-      per-atom *values themselves*, so the pool attends to the most extreme
-      contributions. Strictly intensive (softmax weights sum to 1, removing the
-      ``log(N)/|alpha|`` residual of the smoothmax pool) and recovers a hard
-      max/min as ``|alpha| -> infinity``.
-    - ``"smoothmax"``: ``E = (1/alpha) log sum_i exp(alpha h_i)``. Recovers a
-      hard max/min as ``|alpha| -> infinity``, but is not strictly intensive:
-      it is size-intensive only up to a ``log(N)/|alpha|`` residual.
-    """
-
-    type: Literal["smoothmax", "softmax"] = "softmax"
-    """Pooling type. One of ``"softmax"`` or ``"smoothmax"``."""
-
-    alpha_bottom: float = 20.0
-    """Max pooling parameter. ``alpha_bottom > 0`` gives a (smooth/soft) max.
-    Larger magnitude -> sharper (closer to a hard max). Used by both pooling
-    types."""
-
-    alpha_top: float = -20.0
-    """Min pooling parameter. ``alpha_top < 0`` gives a (smooth/soft) min.
-    Larger magnitude -> sharper (closer to a hard min). Used by both pooling
-    types."""
-
-    learnable_alpha: bool = False
-    """If ``True``, the sharpness becomes per-atom and learnable:
-    ``alpha_i = alpha * exp(u_i)``, where ``u_i`` is predicted by the model and
-    ``alpha_bottom`` / ``alpha_top`` act as global scales whose sign selects
-    max- vs min-pooling. Only supported with ``"softmax"`` pooling."""
 
 
 class HookInputs(TypedDict):
@@ -104,7 +80,20 @@ class Hypers(TypedDict):
     Hyperparameters for the intensive gap hook.
     """
 
-    pooling: PoolingHypers = init_with_defaults(PoolingHypers)
+    alpha_bottom: float = 20.0
+    """Sharpness of the pooling of the bottom of the gap. ``alpha_bottom > 0``
+    gives a soft max; a larger magnitude gives a sharper pool (closer to a hard
+    max)."""
+
+    alpha_top: float = -20.0
+    """Sharpness of the pooling of the top of the gap. ``alpha_top < 0`` gives a
+    soft min; a larger magnitude gives a sharper pool (closer to a hard min)."""
+
+    learnable_alpha: bool = False
+    """If ``True``, the sharpness becomes per-atom and learnable:
+    ``alpha_i = alpha * exp(u_i)``, where ``u_i`` is predicted by the model and
+    ``alpha_bottom`` / ``alpha_top`` act as global scales whose sign selects
+    max- vs min-pooling."""
 
     inputs: HookInputs | list[HookInputs] = init_with_defaults(HookInputs)
 

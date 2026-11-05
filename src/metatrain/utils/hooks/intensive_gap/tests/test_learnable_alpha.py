@@ -8,7 +8,7 @@ from metatomic.torch import ModelOutput, System
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_generic_target_info
 from metatrain.utils.hooks.helpers import load_hook
-from metatrain.utils.hooks.intensive_gap.hook import _scatter_per_atom_softmax_pool
+from metatrain.utils.hooks.intensive_gap.hook import IntensiveGap, _scatter_softmax_pool
 
 
 N_ATOMS = [3, 5, 1, 7]
@@ -23,7 +23,6 @@ NAMES = {
 
 def _make_hook(
     learnable_alpha: bool,
-    pooling_type: str = "softmax",
     alpha_bottom: float = 10.0,
     alpha_top: float = -10.0,
 ):
@@ -44,12 +43,9 @@ def _make_hook(
     )
     hypers = {
         "outputs": "mtt::gap",
-        "pooling": {
-            "type": pooling_type,
-            "alpha_bottom": alpha_bottom,
-            "alpha_top": alpha_top,
-            "learnable_alpha": learnable_alpha,
-        },
+        "alpha_bottom": alpha_bottom,
+        "alpha_top": alpha_top,
+        "learnable_alpha": learnable_alpha,
     }
     return load_hook("intensive_gap")(hypers, dataset_info)
 
@@ -162,10 +158,8 @@ def test_intensive():
     values = _random_values(seed=2)["bottom"][:5]
     alphas = 10.0 * torch.exp(_random_values(seed=3)["alpha_bottom"][:5])
 
-    pooled = _scatter_per_atom_softmax_pool(
-        values, alphas, torch.zeros(5, dtype=torch.long), 1
-    )
-    pooled_twice = _scatter_per_atom_softmax_pool(
+    pooled = _scatter_softmax_pool(values, alphas, torch.zeros(5, dtype=torch.long), 1)
+    pooled_twice = _scatter_softmax_pool(
         torch.cat([values, values]),
         torch.cat([alphas, alphas]),
         torch.zeros(10, dtype=torch.long),
@@ -183,7 +177,7 @@ def test_hard_limit(maximum):
     alphas = sign * 1e5 * torch.ones_like(values["bottom"])
     system_indices = _system_indices()
 
-    pooled = _scatter_per_atom_softmax_pool(
+    pooled = _scatter_softmax_pool(
         values["bottom"], alphas, system_indices, len(N_ATOMS)
     )
 
@@ -215,9 +209,56 @@ def test_torchscript_matches_eager():
     torch.testing.assert_close(_gap(scripted, values), _gap(hook, values))
 
 
-def test_learnable_smoothmax_raises():
-    with pytest.raises(ValueError, match="only supports `learnable_alpha` with"):
-        _make_hook(learnable_alpha=True, pooling_type="smoothmax")
+def test_pooling_section_raises():
+    """The old nested ``pooling`` hypers are rejected instead of silently ignored."""
+    hook = _make_hook(learnable_alpha=False)
+    hypers = {"outputs": "mtt::gap", "pooling": {"alpha_bottom": 5.0}}
+    with pytest.raises(ValueError, match="'pooling' section"):
+        IntensiveGap(hypers, hook.dataset_info)
+
+
+def _v1_checkpoint(learnable_alpha: bool, pooling_type: str = "softmax") -> dict:
+    """A version 1 checkpoint, with the pooling hypers in a ``pooling`` section."""
+    hook = _make_hook(learnable_alpha=learnable_alpha, alpha_bottom=3.0, alpha_top=-7.0)
+    checkpoint = hook.get_checkpoint()
+    hypers = checkpoint["hook_data"]["hypers"]
+    checkpoint["hook_data"]["hypers"] = {
+        "outputs": hypers["outputs"],
+        "pooling": {
+            "type": pooling_type,
+            "alpha_bottom": hypers["alpha_bottom"],
+            "alpha_top": hypers["alpha_top"],
+            "learnable_alpha": hypers["learnable_alpha"],
+        },
+    }
+    checkpoint["hook_ckpt_version"] = 1
+    return checkpoint
+
+
+@pytest.mark.parametrize("learnable_alpha", [False, True])
+def test_upgrade_v1_checkpoint(learnable_alpha):
+    """A version 1 checkpoint loads with the same sharpness and gives the same gap."""
+    reference = _make_hook(
+        learnable_alpha=learnable_alpha, alpha_bottom=3.0, alpha_top=-7.0
+    )
+    hook = IntensiveGap.load_checkpoint(_v1_checkpoint(learnable_alpha), "restart")
+
+    assert hook.hypers["alpha_bottom"] == 3.0
+    assert hook.hypers["alpha_top"] == -7.0
+    assert hook.hypers["learnable_alpha"] == learnable_alpha
+    assert "pooling" not in hook.hypers
+    assert hook.get_checkpoint()["hook_ckpt_version"] == 2
+
+    values = _random_values(seed=7)
+    if not learnable_alpha:
+        values = {"bottom": values["bottom"], "top": values["top"]}
+    torch.testing.assert_close(_gap(hook, values), _gap(reference, values))
+
+
+def test_upgrade_v1_smoothmax_checkpoint_raises():
+    checkpoint = _v1_checkpoint(learnable_alpha=False, pooling_type="smoothmax")
+    with pytest.raises(ValueError, match="only the softmax pooling"):
+        IntensiveGap.load_checkpoint(checkpoint, "restart")
 
 
 @pytest.mark.parametrize("alpha_name", ["alpha_bottom", "alpha_top"])

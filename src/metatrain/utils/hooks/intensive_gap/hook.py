@@ -5,11 +5,10 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 
 from metatrain.utils.data import DatasetInfo, TargetInfo
-from metatrain.utils.hypers import init_with_defaults
 
 from ..abc import HookInterface
 from ..helpers import UnavailableOutputError
-from .documentation import Hypers, PoolingHypers
+from .documentation import Hypers
 
 
 # -----------------------------------------
@@ -19,52 +18,14 @@ from .documentation import Hypers, PoolingHypers
 
 def _scatter_softmax_pool(
     values: torch.Tensor,
-    alpha: float,
-    system_indices: torch.Tensor,
-    num_systems: int,
-) -> torch.Tensor:
-    """Per-system self-weighted softmax pool: ``sum_i softmax(alpha * v_i)_i * v_i``.
-
-    Numerically stable: shift ``alpha * v`` by per-system max before exponentiating.
-    Strictly intensive (softmax weights sum to 1 within each system). The sign of
-    ``alpha`` selects max- vs min-pool, exactly as in :func:`_scatter_logsumexp`.
-
-    :param values: ``(N,)`` per-atom values.
-    :param alpha: scalar tensor; sign determines max- vs min-pool.
-    :param system_indices: ``(N,)`` system index per atom (in ``[0, num_systems)``).
-    :param num_systems: number of systems ``S`` in the batch.
-    :return: ``(S,)`` pooled values.
-    """
-    logits = alpha * values  # (N,)
-    neg_inf = torch.full(
-        (num_systems,), float("-inf"), dtype=values.dtype, device=values.device
-    )
-    sys_max = neg_inf.scatter_reduce(
-        0, system_indices, logits, reduce="amax", include_self=True
-    )
-    sys_max = torch.where(torch.isinf(sys_max), torch.zeros_like(sys_max), sys_max)
-    exps = torch.exp(logits - sys_max[system_indices])  # (N,)
-    denom = torch.zeros(
-        num_systems, dtype=values.dtype, device=values.device
-    ).scatter_add(0, system_indices, exps)
-    weights = exps / denom[system_indices]  # (N,) softmax across each system
-    weighted = weights * values
-    pooled = torch.zeros(
-        num_systems, dtype=values.dtype, device=values.device
-    ).scatter_add(0, system_indices, weighted)
-    return pooled
-
-
-def _scatter_per_atom_softmax_pool(
-    values: torch.Tensor,
     alphas: torch.Tensor,
     system_indices: torch.Tensor,
     num_systems: int,
 ) -> torch.Tensor:
-    """Per-system softmax pool with per-atom sharpness.
+    """Per-system self-weighted softmax pool: ``sum_i softmax(alpha_i * v_i)_i * v_i``.
 
-    Computes ``sum_i softmax(alpha_i * v_i)_i * v_i``. Same as
-    :func:`_scatter_softmax_pool`, but with one ``alpha`` per atom. The weights
+    Strictly intensive (the softmax weights sum to 1 within each system). The sign
+    of ``alpha`` selects max- vs min-pooling. With a per-atom ``alpha`` the weights
     change under a constant shift of the values. Numerically stable: the logits are
     shifted by their per-system max before exponentiating, which doesn't change the
     result.
@@ -95,42 +56,6 @@ def _scatter_per_atom_softmax_pool(
     return pooled
 
 
-def _scatter_logsumexp(
-    values: torch.Tensor,
-    alpha: float,
-    system_indices: torch.Tensor,
-    num_systems: int,
-) -> torch.Tensor:
-    """Numerically stable per-system ``(1/alpha) * logsumexp(alpha * values)``.
-
-    Works for ``alpha`` of either sign. Implementation: shift by per-system max
-    of ``alpha * values`` for stability, then scatter-add the exponentials.
-
-    :param values: ``(N,)`` per-atom values.
-    :param alpha: scalar tensor; sign determines max- vs min-pool.
-    :param system_indices: ``(N,)`` system index per atom (in ``[0, num_systems)``).
-    :param num_systems: number of systems ``S`` in the batch.
-    :return: ``(S,)`` pooled values.
-    """
-    scaled = alpha * values  # (N,)
-    neg_inf = torch.full(
-        (num_systems,),
-        float("-inf"),
-        dtype=values.dtype,
-        device=values.device,
-    )
-    sys_max = neg_inf.scatter_reduce(
-        0, system_indices, scaled, reduce="amax", include_self=True
-    )
-    sys_max = torch.where(torch.isinf(sys_max), torch.zeros_like(sys_max), sys_max)
-    shifted_exp = torch.exp(scaled - sys_max[system_indices])
-    sum_exp = torch.zeros(
-        num_systems, dtype=values.dtype, device=values.device
-    ).scatter_add(0, system_indices, shifted_exp)
-    log_sum_exp = sys_max + torch.log(sum_exp)
-    return log_sum_exp / alpha
-
-
 # -----------------------------------------
 #    The hook itself
 # -----------------------------------------
@@ -144,28 +69,29 @@ class IntensiveGap(HookInterface[Hypers]):
         target quantities and atomic types.
     """
 
-    __checkpoint_version__ = 1
+    __checkpoint_version__ = 2
 
     def __init__(self, hypers: Hypers, dataset_info: DatasetInfo):
         super().__init__(hypers, dataset_info)
 
         self.hypers = hypers
 
-        pooling_hypers = hypers.get("pooling", init_with_defaults(PoolingHypers))
+        if "pooling" in hypers:
+            raise ValueError(
+                "The 'pooling' section of the IntensiveGap hook was removed: the "
+                "pooling is always a softmax, and 'alpha_bottom', 'alpha_top' and "
+                "'learnable_alpha' are now given directly in the hook's hypers"
+            )
 
-        learnable_alpha = bool(pooling_hypers.get("learnable_alpha", False))
+        alpha_bottom = float(hypers.get("alpha_bottom", 20.0))
+        alpha_top = float(hypers.get("alpha_top", -20.0))
+        learnable_alpha = bool(hypers.get("learnable_alpha", False))
         if learnable_alpha:
-            if pooling_hypers.get("type", "softmax") != "softmax":
-                raise ValueError(
-                    "IntensiveGap hook only supports `learnable_alpha` with "
-                    "'softmax' pooling, but got pooling type "
-                    f"'{pooling_hypers.get('type')}'"
-                )
             for alpha_name, alpha in [
-                ("alpha_bottom", pooling_hypers.get("alpha_bottom", 20.0)),
-                ("alpha_top", pooling_hypers.get("alpha_top", -20.0)),
+                ("alpha_bottom", alpha_bottom),
+                ("alpha_top", alpha_top),
             ]:
-                if float(alpha) == 0.0:
+                if alpha == 0.0:
                     raise ValueError(
                         f"IntensiveGap hook requires a non-zero '{alpha_name}' when "
                         "`learnable_alpha` is enabled, since its sign selects max- "
@@ -263,11 +189,8 @@ class IntensiveGap(HookInterface[Hypers]):
                 for in_name in [in_names["alpha_bottom"], in_names["alpha_top"]]:
                     self._input_target_infos[in_name] = TargetInfo(per_atom_layout)
 
-            layout.set_info("pooling_type", pooling_hypers["type"])
-            layout.set_info(
-                "alpha_bottom", str(pooling_hypers.get("alpha_bottom", 20.0))
-            )
-            layout.set_info("alpha_top", str(pooling_hypers.get("alpha_top", -20.0)))
+            layout.set_info("alpha_bottom", str(alpha_bottom))
+            layout.set_info("alpha_top", str(alpha_top))
             layout.set_info("bottom_name", in_names["bottom"])
             layout.set_info("top_name", in_names["top"])
             layout.set_info("learnable_alpha", "true" if learnable_alpha else "false")
@@ -372,7 +295,6 @@ class IntensiveGap(HookInterface[Hypers]):
             alpha_top = float(info["alpha_top"])
             input_bottom = info["bottom_name"]
             input_top = info["top_name"]
-            pooling_type = info["pooling_type"]
             learnable_alpha = info["learnable_alpha"] == "true"
             block_shapes = self._block_shapes[out_name]
 
@@ -390,30 +312,16 @@ class IntensiveGap(HookInterface[Hypers]):
                     u_top = inputs[info["alpha_top_name"]].block(i).values.ravel()
                     alphas_bottom = alpha_bottom * torch.exp(u_bottom)
                     alphas_top = alpha_top * torch.exp(u_top)
-                    out_bottom = _scatter_per_atom_softmax_pool(
-                        values_bottom, alphas_bottom, system_indices, num_systems
-                    )
-                    out_top = _scatter_per_atom_softmax_pool(
-                        values_top, alphas_top, system_indices, num_systems
-                    )
-                elif pooling_type == "softmax":
-                    # Self-weighted softmax pool: the softmax weights are computed
-                    # directly from the per-atom values themselves, so atoms with the
-                    # most extreme contribution dominate. Strictly intensive (weights
-                    # sum to 1) and recovers a hard max/min as ``|alpha| -> infinity``.
-                    out_bottom = _scatter_softmax_pool(
-                        values_bottom, alpha_bottom, system_indices, num_systems
-                    )
-                    out_top = _scatter_softmax_pool(
-                        values_top, alpha_top, system_indices, num_systems
-                    )
                 else:
-                    out_bottom = _scatter_logsumexp(
-                        values_bottom, alpha_bottom, system_indices, num_systems
-                    )
-                    out_top = _scatter_logsumexp(
-                        values_top, alpha_top, system_indices, num_systems
-                    )
+                    alphas_bottom = torch.full_like(values_bottom, alpha_bottom)
+                    alphas_top = torch.full_like(values_top, alpha_top)
+
+                out_bottom = _scatter_softmax_pool(
+                    values_bottom, alphas_bottom, system_indices, num_systems
+                )
+                out_top = _scatter_softmax_pool(
+                    values_top, alphas_top, system_indices, num_systems
+                )
 
                 gap = out_top - out_bottom
 
@@ -464,6 +372,9 @@ class IntensiveGap(HookInterface[Hypers]):
 
         :param checkpoint: A dictionary containing the state of the hook.
         """
+        if checkpoint["hook_ckpt_version"] == 1:
+            checkpoint = cls.upgrade_checkpoint_v1_v2(checkpoint)
+
         if checkpoint["hook_ckpt_version"] != cls.__checkpoint_version__:
             raise ValueError(
                 f"Invalid checkpoint version for the hook: "
@@ -478,3 +389,30 @@ class IntensiveGap(HookInterface[Hypers]):
 
         hook.load_state_dict(checkpoint["model_state_dict"])
         return hook
+
+    @staticmethod
+    def upgrade_checkpoint_v1_v2(checkpoint: dict[str, Any]) -> dict[str, Any]:
+        """
+        Upgrade a version 1 checkpoint, whose hypers had a ``pooling`` section.
+
+        The pooling parameters move to the top level of the hypers. Only the
+        softmax pooling is left, so a smoothmax checkpoint can't be upgraded.
+
+        :param checkpoint: The version 1 checkpoint.
+        :return: The version 2 checkpoint.
+        """
+        hypers = dict(checkpoint["hook_data"]["hypers"])
+        pooling = dict(hypers.pop("pooling", {}))
+        pooling_type = pooling.pop("type", "softmax")
+        if pooling_type != "softmax":
+            raise ValueError(
+                f"Can not upgrade an IntensiveGap checkpoint with '{pooling_type}' "
+                "pooling: only the softmax pooling is supported"
+            )
+        hypers.update(pooling)
+
+        # The output layouts keep a stale "pooling_type" info, which is not read
+        # any more and does not enter the comparison of target infos.
+        checkpoint["hook_data"]["hypers"] = hypers
+        checkpoint["hook_ckpt_version"] = 2
+        return checkpoint
