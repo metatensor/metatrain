@@ -24,6 +24,7 @@ jobs:
           - soap-bpnn
           - composition
           - dpa3
+          - se-e2-a
           - scaler
           - lorem
 
