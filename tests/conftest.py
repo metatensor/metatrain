@@ -1,3 +1,4 @@
+import logging
 import math
 import os
 import shutil
@@ -99,10 +100,9 @@ def ensure_path(mode: str) -> Path:
         )
 
         if result.returncode != 0:
-            print(
+            logging.error(
                 f"Error generating model for mode {mode}"
                 f"Training script output:\n{result.stdout.decode()}",
-                file=sys.stderr,
             )
             raise RuntimeError(f"Failed to generate model for mode {mode}")
     return path
