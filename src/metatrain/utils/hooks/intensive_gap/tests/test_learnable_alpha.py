@@ -255,6 +255,25 @@ def test_upgrade_v1_checkpoint(learnable_alpha):
     torch.testing.assert_close(_gap(hook, values), _gap(reference, values))
 
 
+def test_default_alphas():
+    """The default sharpness is +-10, and it is stored in the hook's hypers."""
+    hook = _make_hook(learnable_alpha=False)
+    hook = IntensiveGap({"outputs": "mtt::gap"}, hook.dataset_info)
+    assert hook.hypers["alpha_bottom"] == 10.0
+    assert hook.hypers["alpha_top"] == -10.0
+    assert hook.get_checkpoint()["hook_data"]["hypers"]["alpha_bottom"] == 10.0
+
+
+def test_upgrade_v1_checkpoint_default_alphas():
+    """A version 1 checkpoint without alphas keeps the version 1 defaults (+-20)."""
+    checkpoint = _v1_checkpoint(learnable_alpha=False)
+    del checkpoint["hook_data"]["hypers"]["pooling"]["alpha_bottom"]
+    del checkpoint["hook_data"]["hypers"]["pooling"]["alpha_top"]
+    hook = IntensiveGap.load_checkpoint(checkpoint, "restart")
+    assert hook.hypers["alpha_bottom"] == 20.0
+    assert hook.hypers["alpha_top"] == -20.0
+
+
 def test_upgrade_v1_smoothmax_checkpoint_raises():
     checkpoint = _v1_checkpoint(learnable_alpha=False, pooling_type="smoothmax")
     with pytest.raises(ValueError, match="only the softmax pooling"):

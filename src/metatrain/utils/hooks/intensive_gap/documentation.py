@@ -80,12 +80,12 @@ class Hypers(TypedDict):
     Hyperparameters for the intensive gap hook.
     """
 
-    alpha_bottom: float = 20.0
+    alpha_bottom: float = 10.0
     """Sharpness of the pooling of the bottom of the gap. ``alpha_bottom > 0``
     gives a soft max; a larger magnitude gives a sharper pool (closer to a hard
     max)."""
 
-    alpha_top: float = -20.0
+    alpha_top: float = -10.0
     """Sharpness of the pooling of the top of the gap. ``alpha_top < 0`` gives a
     soft min; a larger magnitude gives a sharper pool (closer to a hard min)."""
 
