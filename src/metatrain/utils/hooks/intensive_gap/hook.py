@@ -74,8 +74,6 @@ class IntensiveGap(HookInterface[Hypers]):
     def __init__(self, hypers: Hypers, dataset_info: DatasetInfo):
         super().__init__(hypers, dataset_info)
 
-        self.hypers = hypers
-
         if "pooling" in hypers:
             raise ValueError(
                 "The 'pooling' section of the IntensiveGap hook was removed: the "
@@ -83,9 +81,16 @@ class IntensiveGap(HookInterface[Hypers]):
                 "'learnable_alpha' are now given directly in the hook's hypers"
             )
 
-        alpha_bottom = float(hypers.get("alpha_bottom", 20.0))
-        alpha_top = float(hypers.get("alpha_top", -20.0))
+        alpha_bottom = float(hypers.get("alpha_bottom", 10.0))
+        alpha_top = float(hypers.get("alpha_top", -10.0))
         learnable_alpha = bool(hypers.get("learnable_alpha", False))
+        # Store the resolved values, so that checkpoints don't depend on the defaults
+        self.hypers = {
+            **hypers,
+            "alpha_bottom": alpha_bottom,
+            "alpha_top": alpha_top,
+            "learnable_alpha": learnable_alpha,
+        }
         if learnable_alpha:
             for alpha_name, alpha in [
                 ("alpha_bottom", alpha_bottom),
@@ -395,8 +400,9 @@ class IntensiveGap(HookInterface[Hypers]):
         """
         Upgrade a version 1 checkpoint, whose hypers had a ``pooling`` section.
 
-        The pooling parameters move to the top level of the hypers. Only the
-        softmax pooling is left, so a smoothmax checkpoint can't be upgraded.
+        The pooling parameters move to the top level of the hypers, with the version
+        1 defaults (+-20) filled in. Only the softmax pooling is left, so a smoothmax
+        checkpoint can't be upgraded.
 
         :param checkpoint: The version 1 checkpoint.
         :return: The version 2 checkpoint.
@@ -409,7 +415,8 @@ class IntensiveGap(HookInterface[Hypers]):
                 f"Can not upgrade an IntensiveGap checkpoint with '{pooling_type}' "
                 "pooling: only the softmax pooling is supported"
             )
-        hypers.update(pooling)
+        # The defaults were +-20 at version 1
+        hypers.update({"alpha_bottom": 20.0, "alpha_top": -20.0, **pooling})
 
         # The output layouts keep a stale "pooling_type" info, which is not read
         # any more and does not enter the comparison of target infos.
