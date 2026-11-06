@@ -54,6 +54,13 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         # Compute transformations needed at evaluation time.
         self._eval_transforms = self._get_eval_transforms()
+        # Store the supported outputs of each hook.
+        # We compute it here to avoid doing it in forward, which could slow down
+        # the evaluation and also require supported_outputs to be torchscriptable.
+        self._hook_supported_outputs: list[list[str]] = [
+            [name for name in hook.supported_outputs()]
+            for hook in self.forward_hooks
+        ]
 
     def _get_eval_transforms(self) -> dict[str, list[str]]:
         """Finds out which targets need to be transformed at evaluation time to
@@ -132,11 +139,20 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         #            Apply hooks
         # -----------------------------------
         with torch.profiler.record_function("MTT_WRAPPER::apply_hooks"):
-            for hook in self.forward_hooks:
+            for i_hook, hook in enumerate(self.forward_hooks):
+
+                # Filter the outputs to only include those that are
+                # supported by the hook
+                hook_outs: dict[str, ModelOutput] = {}
+                for name in self._hook_supported_outputs[i_hook]:
+                    if name in aux_outputs:
+                        hook_outs[name] = aux_outputs[name]
+
+                # Run hook              
                 return_dict.update(
                     hook(
                         systems,
-                        aux_outputs,
+                        hook_outs,
                         return_dict,
                         selected_atoms,
                     )

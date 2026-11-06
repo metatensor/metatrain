@@ -66,7 +66,7 @@ class HookInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
         ``outputs``, and using the inputs
 
         :param systems: List of systems to evaluate the model on.
-        :param outputs: Dictionary of outputs that the model should compute.
+        :param outputs: Dictionary of outputs that the hook should compute.
         :param inputs: Dictionary of input tensors for the model.
         :param selected_atoms: Optional ``Labels`` specifying a subset of atoms to
             compute the outputs for. If ``None``, the outputs are computed for all
