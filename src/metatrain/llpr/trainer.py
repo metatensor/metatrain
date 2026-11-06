@@ -4,9 +4,10 @@ import math
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Literal, Optional, Union, cast
 
+import metatensor.torch as mts
 import torch
 from metatensor.torch import TensorBlock, TensorMap
-from metatomic.torch import ModelOutput
+from metatomic.torch import ModelOutput, System
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, DistributedSampler
 
@@ -27,6 +28,7 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.data.target_info import get_variance_output_name
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
@@ -48,7 +50,11 @@ from metatrain.utils.transfer import batch_to
 from metatrain.utils.wrapper import MetatrainModel
 
 from . import checkpoints
-from .calibration import GaussianCRPSCalibrator, RatioCalibrator
+from .calibration import (
+    GaussianCRPSCalibrator,
+    HeteroscedasticNLLCalibrator,
+    RatioCalibrator,
+)
 from .documentation import ModelHypers, TrainerHypers
 from .model import LLPRUncertaintyModel
 
@@ -706,13 +712,27 @@ def compute_covariance(
                 )
                 for name in names
             }
+            for name in names:
+                if name in model.heteroscedastic_outputs:
+                    outputs[get_variance_output_name(name)] = ModelOutput(
+                        sample_kind=sample_kinds[name]
+                    )
             features = model(systems, outputs)
             n_atoms = torch.tensor([len(s) for s in systems], device=device)
             for name in names:
                 llpr_target = model.targets[name]
+                variance: Optional[torch.Tensor] = None
+                if name in model.heteroscedastic_outputs:
+                    variance = _core_variance(
+                        model.model,
+                        systems,
+                        name,
+                        features[get_variance_output_name(name)],
+                    )
                 llpr_target.accumulate(
                     features[llpr_target.features_name],
                     n_atoms if sample_kinds[name] == "system" else None,
+                    variance,
                 )
 
     if is_distributed:
@@ -720,6 +740,55 @@ def compute_covariance(
         for llpr_target in model.targets.values():
             for covariance in llpr_target.covariances:
                 torch.distributed.all_reduce(covariance.covariance)
+
+
+def _core_variance(
+    model: MetatrainModel,
+    systems: List[System],
+    name: str,
+    variance: TensorMap,
+) -> torch.Tensor:
+    """The predicted (aleatoric) variance of each sample of a target, in the units of
+    the core of the wrapped model, i.e. without the scales of its scaler.
+
+    The LLPR is computed for the weights of the (unscaled) last layer of the core, so
+    its Hessian is weighted by the variance in these units.
+
+    :param model: the wrapped model.
+    :param systems: the systems the variance was predicted for.
+    :param name: the name of the target.
+    :param variance: the predicted variance, as returned by the wrapped model.
+    :return: the variance of each sample, with shape ``(num_samples,)``.
+    """
+    if model.scaler is not None and name in model.scaler.model.target_names:
+        # as in the wrapped model, the scales apply to the standard deviation
+        std = model.scaler.apply_scales(
+            systems, {name: mts.pow(variance, 0.5)}, remove=True
+        )[name]
+        variance = mts.pow(std, 2.0)
+
+    return _per_sample_variance(variance.block().values, name)
+
+
+def _per_sample_variance(variance: torch.Tensor, name: str) -> torch.Tensor:
+    """The variance of each sample, from a predicted variance that is isotropic, i.e.
+    the same for all the components of a sample.
+
+    :param variance: the predicted variance, with shape
+        ``(num_samples, ..., num_properties)``.
+    :param name: the name of the target, for the error message.
+    :return: the variance of each sample, with shape ``(num_samples,)``.
+    :raises NotImplementedError: if the variance differs between the components of a
+        sample.
+    """
+    variance = variance.reshape(variance.shape[0], -1)
+    if not torch.allclose(variance, variance[:, :1].expand_as(variance)):
+        raise NotImplementedError(
+            "LLPR with predicted variances is only implemented for isotropic noise, "
+            f"i.e. the variance has to be the same for all the components of '{name}'"
+        )
+
+    return variance[:, 0]
 
 
 def calibrate(
@@ -752,16 +821,42 @@ def calibrate(
         for name, target in model.targets.items()
         for index in range(len(target.multiplier_offsets) - 1)
     ]
-    calibrators: List[Union[RatioCalibrator, GaussianCRPSCalibrator]] = []
+    # for targets with a predicted (aleatoric) variance, only the epistemic part of the
+    # total variance is calibrated, by minimizing the Gaussian NLL
+    if len(model.heteroscedastic_outputs) > 0:
+        logging.info(
+            f"Calibrating {model.heteroscedastic_outputs} with the Gaussian NLL of "
+            "the total variance; the calibration method "
+            f"'{calibration_method}' is only used for the other targets"
+        )
+
+    calibrators: List[
+        Union[RatioCalibrator, GaussianCRPSCalibrator, HeteroscedasticNLLCalibrator]
+    ] = []
     for name, index in blocks:
-        calibrator: Union[RatioCalibrator, GaussianCRPSCalibrator]
-        if calibration_method == "crps":
-            calibrator = GaussianCRPSCalibrator()
-        else:
-            calibrator = RatioCalibrator(method=calibration_method)
         offsets = model.targets[name].multiplier_offsets
         empty = torch.empty((0, offsets[index + 1] - offsets[index]), device=device)
-        calibrator.update(uncertainty_name=name, residuals=empty, uncertainties=empty)
+        calibrator: Union[
+            RatioCalibrator, GaussianCRPSCalibrator, HeteroscedasticNLLCalibrator
+        ]
+        if name in model.heteroscedastic_outputs:
+            calibrator = HeteroscedasticNLLCalibrator()
+            calibrator.update(
+                uncertainty_name=name,
+                residuals=empty,
+                aleatoric_variances=empty,
+                epistemic_variances=empty,
+            )
+        elif calibration_method == "crps":
+            calibrator = GaussianCRPSCalibrator()
+            calibrator.update(
+                uncertainty_name=name, residuals=empty, uncertainties=empty
+            )
+        else:
+            calibrator = RatioCalibrator(method=calibration_method)
+            calibrator.update(
+                uncertainty_name=name, residuals=empty, uncertainties=empty
+            )
         calibrators.append(calibrator)
     num_samples = torch.zeros(len(blocks), dtype=torch.long, device=device)
 
@@ -780,6 +875,8 @@ def calibrate(
                     sample_kind=model.model.dataset_info.targets[name].sample_kind
                 )
                 outputs[model.targets[name].uncertainty_name] = outputs[name]
+                if name in model.heteroscedastic_outputs:
+                    outputs[get_variance_output_name(name)] = outputs[name]
             predictions = model(systems, outputs)
 
             for name, target in targets.items():
@@ -790,14 +887,28 @@ def calibrate(
                     assert block_index is not None
                     i = blocks.index((name, block_index))
                     residuals = block.values - target.block(key).values
+                    residuals = residuals.reshape(-1, residuals.shape[-1])
                     uncertainties = uncertainty.block(key).values
-                    calibrators[i].update(
-                        uncertainty_name=name,
-                        residuals=residuals.reshape(-1, residuals.shape[-1]),
-                        uncertainties=uncertainties.reshape(
-                            -1, uncertainties.shape[-1]
-                        ),
-                    )
+                    uncertainties = uncertainties.reshape(-1, uncertainties.shape[-1])
+                    calibrator = calibrators[i]
+                    if isinstance(calibrator, HeteroscedasticNLLCalibrator):
+                        # the uncertainty is the (uncalibrated) epistemic one
+                        aleatoric = predictions[get_variance_output_name(name)]
+                        aleatoric = aleatoric.block(key).values
+                        calibrator.update(
+                            uncertainty_name=name,
+                            residuals=residuals,
+                            aleatoric_variances=aleatoric.reshape(
+                                -1, aleatoric.shape[-1]
+                            ),
+                            epistemic_variances=uncertainties**2,
+                        )
+                    else:
+                        calibrator.update(
+                            uncertainty_name=name,
+                            residuals=residuals,
+                            uncertainties=uncertainties,
+                        )
                     num_samples[i] += len(block.samples)
 
     if is_distributed:

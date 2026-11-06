@@ -287,3 +287,20 @@ class TrainerHypers(TypedDict):
         "inherit_heads": {},
     }
     """Parameters for fine-tuning trained FlashMD models."""
+    variance_heads: list[str] = []
+    """Targets for which to train a heteroscedastic variance head on top of a
+    pre-trained model.
+
+    Each listed target gets a new head that predicts the (aleatoric) variance of the
+    target, exposed as the ``mtt::aux::{target}_variance`` output. Only these heads
+    are trained, with the Gaussian negative log-likelihood loss (``gaussian_nll``).
+    The backbone, the heads predicting the targets, the atomic baseline and the
+    scaler stay frozen, so the mean predictions do not change. Training must start
+    from a trained model given with ``finetune: read_from:``, and
+    ``finetune: method:`` is ignored. The best model is selected on the validation
+    loss.
+
+    The variance is predicted per atom and shared by all the components of a target,
+    so the noise on a Cartesian vector is isotropic. Wrapping the resulting model with
+    :ref:`LLPR <arch-llpr>` adds the epistemic uncertainty of the mean.
+    """

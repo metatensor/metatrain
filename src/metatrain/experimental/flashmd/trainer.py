@@ -5,7 +5,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import ase.data
+import metatensor.torch as mts
 import torch
+from metatensor.torch import TensorMap
+from metatomic.torch import System
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DistributedSampler
 
@@ -33,6 +36,7 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.data.target_info import get_variance_output_name
 from metatrain.utils.distributed.distributed_data_parallel import (
     DistributedDataParallel,
 )
@@ -79,6 +83,100 @@ def _position_additive_dataset_info(dataset_info: DatasetInfo) -> DatasetInfo:
     )
 
 
+def _freeze_all_but_variance_heads(
+    model: torch.nn.Module, variance_targets: List[str]
+) -> None:
+    """
+    Make the parameters of the variance heads of the given targets the only trainable
+    parameters of the model.
+
+    :param model: The model whose parameters are (un)frozen.
+    :param variance_targets: Targets whose variance heads are trained.
+    """
+    head_names = {get_variance_output_name(name) for name in variance_targets}
+
+    for name, param in model.named_parameters():
+        param.requires_grad = any(part in head_names for part in name.split("."))
+
+
+def _prepare_variances_for_loss(
+    scaler: Scaler,
+    systems: List[System],
+    predictions: Dict[str, TensorMap],
+    variance_targets: List[str],
+    per_structure_targets: List[str],
+) -> Dict[str, TensorMap]:
+    """
+    Bring the predicted variances to the same normalization as the predictions that
+    enter the loss.
+
+    Before the loss, the predictions are averaged by the number of atoms (except for
+    per-structure targets) and multiplied by their per-property scales. Both are
+    linear, so the standard deviation goes through the same two steps as the mean.
+    The variances must not have been averaged by the number of atoms before.
+
+    :param scaler: The scaler of the model.
+    :param systems: The systems the predictions were computed for.
+    :param predictions: The predictions, including the variance outputs.
+    :param variance_targets: Targets with a variance output.
+    :param per_structure_targets: Targets that are not averaged by number of atoms.
+    :return: The predictions, with the variances normalized.
+    """
+    for target_name in variance_targets:
+        variance_name = get_variance_output_name(target_name)
+        std = mts.pow(predictions[variance_name], 0.5)
+
+        if target_name not in per_structure_targets:
+            std = average_by_num_atoms({variance_name: std}, systems, [])[variance_name]
+
+        std = scaler.apply_scales(
+            systems,
+            {target_name: std},
+            remove=False,
+            use_per_target_scales=False,
+            use_per_property_scales=True,
+        )[target_name]
+
+        predictions[variance_name] = mts.pow(std, 2.0)
+
+    return predictions
+
+
+def _get_variance_loss_hypers(
+    loss_hypers: Dict[str, LossSpecification], variance_targets: List[str]
+) -> Dict[str, LossSpecification]:
+    """
+    Use the Gaussian NLL loss for the targets whose variance heads are trained.
+
+    :param loss_hypers: The (expanded) loss hyperparameters.
+    :param variance_targets: Targets whose variance heads are trained.
+    :return: The loss hyperparameters, with ``gaussian_nll`` for the variance targets.
+    """
+    loss_hypers = copy.deepcopy(dict(loss_hypers))
+
+    for target_name in variance_targets:
+        target_loss = loss_hypers.get(target_name)
+        if target_loss is not None and target_loss["type"] == "gaussian_nll":
+            continue
+
+        if target_loss is not None:
+            logging.info(
+                f"Using the 'gaussian_nll' loss for '{target_name}' instead of "
+                f"'{target_loss['type']}', to train its variance head"
+            )
+
+        loss_hypers[target_name] = LossSpecification(
+            {
+                "type": "gaussian_nll",
+                "weight": 1.0 if target_loss is None else target_loss["weight"],
+                "reduction": "mean",
+                "gradients": {},
+            }
+        )
+
+    return loss_hypers
+
+
 def get_scheduler(
     optimizer: torch.optim.Optimizer,
     train_hypers: TrainerHypers,
@@ -113,7 +211,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
-    __checkpoint_version__ = 7
+    __checkpoint_version__ = 8
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -243,6 +341,10 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         is_distributed = resolve_distributed(self.hypers.get("distributed"))
         is_finetune = self.hypers["finetune"]["read_from"] is not None
 
+        variance_targets = list(self.hypers["variance_heads"])
+        if len(variance_targets) > 0:
+            self._add_variance_heads(model, variance_targets, is_finetune)
+
         if is_distributed:
             device, world_size, rank = initialize_slurm_nccl_process_group(
                 self.hypers["distributed_port"]
@@ -268,7 +370,10 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             logging.info(f"Training on device {device} with dtype {dtype}")
 
         # Apply fine-tuning strategy if provided
-        if is_finetune:
+        if len(variance_targets) > 0:
+            _freeze_all_but_variance_heads(model, variance_targets)
+            logging.info(f"Training only the variance heads of {variance_targets}")
+        elif is_finetune:
             assert self.hypers["finetune"]["read_from"] is not None  # for mypy
             # ``inherit_heads`` is a one-time weight-copy initialization step that
             # must only run when finetuning first starts (a fresh ``Trainer``), not
@@ -295,18 +400,20 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 f"[{num_trainable_params / num_params:.2%} %]"
             )
 
-        train_or_load_composition_model(
-            composition_model=model.additive_models[0],
-            atomic_baseline=self.hypers["atomic_baseline"],
-            train_datasets=train_datasets,
-            other_additive_models=list(model.additive_models[1:]),
-            device=device,
-            batch_size=self.hypers["batch_size"],
-            is_distributed=is_distributed,
-            checkpoint_dir=checkpoint_dir,
-        )
+        # a frozen mean keeps the atomic baseline and scaler it was trained with
+        if len(variance_targets) == 0:
+            train_or_load_composition_model(
+                composition_model=model.additive_models[0],
+                atomic_baseline=self.hypers["atomic_baseline"],
+                train_datasets=train_datasets,
+                other_additive_models=list(model.additive_models[1:]),
+                device=device,
+                batch_size=self.hypers["batch_size"],
+                is_distributed=is_distributed,
+                checkpoint_dir=checkpoint_dir,
+            )
 
-        if self.hypers["scale_targets"]:
+        if self.hypers["scale_targets"] and len(variance_targets) == 0:
             if isinstance(self.hypers["fixed_scaling_weights"], str) and not isinstance(
                 self.hypers["atomic_baseline"], str
             ):
@@ -441,6 +548,18 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
         # Create a loss function:
         loss_hypers = cast(Dict[str, LossSpecification], self.hypers["loss"])  # mypy
+        best_model_metric = self.hypers["best_model_metric"]
+        if len(variance_targets) > 0:
+            loss_hypers = _get_variance_loss_hypers(loss_hypers, variance_targets)
+
+            if best_model_metric != "loss":
+                # errors on the (frozen) mean don't change during training
+                logging.info(
+                    "Selecting the best model based on the validation loss instead "
+                    f"of '{best_model_metric}', since only variances are trained"
+                )
+                best_model_metric = "loss"
+
         loss_fn = LossAggregator(
             targets=train_targets,
             config=loss_hypers,
@@ -483,6 +602,15 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
         per_structure_targets = self.hypers["per_structure_targets"]
 
+        # variance outputs are requested with the same metadata as their target
+        variance_requests = {
+            get_variance_output_name(name): train_targets[name]
+            for name in variance_targets
+        }
+
+        # the variances are averaged in _prepare_variances_for_loss
+        per_structure_outputs = per_structure_targets + list(variance_requests)
+
         # Log the initial learning rate:
         logging.info(f"Base learning rate: {self.hypers['learning_rate']}")
 
@@ -516,15 +644,23 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 predictions = evaluate_model(
                     model,
                     systems,
-                    {key: train_targets[key] for key in targets.keys()},
+                    {key: train_targets[key] for key in targets.keys()}
+                    | variance_requests,
                     is_training=True,
                 )
 
                 # average by the number of atoms
                 predictions = average_by_num_atoms(
-                    predictions, systems, per_structure_targets
+                    predictions, systems, per_structure_outputs
                 )
                 targets = average_by_num_atoms(targets, systems, per_structure_targets)
+                predictions = _prepare_variances_for_loss(
+                    (model.module if is_distributed else model).scaler,
+                    systems,
+                    predictions,
+                    variance_targets,
+                    per_structure_targets,
+                )
 
                 # Apply per-property scales to the predictions before loss computation.
                 # The targets from the dataloader have only been scaled per-target, and
@@ -621,16 +757,24 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                     predictions = evaluate_model(
                         model,
                         systems,
-                        {key: train_targets[key] for key in targets.keys()},
+                        {key: train_targets[key] for key in targets.keys()}
+                        | variance_requests,
                         is_training=False,
                     )
 
                     # average by the number of atoms
                     predictions = average_by_num_atoms(
-                        predictions, systems, per_structure_targets
+                        predictions, systems, per_structure_outputs
                     )
                     targets = average_by_num_atoms(
                         targets, systems, per_structure_targets
+                    )
+                    predictions = _prepare_variances_for_loss(
+                        (model.module if is_distributed else model).scaler,
+                        systems,
+                        predictions,
+                        variance_targets,
+                        per_structure_targets,
                     )
 
                     # Apply per-property scales to the predictions before loss
@@ -727,9 +871,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                     learning_rate=optimizer.param_groups[0]["lr"],
                 )
 
-            val_metric = get_selected_metric(
-                finalized_val_info, self.hypers["best_model_metric"]
-            )
+            val_metric = get_selected_metric(finalized_val_info, best_model_metric)
             if val_metric < self.best_metric:
                 self.best_metric = val_metric
                 self.best_model_state_dict = copy.deepcopy(
@@ -757,6 +899,41 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
         if is_distributed:
             torch.distributed.destroy_process_group()
+
+    def _add_variance_heads(
+        self,
+        model: MetatrainModel[FlashMD, Scaler],
+        variance_targets: List[str],
+        is_finetune: bool,
+    ) -> None:
+        """
+        Add (if not already there) the variance heads of the given targets.
+
+        :param model: The model to add the variance heads to.
+        :param variance_targets: Targets for which to add a variance head.
+        :param is_finetune: Whether training starts from a trained model.
+        """
+        if not is_finetune and self.epoch is None:
+            raise ValueError(
+                "`variance_heads` trains variance heads on top of a frozen, trained "
+                "model, which must be given with `finetune: read_from:`."
+            )
+
+        if is_finetune and self.hypers["finetune"]["method"] != "full":
+            logging.warning(
+                "`finetune: method:` is ignored when training `variance_heads`: "
+                "all parameters but those of the variance heads are frozen"
+            )
+
+        for target_name in variance_targets:
+            # raises an error for targets which are not part of the model
+            model.core.add_variance_output(target_name)
+
+            if len(model.dataset_info.targets[target_name].gradients) > 0:
+                raise ValueError(
+                    f"Cannot train a variance head for '{target_name}', which has "
+                    "gradients: variances are not predicted for gradients."
+                )
 
     def save_checkpoint(
         self, model: MetatrainModel[FlashMD, Scaler], path: Union[str, Path]
