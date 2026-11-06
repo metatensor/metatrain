@@ -24,7 +24,7 @@ class HookInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
     """
 
     __checkpoint_version__: int
-    """The current version of the model's checkpoint.
+    """The current version of the hook's checkpoint.
 
     This is used to upgrade checkpoints produced with earlier versions of the code.
     See :ref:`ckpt_version` for more information."""
@@ -62,12 +62,12 @@ class HookInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
         selected_atoms: Optional[Labels] = None,
     ) -> dict[str, TensorMap]:
         """
-        Execute the model for the given ``systems``, computing the requested
+        Execute the hook for the given ``systems``, computing the requested
         ``outputs``, and using the inputs
 
-        :param systems: List of systems to evaluate the model on.
+        :param systems: List of systems to evaluate the hook on.
         :param outputs: Dictionary of outputs that the hook should compute.
-        :param inputs: Dictionary of input tensors for the model.
+        :param inputs: Dictionary of input tensors for the hook.
         :param selected_atoms: Optional ``Labels`` specifying a subset of atoms to
             compute the outputs for. If ``None``, the outputs are computed for all
             atoms in each system.
@@ -91,11 +91,11 @@ class HookInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
         self, outputs: dict[str, ModelOutput]
     ) -> dict[str, ModelOutput]:
         """
-        Returns the list of requested inputs for the hook.
+        Returns the list of requested inputs for the hook,
+        given some requested outputs.
 
-        :param outputs: Dictionary of requested outputs. These can contain outputs that
-          are handled by other hooks or the main model. In that case, the hook should
-          ignore those outputs.
+        :param outputs: Dictionary of the outputs that will be
+           requested to the hook.
         :return: A list of requested input names.
         """
 
