@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from metatensor.torch import Labels
@@ -153,8 +153,9 @@ def _pair_arrays_from_neighbor_lists(
 
     return centers, neighbors, cell_shifts
 
+
 def get_pair_target_neighborlist(
-    model: Any, #MetatrainModel,
+    model: Any,  # MetatrainModel,
 ) -> Optional[NeighborListOptions]:
     """
     Finds out which part of the model deals with atom_pair targets.
@@ -170,7 +171,10 @@ def get_pair_target_neighborlist(
     :return: The neighbor list options requested by the part of the
         model that deals with atom_pair targets, or None if no such part exists.
     """
-    if any(out.sample_kind == "atom_pair" for out in model.core.supported_outputs().values()):
+    if any(
+        out.sample_kind == "atom_pair"
+        for out in model.core.supported_outputs().values()
+    ):
         req_nls = model.core.requested_neighbor_lists()
         if len(req_nls) > 1:
             raise ValueError(
@@ -181,7 +185,10 @@ def get_pair_target_neighborlist(
     else:
         nl = None
         for hook in model.forward_hooks:
-            if any(out.sample_kind == "atom_pair" for out in hook.supported_outputs().values()):
+            if any(
+                out.sample_kind == "atom_pair"
+                for out in hook.supported_outputs().values()
+            ):
                 req_nls = hook.requested_neighbor_lists()
                 if len(req_nls) > 1:
                     raise ValueError(

@@ -12,7 +12,6 @@ from mace.tools.scripts_utils import (
 )
 from torch.utils.data import DistributedSampler
 
-from metatrain.utils.data.atom_pair_helpers import get_pair_target_neighborlist
 from metatrain.composition import CompositionModel, train_or_load_composition_model
 from metatrain.scaler import Scaler, train_or_load_scaler
 from metatrain.utils.abc import (
@@ -32,6 +31,7 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.data.atom_pair_helpers import get_pair_target_neighborlist
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
     get_prepare_atomic_basis_targets_transform,
