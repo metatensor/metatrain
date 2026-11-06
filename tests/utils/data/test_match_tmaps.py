@@ -1,5 +1,9 @@
+import metatensor.torch as mts
 import pytest
 import torch
+from featomic.torch.clebsch_gordan._coefficients import (
+    calculate_cg_coefficients,
+)
 from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import System
 
@@ -41,6 +45,50 @@ _dense_target_info = densify_atomic_basis_dataset_info(_dataset_info).targets[
 ]
 _sparse_layout = _sparse_target_info.layout
 _dense_layout = _dense_target_info.layout
+
+_coupled_layout = get_generic_target_info(
+    "spherical_atomic_basis_coupled",
+    {
+        "quantity": "",
+        "unit": "",
+        "type": {
+            "spherical": {
+                "product": "coupled",
+                "irreps": {
+                    1: [{"o3_lambda": 0, "o3_sigma": 1}],
+                    8: [
+                        {"num": 2, "o3_lambda": 0, "o3_sigma": 1},
+                        {"o3_lambda": 1, "o3_sigma": 1},
+                    ],
+                },
+            }
+        },
+        "num_subtargets": 1,
+        "sample_kind": "atom_pair",
+    },
+).layout
+
+_uncoupled_layout = get_generic_target_info(
+    "spherical_atomic_basis_uncoupled",
+    {
+        "quantity": "",
+        "unit": "",
+        "type": {
+            "spherical": {
+                "product": "cartesian",
+                "irreps": {
+                    1: [{"o3_lambda": 0, "o3_sigma": 1}],
+                    8: [
+                        {"num": 2, "o3_lambda": 0, "o3_sigma": 1},
+                        {"o3_lambda": 1, "o3_sigma": 1},
+                    ],
+                },
+            }
+        },
+        "num_subtargets": 1,
+        "sample_kind": "atom_pair",
+    },
+).layout
 
 
 def test_jit_script():
@@ -128,3 +176,58 @@ def test_dense_to_sparse():
             assert torch.allclose(sparse_values, dense_values[[0, 1], ..., :1])
         elif key["atom_type"] == 8:
             assert torch.allclose(sparse_values, dense_values[[2], ...])
+
+
+@pytest.fixture(params=["cpu", "cuda"])
+def device(request):
+    device = request.param
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    return device
+
+
+@pytest.fixture(params=[32, 64])
+def dtype(request):
+    return torch.float32 if request.param == 32 else torch.float64
+
+
+@pytest.fixture
+def cg_coeffs(device, dtype):
+    """
+    Returns the Clebsch-Gordan coefficients for the coupling of two irreps
+    with angular momenta ``o3_lambda_1`` and ``o3_lambda_2`` to an irrep
+    with angular momentum ``o3_lambda``.
+    """
+    return calculate_cg_coefficients(
+        8,
+        cg_backend="python-dense",
+        arrays_backend="torch",
+        dtype=dtype,
+        device=device,
+    )
+
+
+def test_coupled_to_uncoupled(device, dtype, cg_coeffs):
+
+    uncoupled_ref = _uncoupled_layout.to(device, dtype=dtype)
+
+    uncoupled_matched = match_layout(
+        _coupled_layout.to(device, dtype=dtype),
+        uncoupled_ref,
+        cg_coeffs=cg_coeffs,
+    )
+
+    mts.equal_metadata_raise(uncoupled_ref, uncoupled_matched)
+
+
+def test_uncoupled_to_coupled(device, dtype, cg_coeffs):
+
+    coupled_ref = _coupled_layout.to(device, dtype=dtype)
+
+    coupled_matched = match_layout(
+        _uncoupled_layout.to(device, dtype=dtype),
+        coupled_ref,
+        cg_coeffs=cg_coeffs,
+    )
+
+    mts.equal_metadata_raise(coupled_ref, coupled_matched)
