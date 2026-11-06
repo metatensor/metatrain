@@ -58,8 +58,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         # We compute it here to avoid doing it in forward, which could slow down
         # the evaluation and also require supported_outputs to be torchscriptable.
         self._hook_supported_outputs: list[list[str]] = [
-            [name for name in hook.supported_outputs()]
-            for hook in self.forward_hooks
+            [name for name in hook.supported_outputs()] for hook in self.forward_hooks
         ]
 
     def _get_eval_transforms(self) -> dict[str, list[str]]:
@@ -125,7 +124,11 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         #     Add outputs needed by hooks
         # -----------------------------------
         aux_outputs = outputs.copy()
-        for hook in self.forward_hooks:
+        for i_hook, hook in enumerate(self.forward_hooks):
+            hook_outs = _filter_outputs_for_hook(
+                aux_outputs, self._hook_supported_outputs[i_hook]
+            )
+
             requested_inputs = hook.requested_hook_inputs(aux_outputs)
             aux_outputs.update(requested_inputs)
 
@@ -140,15 +143,11 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         # -----------------------------------
         with torch.profiler.record_function("MTT_WRAPPER::apply_hooks"):
             for i_hook, hook in enumerate(self.forward_hooks):
+                hook_outs = _filter_outputs_for_hook(
+                    aux_outputs, self._hook_supported_outputs[i_hook]
+                )
 
-                # Filter the outputs to only include those that are
-                # supported by the hook
-                hook_outs: dict[str, ModelOutput] = {}
-                for name in self._hook_supported_outputs[i_hook]:
-                    if name in aux_outputs:
-                        hook_outs[name] = aux_outputs[name]
-
-                # Run hook              
+                # Run hook
                 return_dict.update(
                     hook(
                         systems,
@@ -635,3 +634,26 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             self.scaler.remove_output(target_name)
 
         self.dataset_info.targets.pop(target_name, None)
+
+
+def _filter_outputs_for_hook(
+    outputs: dict[str, ModelOutput],
+    supported_outputs: list[str],
+) -> dict[str, ModelOutput]:
+    """
+    Filter the outputs to only include those that are supported by the hook.
+
+    This is just for torchscript, because dict comprehensions are not
+    supported and having this written everywhere is not nice.
+
+    :param outputs: Dictionary of requested outputs.
+    :param hook: The hook to filter the outputs for.
+    :return: A dictionary of outputs that are supported by the hook.
+    """
+    # Filter the outputs to only include those that are
+    # supported by the hook
+    hook_outs: dict[str, ModelOutput] = {}
+    for name in supported_outputs:
+        if name in outputs:
+            hook_outs[name] = outputs[name]
+    return hook_outs
