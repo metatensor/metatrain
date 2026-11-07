@@ -33,8 +33,7 @@ class HooksSupportTests(ArchitectureTests):
             "metatrain.utils.hooks.HooksHypers."
         )
 
-    def test_hooks_setup(
-        self, dataset_info, minimal_model_hypers, default_hypers):
+    def test_hooks_setup(self, dataset_info, minimal_model_hypers, default_hypers):
         """Test that the architecture correctly sets the hooks."""
 
         hypers = copy.deepcopy(default_hypers)

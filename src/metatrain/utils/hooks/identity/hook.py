@@ -151,7 +151,9 @@ class IdentityHook(HookInterface[Hypers]):
         }
 
     @classmethod
-    def load_checkpoint(cls, checkpoint: dict[str, Any], context: str) -> "Identity":
+    def load_checkpoint(
+        cls, checkpoint: dict[str, Any], context: str
+    ) -> "IdentityHook":
         """
         Load the checkpoint of the hook.
 
