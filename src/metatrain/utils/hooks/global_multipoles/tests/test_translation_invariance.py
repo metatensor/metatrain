@@ -23,7 +23,7 @@ from metatrain.utils.hooks.helpers import get_default_hypers, load_hook
 
 
 OUTPUT_NAME = "mtt::global_dipole"
-INPUT_NAME = "mtt::aux::local_multipoles::global_dipole"
+INPUT_NAME = "mtt::hook_aux::local_multipoles::global_dipole"
 
 ATOMIC_TYPES = [1, 6, 7, 8]
 SYSTEM_SIZES = [4, 11, 7]

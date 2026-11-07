@@ -36,7 +36,7 @@ class IdentityHook(HookInterface[Hypers]):
             input_names = [input_names]
         elif input_names is None:
             input_names = [
-                f"mtt::aux::identity::{out_name.replace('mtt::', '')}"
+                f"mtt::hook_aux::identity::{out_name.replace('mtt::', '')}"
                 for out_name in out_names
             ]
 
@@ -50,29 +50,29 @@ class IdentityHook(HookInterface[Hypers]):
         # Build the target infos that the hook will request.
         self.out_targets = {}
         self._input_target_infos = {}
-        targets = dataset_info.targets
+        all_targets = {**dataset_info.targets, **dataset_info.extra_data}
         for in_name, out_name in zip(input_names, out_names, strict=True):
-            if in_name in targets and out_name in targets:
-                if targets[in_name] != targets[out_name]:
+            if in_name in all_targets and out_name in all_targets:
+                if all_targets[in_name] != all_targets[out_name]:
                     raise ValueError(
                         f"Identity hook found both the input '{in_name}' "
-                        f"and the output '{out_name}' in the dataset targets, "
+                        f"and the output '{out_name}' in the dataset, "
                         "but they have different layouts. To be able to apply "
                         "the identity hook, the input and output must have the "
                         "same layout."
                     )
                 else:
-                    target = targets[in_name]
-            elif out_name not in targets and in_name not in targets:
+                    target = all_targets[in_name]
+            elif out_name not in all_targets and in_name not in all_targets:
                 raise ValueError(
                     f"Identity hook expects the output '{out_name}' or the input "
                     f"'{in_name}' to be present in the dataset targets, but neither "
                     f"was found."
                 )
-            elif out_name in dataset_info.targets:
-                target = dataset_info.targets[out_name]
+            elif out_name in all_targets:
+                target = all_targets[out_name]
             else:
-                target = dataset_info.targets[in_name]
+                target = all_targets[in_name]
 
             self._input_target_infos[in_name] = target
             self.out_targets[out_name] = target

@@ -54,12 +54,6 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         # Compute transformations needed at evaluation time.
         self._eval_transforms = self._get_eval_transforms()
-        # Store the supported outputs of each hook.
-        # We compute it here to avoid doing it in forward, which could slow down
-        # the evaluation and also require supported_outputs to be torchscriptable.
-        self._hook_supported_outputs: list[list[str]] = [
-            [name for name in hook.supported_outputs()] for hook in self.forward_hooks
-        ]
         self._forward_hooks_was_None = forward_hooks is None
 
     def _get_eval_transforms(self) -> dict[str, list[str]]:
@@ -74,7 +68,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         eval_transforms: dict[str, list[str]] = {}
 
         # Get targets of each model.
-        core_targets = self.core.dataset_info.targets
+        core_targets = self.internal_dataset_info().targets
         scaler_targets = (
             self.scaler.dataset_info.targets if self.scaler is not None else {}
         )
@@ -125,27 +119,31 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         #     Add outputs needed by hooks
         # -----------------------------------
         aux_outputs = outputs.copy()
-        for i_hook, hook in enumerate(self.forward_hooks):
-            hook_outs = _filter_outputs_for_hook(
-                aux_outputs, self._hook_supported_outputs[i_hook]
-            )
+        core_outputs = outputs.copy()
+        for hook in self.forward_hooks:
+            hook_outs = _filter_outputs_for_hook(aux_outputs, hook.supported_outputs())
 
             requested_inputs = hook.requested_hook_inputs(aux_outputs)
             aux_outputs.update(requested_inputs)
+            core_outputs.update(requested_inputs)
+            for name in hook_outs:
+                core_outputs.pop(name)
 
         # -----------------------------------
         #         Run the core model
         # -----------------------------------
         with torch.profiler.record_function("MTT_WRAPPER::forward_core"):
-            return_dict = self.core(systems, aux_outputs, selected_atoms=selected_atoms)
+            return_dict = self.core(
+                systems, core_outputs, selected_atoms=selected_atoms
+            )
 
         # -----------------------------------
         #            Apply hooks
         # -----------------------------------
         with torch.profiler.record_function("MTT_WRAPPER::apply_hooks"):
-            for i_hook, hook in enumerate(self.forward_hooks):
+            for hook in self.forward_hooks:
                 hook_outs = _filter_outputs_for_hook(
-                    aux_outputs, self._hook_supported_outputs[i_hook]
+                    aux_outputs, hook.supported_outputs()
                 )
 
                 # Run hook
@@ -273,8 +271,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         """
         targets = self.core.dataset_info.targets.copy()
         for hook in self.forward_hooks:
-            for out_name in hook.supported_outputs():
-                targets[out_name] = hook.dataset_info.targets[out_name]
+            targets.update(hook.supported_outputs())
 
         return DatasetInfo(
             atomic_types=self.core.dataset_info.atomic_types,
@@ -652,8 +649,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
 
 def _filter_outputs_for_hook(
-    outputs: dict[str, ModelOutput],
-    supported_outputs: list[str],
+    outputs: dict[str, ModelOutput], supported_outputs: dict[str, TargetInfo]
 ) -> dict[str, ModelOutput]:
     """
     Filter the outputs to only include those that are supported by the hook.
@@ -662,8 +658,7 @@ def _filter_outputs_for_hook(
     supported and having this written everywhere is not nice.
 
     :param outputs: Dictionary of requested outputs.
-    :param supported_outputs: List of output names that are supported
-      by the hook.
+    :param supported_outputs: Outputs supported by the hook.
     :return: A dictionary of outputs that are supported by the hook.
     """
     # Filter the outputs to only include those that are

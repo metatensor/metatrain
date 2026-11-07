@@ -42,7 +42,7 @@ class Hypers(TypedDict):
     to apply to the tensor basis.
 
     If ``None``, they will be set as
-    ``mtt::aux::scalars::{output_name.replace('mtt::', '')}``
+    ``mtt::hook_aux::scalars::{output_name.replace('mtt::', '')}``
     for each output name.
     """
 

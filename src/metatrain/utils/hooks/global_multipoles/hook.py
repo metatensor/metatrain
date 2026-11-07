@@ -52,7 +52,7 @@ class GlobalMultipole(HookInterface[Hypers]):
             input_names = [input_names]
         elif input_names is None:
             input_names = [
-                f"mtt::aux::local_multipoles::{out_name.replace('mtt::', '')}"
+                f"mtt::hook_aux::local_multipoles::{out_name.replace('mtt::', '')}"
                 for out_name in out_names
             ]
 
@@ -80,6 +80,10 @@ class GlobalMultipole(HookInterface[Hypers]):
                     f"but {out_name} has components "
                     f"{out_target.layout.components}"
                 )
+            if torch.any(out_target.layout.keys["o3_sigma"] != 1):
+                raise ValueError(
+                    "Global multipoles hook only supports o3_sigma=1 outputs."
+                )
 
             max_degree = out_target.layout.keys["o3_lambda"].max().item()
             if max_degree > 1:
@@ -87,6 +91,16 @@ class GlobalMultipole(HookInterface[Hypers]):
                     f"Global multipoles hook only supports multipoles up "
                     f"to l=1 for now, but {out_name} has max degree "
                     f"{max_degree}"
+                )
+
+            n_properties = [
+                len(block.properties) for block in out_target.layout.blocks()
+            ]
+            if len(set(n_properties)) > 1:
+                raise ValueError(
+                    f"Global multipoles hook only supports outputs with the same "
+                    f"number of properties for all blocks, but {out_name} has "
+                    f"different numbers of properties: {n_properties}"
                 )
 
             out_target.layout.set_info("max_degree", str(max_degree))
@@ -107,7 +121,7 @@ class GlobalMultipole(HookInterface[Hypers]):
                             ]
                         }
                     },
-                    "num_subtargets": 1,
+                    "num_subtargets": n_properties[0],
                     "sample_kind": "atom",
                 },
             )

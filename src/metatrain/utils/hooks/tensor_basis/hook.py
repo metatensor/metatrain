@@ -107,7 +107,8 @@ class TensorBasis(HookInterface[Hypers]):
             inputs = [inputs]
         if inputs is None:
             inputs = [
-                f"mtt::aux::scalars::{name.replace('mtt::', '')}" for name in outputs
+                f"mtt::hook_aux::scalars::{name.replace('mtt::', '')}"
+                for name in outputs
             ]
         if len(inputs) != len(outputs):
             raise ValueError(
@@ -147,6 +148,10 @@ class TensorBasis(HookInterface[Hypers]):
                 ]
             )
 
+            has_lambda_basis = [
+                module.add_lambda_basis
+                for module in self.basis_calculators[target_name]
+            ]
             # Build the input that we will request from the model.
             # We will ask for invariant coefficients. For each block we ask for
             # 2l+1 coefficients for each property, since the basis will have
@@ -154,7 +159,9 @@ class TensorBasis(HookInterface[Hypers]):
             # We ask for all the coefficients in a single block, we will untangle
             # them in the forward pass.
             num_properties = sum(
-                block.values.shape[1] * block.values.shape[2] * (2 if i > 1 else 1)
+                block.values.shape[1]
+                * block.values.shape[2]
+                * (2 if has_lambda_basis[i] else 1)
                 for i, block in enumerate(target.layout.blocks())
             )
             input_target_info = get_generic_target_info(
@@ -243,6 +250,8 @@ class TensorBasis(HookInterface[Hypers]):
         inputs: dict[str, TensorMap],
         selected_atoms: Optional[Labels] = None,
     ) -> dict[str, TensorMap]:
+        if selected_atoms is not None:
+            raise ValueError("TensorBasis hook does not support selected_atoms. ")
         requested_outs: list[str] = []
         for out_name in self.out_targets:
             if out_name in outputs:
@@ -312,7 +321,9 @@ class TensorBasis(HookInterface[Hypers]):
                     # Get shapes of the invariant coefficients to retrieve
                     # for this block.
                     n_properties = layout_block.properties.values.shape[0]
-                    n_basis = layout_block.values.shape[1] * (2 if i > 1 else 1)
+                    n_basis = layout_block.values.shape[1] * (
+                        2 if basis_calculator.add_lambda_basis else 1
+                    )
                     count = n_properties * n_basis
 
                     # Get those invariant coefficients
@@ -391,7 +402,7 @@ class TensorBasis(HookInterface[Hypers]):
         )
 
         model_state_dict = checkpoint["model_state_dict"]
-        if context in ["finetine", "export"]:
+        if context in ["finetune", "export"]:
             # Load the best model state dict if available
             model_state_dict = checkpoint.get("best_model_state_dict", model_state_dict)
 

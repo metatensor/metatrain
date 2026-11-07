@@ -59,7 +59,7 @@ class HookInputs(TypedDict):
 
     If not provided, it is determined automatically from
     the output name as
-    ``mtt::aux::intensive_gap::{output_name.replace('mtt::', '')}::bottom``.
+    ``mtt::hook_aux::intensive_gap::{output_name.replace('mtt::', '')}::bottom``.
 
     This input is a per-atom scalar quantity.
     """
@@ -68,7 +68,7 @@ class HookInputs(TypedDict):
 
     If not provided, it is determined automatically from
     the output name as
-    ``mtt::aux::intensive_gap::{output_name.replace('mtt::', '')}::top``.
+    ``mtt::hook_aux::intensive_gap::{output_name.replace('mtt::', '')}::top``.
 
     This input is a per-atom scalar quantity.
     """

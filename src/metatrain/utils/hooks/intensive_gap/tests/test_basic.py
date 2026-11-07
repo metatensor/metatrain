@@ -21,8 +21,8 @@ class IntensiveGapTests(HookTests):
         if input is None:
             output_name = output["energy"]
             input_names = [
-                f"mtt::aux::gap_bottom::{output_name.replace('mtt::', '')}",
-                f"mtt::aux::gap_top::{output_name.replace('mtt::', '')}",
+                f"mtt::hook_aux::gap_bottom::{output_name.replace('mtt::', '')}",
+                f"mtt::hook_aux::gap_top::{output_name.replace('mtt::', '')}",
             ]
             return {**hypers, "outputs": output_name}, input_names, [output_name]
         elif output is None:
