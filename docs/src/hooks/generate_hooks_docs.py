@@ -193,6 +193,8 @@ def generate_rst(
     # Render docstring template
     docstring = JINJA_ENV.from_string(docstring).render(**template_variables)
 
+    docstring = f".. _hook-{template_variables['hook']}:\n\n" + docstring
+
     # Write to file
     with open(GENERATED_DIR / f"{hook_name}.rst", "w") as f:
         f.write(docstring + "\n")
