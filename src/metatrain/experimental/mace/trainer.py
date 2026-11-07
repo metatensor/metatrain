@@ -110,18 +110,20 @@ def get_optimizer_and_scheduler(
         if k != model.core.hypers["mace_head_target"]:
             head_parameters.extend(v.parameters())
 
-    opt_options["params"].extend(
-        [
-            {
-                "name": "heads",
-                "params": head_parameters,
-            },
+    opt_options["params"].append(
+        {
+            "name": "heads",
+            "params": head_parameters,
+        }
+    )
+
+    if len(model.forward_hooks) > 0:
+        opt_options["params"].append(
             {
                 "name": "forward_hooks",
                 "params": model.forward_hooks.parameters(),
-            },
-        ]
-    )
+            }
+        )
 
     optimizer = get_optimizer(opt_args, opt_options)
 

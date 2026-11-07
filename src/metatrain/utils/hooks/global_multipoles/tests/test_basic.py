@@ -21,7 +21,7 @@ class GlobalMultipolesTests(HookTests):
         if input is None:
             output_name = output["global_dipole"]
             input_name = (
-                f"mtt::aux::local_multipoles::{output_name.replace('mtt::', '')}"
+                f"mtt::hook_aux::local_multipoles::{output_name.replace('mtt::', '')}"
             )
             return {**hypers, "outputs": output_name}, [input_name], [output_name]
         elif output is None:

@@ -99,10 +99,11 @@ class IntensiveGap(HookInterface[Hypers]):
         input_names = [
             {
                 "bottom": in_names.get(
-                    "bottom", f"mtt::aux::gap_bottom::{out_name.replace('mtt::', '')}"
+                    "bottom",
+                    f"mtt::hook_aux::gap_bottom::{out_name.replace('mtt::', '')}",
                 ),
                 "top": in_names.get(
-                    "top", f"mtt::aux::gap_top::{out_name.replace('mtt::', '')}"
+                    "top", f"mtt::hook_aux::gap_top::{out_name.replace('mtt::', '')}"
                 ),
             }
             for in_names, out_name in zip(input_names, out_names, strict=True)
@@ -257,7 +258,7 @@ class IntensiveGap(HookInterface[Hypers]):
         system_indices = []
         for i, system in enumerate(systems):
             system_indices.append(
-                torch.full((len(system),), i, dtype=torch.int32, device=device)
+                torch.full((len(system),), i, dtype=torch.int64, device=device)
             )
         system_indices = torch.cat(system_indices, dim=0)
 
@@ -278,24 +279,36 @@ class IntensiveGap(HookInterface[Hypers]):
             # for each block
             blocks: list[TensorBlock] = []
             for i, layout_block in enumerate(layout.blocks()):
-                values_bottom = inputs[input_bottom].block(i).values.ravel()
-                values_top = inputs[input_top].block(i).values.ravel()
+                values_bottom = inputs[input_bottom].block(i).values
+                values_top = inputs[input_top].block(i).values
 
-                alphas_bottom = torch.full_like(values_bottom, sharpness_bottom)
-                alphas_top = torch.full_like(values_top, sharpness_top)
+                n_samples = values_bottom.shape[0]
+                n_props = values_bottom.shape[1]
 
-                out_bottom = _scatter_softmax_pool(
-                    values_bottom, alphas_bottom, system_indices, num_systems
-                )
-                out_top = _scatter_softmax_pool(
-                    values_top, alphas_top, system_indices, num_systems
-                )
+                # Remove components dimensions
+                values_bottom = values_bottom.reshape(n_samples, -1)
+                values_top = values_top.reshape(n_samples, -1)
 
-                gap = out_top - out_bottom
+                alphas_bottom = torch.full((n_samples,), sharpness_bottom)
+                alphas_top = torch.full((n_samples,), sharpness_top)
+
+                # Loop over properties. This can probably be done without
+                # a for loop. I leave this optimization for later.
+                gap_values = []
+                for j in range(n_props):
+                    out_bottom = _scatter_softmax_pool(
+                        values_bottom[:, j], alphas_bottom, system_indices, num_systems
+                    )
+                    out_top = _scatter_softmax_pool(
+                        values_top[:, j], alphas_top, system_indices, num_systems
+                    )
+
+                    gap_values.append(out_top - out_bottom)
+                gap_values = torch.stack(gap_values, dim=1)
 
                 blocks.append(
                     TensorBlock(
-                        values=gap.reshape(block_shapes[i]),
+                        values=gap_values.reshape(block_shapes[i]),
                         samples=Labels(
                             names=["system"],
                             values=torch.arange(

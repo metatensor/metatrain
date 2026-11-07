@@ -70,7 +70,7 @@ class Hypers(TypedDict):
     Name or names for the inputs that this hook will request.
 
     If ``None``, the hook will request an input named
-    ``mtt::aux::local_multipoles::{output_name.replace('mtt::', '')}``
+    ``mtt::hook_aux::local_multipoles::{output_name.replace('mtt::', '')}``
     for each output name.
     """
 

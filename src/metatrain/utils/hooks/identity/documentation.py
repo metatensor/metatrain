@@ -25,7 +25,7 @@ class Hypers(TypedDict):
     """The names of the inputs to be passed to the outputs.
 
     If ``None``, they will be set as
-    ``mtt::aux::identity::{output_name.replace('mtt::', '')}``
+    ``mtt::hook_aux::identity::{output_name.replace('mtt::', '')}``
     for each output name.
     """
 

@@ -20,11 +20,11 @@ class IdentityTests(HookTests):
         hypers = get_default_hypers(self.hook)
         if input is None:
             output_name = output["energy"]
-            input_name = f"mtt::aux::identity::{output_name.replace('mtt::', '')}"
+            input_name = f"mtt::hook_aux::identity::{output_name.replace('mtt::', '')}"
             return {**hypers, "outputs": output_name}, [input_name], [output_name]
         elif output is None:
             input_name = input["energy"]
-            output_name = f"mtt::aux::identity::{input_name.replace('mtt::', '')}"
+            output_name = f"mtt::hook_aux::identity::{input_name.replace('mtt::', '')}"
             return {**hypers, "inputs": input_name}, [input_name], [output_name]
         else:
             input_name = input["energy"]

@@ -1,5 +1,4 @@
-import copy
-from typing import Annotated, Any, Callable, TypeVar
+from typing import Annotated, Any, Callable
 
 from omegaconf import OmegaConf
 from pydantic import (
@@ -91,13 +90,10 @@ def get_hook_discriminator(only_outputs_possible: bool) -> Callable[[Any], str |
     return hook_hyper_discriminator
 
 
-T = TypeVar("T")
-
-
 def augment_hooks_annotations(
-    obj: T,
+    obj: type,
     values: dict[str, Any],
-) -> T:
+) -> type:
     """Replace HooksHypers annotations with a pydantic model that
     validates the hypers for every hook.
 
@@ -109,10 +105,10 @@ def augment_hooks_annotations(
     :return: An augmented version of the object, with annotations for
       validating specifically the requested hooks.
     """
-    obj = copy.deepcopy(obj)
 
     is_pydantic_model = isinstance(obj, type) and issubclass(obj, BaseModel)
 
+    modified_annotations = {}
     for annotation_name, annotation in obj.__annotations__.items():
         if annotation is HooksHypers:
             # This is a hooks hypers annotation, add a pydantic model to validate
@@ -146,17 +142,20 @@ def augment_hooks_annotations(
                 __config__=dict(extra="forbid"),
             )
 
-            obj.__annotations__[annotation_name] = new_annotation
-
-            # attr check in the next line is just for mypy
-            if is_pydantic_model and hasattr(obj, "model_fields"):
-                obj.model_fields[annotation_name].annotation = new_annotation
+            modified_annotations[annotation_name] = new_annotation
 
     if is_pydantic_model and hasattr(obj, "model_fields"):  # attr check for mypy
-        obj = create_model(
+        return create_model(
             getattr(obj, "__name__", "AugmentedModel"),
-            **{k: (v.annotation, v) for k, v in obj.model_fields.items()},
+            **{
+                k: (modified_annotations.get(k, v.annotation), v)
+                for k, v in obj.model_fields.items()
+            },
             __config__=dict(extra="forbid"),
         )
-
-    return obj
+    else:
+        return type(
+            getattr(obj, "__name__", "AugmentedClass"),
+            (obj,),
+            {"__annotations__": modified_annotations},
+        )
