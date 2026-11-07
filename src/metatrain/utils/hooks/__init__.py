@@ -2,7 +2,14 @@ import copy
 from typing import Annotated, Any, Callable, TypeVar
 
 from omegaconf import OmegaConf
-from pydantic import AfterValidator, BeforeValidator, Discriminator, Tag, create_model
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    Discriminator,
+    Tag,
+    create_model,
+)
 
 from .helpers import get_default_hypers, get_hypers_class, restart_hooks, setup_hooks
 
@@ -103,6 +110,9 @@ def augment_hooks_annotations(
       validating specifically the requested hooks.
     """
     obj = copy.deepcopy(obj)
+
+    is_pydantic_model = isinstance(obj, type) and issubclass(obj, BaseModel)
+
     for annotation_name, annotation in obj.__annotations__.items():
         if annotation is HooksHypers:
             # This is a hooks hypers annotation, add a pydantic model to validate
@@ -130,10 +140,23 @@ def augment_hooks_annotations(
                     AfterValidator(get_hook_hypers_sanitizer(name)),
                 ]
 
-            obj.__annotations__[annotation_name] = create_model(
-                "HooksHypers",
+            new_annotation = create_model(
+                "AugmentedHooksHypers",
                 **hooks_hypers_annotations,
                 __config__=dict(extra="forbid"),
             )
+
+            obj.__annotations__[annotation_name] = new_annotation
+
+            # attr check in the next line is just for mypy
+            if is_pydantic_model and hasattr(obj, "model_fields"):
+                obj.model_fields[annotation_name].annotation = new_annotation
+
+    if is_pydantic_model and hasattr(obj, "model_fields"):  # attr check for mypy
+        obj = create_model(
+            getattr(obj, "__name__", "AugmentedModel"),
+            **{k: (v.annotation, v) for k, v in obj.model_fields.items()},
+            __config__=dict(extra="forbid"),
+        )
 
     return obj
