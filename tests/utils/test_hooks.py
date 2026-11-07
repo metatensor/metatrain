@@ -2,7 +2,11 @@ import pytest
 
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
-from metatrain.utils.hooks.helpers import find_all_hooks, setup_hooks
+from metatrain.utils.hooks.helpers import (
+    find_all_hooks,
+    get_default_hypers,
+    setup_hooks,
+)
 
 
 @pytest.fixture
@@ -55,10 +59,9 @@ class TestSetupPostHooks:
 
         hypers = {}
 
-        dataset_info = dataset_info.copy()
-        dataset_info.hooks = hypers
+        dataset_info = dataset_info
 
-        post_hooks, model_outs = setup_hooks(dataset_info)
+        post_hooks, model_outs = setup_hooks(dataset_info, hypers)
 
         assert len(post_hooks) == 0
         assert model_outs == dataset_info.targets
@@ -67,14 +70,12 @@ class TestSetupPostHooks:
         """Simplest test of a hook owning a single output, and its inputs
         are created so that the model can produce them."""
 
-        hypers = {
-            "identity": "mtt::local_energy",
-        }
+        hypers = {"identity": get_default_hypers("identity")}
+        hypers["identity"]["outputs"] = "mtt::local_energy"
 
         dataset_info = dataset_info.copy()
-        dataset_info.hooks = hypers
 
-        post_hooks, model_outs = setup_hooks(dataset_info)
+        post_hooks, model_outs = setup_hooks(dataset_info, hypers)
 
         assert len(post_hooks) == 1
         assert "mtt::local_energy" not in model_outs
@@ -89,17 +90,13 @@ class TestSetupPostHooks:
         This means that the target will flow to the loss function,
         but still we can use it as input to a hook.
         """
-        hypers = {
-            "identity": {
-                "outputs": "mtt::local_energy",
-                "inputs": "mtt::some_other_energy",
-            },
-        }
+        hypers = {"identity": get_default_hypers("identity")}
+        hypers["identity"]["outputs"] = "mtt::local_energy"
+        hypers["identity"]["inputs"] = "mtt::some_other_energy"
 
         dataset_info = dataset_info.copy()
-        dataset_info.hooks = hypers
 
-        post_hooks, model_outs = setup_hooks(dataset_info)
+        post_hooks, model_outs = setup_hooks(dataset_info, hypers)
 
         assert len(post_hooks) == 1
         assert "mtt::local_energy" not in model_outs
@@ -114,14 +111,13 @@ class TestSetupPostHooks:
         """Test that hooks can get their inputs from the extra data, and
         that in that case they don't add an output to the model."""
 
-        hypers = {
-            "identity": {"outputs": "mtt::local_energy", "inputs": "mtt::extra_energy"},
-        }
+        hypers = {"identity": get_default_hypers("identity")}
+        hypers["identity"]["outputs"] = "mtt::local_energy"
+        hypers["identity"]["inputs"] = "mtt::extra_energy"
 
         dataset_info = dataset_info.copy()
-        dataset_info.hooks = hypers
 
-        post_hooks, model_outs = setup_hooks(dataset_info)
+        post_hooks, model_outs = setup_hooks(dataset_info, hypers)
 
         assert len(post_hooks) == 1
         assert "mtt::local_energy" not in model_outs
@@ -137,19 +133,18 @@ class TestSetupPostHooks:
         as an input by the followinf hooks."""
 
         hypers = {
-            "identity": {"outputs": "mtt::gap_bottom", "inputs": "mtt::local_energy"},
-            "intensive_gap": {
-                "outputs": "energy",
-                "inputs": {
-                    "bottom": "mtt::gap_bottom",
-                },
-            },
+            "identity": get_default_hypers("identity"),
+            "intensive_gap": get_default_hypers("intensive_gap"),
         }
 
-        dataset_info = dataset_info.copy()
-        dataset_info.hooks = hypers
+        hypers["identity"]["inputs"] = "mtt::local_energy"
+        hypers["identity"]["outputs"] = "mtt::gap_bottom"
+        hypers["intensive_gap"]["inputs"] = {"bottom": "mtt::gap_bottom"}
+        hypers["intensive_gap"]["outputs"] = "energy"
 
-        post_hooks, model_outs = setup_hooks(dataset_info)
+        dataset_info = dataset_info.copy()
+
+        post_hooks, model_outs = setup_hooks(dataset_info, hypers)
 
         assert len(post_hooks) == 2
         assert "energy" not in model_outs
@@ -166,33 +161,29 @@ class TestSetupPostHooks:
         then it should raise an error.
         """
 
-        hypers = {
-            "intensive_gap": {
-                "outputs": "mtt::intermediate_energy",
-            },
-        }
+        hypers = {"intensive_gap": get_default_hypers("intensive_gap")}
+        hypers["intensive_gap"]["outputs"] = "mtt::intermediate_energy"
 
         dataset_info = dataset_info.copy()
-        dataset_info.hooks = hypers
 
         with pytest.raises(ValueError, match="mtt::intermediate_energy"):
-            post_hooks, model_outs = setup_hooks(dataset_info)
+            post_hooks, model_outs = setup_hooks(dataset_info, hypers)
 
     def test_chained_hooks_with_laterdependency(self, dataset_info):
         """Similar to the previous test, but in this case the output will
         be known once the second hook is set up."""
 
         hypers = {
-            "intensive_gap": {
-                "outputs": "mtt::intermediate_energy",
-            },
-            "identity": {"outputs": "energy", "inputs": "mtt::intermediate_energy"},
+            "intensive_gap": get_default_hypers("intensive_gap"),
+            "identity": get_default_hypers("identity"),
         }
+        hypers["intensive_gap"]["outputs"] = "mtt::intermediate_energy"
+        hypers["identity"]["inputs"] = "mtt::intermediate_energy"
+        hypers["identity"]["outputs"] = "energy"
 
         dataset_info = dataset_info.copy()
-        dataset_info.hooks = hypers
 
-        post_hooks, model_outs = setup_hooks(dataset_info)
+        post_hooks, model_outs = setup_hooks(dataset_info, hypers)
 
         assert len(post_hooks) == 2
         assert "energy" not in model_outs
