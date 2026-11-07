@@ -18,7 +18,9 @@ this hook one can:
 
 """
 
-from typing import Optional, TypedDict
+from typing import Optional
+
+from typing_extensions import TypedDict
 
 from metatrain.soap_bpnn.documentation import SOAPConfig
 from metatrain.utils.hypers import init_with_defaults

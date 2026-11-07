@@ -58,7 +58,9 @@ above.
     current implementation.
 """
 
-from typing import Literal, Optional, TypedDict
+from typing import Literal, Optional
+
+from typing_extensions import TypedDict
 
 
 class Hypers(TypedDict):
@@ -94,9 +96,10 @@ class Hypers(TypedDict):
       predicted multipole is invariant under a rigid translation whatever the value of
       :math:`\\sum_i q_i`. This is a convention used by some electronic structure codes,
       but not all.
-    - ``"absolute"``: use the positions as they are stored, without shifting the origin.
-      The predicted multipole is then **not** translationally invariant unless the local
-      charges happen to sum to zero: translating a system by :math:`\\mathbf{a}` changes
-      it by :math:`\\left(\\sum_i q_i\\right)\\mathbf{a}`. Use this only when the
-      absolute frame is meaningful, or to reproduce earlier behaviour.
+    - ``"absolute"``: don't shift positions. In this case, it is possible that the
+      predicted multipole is **not** translationally invariant. For example,
+      the dipole will only be translationally invariant if local charges sum to zero,
+      as translating a system by :math:`\\mathbf{a}` changes it by
+      :math:`\\left(\\sum_i q_i\\right)\\mathbf{a}`. Use this only if you know
+      what you are doing.
     """

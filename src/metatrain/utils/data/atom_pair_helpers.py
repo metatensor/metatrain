@@ -192,8 +192,8 @@ def get_pair_target_neighborlist(
                 req_nls = hook.requested_neighbor_lists()
                 if len(req_nls) > 1:
                     raise ValueError(
-                        "Hook has multiple requested neighbor lists, can't determine which"
-                        "one to use for atom_pair targets."
+                        "Hook has multiple requested neighbor lists, can't determine"
+                        "which one to use for atom_pair targets."
                     )
                 if nl is not None:
                     raise ValueError(

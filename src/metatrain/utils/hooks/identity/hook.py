@@ -23,8 +23,6 @@ class Identity(HookInterface[Hypers]):
     def __init__(self, hypers: Hypers, dataset_info: DatasetInfo):
         super().__init__(hypers, dataset_info)
 
-        self.hypers = hypers
-
         # Get the information about the output targets from the dataset info
         out_names = hypers["outputs"]
         if isinstance(out_names, str):
@@ -33,7 +31,7 @@ class Identity(HookInterface[Hypers]):
             raise ValueError("Identity hook requires at least one output target")
 
         # Get the information for the input targets.
-        input_names = hypers.get("inputs")
+        input_names = hypers["inputs"]
         if isinstance(input_names, str):
             input_names = [input_names]
         elif input_names is None:

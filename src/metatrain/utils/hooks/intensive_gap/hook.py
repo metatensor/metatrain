@@ -69,7 +69,7 @@ class IntensiveGap(HookInterface[Hypers]):
         target quantities and atomic types.
     """
 
-    __checkpoint_version__ = 2
+    __checkpoint_version__ = 1
 
     def __init__(self, hypers: Hypers, dataset_info: DatasetInfo):
         super().__init__(hypers, dataset_info)
@@ -81,16 +81,10 @@ class IntensiveGap(HookInterface[Hypers]):
                 "'learnable_alpha' are now given directly in the hook's hypers"
             )
 
-        alpha_bottom = float(hypers.get("alpha_bottom", 10.0))
-        alpha_top = float(hypers.get("alpha_top", -10.0))
-        learnable_alpha = bool(hypers.get("learnable_alpha", False))
-        # Store the resolved values, so that checkpoints don't depend on the defaults
-        self.hypers = {
-            **hypers,
-            "alpha_bottom": alpha_bottom,
-            "alpha_top": alpha_top,
-            "learnable_alpha": learnable_alpha,
-        }
+        alpha_bottom = self.hypers["alpha_bottom"]
+        alpha_top = self.hypers["alpha_top"]
+        learnable_alpha = self.hypers["learnable_alpha"]
+
         if learnable_alpha:
             for alpha_name, alpha in [
                 ("alpha_bottom", alpha_bottom),
@@ -117,7 +111,7 @@ class IntensiveGap(HookInterface[Hypers]):
             self.out_targets[k] = dataset_info.targets[k]
 
         # Get the information for the input targets.
-        input_names = hypers.get("inputs")
+        input_names = hypers["inputs"]
         if isinstance(input_names, dict):
             input_names = [input_names]
         if input_names is None:
@@ -377,9 +371,6 @@ class IntensiveGap(HookInterface[Hypers]):
 
         :param checkpoint: A dictionary containing the state of the hook.
         """
-        if checkpoint["hook_ckpt_version"] == 1:
-            checkpoint = cls.upgrade_checkpoint_v1_v2(checkpoint)
-
         if checkpoint["hook_ckpt_version"] != cls.__checkpoint_version__:
             raise ValueError(
                 f"Invalid checkpoint version for the hook: "
@@ -394,32 +385,3 @@ class IntensiveGap(HookInterface[Hypers]):
 
         hook.load_state_dict(checkpoint["model_state_dict"])
         return hook
-
-    @staticmethod
-    def upgrade_checkpoint_v1_v2(checkpoint: dict[str, Any]) -> dict[str, Any]:
-        """
-        Upgrade a version 1 checkpoint, whose hypers had a ``pooling`` section.
-
-        The pooling parameters move to the top level of the hypers, with the version
-        1 defaults (+-20) filled in. Only the softmax pooling is left, so a smoothmax
-        checkpoint can't be upgraded.
-
-        :param checkpoint: The version 1 checkpoint.
-        :return: The version 2 checkpoint.
-        """
-        hypers = dict(checkpoint["hook_data"]["hypers"])
-        pooling = dict(hypers.pop("pooling", {}))
-        pooling_type = pooling.pop("type", "softmax")
-        if pooling_type != "softmax":
-            raise ValueError(
-                f"Can not upgrade an IntensiveGap checkpoint with '{pooling_type}' "
-                "pooling: only the softmax pooling is supported"
-            )
-        # The defaults were +-20 at version 1
-        hypers.update({"alpha_bottom": 20.0, "alpha_top": -20.0, **pooling})
-
-        # The output layouts keep a stale "pooling_type" info, which is not read
-        # any more and does not enter the comparison of target infos.
-        checkpoint["hook_data"]["hypers"] = hypers
-        checkpoint["hook_ckpt_version"] = 2
-        return checkpoint

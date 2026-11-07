@@ -3,7 +3,7 @@ import importlib.util
 import sys
 from pathlib import Path
 from types import ModuleType
-from typing import Optional, cast
+from typing import Optional
 
 import torch
 from omegaconf import OmegaConf
@@ -165,7 +165,7 @@ class UnavailableOutputError(Exception):
 
 def setup_hooks(
     dataset_info: DatasetInfo,
-    hooks_hypers: Optional[dict[str, dict[str, str] | str]] = None,
+    hooks_hypers: dict[str, dict[str, str] | str],
 ) -> tuple[
     list[torch.nn.Module],
     dict[str, TargetInfo],
@@ -175,6 +175,8 @@ def setup_hooks(
 
     :param dataset_info: The dataset information, which contains target
         information and also the hooks specification.
+    :param hooks_hypers: The hyperparameters for the hooks.
+
     :return: A tuple containing the list of post-processing hooks, and a
         dictionary with the outputs that the model should produce before the
         hooks are applied.
@@ -193,16 +195,9 @@ def setup_hooks(
         for hook_name, hook_hypers in post_hooks_hypers.items():
             hook_class = load_hook(hook_name)
 
-            if isinstance(hook_hypers, str):
-                san_hook_hypers: dict[str, dict[str, str] | str] = {
-                    "outputs": hook_hypers,
-                }
-            else:
-                san_hook_hypers = cast(dict[str, dict[str, str] | str], hook_hypers)
-
             # Get hook and add it to the list of hooks.
             try:
-                hook = hook_class(san_hook_hypers, dataset_info)
+                hook = hook_class(hook_hypers, dataset_info)
             except UnavailableOutputError as e:
                 unavailable_out_hooks[hook_name] = hook_hypers
                 unavailable_errors.append(e)
@@ -265,7 +260,7 @@ def restart_hooks(
     """
     Restart hooks with new dataset information.
 
-    :param hooks: List of existing hooks to restart.
+    :param instantiated_hooks: List of existing hooks to restart.
     :param dataset_info: New dataset information to use for restarting the hooks.
     :param new_hooks_hypers: The hook hypers passed for the hooks restart.
     :return: A tuple containing:
