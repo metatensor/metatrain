@@ -1,0 +1,45 @@
+import pytest
+
+from metatrain.utils.hooks.helpers import get_default_hypers
+from metatrain.utils.hooks.testing.hook import HookTests
+from metatrain.utils.hooks.testing.inputs import InputTests
+from metatrain.utils.hooks.testing.output import OutputTests
+from metatrain.utils.hooks.testing.torchscript import TorchscriptTests
+
+
+class GlobalMultipolesTests(HookTests):
+    hook = "global_multipoles"
+
+    @pytest.fixture
+    def hypers(self):
+        hypers = get_default_hypers(self.hook)
+        hypers["outputs"] = "mtt::global_dipole"
+        return hypers
+
+    def build_hypers(self, input, output):
+        hypers = get_default_hypers(self.hook)
+        if input is None:
+            output_name = output["global_dipole"]
+            input_name = (
+                f"mtt::aux::local_multipoles::{output_name.replace('mtt::', '')}"
+            )
+            return {**hypers, "outputs": output_name}, [input_name], [output_name]
+        elif output is None:
+            ...
+        else:
+            input_name = input["local_multipole"]
+            output_name = output["global_dipole"]
+            return (
+                {**hypers, "inputs": input_name, "outputs": output_name},
+                [input_name],
+                [output_name],
+            )
+
+
+class TestTorchscript(TorchscriptTests, GlobalMultipolesTests): ...
+
+
+class TestInputs(InputTests, GlobalMultipolesTests): ...
+
+
+class TestOutputs(OutputTests, GlobalMultipolesTests): ...

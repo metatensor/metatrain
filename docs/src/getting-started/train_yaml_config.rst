@@ -103,6 +103,17 @@ the one dedicated to the loss. There is a plethora of loss functions used in dif
 ML workflows, and you can refer to :ref:`the loss functions documentation <loss-functions>`
 to understand the support of ``metatrain`` for all these different cases.
 
+
+.. _hooks-section:
+
+Hooks
+=====
+
+Another special parameter that you will find in the ``architecture.training`` section is
+the one dedicated to the hooks. Hooks are modules that can be used to augment the
+capabilities of all architectures. See :ref:`the hooks documentation <concept-hooks>`
+for more details on what they do and how to use them.
+
 .. _data-section:
 
 Data
