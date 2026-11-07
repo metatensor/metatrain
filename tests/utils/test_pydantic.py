@@ -1,6 +1,7 @@
 # mypy: ignore-errors
 # Satisfying mypy in this file is hard because the fixtures
 # define different classes depending on the parametrization.
+import warnings
 from copy import deepcopy
 
 import pytest
@@ -10,6 +11,12 @@ from typing_extensions import TypedDict
 
 from metatrain.share.base_hypers import BaseHypers
 from metatrain.utils.architectures import preload_documentation_module
+from metatrain.utils.hooks import (
+    HooksHypers,
+)
+from metatrain.utils.hooks import (
+    get_default_hypers as get_hook_default_hypers,
+)
 from metatrain.utils.pydantic import (
     MetatrainArchitectureValidationError,
     MetatrainValidationError,
@@ -31,6 +38,23 @@ def simple_hypers_class(request: pytest.FixtureRequest):
 
         class Hypers(BaseModel):
             a: float = 2.0
+
+    return Hypers
+
+
+@pytest.fixture(params=["typed_dict", "pydantic_model"])
+def hypers_class_with_hooks(request: pytest.FixtureRequest):
+    if request.param == "typed_dict":
+
+        class Hypers(TypedDict):
+            a: float = 2.0
+            hooks_input: HooksHypers = {}
+
+    elif request.param == "pydantic_model":
+
+        class Hypers(BaseModel):
+            a: float = 2.0
+            hooks_input: HooksHypers = {}
 
     return Hypers
 
@@ -106,6 +130,65 @@ def test_validate_architecture_options_warning(caplog):
     validate_architecture_options(options, model_hypers=Hypers, trainer_hypers=Hypers)
 
     assert "Architecture does not provide validation of hyperparameters" in caplog.text
+
+
+# ============================================================================
+# Tests for validating options with hooks
+# ============================================================================
+
+
+def test_validate_options_with_hooks(
+    simple_hypers_class: type, hypers_class_with_hooks: type
+):
+    """Test that options with hooks are validated correctly."""
+
+    options = {
+        "name": "dummy_architecture",
+        "model": {"a": 2.0},
+        "training": {
+            "a": 2.0,
+            "hooks_input": {
+                "identity": "energy",
+            },
+        },
+    }
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*Pydantic serializer.*")
+        validated = validate_architecture_options(
+            options,
+            model_hypers=simple_hypers_class,
+            trainer_hypers=hypers_class_with_hooks,
+        )
+
+    expected_hypers = {"identity": get_hook_default_hypers("identity")}
+    expected_hypers["identity"]["outputs"] = "energy"
+
+    assert validated["training"]["hooks_input"] == expected_hypers
+
+
+def test_validate_options_with_hooks_error(
+    simple_hypers_class: type, hypers_class_with_hooks: type
+):
+    """Test that options with hooks raise error on invalid hypers."""
+
+    options = {
+        "name": "dummy_architecture",
+        "model": {"a": 2.0},
+        "training": {
+            "a": 2.0,
+            "hooks_input": {
+                "identity": 123,  # Invalid type for outputs
+            },
+        },
+    }
+
+    with pytest.raises(MetatrainValidationError):
+        validate_architecture_options(
+            options,
+            model_hypers=simple_hypers_class,
+            trainer_hypers=hypers_class_with_hooks,
+        )
 
 
 # ============================================================================
