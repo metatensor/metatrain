@@ -279,11 +279,6 @@ class GlobalMultipole(HookInterface[Hypers]):
         return return_dict
 
     def get_checkpoint(self, best_state_dict: Optional[dict[str, Any]] = None) -> dict:
-        """
-        Get the checkpoint of the hook.
-
-        :return: A dictionary containing the state of the hook.
-        """
         state_dict = self.state_dict()
         return {
             "hook_name": "global_multipoles",
@@ -299,11 +294,6 @@ class GlobalMultipole(HookInterface[Hypers]):
     def load_checkpoint(
         cls, checkpoint: dict[str, Any], context: str
     ) -> "GlobalMultipole":
-        """
-        Load the checkpoint of the hook.
-
-        :param checkpoint: A dictionary containing the state of the hook.
-        """
         if checkpoint["hook_ckpt_version"] != cls.__checkpoint_version__:
             raise ValueError(
                 f"Invalid checkpoint version for the hook: "

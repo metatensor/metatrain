@@ -3,6 +3,7 @@ import copy
 from omegaconf import OmegaConf
 
 from metatrain.utils.architectures import get_hypers_classes
+from metatrain.utils.data import DatasetInfo
 from metatrain.utils.hooks import HooksHypers, get_default_hypers
 from metatrain.utils.hooks.identity import IdentityHook
 from metatrain.utils.hypers import init_with_defaults
@@ -15,7 +16,7 @@ class HooksSupportTests(ArchitectureTests):
     """Test suite to check that an architecture correctly
     supports hooks."""
 
-    def test_hooks_hyper(self):
+    def test_hooks_hyper(self) -> None:
         """Test that the architecture correctly supports hooks."""
 
         hypers_classes = get_hypers_classes(self.architecture)
@@ -33,8 +34,20 @@ class HooksSupportTests(ArchitectureTests):
             "metatrain.utils.hooks.HooksHypers."
         )
 
-    def test_hooks_setup(self, dataset_info, minimal_model_hypers, default_hypers):
-        """Test that the architecture correctly sets the hooks."""
+    def test_hooks_setup(
+        self,
+        dataset_info: DatasetInfo,
+        minimal_model_hypers: dict,
+        default_hypers: dict,
+    ) -> None:
+        """Test that the architecture correctly sets up the hooks.
+
+        :param dataset_info: The dataset information.
+        :param minimal_model_hypers: Minimal model hyperparameters,
+          we won't even use the model, it's just to check the hook
+          set up.
+        :param default_hypers: The default hyper-parameters for the architecture.
+        """
 
         hypers = copy.deepcopy(default_hypers)
         if "num_epochs" in hypers["training"]:
