@@ -102,13 +102,24 @@ class TensorBasis(HookInterface[Hypers]):
         self.out_targets = {name: dataset_info.targets[name] for name in outputs}
 
         # Names for the inputs that we will request from the model
-        self._input_names = [
-            f"mtt::aux::scalars::{name.replace('mtt::', '')}"
-            for name in self.out_targets
-        ]
+        inputs = hypers["inputs"]
+        if isinstance(inputs, str):
+            inputs = [inputs]
+        if inputs is None:
+            inputs = [
+                f"mtt::aux::scalars::{name.replace('mtt::', '')}" for name in outputs
+            ]
+        if len(inputs) != len(outputs):
+            raise ValueError(
+                "TensorBasis hook requires the same number of input and output targets"
+            )
+        self._input_names = inputs
+
         self._out_to_input_name = {
-            out_name: f"mtt::aux::scalars::{out_name.replace('mtt::', '')}"
-            for out_name in self.out_targets
+            out_name: in_name
+            for out_name, in_name in zip(
+                self.out_targets, self._input_names, strict=True
+            )
         }
 
         # Build the basis calculators for each target,
@@ -143,10 +154,10 @@ class TensorBasis(HookInterface[Hypers]):
             # We ask for all the coefficients in a single block, we will untangle
             # them in the forward pass.
             num_properties = sum(
-                block.values.shape[1] * block.values.shape[2] * 2
-                for block in target.layout.blocks()
+                block.values.shape[1] * block.values.shape[2] * (2 if i > 1 else 1)
+                for i, block in enumerate(target.layout.blocks())
             )
-            self._input_target_infos[input_name] = get_generic_target_info(
+            input_target_info = get_generic_target_info(
                 input_name,
                 {
                     "quantity": "_",
@@ -158,6 +169,33 @@ class TensorBasis(HookInterface[Hypers]):
                     "sample_kind": "atom",
                 },
             )
+
+            # If the input is in the dataset, check if it is compatible with the
+            # input that we expect. If so, use it.
+            if (
+                input_name in dataset_info.targets
+                or input_name in dataset_info.extra_data
+            ):
+                # The input is present in the dataset info, check if
+                # the target that we built is compatible with the one
+                # in the dataset info. If it is, use it as our input
+                target_info = (
+                    dataset_info.targets.get(input_name)
+                    or dataset_info.extra_data[input_name]
+                )
+
+                try:
+                    _check_compatible_target_infos(target_info, input_target_info)
+                except AssertionError:
+                    raise ValueError(
+                        f"TensorBasis hook requested input {input_name} but we found"
+                        f" '{input_name}' in the dataset and it is not compatible as an"
+                        f" input for the hook. "
+                    )
+
+                self._input_target_infos[input_name] = target_info
+            else:
+                self._input_target_infos[input_name] = input_target_info
 
     def requested_target_infos(self) -> dict[str, TargetInfo]:
         """
@@ -369,3 +407,33 @@ class TensorBasis(HookInterface[Hypers]):
 
         hook.load_state_dict(model_state_dict)
         return hook
+
+
+def _check_compatible_target_infos(
+    target_info1: TargetInfo, target_info2: TargetInfo
+) -> None:
+    """Check that two target infos have compatible layouts.
+
+    :param target_info1: The first target info.
+    :param target_info2: The second target info.
+    :raises ValueError: If the layouts are not compatible.
+    """
+
+    assert target_info1.sample_kind == target_info2.sample_kind
+    assert target_info1.is_spherical == target_info2.is_spherical
+
+    layout1 = target_info1.layout
+    layout2 = target_info2.layout
+
+    for (key1, block1), (key2, block2) in zip(
+        layout1.items(), layout2.items(), strict=True
+    ):
+        assert key1 == key2
+
+        assert block1.samples.values.shape == block2.samples.values.shape, (
+            f"Sample shapes do not match for key {key1}: "
+            f"{block1.samples.values.shape} vs {block2.samples.values.shape}"
+        )
+        assert block1.components == block2.components
+
+        assert block1.properties == block2.properties

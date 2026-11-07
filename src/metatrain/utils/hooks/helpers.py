@@ -1,3 +1,4 @@
+import copy
 import importlib
 import importlib.util
 import sys
@@ -121,7 +122,7 @@ def get_default_hypers(name: str, base_precision: Optional[int] = None) -> dict:
         container.pop("base_precision")
         return container
 
-    return defaults
+    return copy.deepcopy(defaults)
 
 
 def write_hypers_yaml(
