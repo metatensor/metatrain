@@ -450,6 +450,7 @@ class TrainerHypers(TypedDict):
     See :ref:`fine-tuning` for more details.
     """
     forward_hooks: HooksHypers = {}
-    """Hooks that the model needs to apply at the end of forward to
-    produce the final outputs.
+    """Hooks that the model needs to apply at the end of forward.
+
+    See :ref:`concept-hooks` for more details.
     """

@@ -60,6 +60,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         self._hook_supported_outputs: list[list[str]] = [
             [name for name in hook.supported_outputs()] for hook in self.forward_hooks
         ]
+        self._forward_hooks_was_None = forward_hooks is None
 
     def _get_eval_transforms(self) -> dict[str, list[str]]:
         """Finds out which targets need to be transformed at evaluation time to
@@ -400,7 +401,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             core=core.module,
             additive_models=[model.module for model in additive_models],
             scaler=scaler.module if scaler is not None else None,  # type: ignore[arg-type]
-            forward_hooks=[hook for hook in self.forward_hooks],
+            forward_hooks=[hook.to(dtype) for hook in self.forward_hooks],
             dataset_info=self.dataset_info,
         )
         # Some architectures have attributes that downstream code reads from the
@@ -515,6 +516,16 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             ],
             "metadata": self.metadata,
         }
+
+        # If forward hooks was None, the checkpoint should not contain the
+        # forward_hooks key. This is to avoid breaking compatibility for
+        # architectures that don't support hooks.
+        if self._forward_hooks_was_None:
+            assert len(checkpoint["forward_hooks"]) == 0, (
+                "Internal assertion error, please report this bug."
+            )
+            del checkpoint["forward_hooks"]
+
         return checkpoint
 
     @staticmethod
@@ -551,7 +562,9 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
                     {f"scaler.{k}": v for k, v in scaler_state_dict.items()}
                 )
 
-        for i, forward_hook_checkpoint in enumerate(checkpoint["forward_hooks"]):
+        for i, forward_hook_checkpoint in enumerate(
+            checkpoint.get("forward_hooks", [])
+        ):
             if (
                 forward_hook_state_dict := forward_hook_checkpoint.get(key)
             ) is not None:

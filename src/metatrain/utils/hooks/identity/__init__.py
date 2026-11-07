@@ -1,4 +1,4 @@
-from .hook import Identity
+from .hook import IdentityHook
 
 
-__hook__ = Identity
+__hook__ = IdentityHook

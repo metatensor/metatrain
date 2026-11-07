@@ -340,6 +340,7 @@ class TensorBasis(HookInterface[Hypers]):
                 "dataset_info": self.dataset_info,
             },
             "model_state_dict": state_dict,
+            "best_model_state_dict": best_state_dict or state_dict,
         }
 
     @classmethod
@@ -361,5 +362,10 @@ class TensorBasis(HookInterface[Hypers]):
             dataset_info=checkpoint["hook_data"]["dataset_info"],
         )
 
-        hook.load_state_dict(checkpoint["model_state_dict"])
+        model_state_dict = checkpoint["model_state_dict"]
+        if context in ["finetine", "export"]:
+            # Load the best model state dict if available
+            model_state_dict = checkpoint.get("best_model_state_dict", model_state_dict)
+
+        hook.load_state_dict(model_state_dict)
         return hook
