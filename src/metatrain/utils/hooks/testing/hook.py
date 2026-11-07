@@ -14,7 +14,13 @@ from metatrain.utils.hooks.abc import HookInterface
 from metatrain.utils.hooks.helpers import load_hook
 
 
-_target_types = ["energy", "local_energy", "global_dipole", "local_multipole"]
+_target_types = [
+    "energy",
+    "local_energy",
+    "global_dipole",
+    "local_multipole",
+    "local_dipole_invariant_coeffs",
+]
 
 
 class HookTests:
@@ -84,6 +90,22 @@ class HookTests:
                 ),
             ),
         )
+        local_dipole_coeffs = get_generic_target_info(
+            "mtt::local_dipole_invariant_coeffs",
+            dict(
+                sample_kind="atom",
+                unit="",
+                quantity="",
+                num_subtargets=3,
+                type=dict(
+                    spherical=dict(
+                        irreps=[
+                            {"o3_lambda": 0, "o3_sigma": 1},
+                        ]
+                    )
+                ),
+            ),
+        )
 
         return DatasetInfo(
             length_unit="angstrom",
@@ -94,6 +116,7 @@ class HookTests:
                 "mtt::local_energy_1": local_energy,
                 "mtt::global_dipole": global_dipole,
                 "mtt::local_multipole": local_multipole,
+                "mtt::local_dipole_invariant_coeffs": local_dipole_coeffs,
             },
             extra_data={
                 "mtt::extra_energy": global_energy,
@@ -101,6 +124,7 @@ class HookTests:
                 "mtt::extra_local_energy_1": local_energy,
                 "mtt::extra_global_dipole": global_dipole,
                 "mtt::extra_local_multipole": local_multipole,
+                "mtt::extra_local_dipole_invariant_coeffs": local_dipole_coeffs,
             },
         )
 

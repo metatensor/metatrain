@@ -149,11 +149,35 @@ class IntensiveGap(HookInterface[Hypers]):
             )
 
             for in_name in [in_names["bottom"], in_names["top"]]:
-                self._input_target_infos[in_name] = TargetInfo(
+                built_target_info = TargetInfo(
                     per_atom_layout,
                     quantity=out_target.quantity,
                     unit=out_target.unit,
                 )
+                if (
+                    in_name in dataset_info.targets
+                    or in_name in dataset_info.extra_data
+                ):
+                    # The input is present in the dataset info, check if the target
+                    # that we built is compatible with the one in the dataset info.
+                    # If it is, use it as our input
+                    target_info = (
+                        dataset_info.targets.get(in_name)
+                        or dataset_info.extra_data[in_name]
+                    )
+
+                    try:
+                        _check_compatible_target_infos(target_info, built_target_info)
+                    except AssertionError:
+                        raise ValueError(
+                            f"IntensiveGap hook requested input {in_name} but we found"
+                            f" '{in_name}' in the dataset and it is not compatible as"
+                            f" an input for the hook. "
+                        )
+
+                    self._input_target_infos[in_name] = target_info
+                else:
+                    self._input_target_infos[in_name] = built_target_info
 
             layout.set_info("sharpness_bottom", str(sharpness_bottom))
             layout.set_info("sharpness_top", str(sharpness_top))
@@ -330,3 +354,33 @@ class IntensiveGap(HookInterface[Hypers]):
 
         hook.load_state_dict(checkpoint["model_state_dict"])
         return hook
+
+
+def _check_compatible_target_infos(
+    target_info1: TargetInfo, target_info2: TargetInfo
+) -> None:
+    """Check that two target infos have compatible layouts.
+
+    :param target_info1: The first target info.
+    :param target_info2: The second target info.
+    :raises ValueError: If the layouts are not compatible.
+    """
+
+    assert target_info1.sample_kind == target_info2.sample_kind
+
+    layout1 = target_info1.layout
+    layout2 = target_info2.layout
+
+    for (key1, block1), (_, block2) in zip(
+        layout1.items(), layout2.items(), strict=True
+    ):
+        assert block1.samples.values.shape == block2.samples.values.shape, (
+            f"Sample shapes do not match for key {key1}: "
+            f"{block1.samples.values.shape} vs {block2.samples.values.shape}"
+        )
+        assert block1.components == block2.components
+
+        assert block1.properties.values.shape == block2.properties.values.shape, (
+            f"Property shapes do not match for key {key1}: "
+            f"{block1.properties.values.shape} vs {block2.properties.values.shape}"
+        )

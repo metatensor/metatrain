@@ -89,9 +89,12 @@ class GlobalMultipole(HookInterface[Hypers]):
                     f"{max_degree}"
                 )
 
+            out_target.layout.set_info("max_degree", str(max_degree))
+            out_target.layout.set_info("input_name", in_name)
+
             # Get the input that we will request from the model, which are
             # the local multipoles up to the degree of the output multipole.
-            self._input_target_infos[in_name] = get_generic_target_info(
+            input_target_info = get_generic_target_info(
                 in_name,
                 {
                     "quantity": "",
@@ -108,8 +111,30 @@ class GlobalMultipole(HookInterface[Hypers]):
                     "sample_kind": "atom",
                 },
             )
-            out_target.layout.set_info("max_degree", str(max_degree))
-            out_target.layout.set_info("input_name", in_name)
+
+            # If the input is in the dataset, check if it is compatible with the
+            # input that we expect. If so, use it.
+            if in_name in dataset_info.targets or in_name in dataset_info.extra_data:
+                # The input is present in the dataset info, check if the
+                # target that we built is compatible with the one in the
+                # dataset info. If it is, use it as our input
+                target_info = (
+                    dataset_info.targets.get(in_name)
+                    or dataset_info.extra_data[in_name]
+                )
+
+                try:
+                    _check_compatible_target_infos(target_info, input_target_info)
+                except AssertionError:
+                    raise ValueError(
+                        f"GlobalMultipole hook requested input {in_name} but we found"
+                        f" '{in_name}' in the dataset and it is not compatible as an"
+                        f" input for the hook. "
+                    )
+
+                self._input_target_infos[in_name] = target_info
+            else:
+                self._input_target_infos[in_name] = input_target_info
 
     def requested_target_infos(self) -> dict[str, TargetInfo]:
         """
@@ -293,3 +318,33 @@ class GlobalMultipole(HookInterface[Hypers]):
 
         hook.load_state_dict(checkpoint["model_state_dict"])
         return hook
+
+
+def _check_compatible_target_infos(
+    target_info1: TargetInfo, target_info2: TargetInfo
+) -> None:
+    """Check that two target infos have compatible layouts.
+
+    :param target_info1: The first target info.
+    :param target_info2: The second target info.
+    :raises ValueError: If the layouts are not compatible.
+    """
+
+    assert target_info1.sample_kind == target_info2.sample_kind
+    assert target_info1.is_spherical == target_info2.is_spherical
+
+    layout1 = target_info1.layout
+    layout2 = target_info2.layout
+
+    for (key1, block1), (key2, block2) in zip(
+        layout1.items(), layout2.items(), strict=True
+    ):
+        assert key1 == key2
+
+        assert block1.samples.values.shape == block2.samples.values.shape, (
+            f"Sample shapes do not match for key {key1}: "
+            f"{block1.samples.values.shape} vs {block2.samples.values.shape}"
+        )
+        assert block1.components == block2.components
+
+        assert block1.properties == block2.properties

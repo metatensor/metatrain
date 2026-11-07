@@ -19,7 +19,7 @@ from metatomic.torch import ModelOutput, System
 
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_generic_target_info
-from metatrain.utils.hooks.helpers import load_hook
+from metatrain.utils.hooks.helpers import get_default_hypers, load_hook
 
 
 OUTPUT_NAME = "mtt::global_dipole"
@@ -134,7 +134,8 @@ def _translate(systems: list[System], shift: torch.Tensor) -> list[System]:
 
 def _make_hook(origin: str = "center_of_charge"):
     """Build the hook with a given origin convention."""
-    hypers = {"outputs": OUTPUT_NAME}
+    hypers = get_default_hypers("global_multipoles")
+    hypers["outputs"] = OUTPUT_NAME
     if origin is not None:
         hypers["origin"] = origin
     return load_hook("global_multipoles")(hypers, _dataset_info())

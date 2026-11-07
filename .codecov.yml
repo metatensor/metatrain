@@ -93,5 +93,8 @@ ignore:
   - "src/metatrain/utils/distributed/.*"
   # auto-generated
   - "src/metatrain/_version.py"
+  # Folders in hooks, which implement particular hooks
+  # that are tested separately.
+  - "src/metatrain/utils/hooks/.*/.*"
 
 comment: false
