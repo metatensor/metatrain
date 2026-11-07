@@ -114,5 +114,9 @@ class HookInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta):
         """
         Get the checkpoint of the hook.
 
+        :param best_state_dict: Optional dictionary containing the best state
+            of the hook. If provided and it makes sense for the hook, it should
+            be stored in the checkpoint as ``"best_model_state_dict"``.
+
         :return: A dictionary containing the state of the hook.
         """
