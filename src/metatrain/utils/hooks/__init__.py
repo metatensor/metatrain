@@ -133,6 +133,7 @@ def augment_hooks_annotations(
             obj.__annotations__[annotation_name] = create_model(
                 "HooksHypers",
                 **hooks_hypers_annotations,
+                __config__=dict(extra="forbid"),
             )
 
     return obj
