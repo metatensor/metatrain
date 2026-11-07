@@ -30,26 +30,10 @@ whose weights are computed from the per-atom values themselves:
 .. math::
     E = \sum_i \frac{e^{\alpha h_i}}{\sum_j e^{\alpha h_j}} h_i
 
-The sign of :math:`\alpha` (``alpha_bottom`` or ``alpha_top``) selects max-
+The sign of :math:`\alpha` (``sharpness_bottom`` or ``sharpness_top``) selects max-
 vs min-pooling and its magnitude sets the sharpness: the pool recovers a hard
 max/min as :math:`|\alpha| \to \infty`. The weights sum to one in each system,
 so the pooled value is strictly intensive.
-
-Learnable sharpness
--------------------
-
-With ``learnable_alpha: true``, each atom gets its own sharpness, predicted by
-the model through two extra per-atom outputs :math:`u_i` (one for the bottom
-and one for the top of the gap):
-
-.. math::
-    \alpha_i = A \, e^{u_i}, \qquad
-    E = \sum_i \frac{e^{\alpha_i h_i}}{\sum_j e^{\alpha_j h_j}} h_i
-
-where :math:`A` is ``alpha_bottom`` or ``alpha_top``, acting as a global scale
-whose sign selects max- vs min-pooling. The weights are not invariant to a
-constant shift of all :math:`h_i`. :math:`u_i = 0` reduces exactly to the
-fixed-sharpness pooling.
 
 """
 
@@ -63,12 +47,6 @@ class HookInputs(TypedDict):
     """Name of the target for the bottom of the gap."""
     top: NotRequired[str]
     """Name of the target for the top of the gap."""
-    alpha_bottom: NotRequired[str]
-    """Name of the per-atom log-sharpness ``u_i`` for the bottom of the gap. Only
-    used if ``learnable_alpha`` is ``True``."""
-    alpha_top: NotRequired[str]
-    """Name of the per-atom log-sharpness ``u_i`` for the top of the gap. Only
-    used if ``learnable_alpha`` is ``True``."""
 
 
 class Hypers(TypedDict):
@@ -76,20 +54,21 @@ class Hypers(TypedDict):
     Hyperparameters for the intensive gap hook.
     """
 
-    alpha_bottom: float = 10.0
-    """Sharpness of the pooling of the bottom of the gap. ``alpha_bottom > 0``
-    gives a soft max; a larger magnitude gives a sharper pool (closer to a hard
-    max)."""
+    sharpness_bottom: float = 10.0
+    """Sharpness of the pooling of the bottom of the gap.
 
-    alpha_top: float = -10.0
-    """Sharpness of the pooling of the top of the gap. ``alpha_top < 0`` gives a
-    soft min; a larger magnitude gives a sharper pool (closer to a hard min)."""
+    A positive value gives a soft max, while a negative value gives a soft min.
 
-    learnable_alpha: bool = False
-    """If ``True``, the sharpness becomes per-atom and learnable:
-    ``alpha_i = alpha * exp(u_i)``, where ``u_i`` is predicted by the model and
-    ``alpha_bottom`` / ``alpha_top`` act as global scales whose sign selects
-    max- vs min-pooling."""
+    A larger magnitude gives a sharper pool (closer to a hard max/min).
+    """
+
+    sharpness_top: float = -10.0
+    """Sharpness of the pooling of the top of the gap.
+
+    A positive value gives a soft max, while a negative value gives a soft min.
+
+    A larger magnitude gives a sharper pool (closer to a hard max/min).
+    """
 
     inputs: HookInputs | list[HookInputs] | None = None
     """For each output, the names of the inputs to be pooled.
