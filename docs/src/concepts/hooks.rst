@@ -101,3 +101,14 @@ which is equivalent to
 This improves the readability of the yaml files for typical use cases where the user
 wants to use the hook to fit a target in their dataset, simply using the default
 behavior of the hook.
+
+Contribute a hook
+-----------------
+
+Hooks represent a much lower barrier entry than full architectures and the maintainance
+effort required is lower. They are a great way to make published contributions accessible
+to the whole ``metatrain`` community across all architectures.
+
+Therefore, if you have a functionality that you think would be useful to the community,
+don't hesitate to contribute a hook!  To get an idea of what is required, you can
+check the simplest of all hooks: :ref:`the identity hook <hook-identity>`.

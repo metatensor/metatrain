@@ -31,11 +31,11 @@ def get_hypers_list(hypers_cls: Type[HypersType]) -> list[str]:
             parent_hypers = get_hypers_list(base)
             hypers_list.extend(parent_hypers)
 
-    this_class_vars = vars(hypers_cls)
+    this_class_vars = {**vars(hypers_cls), **getattr(hypers_cls, "__annotations__", {})}
     # Now get hypers from this class
     for key in this_class_vars.keys():
         # Skip private attributes
-        if not key.startswith("_"):
+        if not key.startswith("_") and key not in hypers_list:
             hypers_list.append(key)
 
     return hypers_list

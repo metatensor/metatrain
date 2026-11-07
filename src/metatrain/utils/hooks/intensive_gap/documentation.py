@@ -35,18 +35,43 @@ vs min-pooling and its magnitude sets the sharpness: the pool recovers a hard
 max/min as :math:`|\alpha| \to \infty`. The weights sum to one in each system,
 so the pooled value is strictly intensive.
 
+{{SECTION_INSTALLATION}}
+
+{{SECTION_HOOK_HYPERS}}
+
+Additional types to understand hypers
+-------------------------------------
+
+.. autoclass:: {{hook_path}}.documentation.HookInputs
+    :members:
+    :undoc-members:
+
 """
 
 from typing_extensions import NotRequired, TypedDict
 
 
 class HookInputs(TypedDict):
-    """Inputs for the minmax hook."""
+    """Inputs to be pooled to compute the intensive gap."""
 
     bottom: NotRequired[str]
-    """Name of the target for the bottom of the gap."""
+    """Name of the requested input for the bottom of the gap.
+
+    If not provided, it is determined automatically from
+    the output name as
+    ``mtt::aux::intensive_gap::{output_name.replace('mtt::', '')}::bottom``.
+
+    This input is a per-atom scalar quantity.
+    """
     top: NotRequired[str]
-    """Name of the target for the top of the gap."""
+    """Name of the requested input for the top of the gap.
+
+    If not provided, it is determined automatically from
+    the output name as
+    ``mtt::aux::intensive_gap::{output_name.replace('mtt::', '')}::top``.
+
+    This input is a per-atom scalar quantity.
+    """
 
 
 class Hypers(TypedDict):
@@ -81,8 +106,6 @@ class Hypers(TypedDict):
     outputs: str | list[str]
     """Name or list of names for the outputs of the hook.
 
-    If provided, the amount of outputs must match the amount of input
-    specifications. If ``None``, the outputs will be set as
-    ``mtt::aux::intensive_gap::{output_name.replace('mtt::', '')}``
-    for each output name.
+    The amount of outputs must match the amount of input
+    specifications.
     """

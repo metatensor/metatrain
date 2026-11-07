@@ -105,6 +105,11 @@ class HookDocVariables(TypedDict):
     This is a path relative to the ``docs/src/hooks/generated``
     directory.
     """
+    hook_path: str
+    """The full python import path to the hook.
+
+    E.g.: ``"metatrain.utils.hooks.<hook_name>"``.
+    """
     hook_hypers_path: str
     """The full python import path to the hook's hypers class of this
     hook.
@@ -173,6 +178,7 @@ def generate_rst(
     template_variables = dict(
         hook=hook_name,
         default_hypers_path=".." / yaml_path.relative_to(HOOKS_DIR),
+        hook_path=hook_path,
         hook_hypers_path=f"{hook_path}.documentation.Hypers",
         hook_hypers=get_hypers_list(hypers_class),
     )
