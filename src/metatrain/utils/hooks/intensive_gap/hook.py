@@ -74,28 +74,8 @@ class IntensiveGap(HookInterface[Hypers]):
     def __init__(self, hypers: Hypers, dataset_info: DatasetInfo):
         super().__init__(hypers, dataset_info)
 
-        if "pooling" in hypers:
-            raise ValueError(
-                "The 'pooling' section of the IntensiveGap hook was removed: the "
-                "pooling is always a softmax, and 'alpha_bottom', 'alpha_top' and "
-                "'learnable_alpha' are now given directly in the hook's hypers"
-            )
-
-        alpha_bottom = self.hypers["alpha_bottom"]
-        alpha_top = self.hypers["alpha_top"]
-        learnable_alpha = self.hypers["learnable_alpha"]
-
-        if learnable_alpha:
-            for alpha_name, alpha in [
-                ("alpha_bottom", alpha_bottom),
-                ("alpha_top", alpha_top),
-            ]:
-                if alpha == 0.0:
-                    raise ValueError(
-                        f"IntensiveGap hook requires a non-zero '{alpha_name}' when "
-                        "`learnable_alpha` is enabled, since its sign selects max- "
-                        "vs min-pooling"
-                    )
+        sharpness_bottom = self.hypers["sharpness_bottom"]
+        sharpness_top = self.hypers["sharpness_top"]
 
         # Get the information about the output targets from the dataset info
         out_names = hypers["outputs"]
@@ -123,14 +103,6 @@ class IntensiveGap(HookInterface[Hypers]):
                 ),
                 "top": in_names.get(
                     "top", f"mtt::aux::gap_top::{out_name.replace('mtt::', '')}"
-                ),
-                "alpha_bottom": in_names.get(
-                    "alpha_bottom",
-                    f"mtt::aux::gap_bottom_logalpha::{out_name.replace('mtt::', '')}",
-                ),
-                "alpha_top": in_names.get(
-                    "alpha_top",
-                    f"mtt::aux::gap_top_logalpha::{out_name.replace('mtt::', '')}",
                 ),
             }
             for in_names, out_name in zip(input_names, out_names, strict=True)
@@ -183,22 +155,10 @@ class IntensiveGap(HookInterface[Hypers]):
                     unit=out_target.unit,
                 )
 
-            if learnable_alpha:
-                # The per-atom log-sharpness u_i is dimensionless.
-                for in_name in [in_names["alpha_bottom"], in_names["alpha_top"]]:
-                    self._input_target_infos[in_name] = TargetInfo(per_atom_layout)
-
-            layout.set_info("alpha_bottom", str(alpha_bottom))
-            layout.set_info("alpha_top", str(alpha_top))
+            layout.set_info("sharpness_bottom", str(sharpness_bottom))
+            layout.set_info("sharpness_top", str(sharpness_top))
             layout.set_info("bottom_name", in_names["bottom"])
             layout.set_info("top_name", in_names["top"])
-            layout.set_info("learnable_alpha", "true" if learnable_alpha else "false")
-            layout.set_info(
-                "alpha_bottom_name", in_names["alpha_bottom"] if learnable_alpha else ""
-            )
-            layout.set_info(
-                "alpha_top_name", in_names["alpha_top"] if learnable_alpha else ""
-            )
 
             self._block_shapes[out_name] = [
                 (-1, *block.values.shape[1:]) for block in out_target.layout.blocks()
@@ -242,12 +202,6 @@ class IntensiveGap(HookInterface[Hypers]):
                     sample_kind="atom",
                 )
 
-                if info["learnable_alpha"] == "true":
-                    req_inputs[info["alpha_bottom_name"]] = ModelOutput(
-                        sample_kind="atom"
-                    )
-                    req_inputs[info["alpha_top_name"]] = ModelOutput(sample_kind="atom")
-
         return req_inputs
 
     def supported_outputs(self) -> dict[str, TargetInfo]:
@@ -290,11 +244,10 @@ class IntensiveGap(HookInterface[Hypers]):
 
             # Get the parameters for this target
             info = layout.info()
-            alpha_bottom = float(info["alpha_bottom"])
-            alpha_top = float(info["alpha_top"])
+            sharpness_bottom = float(info["sharpness_bottom"])
+            sharpness_top = float(info["sharpness_top"])
             input_bottom = info["bottom_name"]
             input_top = info["top_name"]
-            learnable_alpha = info["learnable_alpha"] == "true"
             block_shapes = self._block_shapes[out_name]
 
             # Build the output TensorMap by pooling over the per-atom values
@@ -304,16 +257,8 @@ class IntensiveGap(HookInterface[Hypers]):
                 values_bottom = inputs[input_bottom].block(i).values.ravel()
                 values_top = inputs[input_top].block(i).values.ravel()
 
-                if learnable_alpha:
-                    # Per-atom sharpness alpha_i = alpha * exp(u_i), with the sign
-                    # of the global alpha selecting max- vs min-pooling.
-                    u_bottom = inputs[info["alpha_bottom_name"]].block(i).values.ravel()
-                    u_top = inputs[info["alpha_top_name"]].block(i).values.ravel()
-                    alphas_bottom = alpha_bottom * torch.exp(u_bottom)
-                    alphas_top = alpha_top * torch.exp(u_top)
-                else:
-                    alphas_bottom = torch.full_like(values_bottom, alpha_bottom)
-                    alphas_top = torch.full_like(values_top, alpha_top)
+                alphas_bottom = torch.full_like(values_bottom, sharpness_bottom)
+                alphas_top = torch.full_like(values_top, sharpness_top)
 
                 out_bottom = _scatter_softmax_pool(
                     values_bottom, alphas_bottom, system_indices, num_systems

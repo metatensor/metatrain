@@ -25,7 +25,7 @@ will automatically benefit from the hooks.
 
 Tipical examples of hooks are:
 
-- Readout layers that implement different pooling strategies (e.g. 
+- Readout layers that implement different pooling strategies (e.g.
   :ref:`the intensive gap hook <hook-intensive_gap>` implements a pooling strategy that is
   invariant to the number of atoms in the system).
 - Modules that produce outputs that the architecture does not natively support
@@ -43,7 +43,7 @@ How they work
 -------------
 
 Hooks can only communicate with the architecture and the other hooks by requesting
-outputs to each other. 
+outputs to each other.
 
 **On initialization**, every hook declares the outputs that it supports and their
 layout, as well as the inputs that it will need.
@@ -77,7 +77,7 @@ For example, the following configuration
 
 will apply ``hook_name_1`` first, then ``hook_name_2``. The hyperparameters that every
 hook accepts are specific to each hook, and can be found in their documentation page.
-If a hook contains the `"outputs"` hyperparameter, there is a shorthand for specifying
+If a hook contains the ``"outputs"`` hyperparameter, there is a shorthand for specifying
 the outputs while using default values for the rest of the hyperparameters. The shorthand
 is:
 
@@ -100,4 +100,4 @@ which is equivalent to
 
 This improves the readability of the yaml files for typical use cases where the user
 wants to use the hook to fit a target in their dataset, simply using the default
-behavior of the hook. 
+behavior of the hook.
