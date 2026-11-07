@@ -267,6 +267,8 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         """
         Returns the dataset_info that the internal part of the model
         (core + hooks) sees.
+
+        :return: The dataset_info for the internal part of the model.
         """
         targets = self.core.dataset_info.targets.copy()
         for hook in self.forward_hooks:
@@ -647,7 +649,8 @@ def _filter_outputs_for_hook(
     supported and having this written everywhere is not nice.
 
     :param outputs: Dictionary of requested outputs.
-    :param hook: The hook to filter the outputs for.
+    :param supported_outputs: List of output names that are supported
+      by the hook.
     :return: A dictionary of outputs that are supported by the hook.
     """
     # Filter the outputs to only include those that are

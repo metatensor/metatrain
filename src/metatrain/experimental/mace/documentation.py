@@ -122,6 +122,7 @@ from typing_extensions import NotRequired, TypedDict
 from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.pet.modules.finetuning import FullFinetuneHypers
 from metatrain.scaler.documentation import FixedScalerWeights
+from metatrain.utils.hooks import HooksHypers
 from metatrain.utils.loss import LossSpecification
 
 
@@ -448,7 +449,7 @@ class TrainerHypers(TypedDict):
 
     See :ref:`fine-tuning` for more details.
     """
-    forward_hooks: dict = {}
+    forward_hooks: HooksHypers = {}
     """Hooks that the model needs to apply at the end of forward to
     produce the final outputs.
     """

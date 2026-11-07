@@ -53,11 +53,7 @@ fixed-sharpness pooling.
 
 """
 
-from typing import TypedDict
-
-from typing_extensions import NotRequired
-
-from metatrain.utils.hypers import init_with_defaults
+from typing_extensions import NotRequired, TypedDict
 
 
 class HookInputs(TypedDict):
@@ -95,6 +91,19 @@ class Hypers(TypedDict):
     ``alpha_bottom`` / ``alpha_top`` act as global scales whose sign selects
     max- vs min-pooling."""
 
-    inputs: HookInputs | list[HookInputs] = init_with_defaults(HookInputs)
+    inputs: HookInputs | list[HookInputs] | None = None
+    """For each output, the names of the inputs to be pooled.
+
+    The amount of input specifications must match the amount of outputs.
+    Any missing specification will be determined automatically from the
+    output name.
+    """
 
     outputs: str | list[str]
+    """Name or list of names for the outputs of the hook.
+
+    If provided, the amount of outputs must match the amount of input
+    specifications. If ``None``, the outputs will be set as
+    ``mtt::aux::intensive_gap::{output_name.replace('mtt::', '')}``
+    for each output name.
+    """

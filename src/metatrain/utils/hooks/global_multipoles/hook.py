@@ -30,7 +30,7 @@ class GlobalMultipole(HookInterface[Hypers]):
 
         # Origin the positions are referred to. Stored as a plain string so
         # that the forward stays TorchScript-friendly.
-        origin = hypers.get("origin", "center_of_charge")
+        origin = hypers["origin"]
         if origin not in ("center_of_charge", "absolute"):
             raise ValueError(
                 f"Invalid 'origin' for the global multipoles hook: {origin!r}. "
@@ -47,7 +47,7 @@ class GlobalMultipole(HookInterface[Hypers]):
         self.out_targets = {k: dataset_info.targets[k] for k in out_names}
 
         # Get the information for the input targets.
-        input_names = hypers.get("inputs")
+        input_names = hypers["inputs"]
         if isinstance(input_names, str):
             input_names = [input_names]
         elif input_names is None:

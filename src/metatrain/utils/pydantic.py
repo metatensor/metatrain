@@ -14,6 +14,7 @@ from typing_extensions import NotRequired
 
 from ..share import base_hypers
 from ..share.base_hypers import BaseHypers, EvalHypers, sanitize_architecture_hypers
+from .hooks import augment_hooks_annotations
 from .hypers import init_with_defaults
 
 
@@ -280,6 +281,12 @@ def validate_architecture_options(
         )
         return options
 
+    # Make sure we get validation specifically for the hooks that
+    # are being used.
+    trainer_hypers = augment_hooks_annotations(
+        trainer_hypers, options.get("training", {})
+    )
+
     ArchitectureOptions = create_model(
         "ArchitectureOptions",
         name=str,
@@ -321,6 +328,8 @@ def validate_architecture_options(
     )
 
     if added_atomic_types:
+        if validated["atomic_types"] == []:
+            del validated["atomic_types"]
         del options["atomic_types"]
 
     return validated

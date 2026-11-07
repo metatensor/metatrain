@@ -59,7 +59,7 @@ def check_architecture_name(name: str) -> None:
 def check_architecture_options(
     name: str,
     options: Dict,
-) -> None:
+) -> dict:
     """Verifies that an options instance only contains valid keys
 
     If the architecture developer does not provide a validation scheme the ``options``
@@ -67,9 +67,11 @@ def check_architecture_options(
 
     :param name: name of the architecture
     :param options: architecture options to check
+
+    :return: validated architecture options.
     """
     hypers_classes = get_hypers_classes(name)
-    validate_architecture_options(
+    return validate_architecture_options(
         options,
         hypers_classes["model"],
         hypers_classes["trainer"],
