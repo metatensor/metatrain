@@ -32,23 +32,20 @@ Origin of the positions
 
 The expression above is only independent of the choice of origin when all multipoles of
 order lower than :math:`\ell` vanish. For the dipole that means :math:`\sum_i q_i = 0`,
-which is not guaranteed when the charges are learned: translating a system by
+which might not always be guaranteed if the charges are learned: translating a system by
 :math:`\mathbf{a}` changes the prediction by :math:`\left(\sum_i q_i\right)\mathbf{a}`.
 
-To make the prediction invariant under a rigid translation, the positions of each system
-are by default referred to its centre of nuclear charge,
+To ensure that the prediction is invariant under a rigid translation, the positions
+of each system are by default referred to its centre of nuclear charge,
 
 .. math::
     \mathbf{R} = \frac{\sum_i Z_i \mathbf{r}_i}{\sum_i Z_i}
 
 before the multipole is assembled. Because the origin is defined by the system itself it
 translates with it, so the dependence cancels exactly, whatever the value of
-:math:`\sum_i q_i`. The centre of nuclear charge is a convention used by some electronic
-structure codes, but not all.
+:math:`\sum_i q_i`. The centre of nuclear charge is a common convention.
 
-This is controlled by the ``origin`` hyperparameter: set it to ``"absolute"`` to keep
-the positions as they are stored, and recover the origin-dependent behaviour described
-above.
+This is controlled by the ``origin`` hyperparameter.
 
 .. note::
 

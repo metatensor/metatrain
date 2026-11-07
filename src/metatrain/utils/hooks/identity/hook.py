@@ -9,7 +9,7 @@ from ..abc import HookInterface
 from .documentation import Hypers
 
 
-class Identity(HookInterface[Hypers]):
+class IdentityHook(HookInterface[Hypers]):
     """
     Passes the inputs to the outputs without any modification.
 

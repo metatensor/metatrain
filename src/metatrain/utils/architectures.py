@@ -241,10 +241,11 @@ def preload_documentation_module(name: str) -> ModuleType:
 
 def get_hypers_classes(name: str) -> Dict[str, type]:
     """
-    Returns the default architecture hyperparameters.
+    Returns the classes that define the hyperparameters for a given architecture.
 
     :param name: Name of the architecture
-    :return: Default hyperparameters of the architectures
+    :return: The hyperparameter classes for the architecture,
+      with keys "model" and "trainer".
     """
     check_architecture_name(name)
 

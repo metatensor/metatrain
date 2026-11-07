@@ -8,6 +8,7 @@ from metatrain.utils.testing import (
     AutogradTests,
     CheckpointTests,
     ExportedTests,
+    HooksSupportTests,
     InputTests,
     OutputTests,
     TorchscriptTests,
@@ -59,6 +60,9 @@ class TestOutput(OutputTests, SoapBPNNTests):
     @pytest.fixture
     def single_atom_energy(self):
         return 0.0
+
+
+class TestHooksSupport(HooksSupportTests, SoapBPNNTests): ...
 
 
 class TestAutograd(AutogradTests, SoapBPNNTests):

@@ -18,6 +18,7 @@ from metatrain.utils.testing import (
     AutogradTests,
     CheckpointTests,
     ExportedTests,
+    HooksSupportTests,
     InputTests,
     OutputTests,
     TorchscriptTests,
@@ -194,6 +195,9 @@ class TestOutput(OutputTests, MACETests):
         return hidden_irreps.count((0, 1)) * (num_interactions - 1) + MLP_irreps.count(
             (0, 1)
         )
+
+
+class TestHooksSupport(HooksSupportTests, MACETests): ...
 
 
 class TestAutograd(AutogradTests, MACETests):

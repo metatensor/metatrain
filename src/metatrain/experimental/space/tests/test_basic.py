@@ -11,6 +11,7 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.testing import (
     ArchitectureTests,
     CheckpointTests,
+    HooksSupportTests,
     InputTests,
     OutputTests,
     TorchscriptTests,
@@ -60,6 +61,9 @@ class TestOutput(OutputTests, SPACETests):
         defaults = get_default_hypers(self.architecture)["model"]
         defaults["num_element_channels"] = 16
         return defaults
+
+
+class TestHooksSupport(HooksSupportTests, SPACETests): ...
 
 
 class TestTorchscript(TorchscriptTests, SPACETests):
