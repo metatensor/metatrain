@@ -347,6 +347,81 @@ def test_last_layer_depending_on_atomic_type():
         _check_ensemble_variance(outputs[ENSEMBLE].block(key), uncertainty, n_ens)
 
 
+def test_ensemble_of_atomic_basis_with_last_layer_depending_on_atomic_type():
+    """Check the ensemble layers of an atomic-basis target, with a last layer
+    depending on the atomic type, only give the properties of their atomic type, and
+    the variance of the ensemble against the uncertainty."""
+    torch.manual_seed(0)
+    n_ens = 20000
+    dataset_info = atomic_basis_dataset_info()
+    model = LLPRUncertaintyModel(
+        {"num_ensemble_members": {TARGET: n_ens}}, dataset_info
+    )
+    model.set_wrapped_model(dummy_backbone(dataset_info, shared=True, per_type=True))
+    model = model.to(torch.float64)
+    systems = make_systems(model.model, 8)
+    fit_llpr(model, systems)
+    model.generate_ensemble()
+
+    # hydrogen has one lambda=0 property, carbon two and one lambda=1 property
+    layers = model.targets[TARGET].ensemble_layers
+    assert [layer.out_features for layer in layers] == [n_ens, 0, 2 * n_ens, 3 * n_ens]
+
+    names = (UNCERTAINTY, ENSEMBLE)
+    outputs = model(
+        systems[:1], {name: ModelOutput(sample_kind="atom") for name in names}
+    )
+    for key, block in outputs[UNCERTAINTY].items():
+        _check_ensemble_variance(
+            outputs[ENSEMBLE].block(key), block.values.detach(), n_ens
+        )
+
+
+@pytest.mark.usefixtures("dummy_architecture")
+def test_ensemble_only(tmp_path: Path) -> None:
+    """Check the model without covariances gives the same predictions and ensembles,
+    as do its export and its checkpoint, which have no covariances."""
+    dataset_info = atomic_basis_dataset_info()
+    model = wrap_backbone(
+        dummy_backbone(dataset_info, shared=True, per_type=True),
+        dataset_info,
+        ensembles=True,
+    )
+    systems = make_systems(model.model, 8)
+    fit_llpr(model, systems)
+    model.generate_ensemble()
+    outputs = {name: ModelOutput(sample_kind="atom") for name in (TARGET, ENSEMBLE)}
+    expected = model(systems[:1], outputs)
+
+    model.remove_covariances()
+    assert UNCERTAINTY not in model.capabilities.outputs
+    assert UNCERTAINTY not in model.supported_outputs()
+    state_dict = model.get_checkpoint()["model_state_dict"]
+    assert not any(key.endswith((".covariance", ".cholesky")) for key in state_dict)
+
+    path = str(tmp_path / "model.pt")
+    model.export().save(path)
+    results = [
+        model(systems[:1], outputs),
+        load_atomistic_model(path)(
+            systems[:1],
+            ModelEvaluationOptions(length_unit="angstrom", outputs=outputs),
+            check_consistency=True,
+        ),
+    ] + [
+        LLPRUncertaintyModel.load_checkpoint(model.get_checkpoint(), context)(
+            systems[:1], outputs
+        )
+        for context in ("restart", "export")
+    ]
+    for actual in results:
+        for name in outputs:
+            for block, expected_block in zip(
+                actual[name].blocks(), expected[name].blocks(), strict=True
+            ):
+                torch.testing.assert_close(block.values, expected_block.values)
+
+
 def test_last_layer_depending_on_atomic_type_needs_per_atom_target():
     """Check a per-system target with a last layer depending on the type is refused."""
     dataset_info = spherical_dataset_info("system")
