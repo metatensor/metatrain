@@ -431,7 +431,8 @@ class FlashMDSymplectic(ModelInterface):
             ),
             self.cutoff_width,
         )
-        cutoff_factors[~padding_mask] = 0.0
+        # out of place: the cutoff function output is needed by its backward
+        cutoff_factors = cutoff_factors.masked_fill(~padding_mask, 0.0)
 
         # **Stage 1: Feature Computation via GNN Layers**
         with record_function("FlashMD::_calculate_features"):
