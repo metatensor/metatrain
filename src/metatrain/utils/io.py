@@ -329,7 +329,6 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
     architecture = import_architecture(architecture_name)
 
     model_cls = architecture.__model__
-    print(f"Upgrading checkpoint for architecture '{architecture_name}'")
     if architecture_name in _mtt_model_versions:
         target_version = _mtt_model_versions[architecture_name][0] - 1
         if "model_ckpt_version" not in checkpoint:
