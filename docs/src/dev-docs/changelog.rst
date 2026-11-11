@@ -27,13 +27,8 @@ Unreleased
 Fixed
 #####
 
-- PET evaluates the bump cutoff function as ``sigmoid(2 * cot(pi * x))`` instead of
-  the mathematically identical ``0.5 * (1 + tanh(cot(pi * x)))``. In float32 the
-  previous form lost all relative precision and underflowed to zero for edges deep in
-  the cutoff tail. Because PET uses the logarithm of the cutoff function as an
-  attention bias, float32 energies became a staircase close to the cutoff. Float64
-  results are unchanged up to rounding. Float32 energies of existing models can change
-  at the meV level for structures with edges deep in the cutoff tail.
+- PET's bump cutoff is evaluated as a sigmoid, removing a float32 energy staircase
+  near the cutoff (#1340).
 - Memmap datasets support variant targets such as ``energy/gs`` (#1334).
 - Corrected type annotations to match existing runtime behavior (#1325).
   Lint and formatting environments now install the project dependencies.
