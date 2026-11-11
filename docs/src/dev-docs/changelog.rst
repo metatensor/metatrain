@@ -81,6 +81,11 @@ Fixed
 Added
 #####
 
+- PET no longer lets the cutoff function damp the attention of a neighbor token to
+  itself. This removes a non-harmonic response to small displacements when a large
+  shell of neighbors sits in the tail of the cutoff function (#1330). The previous
+  behavior is available with the new ``attention_cutoff_on_self: true``
+  hyperparameter, and is kept for existing checkpoints.
 - SPACE models can now be fine-tuned on targets they were not trained on, optionally
   initializing the new heads from existing ones with ``inherit_heads``.
 - Added ``experimental.lorem`` architecture (*Learning Long-Range

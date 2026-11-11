@@ -419,6 +419,10 @@ class CartesianTransformer(torch.nn.Module):
     :param transformer_type: The type of transformer, either "PostLN" or "PreLN".
     :param n_atomic_species: The number of atomic species.
     :param is_first: Whether this is the first transformer in the model.
+    :param attention_cutoff_on_self: Whether the cutoff factor of a neighbor also
+        damps the attention of its own token to itself. If ``False``, every token
+        attends to itself at full weight, and the cutoff factor only controls how
+        much the *other* tokens attend to it.
     """
 
     def __init__(
@@ -436,9 +440,11 @@ class CartesianTransformer(torch.nn.Module):
         transformer_type: str,
         n_atomic_species: int,
         is_first: bool,
+        attention_cutoff_on_self: bool = True,
     ) -> None:
         super(CartesianTransformer, self).__init__()
         self.is_first = is_first
+        self.attention_cutoff_on_self = attention_cutoff_on_self
         self.cutoff = cutoff
         self.cutoff_width = cutoff_width
         self.trans = Transformer(
@@ -548,6 +554,23 @@ class CartesianTransformer(torch.nn.Module):
 
         cutoff_factors = cutoff_factors[:, None, :]
         cutoff_factors = cutoff_factors.repeat(1, cutoff_factors.shape[2], 1)
+
+        if not self.attention_cutoff_on_self:
+            # The cutoff factor of a neighbor controls how much the other tokens
+            # attend to it, but its own token attends to itself at full weight.
+            # Otherwise the features of a neighbor in the cutoff tail depend on its
+            # own cutoff factor f, and since everything this token contributes to is
+            # multiplied by f again, the energy picks up terms in f^2, f^3, ... that
+            # vary much faster with distance than f itself. Padded tokens keep a
+            # zero factor, so that they stay excluded from the attention.
+            num_tokens = cutoff_factors.shape[1]
+            is_self = torch.eye(
+                num_tokens, dtype=torch.bool, device=cutoff_factors.device
+            )
+            is_self = is_self[None, :, :] & total_padding_mask[:, :, None]
+            cutoff_factors = torch.where(
+                is_self, torch.ones_like(cutoff_factors), cutoff_factors
+            )
 
         initial_num_tokens = edge_vectors.shape[1]
         max_num_tokens = input_messages.shape[1]
