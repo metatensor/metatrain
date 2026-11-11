@@ -425,6 +425,20 @@ def model_update_v17_v18(checkpoint: dict) -> None:
         state_dict["_extra_state"] = {}
 
 
+def model_update_v18_v19(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 18 to version 19.
+
+    Adds the ``attention_cutoff_on_self`` hyperparameter. Models trained before it
+    existed applied the cutoff bias also to the attention of a token to itself.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    model_hypers = checkpoint["model_data"]["model_hypers"]
+    if "attention_cutoff_on_self" not in model_hypers:
+        model_hypers["attention_cutoff_on_self"] = True
+
+
 ###########################
 # TRAINER #################
 ###########################
