@@ -98,6 +98,10 @@ Added
 Changed
 #######
 
+- Targets with missing (NaN) values, such as stresses available only for some
+  structures, are averaged over all the structures of the batch in the loss, so that
+  each structure has the same weight. Previously, they were averaged only over the
+  structures with a value, strongly up-weighting rare values (#1345).
 - LLPR calibrates one factor for each property of each block of the targets
   (#1286).
 - The last-layer features of MACE and SPACE have the keys and components of their
