@@ -99,7 +99,9 @@ directory of NumPy and raw binary arrays. It uses the following files:
   are stored as ``float32``.
 
 Forces and stresses of an energy target use the same convention, with file names taken
-from their own ``key`` options. Extra data, for example ``charge.bin`` or
+from their own ``key`` options. Structures without a stress (e.g. molecules or
+structures computed without stress) must have NaN values in the stress array: they are
+then ignored during training. Extra data, for example ``charge.bin`` or
 ``spin_multiplicity.bin``, must contain per-structure scalar values with shape ``(ns,
 1)``.
 
