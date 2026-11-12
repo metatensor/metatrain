@@ -184,43 +184,6 @@ def test_mae_accumulator_nan_stress(tensor_map_with_nan_1, tensor_map_with_nan_2
 
 
 @pytest.mark.parametrize("accumulator_class", [RMSEAccumulator, MAEAccumulator])
-def test_accumulator_all_nan_gradient(accumulator_class):
-    """A gradient that is NaN everywhere (e.g. a validation set without any stress)
-    is not reported, instead of raising a ZeroDivisionError."""
-
-    def energy(values, strain):
-        block = TensorBlock(
-            values=torch.tensor(values).reshape(-1, 1),
-            samples=Labels.range("samples", len(values)),
-            components=[],
-            properties=Labels("energy", torch.tensor([[0]])),
-        )
-        block.add_gradient(
-            "strain",
-            TensorBlock(
-                values=torch.tensor(strain).reshape(-1, 1),
-                samples=Labels.range("sample", len(strain)),
-                components=[],
-                properties=Labels("energy", torch.tensor([[0]])),
-            ),
-        )
-        return TensorMap(keys=Labels.single(), blocks=[block])
-
-    prediction = energy([1.0, 2.0], [1.0, 2.0])
-    target = energy([2.0, 2.0], [np.nan, np.nan])
-
-    accumulator = accumulator_class()
-    for _ in range(3):
-        accumulator.update({"energy": prediction}, {"energy": target})
-    metrics = accumulator.finalize(not_per_atom=[])
-
-    name = "RMSE" if accumulator_class is RMSEAccumulator else "MAE"
-    expected = 0.5**0.5 if accumulator_class is RMSEAccumulator else 0.5
-    assert list(metrics.keys()) == [f"energy {name} (per atom)"]
-    assert abs(metrics[f"energy {name} (per atom)"] - expected) < 1e-6
-
-
-@pytest.mark.parametrize("accumulator_class", [RMSEAccumulator, MAEAccumulator])
 def test_per_block(accumulator_class, tensor_map_with_grad_1, tensor_map_with_grad_2):
     """Tests that separate errors per block works."""
 

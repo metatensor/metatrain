@@ -408,45 +408,6 @@ def get_all_targets(datasets: Union[Dataset, List[Dataset]]) -> List[str]:
     return sorted(set(target_names))
 
 
-def get_targets_with_values(
-    datasets: Union[Dataset, List[Dataset]], target_names: List[str]
-) -> Set[str]:
-    """Find which targets have at least one valid (non-NaN) value in the dataset(s).
-
-    Gradients are named ``<target>_<gradient>_gradients``, as in the metrics (e.g.
-    ``energy_strain_gradients`` for the stress/virial). The iteration over the
-    dataset(s) stops as soon as all the requested targets have been found.
-
-    :param datasets: the dataset(s) to look into.
-    :param target_names: the names of the targets and gradients to look for.
-    :return: the subset of ``target_names`` with at least one non-NaN value.
-    """
-    if not isinstance(datasets, list):
-        datasets = [datasets]
-
-    remaining = set(target_names)
-    found: Set[str] = set()
-    for dataset in datasets:
-        for sample in dataset:
-            for key, tensor_map in sample._asdict().items():
-                if key == "system":
-                    continue
-                for block in tensor_map.blocks():
-                    if key in remaining and not torch.all(torch.isnan(block.values)):
-                        found.add(key)
-                    for gradient_name, gradient in block.gradients():
-                        gradient_key = f"{key}_{gradient_name}_gradients"
-                        if gradient_key in remaining and not torch.all(
-                            torch.isnan(gradient.values)
-                        ):
-                            found.add(gradient_key)
-            remaining -= found
-            if len(remaining) == 0:
-                return found
-
-    return found
-
-
 class CollateFn:
     def __init__(
         self,

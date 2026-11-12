@@ -28,14 +28,12 @@ from ..utils.data import (
     get_atomic_types,
     get_dataset,
     get_stats,
-    get_targets_with_values,
     load_indices,
 )
 from ..utils.data.dataset import _save_indices, _train_test_random_split
 from ..utils.devices import pick_devices
 from ..utils.distributed.logging import is_main_process
 from ..utils.errors import ArchitectureError, OutOfMemoryError
-from ..utils.external_naming import to_external_name
 from ..utils.io import (
     check_file_extension,
     load_model,
@@ -578,10 +576,6 @@ def train_model(
         extra_data=extra_data_info_dict,
     )
 
-    if is_main_process():
-        _warn_targets_without_values("validation", val_datasets, dataset_info)
-        _warn_targets_without_values("test", test_datasets, dataset_info)
-
     ###########################
     # PRINT DATASET STATS #####
     ###########################
@@ -867,52 +861,6 @@ def _get_batch_size_from_hypers(hypers: Union[Dict, DictConfig]) -> Optional[int
         ):
             return value
     return None
-
-
-def _warn_targets_without_values(
-    set_name: Literal["validation", "test"],
-    datasets: List[Dataset],
-    dataset_info: DatasetInfo,
-) -> None:
-    """Warn about targets and gradients without any valid value in the validation or
-    test set.
-
-    This happens for example when none of the validation/test structures has a
-    stress, while some of the training structures do. Such targets are trained on,
-    but they are not part of the validation/test metrics. For the validation set,
-    this also means that they are not taken into account to select the best model.
-
-    :param set_name: The name of the set, either "validation" or "test".
-    :param datasets: The validation or test datasets.
-    :param dataset_info: The dataset information, containing the trained targets.
-    """
-    if sum(len(dataset) for dataset in datasets) == 0:
-        return  # empty set, nothing to warn about
-
-    expected = []
-    for target_name, target_info in dataset_info.targets.items():
-        expected.append(target_name)
-        expected += [
-            f"{target_name}_{gradient}_gradients" for gradient in target_info.gradients
-        ]
-
-    found = get_targets_with_values(datasets, expected)
-    missing = [name for name in expected if name not in found]
-    if len(missing) > 0:
-        missing_names = ", ".join(
-            to_external_name(name, dataset_info.targets) for name in missing
-        )
-        message = (
-            f"The {set_name} set contains no values for: {missing_names}. These are "
-            f"still used for training, but they are not part of the {set_name} "
-            "metrics"
-        )
-        if set_name == "validation":
-            message += (
-                " and will not be taken into account to select the best model or "
-                "to adapt the learning rate"
-            )
-        logging.warning(message + ".")
 
 
 def _print_stats(name: str, datasets: List[Dataset], dataset_info: DatasetInfo) -> None:

@@ -27,11 +27,6 @@ Unreleased
 Fixed
 #####
 
-- Training and evaluation no longer fail with a ``ZeroDivisionError`` when all the
-  values of a target or gradient are NaN in a dataset (e.g. a validation set where no
-  structure has a stress). The corresponding metric is not reported, and a warning
-  is printed if this happens for the validation or test set. For the validation set,
-  such targets are then not taken into account to select the best model.
 - PET's bump cutoff is evaluated as a sigmoid, removing a float32 energy staircase
   near the cutoff (#1340).
 - Memmap datasets support variant targets such as ``energy/gs`` (#1334).

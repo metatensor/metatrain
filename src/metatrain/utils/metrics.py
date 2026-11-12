@@ -246,10 +246,6 @@ class RMSEAccumulator:
 
         finalized_info = {}
         for key, value in self.information.items():
-            if value[1] == 0:
-                # all target values were NaN (e.g. no structure with stress in this
-                # dataset): there is nothing to compute the metric on
-                continue
             if any([s in key for s in not_per_atom]):
                 out_key = f"{key} RMSE"
             else:
@@ -420,10 +416,6 @@ class MAEAccumulator:
 
         finalized_info = {}
         for key, value in self.information.items():
-            if value[1] == 0:
-                # all target values were NaN (e.g. no structure with stress in this
-                # dataset): there is nothing to compute the metric on
-                continue
             if any([s in key for s in not_per_atom]):
                 out_key = f"{key} MAE"
             else:

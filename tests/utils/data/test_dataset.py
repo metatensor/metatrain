@@ -17,7 +17,6 @@ from metatrain.utils.data import (
     get_all_targets,
     get_atomic_types,
     get_stats,
-    get_targets_with_values,
     load_indices,
     read_extra_data,
     read_systems,
@@ -529,72 +528,6 @@ def test_get_all_targets():
     assert get_all_targets(dataset) == ["mtt::U0"]
     assert get_all_targets(dataset_2) == ["energy"]
     assert get_all_targets([dataset, dataset_2]) == ["energy", "mtt::U0"]
-
-
-def _energy_with_stress(i_system: int, stress: torch.Tensor) -> TensorMap:
-    block = TensorBlock(
-        values=torch.tensor([[float(i_system)]], dtype=torch.float64),
-        samples=Labels(["system"], torch.tensor([[i_system]])),
-        components=[],
-        properties=Labels("energy", torch.tensor([[0]])),
-    )
-    block.add_gradient(
-        "strain",
-        TensorBlock(
-            values=stress.reshape(1, 3, 3, 1),
-            samples=Labels(["sample"], torch.tensor([[0]])),
-            components=[
-                Labels(["xyz_1"], torch.arange(3).reshape(-1, 1)),
-                Labels(["xyz_2"], torch.arange(3).reshape(-1, 1)),
-            ],
-            properties=Labels("energy", torch.tensor([[0]])),
-        ),
-    )
-    return TensorMap(keys=Labels.single(), blocks=[block])
-
-
-def _system() -> System:
-    return System(
-        types=torch.tensor([1]),
-        positions=torch.zeros((1, 3), dtype=torch.float64),
-        cell=torch.eye(3, dtype=torch.float64),
-        pbc=torch.tensor([True, True, True]),
-    )
-
-
-def test_get_targets_with_values():
-    """Targets/gradients are only found if at least one value is not NaN."""
-
-    nan_stress = torch.full((3, 3), torch.nan, dtype=torch.float64)
-    stress = torch.ones((3, 3), dtype=torch.float64)
-
-    dataset_no_stress = Dataset.from_dict(
-        {
-            "system": [_system(), _system()],
-            "energy": [_energy_with_stress(0, nan_stress)] * 2,
-        }
-    )
-    dataset_some_stress = Dataset.from_dict(
-        {
-            "system": [_system(), _system()],
-            "energy": [
-                _energy_with_stress(0, nan_stress),
-                _energy_with_stress(1, stress),
-            ],
-        }
-    )
-
-    names = ["energy", "energy_strain_gradients", "energy_positions_gradients"]
-    assert get_targets_with_values(dataset_no_stress, names) == {"energy"}
-    assert get_targets_with_values(dataset_some_stress, names) == {
-        "energy",
-        "energy_strain_gradients",
-    }
-    assert get_targets_with_values([dataset_no_stress, dataset_some_stress], names) == {
-        "energy",
-        "energy_strain_gradients",
-    }
-    assert get_targets_with_values(dataset_no_stress, []) == set()
 
 
 def test_check_datasets():
