@@ -127,6 +127,30 @@ def test_energy_unaffected_by_hook_changes():
     )
 
 
+def test_edge_last_layer_output_is_per_edge():
+    """Check capturing a conditioned edge last layer gives per-edge outputs."""
+    dataset_info = _make_dataset_info()
+    model = PET(
+        {**MODEL_HYPERS, "readout_type": "one-hot"},
+        dataset_info,
+    )
+    system = _make_water_system(model)
+
+    key = "mtt::feature::edge_last_layers.energy.0.energy___0"
+    result = model(
+        [system],
+        {
+            "energy": ModelOutput(sample_kind="atom"),
+            key: ModelOutput(sample_kind="atom"),
+        },
+    )
+
+    # one sample per (directed) pair of the three atoms
+    block = result[key].block()
+    assert "first_atom" in block.samples.names
+    assert block.values.shape == (6, 1)
+
+
 # ---------------------------------------------------------------------------
 # node_heads output (2-D, per-atom)
 # ---------------------------------------------------------------------------

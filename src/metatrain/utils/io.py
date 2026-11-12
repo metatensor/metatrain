@@ -1,3 +1,4 @@
+import copy
 import re
 import warnings
 from importlib import import_module
@@ -338,6 +339,13 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
                 checkpoint, version=target_version
             )
     model_data = checkpoint["model_data"]
+    # the current model class needs the hypers of the current version
+    upgraded_model_data = model_cls.upgrade_checkpoint(copy.deepcopy(checkpoint))[
+        "model_data"
+    ]
+    model_hypers = upgraded_model_data.get(
+        "hypers", upgraded_model_data.get("model_hypers")
+    )
 
     # Three different ways of trying to get a MetatrainModel to get the
     # new checkpoint structure.
@@ -358,7 +366,7 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
         trainer = architecture.__trainer__(checkpoint["train_hypers"])
 
         mtt_model = trainer.setup(
-            model_hypers=model_data.get("hypers", model_data.get("model_hypers")),
+            model_hypers=model_hypers,
             dataset_info=model_data["dataset_info"],
         )
     except Exception:
@@ -369,7 +377,7 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
             trainer = architecture.__trainer__(hypers=default_hypers)
 
             mtt_model = trainer.setup(
-                model_hypers=model_data.get("hypers", model_data.get("model_hypers")),
+                model_hypers=model_hypers,
                 dataset_info=model_data["dataset_info"],
             )
         except Exception:
