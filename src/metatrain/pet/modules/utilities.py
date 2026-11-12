@@ -11,6 +11,11 @@ def cutoff_func_bump(
     in the region where the functions transitions with C^inf smoothness
     from 1 and to 0.
 
+    The function is ``0.5 * (1 + tanh(cot(pi * x)))``, evaluated as the equivalent
+    ``sigmoid(2 * cot(pi * x))``. This avoids the cancellation in ``1 + tanh`` when
+    the cutoff factor is small, which matters because PET uses its logarithm as an
+    attention bias.
+
     :param values: Distances at which to evaluate the cutoff function.
     :param cutoff: Cutoff radius for each node.
     :param width: Width of the cutoff region.
@@ -19,7 +24,7 @@ def cutoff_func_bump(
 
     scaled_values = (values - (cutoff - width)) / width
     clamped = scaled_values.clamp(1e-6, 1.0 - 1e-6)
-    return 0.5 * (1 + torch.tanh(1 / torch.tan(torch.pi * clamped)))
+    return torch.sigmoid(2 / torch.tan(torch.pi * clamped))
 
 
 def cutoff_func_cosine(
