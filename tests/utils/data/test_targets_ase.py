@@ -81,8 +81,6 @@ def test_read_energy_ase(tmpdir):
     [
         (_read_energy_ase, "energy"),
         (_read_forces_ase, "forces"),
-        (_read_virial_ase, "virial"),
-        (_read_stress_ase, "stress"),
     ],
 )
 def test_ase_key_errors(func, target_name, monkeypatch, tmp_path):
@@ -97,6 +95,48 @@ def test_ase_key_errors(func, target_name, monkeypatch, tmp_path):
 
     with pytest.raises(ValueError, match=match):
         func(filename=filename, key="foo")
+
+
+@pytest.mark.parametrize(
+    "func, target_name",
+    [
+        (_read_virial_ase, "virial"),
+        (_read_stress_ase, "stress"),
+    ],
+)
+def test_ase_key_errors_stress_virial(func, target_name, monkeypatch, tmp_path):
+    """Stress/virial only raise if the key is missing from all systems."""
+    monkeypatch.chdir(tmp_path)
+
+    filename = "systems.xyz"
+
+    systems = ase_systems()
+    ase.io.write(filename, systems)
+
+    match = f"{target_name} key 'foo' was not found in any system of {filename!r}"
+
+    with pytest.raises(ValueError, match=match):
+        func(filename=filename, key="foo")
+
+
+@pytest.mark.parametrize("func", [_read_virial_ase, _read_stress_ase])
+def test_ase_missing_stress_virial_is_nan(func, monkeypatch, tmp_path, caplog):
+    """Systems without stress/virial get NaN values, the others are read as usual."""
+    monkeypatch.chdir(tmp_path)
+
+    filename = "systems.xyz"
+
+    systems = ase_systems()
+    del systems[1].info["stress"]
+    ase.io.write(filename, systems)
+
+    results = func(filename=filename, key="stress")
+
+    assert len(results) == 2
+    assert not torch.any(torch.isnan(results[0].values))
+    assert results[1].values.shape == (1, 3, 3, 1)
+    assert torch.all(torch.isnan(results[1].values))
+    assert "was not found in 1 out of 2 systems" in caplog.text
 
 
 def test_read_forces_ase(monkeypatch, tmp_path):
