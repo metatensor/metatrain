@@ -27,10 +27,9 @@ Unreleased
 Fixed
 #####
 
-- Stress/virial training was silently disabled for the whole dataset (with only a
-  "No stress found" warning) when some systems of an ASE-readable file had no
-  stress/virial. These systems now get a NaN stress/virial, which is ignored during
-  training (#1344).
+- Datasets from XYZ files containing at least one missing stress/virial
+  would silently disable stress/virial training. Now partially missing data
+  is  accepted and the trainings run on the available data (#1344).
 - PET's bump cutoff is evaluated as a sigmoid, removing a float32 energy staircase
   near the cutoff (#1340).
 - Memmap datasets support variant targets such as ``energy/gs`` (#1334).
