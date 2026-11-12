@@ -1651,6 +1651,38 @@ def test_train_missing_stress(monkeypatch, tmp_path, options_pet, caplog):
     assert "No stress found" not in caplog.text
 
 
+def test_train_validation_and_test_without_stress(
+    monkeypatch, tmp_path, options_pet, caplog
+):
+    """Test that training works when the training set has stresses but the
+    validation and test sets (split from the same file) have none. The stress is not
+    reported for these sets (instead of a ZeroDivisionError in the metrics), and
+    warnings tell the user that the stress is not part of the validation and test."""
+
+    monkeypatch.chdir(tmp_path)
+    _setup_missing_stress_training(options_pet)
+    # only the even structures have a stress
+    options_pet["training_set"]["indices"] = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
+    options_pet["validation_set"] = OmegaConf.create({"indices": [1, 3, 5, 7, 9]})
+    options_pet["test_set"] = OmegaConf.create({"indices": [11, 13, 15, 17, 19]})
+
+    caplog.set_level(logging.INFO)
+    _train_model_ignore_dataset_warnings(options_pet)
+
+    assert "The validation set contains no values for: virial." in caplog.text
+    assert "select the best model" in caplog.text
+    assert "The test set contains no values for: virial." in caplog.text
+    assert "training virial RMSE" in caplog.text
+    assert "validation virial" not in caplog.text
+
+    # final evaluations: training, then validation, then test
+    train_eval, val_test_eval = caplog.text.split("Evaluating validation dataset")
+    assert "energy_strain_gradients RMSE" in train_eval
+    assert "Evaluating test dataset" in val_test_eval
+    assert "energy_strain_gradients" not in val_test_eval
+    assert Path("model.pt").is_file()
+
+
 def _write_dataset_to_memmap(structures, filename):
     """Helper function to write a list of `ase.Atoms` objects to a `MemmapDataset`."""
 
