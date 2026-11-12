@@ -27,6 +27,10 @@ Unreleased
 Fixed
 #####
 
+- Stress/virial training was silently disabled for the whole dataset (with only a
+  "No stress found" warning) when some systems of an ASE-readable file had no
+  stress/virial. These systems now get a NaN stress/virial, which is ignored during
+  training (#1344).
 - PET's bump cutoff is evaluated as a sigmoid, removing a float32 energy staircase
   near the cutoff (#1340).
 - Memmap datasets support variant targets such as ``energy/gs`` (#1334).
@@ -98,10 +102,6 @@ Added
 Changed
 #######
 
-- When reading stress or virial with ASE, systems without the stress/virial key are
-  no longer an error: their stress/virial is set to NaN and ignored during training.
-  Previously, a single missing value silently disabled stress/virial training for the
-  whole dataset (#1344).
 - LLPR calibrates one factor for each property of each block of the targets
   (#1286).
 - The last-layer features of MACE and SPACE have the keys and components of their

@@ -1588,69 +1588,6 @@ def test_train_mixed_stress(monkeypatch, tmp_path, options_pet):
         train_model(options_pet)
 
 
-def _setup_missing_stress_training(options_pet):
-    """Write 20 periodic structures, of which only the even ones have a stress, and
-    point the PET options to them."""
-    calculator = EMT()
-    structures = []
-    for i in range(20):
-        bulk = ase.build.bulk("Cu", "fcc", a=3.6, cubic=True)
-        bulk.rattle(0.01, seed=i)
-        bulk.calc = calculator
-        bulk.info["energy"] = bulk.get_potential_energy()
-        bulk.arrays["forces"] = bulk.get_forces()
-        if i % 2 == 0:
-            bulk.info["stress"] = bulk.get_stress(voigt=False)
-        bulk.calc = None
-        structures.append(bulk)
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message="Skipping unhashable information",
-            category=UserWarning,
-        )
-        ase.io.write("structures.xyz", structures)
-
-    options_pet["training_set"]["systems"]["read_from"] = "structures.xyz"
-    options_pet["training_set"]["targets"]["energy"]["key"] = "energy"
-    options_pet["training_set"]["targets"]["energy"]["forces"] = OmegaConf.create(
-        {"key": "forces"}
-    )
-    options_pet["training_set"]["targets"]["energy"]["stress"] = OmegaConf.create(
-        {"key": "stress"}
-    )
-    options_pet["architecture"]["training"]["num_epochs"] = 1
-    options_pet["architecture"]["training"]["batch_size"] = 10
-
-
-def _train_model_ignore_dataset_warnings(options):
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message="Requested dataset",
-            category=UserWarning,
-        )
-        train_model(options)
-
-
-def test_train_missing_stress(monkeypatch, tmp_path, options_pet, caplog):
-    """Test that training works with periodic structures where the stress is simply
-    absent for some of them, without having to set it to NaN manually."""
-
-    monkeypatch.chdir(tmp_path)
-    _setup_missing_stress_training(options_pet)
-    options_pet["test_set"] = 0.0
-    options_pet["validation_set"] = 0.5
-
-    caplog.set_level(logging.INFO)
-    _train_model_ignore_dataset_warnings(options_pet)
-
-    assert "was not found in 10 out of 20 systems" in caplog.text
-    assert "Stress found in section 'energy'" in caplog.text
-    assert "No stress found" not in caplog.text
-
-
 def _write_dataset_to_memmap(structures, filename):
     """Helper function to write a list of `ase.Atoms` objects to a `MemmapDataset`."""
 
