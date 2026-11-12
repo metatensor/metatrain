@@ -101,7 +101,7 @@ Changed
 - When reading stress or virial with ASE, systems without the stress/virial key are
   no longer an error: their stress/virial is set to NaN and ignored during training.
   Previously, a single missing value silently disabled stress/virial training for the
-  whole dataset.
+  whole dataset (#1344).
 - LLPR calibrates one factor for each property of each block of the targets
   (#1286).
 - The last-layer features of MACE and SPACE have the keys and components of their
