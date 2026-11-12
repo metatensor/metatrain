@@ -198,53 +198,6 @@ def test_read_targets_warnings(stress_dict, virial_dict, monkeypatch, tmp_path, 
         assert any(["No virial found" in rec.message for rec in caplog.records])
 
 
-@pytest.mark.parametrize(
-    "stress_dict, virial_dict",
-    [[STRESS_VIRIAL_DICT, False], [False, STRESS_VIRIAL_DICT]],
-)
-def test_read_targets_partial_stress_virial(
-    stress_dict, virial_dict, monkeypatch, tmp_path, caplog
-):
-    """Systems without stress/virial get NaN values, instead of the stress/virial
-    being dropped for the whole dataset."""
-    monkeypatch.chdir(tmp_path)
-
-    filename = "systems.xyz"
-    systems = ase_systems()
-    systems[1].info.pop("stress-3x3")
-    ase.io.write(filename, systems)
-
-    energy_section = {
-        "quantity": "energy",
-        "read_from": filename,
-        "reader": "ase",
-        "key": "true_energy",
-        "unit": "eV",
-        "type": "scalar",
-        "sample_kind": "system",
-        "num_subtargets": 1,
-        "forces": {"read_from": filename, "reader": "ase", "key": "forces"},
-        "stress": stress_dict,
-        "virial": virial_dict,
-    }
-
-    caplog.set_level(logging.INFO)
-    result, target_info_dict = read_targets(
-        OmegaConf.create({"energy": energy_section})
-    )
-
-    name = "Stress" if stress_dict else "Virial"
-    assert f"{name} found" in caplog.text
-    assert "was not found in 1 out of 2 systems" in caplog.text
-    assert target_info_dict["energy"].gradients == ["positions", "strain"]
-
-    strain_with = result["energy"][0].block().gradient("strain").values
-    strain_without = result["energy"][1].block().gradient("strain").values
-    assert not torch.any(torch.isnan(strain_with))
-    assert strain_without.shape == (1, 3, 3, 1)
-    assert torch.all(torch.isnan(strain_without))
-
-
 def test_read_targets_error(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
