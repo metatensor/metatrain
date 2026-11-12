@@ -81,6 +81,7 @@ Fixed
 Added
 #####
 
+- The experimental DPA3 architecture can now be used with LLPR (#1335).
 - SPACE models can now be fine-tuned on targets they were not trained on, optionally
   initializing the new heads from existing ones with ``inherit_heads``.
 - Added ``experimental.lorem`` architecture (*Learning Long-Range
