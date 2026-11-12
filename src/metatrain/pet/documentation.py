@@ -179,7 +179,7 @@ class ModelHypers(TypedDict):
     ``"grid"`` evaluates the smoothed neighbor count on a discrete probe-cutoff
     grid and returns a Gaussian-weighted average of the probes (legacy
     behaviour). ``"solver"`` solves ``n_total(r) = num_neighbors_adaptive`` via
-    a Newton-bisection root finder (default; faster and more accurate). Only
+    a bisection root finder (default; faster and more accurate). Only
     has effect when ``num_neighbors_adaptive`` is set.
     """
     cutoff_function: Literal["Cosine", "Bump"] = "Bump"
