@@ -121,18 +121,63 @@ class AttentionBlock(nn.Module):
         # excluded keys get zero weight in the softmax
         attn_weights = attn_weights.masked_fill(excluded, float("-inf"))
 
-        scale = 1.0 / (self.head_dim**0.5 * self.temperature)
         if self.smooth_cutoff:
             # The central token comes first. It is the one whose attention a single
-            # neighbor can take over, so it is the only one that needs the smooth
-            # weights: this keeps their cost negligible.
-            logits = scale * torch.matmul(queries, keys.transpose(-2, -1))
-            central = smooth_cutoff_attention(logits[:, :, :1], factors[:, :, :1])
-            others = torch.softmax(logits[:, :, 1:] + attn_weights[:, :, 1:], dim=-1)
-            x = torch.matmul(torch.cat([central, others], dim=2), values)
-        elif use_manual_attention:
-            x = manual_attention(queries, keys, values, attn_weights, self.temperature)
-        elif x.requires_grad and initial_shape[0] > self.max_cuda_grid_dim:
+            # neighbor can take over, so it is the only query that needs the smooth
+            # weights. Attention is computed row by row, so its row can be done on
+            # its own at O(num_keys) cost, while the other queries (still attending
+            # to all the keys) go through the standard, possibly fused, attention.
+            scale = 1.0 / (self.head_dim**0.5 * self.temperature)
+            central_logits = scale * torch.matmul(
+                queries[:, :, :1], keys.transpose(-2, -1)
+            )
+            central_weights = smooth_cutoff_attention(central_logits, factors[:, :, :1])
+            central = torch.matmul(central_weights, values)
+            others = self._attention(
+                queries[:, :, 1:],
+                keys,
+                values,
+                attn_weights[:, :, 1:],
+                use_manual_attention,
+            )
+            x = torch.cat([central, others], dim=2)
+        else:
+            x = self._attention(
+                queries, keys, values, attn_weights, use_manual_attention
+            )
+
+        x = x.transpose(1, 2).reshape(initial_shape)
+        x = self.output_linear(x)
+        return x
+
+    def _attention(
+        self,
+        queries: torch.Tensor,
+        keys: torch.Tensor,
+        values: torch.Tensor,
+        attn_mask: torch.Tensor,
+        use_manual_attention: bool,
+    ) -> torch.Tensor:
+        """
+        Standard scaled dot-product attention with an additive mask.
+
+        :param queries: The queries, of shape (batch_size, num_heads, num_queries,
+            head_dim)
+        :param keys: The keys, of shape (batch_size, num_heads, num_keys, head_dim)
+        :param values: The values, of shape (batch_size, num_heads, num_keys,
+            head_dim)
+        :param attn_mask: The additive attention mask, broadcastable to
+            (batch_size, num_heads, num_queries, num_keys)
+        :param use_manual_attention: Whether to use the manual attention
+            implementation, which supports double backward.
+        :return: The attention output, of shape (batch_size, num_heads, num_queries,
+            head_dim)
+        """
+        scale = 1.0 / (self.head_dim**0.5 * self.temperature)
+        batch_size = queries.shape[0]
+        if use_manual_attention:
+            x = manual_attention(queries, keys, values, attn_mask, self.temperature)
+        elif queries.requires_grad and batch_size > self.max_cuda_grid_dim:
             if not self._warned_cuda_grid_dim:
                 warnings.warn(
                     "The number of nodes exceeds the CUDA grid dimension of "
@@ -148,14 +193,14 @@ class AttentionBlock(nn.Module):
                 )
                 self._warned_cuda_grid_dim = True
             outputs = []
-            for start in range(0, initial_shape[0], self.max_cuda_grid_dim):
+            for start in range(0, batch_size, self.max_cuda_grid_dim):
                 end = start + self.max_cuda_grid_dim
                 outputs.append(
                     torch.nn.functional.scaled_dot_product_attention(
                         queries[start:end],
                         keys[start:end],
                         values[start:end],
-                        attn_mask=attn_weights[start:end],
+                        attn_mask=attn_mask[start:end],
                         scale=scale,
                     )
                 )
@@ -165,12 +210,9 @@ class AttentionBlock(nn.Module):
                 queries,
                 keys,
                 values,
-                attn_mask=attn_weights,
+                attn_mask=attn_mask,
                 scale=scale,
             )
-
-        x = x.transpose(1, 2).reshape(initial_shape)
-        x = self.output_linear(x)
         return x
 
 
