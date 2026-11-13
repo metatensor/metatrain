@@ -55,6 +55,11 @@ class PETBackend(torch.nn.Module):
         self.normalization = hypers["normalization"]
         self.activation = hypers["activation"]
         self.attention_temperature = hypers["attention_temperature"]
+        # Hypers from checkpoints older than this option do not have it, and such
+        # models were trained without it.
+        self.smooth_attention_cutoff = bool(
+            hypers.get("smooth_attention_cutoff", False)
+        )
         self.transformer_type = hypers["transformer_type"]
         self.featurizer_type = hypers["featurizer_type"]
 
@@ -86,6 +91,7 @@ class PETBackend(torch.nn.Module):
                     self.transformer_type,
                     num_atomic_species,
                     layer_index == 0,  # is first layer
+                    self.smooth_attention_cutoff,
                 )
                 for layer_index in range(self.num_gnn_layers)
             ]

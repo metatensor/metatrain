@@ -425,6 +425,20 @@ def model_update_v17_v18(checkpoint: dict) -> None:
         state_dict["_extra_state"] = {}
 
 
+def model_update_v18_v19(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 18 to version 19.
+
+    Adds the ``smooth_attention_cutoff`` hyperparameter. Models trained before it
+    existed added the logarithm of the cutoff function to all attention scores.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    model_hypers = checkpoint["model_data"]["model_hypers"]
+    if "smooth_attention_cutoff" not in model_hypers:
+        model_hypers["smooth_attention_cutoff"] = False
+
+
 ###########################
 # TRAINER #################
 ###########################

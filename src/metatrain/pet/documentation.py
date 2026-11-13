@@ -230,6 +230,15 @@ class ModelHypers(TypedDict):
     """Activation function."""
     attention_temperature: float = 1.0
     """The temperature scaling factor for attention scores."""
+    smooth_attention_cutoff: bool = True
+    """Whether the attention that the central atom pays to a neighbor grows in
+    proportion to its cutoff function, while the attention of a neighbor to itself is
+    not affected by it.
+
+    This was ``False`` in early PET models, which simply added the logarithm of the
+    cutoff function to the attention scores. It is usually best to set it to ``True``,
+    as this avoids introducing sharp features in the potential energy surface when an
+    atom leaves the cutoff."""
     transformer_type: Literal["PreLN", "PostLN"] = "PreLN"
     """The order in which the layer normalization and attention
     are applied in a transformer block. Available options are ``PreLN``
