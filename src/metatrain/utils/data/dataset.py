@@ -816,7 +816,8 @@ def _validate_format(scan: _MemberScan, path: Union[str, Path]) -> int:
             f"This DiskDataset zip is not homogeneous: entry {entry} has no "
             f"'{field_name}' file while other entries do "
             f"({len(missing)} missing files in total). Every entry must "
-            "contain the same fields; re-write the dataset."
+            "contain the same fields; re-write the dataset, storing values "
+            "missing for some entries as NaN-filled TensorMaps."
         )
     # With no member missing, a valid zip has exactly one member per
     # (entry, field) cell. A surplus means field members for entries

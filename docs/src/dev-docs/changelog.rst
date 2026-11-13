@@ -93,6 +93,8 @@ Added
 
 - Memmap datasets can contain targets, forces and stresses that are missing for some
   structures, stored as NaN.
+- Documented how to store targets missing for some structures in disk datasets, as
+  NaN-filled TensorMaps.
 - SPACE models can now be fine-tuned on targets they were not trained on, optionally
   initializing the new heads from existing ones with ``inherit_heads``.
 - Added ``experimental.lorem`` architecture (*Learning Long-Range
