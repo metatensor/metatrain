@@ -27,12 +27,20 @@ Unreleased
 Fixed
 #####
 
+- Datasets from XYZ files containing at least one missing stress/virial
+  would silently disable stress/virial training. Now partially missing data
+  is  accepted and the trainings run on the available data (#1344).
 - PET's bump cutoff is evaluated as a sigmoid, removing a float32 energy staircase
   near the cutoff (#1340).
 - Memmap datasets support variant targets such as ``energy/gs`` (#1334).
 - Corrected type annotations to match existing runtime behavior (#1325).
   Lint and formatting environments now install the project dependencies.
 - PET computes forces and stresses for batches of several structures faster
+- The ``"solver"`` adaptive cutoff of PET now finds the per-atom cutoff by bisection
+  instead of a Newton-bisection hybrid, which could get trapped in a two-cycle and
+  return an unconverged cutoff (wrong by up to ~1.5 Å) for some atoms. This made
+  energies jump by tens of meV under tiny displacements. Exported models must be
+  re-exported to pick up the fix (#1324).
 - Datasets read using ASE (e.g. ``.xyz`` files) with property names treated specially by
   ASE (e.g. ``charges``, ``magmoms``) can be read (#1320).
 - PET models with ``featurizer_type: feedforward`` (the default) now export an
