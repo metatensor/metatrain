@@ -318,6 +318,8 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
                     block.gradient(gradient_name).values
                     for block in sample[original_key].blocks()
                 ]
+            # NaN values are missing data, excluded from the statistics
+            tensors = [tensor[~torch.isnan(tensor)] for tensor in tensors]
             sums[key] += sum(tensor.sum() for tensor in tensors)
             sums_of_squares[key] += sum((tensor**2).sum() for tensor in tensors)
             n_elements[key] += sum(tensor.numel() for tensor in tensors)
