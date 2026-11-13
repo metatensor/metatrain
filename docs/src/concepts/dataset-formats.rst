@@ -82,6 +82,24 @@ The easiest way to create such a file is the
 :py:class:`metatrain.utils.data.writers.DiskDatasetWriter` class, which takes care of
 the serialization details (see :ref:`create-disk-dataset` for an example).
 
+Every structure must contain the same files. Values that are missing for some
+structures, such as the energy or the forces of part of the dataset, are written as
+TensorMaps with the same metadata as the other structures (keys, samples, components,
+properties and gradients) and NaN values. NaN values are ignored by the losses and the
+metrics, and samples whose target is entirely NaN are left out of the fit of the
+composition model. For example, for a structure without energy:
+
+.. code-block:: python
+
+    block = TensorBlock(
+        values=torch.full((1, 1), torch.nan, dtype=torch.float64),
+        samples=Labels(["system"], torch.tensor([[0]])),
+        components=[],
+        properties=Labels(["energy"], torch.tensor([[0]])),
+    )
+    block.add_gradient("positions", forces_gradient)  # NaN-filled if also missing
+    writer.write([system], {"energy": TensorMap(Labels.single(), [block])})
+
 Memory-mapped directories
 -------------------------
 
@@ -105,3 +123,9 @@ from their own ``key`` options. Extra data, for example ``charge.bin`` or
 
 Spherical targets and virials are not supported in this format. A complete walkthrough,
 including forces and stresses, is available in :ref:`create-memmap-dataset`.
+
+Values that are missing for some structures, such as the energy, forces or stress of
+part of the dataset, are stored as NaN in the corresponding rows: row ``i`` for
+per-structure quantities, rows ``na[i]:na[i + 1]`` for per-atom quantities. NaN values
+are ignored by the losses and the metrics, and samples whose target is entirely NaN are
+left out of the fit of the composition model.

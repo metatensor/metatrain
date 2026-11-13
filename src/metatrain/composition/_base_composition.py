@@ -312,6 +312,15 @@ class BaseCompositionModel(nn.Module):
                     Id = torch.eye(Y.shape[1], dtype=dtype, device=device)
                     Y = torch.einsum("sp,ij->sijp", traces, Id)
 
+                # Samples whose target is entirely NaN (missing data) are left out
+                # of the fit. Partially NaN samples are kept: atomic-basis targets
+                # use NaN to pad the properties that an atom type does not have.
+                valid = ~torch.isnan(Y).reshape(Y.shape[0], -1).all(dim=1)
+                if not torch.all(valid):
+                    X = X[valid]
+                    XTX = X.T @ X
+                    Y = Y[valid]
+
                 # Accumulate "XTX", i.e. X.T @ X
                 # TODO: store XTX by sample kind instead, saving memory
                 self.XTX[target_name][key].values[:] += XTX

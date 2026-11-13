@@ -728,6 +728,37 @@ def test_get_stats(layout_scalar):
     assert "eV" in stats_2
 
 
+def test_get_stats_ignores_nan(layout_scalar):
+    """NaN values (missing data) are excluded from the statistics."""
+    systems = read_systems(RESOURCES_PATH / "qm9_reduced_100.xyz")[:3]
+    energies = [
+        TensorMap(
+            keys=Labels.single(),
+            blocks=[
+                TensorBlock(
+                    values=torch.tensor([[value]], dtype=torch.float64),
+                    samples=Labels(["system"], torch.tensor([[i]])),
+                    components=[],
+                    properties=Labels.range("energy", 1),
+                )
+            ],
+        )
+        for i, value in enumerate([1.0, float("nan"), 3.0])
+    ]
+    dataset = Dataset.from_dict({"system": systems, "energy": energies})
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={
+            "energy": TargetInfo(layout=layout_scalar, quantity="energy", unit="eV"),
+        },
+    )
+
+    stats = get_stats(dataset, dataset_info)
+    assert "mean 2 eV" in stats
+    assert "std  1 eV" in stats
+
+
 def test_instance_torchscript_compatible(layout_scalar):
     dataset_info = DatasetInfo(
         length_unit="",

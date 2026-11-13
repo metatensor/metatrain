@@ -1467,6 +1467,49 @@ def test_train_memmap_dataset(monkeypatch, tmp_path, options_pet):
     train_model(options_pet)
 
 
+def test_train_memmap_dataset_missing_targets(monkeypatch, tmp_path, caplog):
+    """Training from a `MemmapDataset` where some energies, forces and stresses
+    are missing (stored as NaN) gives finite losses and metrics, also for batches
+    where every target is missing."""
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.INFO)
+    shutil.copy(DATASET_PATH_CARBON, "carbon.xyz")
+    structures = read("carbon.xyz", index=":")
+    _write_dataset_to_memmap(structures, "carbon/")
+
+    na = np.load("carbon/na.npy")
+    ns = len(structures)
+    energies = np.memmap("carbon/e.bin", dtype="float32", mode="r+", shape=(ns, 1))
+    forces = np.memmap("carbon/f.bin", dtype="float32", mode="r+", shape=(na[-1], 3))
+    stress = np.memmap("carbon/s.bin", dtype="float32", mode="r+", shape=(ns, 3, 3))
+    # structures 0, 4, ... miss everything, 1, 5, ... the energy, 2, 6, ... the
+    # forces, 3, 7, ... the stress
+    energies[0::4] = energies[1::4] = np.nan
+    stress[0::4] = stress[3::4] = np.nan
+    for i in range(ns):
+        if i % 4 in (0, 2):
+            forces[na[i] : na[i + 1]] = np.nan
+    for array in (energies, forces, stress):
+        array.flush()
+
+    options = OmegaConf.load(OPTIONS_PATH)
+    options["architecture"]["training"]["batch_size"] = 1
+    options["training_set"]["systems"]["read_from"] = "carbon/"
+    options["training_set"]["targets"]["energy"]["key"] = "e"
+    options["training_set"]["targets"]["energy"]["forces"] = {"key": "f"}
+    options["training_set"]["targets"]["energy"]["stress"] = {"key": "s"}
+
+    train_model(options)
+
+    metric_lines = [
+        line
+        for line in caplog.text.splitlines()
+        if "loss" in line.lower() or "RMSE" in line
+    ]
+    assert metric_lines
+    assert not any("nan" in line.lower() for line in metric_lines)
+
+
 @pytest.mark.skipif(not WANDB_AVAILABLE.present, reason=WANDB_AVAILABLE.message)
 @pytest.mark.skipif(
     sys.platform == "win32",

@@ -318,6 +318,8 @@ def get_stats(dataset: Union[Dataset, Subset], dataset_info: DatasetInfo) -> str
                     block.gradient(gradient_name).values
                     for block in sample[original_key].blocks()
                 ]
+            # NaN values are missing data, excluded from the statistics
+            tensors = [tensor[~torch.isnan(tensor)] for tensor in tensors]
             sums[key] += sum(tensor.sum() for tensor in tensors)
             sums_of_squares[key] += sum((tensor**2).sum() for tensor in tensors)
             n_elements[key] += sum(tensor.numel() for tensor in tensors)
@@ -816,7 +818,8 @@ def _validate_format(scan: _MemberScan, path: Union[str, Path]) -> int:
             f"This DiskDataset zip is not homogeneous: entry {entry} has no "
             f"'{field_name}' file while other entries do "
             f"({len(missing)} missing files in total). Every entry must "
-            "contain the same fields; re-write the dataset."
+            "contain the same fields; re-write the dataset, storing values "
+            "missing for some entries as NaN-filled TensorMaps."
         )
     # With no member missing, a valid zip has exactly one member per
     # (entry, field) cell. A surplus means field members for entries

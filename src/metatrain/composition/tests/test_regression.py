@@ -90,6 +90,77 @@ def test_composition_fitting_exact():
         assert fitted[species] == pytest.approx(expected, abs=1e-10)
 
 
+def test_composition_fitting_ignores_nan_targets():
+    """Systems with NaN energies (missing data) are left out of the fit."""
+    systems = read_systems(DATASET_PATH)
+    per_species_energies = {1: -0.5, 6: -10.0, 7: -15.0, 8: -20.0}
+    target_values = _make_synthetic_targets(systems, per_species_energies)
+    target_values[::3] = torch.nan
+
+    model, _ = _train_composition_model(systems, target_values)
+
+    fitted_weights = model.model.weights["energy"].block().values
+    expected = torch.tensor([[-0.5], [-10.0], [-15.0], [-20.0]])
+    torch.testing.assert_close(fitted_weights, expected, atol=1e-10, rtol=0)
+
+
+def test_composition_fitting_ignores_nan_per_atom_targets():
+    """Atoms with NaN per-atom targets (missing data) are left out of the fit."""
+    systems = read_systems(DATASET_PATH)[:10]
+    per_species_values = {1: 1.0, 6: 2.0, 7: 3.0, 8: 4.0}
+
+    targets = []
+    for i, system in enumerate(systems):
+        values = torch.tensor(
+            [[per_species_values[int(t)]] for t in system.types],
+            dtype=torch.float64,
+        )
+        if i % 2 == 0:
+            values[0] = torch.nan
+        block = TensorBlock(
+            values=values,
+            samples=Labels(
+                ["system", "atom"],
+                torch.tensor([[i, j] for j in range(len(system))]),
+            ),
+            components=[],
+            properties=Labels.range("charge", 1),
+        )
+        targets.append(TensorMap(Labels.single(), [block]))
+    dataset = Dataset.from_dict({"system": systems, "mtt::charge": targets})
+
+    target_info = get_generic_target_info(
+        "mtt::charge",
+        {
+            "quantity": "",
+            "unit": "",
+            "type": "scalar",
+            "num_subtargets": 1,
+            "sample_kind": "atom",
+        },
+    )
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6, 7, 8],
+        targets={"mtt::charge": target_info},
+    )
+    model = CompositionModel(hypers={}, dataset_info=dataset_info)
+    model.train_model(
+        datasets=[dataset],
+        additive_models=[],
+        batch_size=len(dataset),
+        is_distributed=False,
+    )
+
+    fitted_weights = model.model.weights["mtt::charge"].block().values
+    present_types = torch.unique(torch.cat([s.types for s in systems]))
+    for index, atomic_type in enumerate([1, 6, 7, 8]):
+        if atomic_type in present_types:
+            assert fitted_weights[index].item() == pytest.approx(
+                per_species_values[atomic_type], abs=1e-10
+            )
+
+
 def test_composition_forward_after_fitting():
     systems = read_systems(DATASET_PATH)
     per_species_energies = {1: -0.5, 6: -10.0, 7: -15.0, 8: -20.0}
