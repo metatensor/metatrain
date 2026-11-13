@@ -105,3 +105,9 @@ from their own ``key`` options. Extra data, for example ``charge.bin`` or
 
 Spherical targets and virials are not supported in this format. A complete walkthrough,
 including forces and stresses, is available in :ref:`create-memmap-dataset`.
+
+Values that are missing for some structures, such as the energy, forces or stress of
+part of the dataset, are stored as NaN in the corresponding rows: row ``i`` for
+per-structure quantities, rows ``na[i]:na[i + 1]`` for per-atom quantities. NaN values
+are ignored by the losses and the metrics, and samples whose target is entirely NaN are
+left out of the fit of the composition model.
