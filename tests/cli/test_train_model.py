@@ -1469,7 +1469,8 @@ def test_train_memmap_dataset(monkeypatch, tmp_path, options_pet):
 
 def test_train_memmap_dataset_missing_targets(monkeypatch, tmp_path, caplog):
     """Training from a `MemmapDataset` where some energies, forces and stresses
-    are missing (stored as NaN) gives finite losses and metrics."""
+    are missing (stored as NaN) gives finite losses and metrics, also for batches
+    where every target is missing."""
     monkeypatch.chdir(tmp_path)
     caplog.set_level(logging.INFO)
     shutil.copy(DATASET_PATH_CARBON, "carbon.xyz")
@@ -1481,14 +1482,18 @@ def test_train_memmap_dataset_missing_targets(monkeypatch, tmp_path, caplog):
     energies = np.memmap("carbon/e.bin", dtype="float32", mode="r+", shape=(ns, 1))
     forces = np.memmap("carbon/f.bin", dtype="float32", mode="r+", shape=(na[-1], 3))
     stress = np.memmap("carbon/s.bin", dtype="float32", mode="r+", shape=(ns, 3, 3))
-    energies[0::3] = np.nan
-    for i in range(1, ns, 3):
-        forces[na[i] : na[i + 1]] = np.nan
-    stress[2::3] = np.nan
+    # structures 0, 4, ... miss everything, 1, 5, ... the energy, 2, 6, ... the
+    # forces, 3, 7, ... the stress
+    energies[0::4] = energies[1::4] = np.nan
+    stress[0::4] = stress[3::4] = np.nan
+    for i in range(ns):
+        if i % 4 in (0, 2):
+            forces[na[i] : na[i + 1]] = np.nan
     for array in (energies, forces, stress):
         array.flush()
 
     options = OmegaConf.load(OPTIONS_PATH)
+    options["architecture"]["training"]["batch_size"] = 1
     options["training_set"]["systems"]["read_from"] = "carbon/"
     options["training_set"]["targets"]["energy"]["key"] = "e"
     options["training_set"]["targets"]["energy"]["forces"] = {"key": "f"}

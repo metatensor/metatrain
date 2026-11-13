@@ -30,6 +30,7 @@ Fixed
 - The composition model ignores samples whose target is entirely NaN (missing) when
   fitting, instead of producing NaN weights.
 - The dataset statistics logged at the start of training ignore NaN (missing) values.
+- Training no longer fails on batches where every target value is NaN (missing).
 - Datasets from XYZ files containing at least one missing stress/virial
   would silently disable stress/virial training. Now partially missing data
   is  accepted and the trainings run on the available data (#1344).

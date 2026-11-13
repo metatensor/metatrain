@@ -207,12 +207,10 @@ class BaseTensorMapLoss(LossInterface):
         all_predictions_flattened = all_predictions_flattened[not_nan]
 
         if len(all_targets_flattened) == 0:
-            # No valid data points to compute the loss
-            return torch.zeros(
-                (),
-                dtype=all_predictions_flattened.dtype,
-                device=all_predictions_flattened.device,
-            )
+            # No valid data points to compute the loss. The zero stays connected to
+            # the predictions, so that backward() also works for batches where all
+            # targets are NaN (missing data).
+            return all_predictions_flattened.sum() * 0.0
 
         return self.torch_loss(all_predictions_flattened, all_targets_flattened)
 
