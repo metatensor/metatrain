@@ -19,6 +19,7 @@ from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.match_tmaps import match_layout
+from metatrain.utils.data.target_info import get_variance_output_name
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
@@ -49,6 +50,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
     ensemble_gradient_outputs: List[str]
     llpr_outputs: List[str]
+    heteroscedastic_outputs: List[str]
 
     # all torch devices and dtypes are supported, if they are supported by the wrapped
     # the check is performed in the trainer
@@ -129,6 +131,28 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
             raise ValueError(
                 "The wrapped model exposes no last-layer features, so LLPR can not "
                 "compute any uncertainty"
+            )
+
+        # targets for which the wrapped model also predicts an (aleatoric) variance.
+        # Their covariance is weighted by the inverse of this variance
+        # (heteroscedastic LLPR), and their uncertainty is still the epistemic one
+        self.heteroscedastic_outputs = [
+            name for name in names if get_variance_output_name(name) in backbone_outputs
+        ]
+        for name in self.heteroscedastic_outputs:
+            layout = self.model.dataset_info.targets[name].layout
+            if len(layout) != 1 or len(layout.block(0).properties) != 1:
+                raise NotImplementedError(
+                    "LLPR with predicted variances is only implemented for targets "
+                    f"with a single block and a single property, but '{name}' has "
+                    f"{len(layout)} blocks and {len(layout.block(0).properties)} "
+                    "properties"
+                )
+        if len(self.heteroscedastic_outputs) > 0:
+            logging.info(
+                "The wrapped model predicts variances for "
+                f"{self.heteroscedastic_outputs}: the LLPR uses them as "
+                "heteroscedastic noise"
             )
 
         self.targets = torch.nn.ModuleDict()
@@ -965,20 +989,34 @@ class _TargetLLPR(torch.nn.Module):
         end = self.multiplier_offsets[block_index + 1]
         self.multipliers[start:end] = values.to(self.multipliers)
 
-    def accumulate(self, features: TensorMap, n_atoms: Optional[torch.Tensor]) -> None:
+    def accumulate(
+        self,
+        features: TensorMap,
+        n_atoms: Optional[torch.Tensor],
+        variance: Optional[torch.Tensor] = None,
+    ) -> None:
         """Add the contribution of a batch of last-layer features to the covariances.
 
         :param features: the last-layer features of the target.
         :param n_atoms: the number of atoms of each system, to normalize per-system
             features, or ``None`` for per-atom features.
+        :param variance: the predicted (aleatoric) variance of each sample of the
+            target, in the units of the core, for a heteroscedastic LLPR.
         """
         self.move_layouts(features.device)
         feature_blocks = self._feature_blocks(features)
         for index, covariance in enumerate(self.covariances):
             values = feature_blocks[index].values.detach()
+            if variance is not None:
+                # Gauss-Newton Hessian of the Gaussian NLL with predicted variance,
+                # sum_i f_i f_i^T / var_i. Per-system targets are not divided by
+                # n_atoms: the factor cancels between the features and the variance
+                values = values / torch.sqrt(variance).reshape(
+                    [-1] + [1] * (values.dim() - 1)
+                )
             # TODO: interface ll_feat calculation with the loss function, paying
             # attention to normalization w.r.t. n_atoms
-            if n_atoms is not None:
+            elif n_atoms is not None:
                 values = values / n_atoms.reshape([-1] + [1] * (values.dim() - 1))
             # components count as samples, as the last layer is shared across them
             values = values.reshape(-1, values.shape[-1]).to(torch.float64)

@@ -1,0 +1,39 @@
+seed: 42
+
+architecture:
+  name: experimental.flashmd
+  training:
+    finetune:
+      read_from: flashmd_pet-omatpes-v2_32fs.ckpt
+    # train only a variance head for each of these targets, on top of the frozen model
+    variance_heads: [position, momentum]
+    timestep: 32  # in this case 32 (time lag) * 1 fs (timestep of reference MD)
+    batch_size: 4
+    num_epochs: 20  # to be increased in a production scenario
+    learning_rate: 1e-3
+    log_interval: 5
+
+training_set:
+  systems:
+    read_from: flashmd.xyz
+    length_unit: A
+  targets:
+    position:
+      key: future_positions
+      quantity: length
+      unit: A
+      type:
+        cartesian:
+          rank: 1
+      sample_kind: atom
+    momentum:
+      key: future_momenta
+      quantity: momentum
+      unit: (eV*u)^(1/2)
+      type:
+        cartesian:
+          rank: 1
+      sample_kind: atom
+
+validation_set: 0.2
+test_set: 0.0

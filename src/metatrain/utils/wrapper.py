@@ -19,7 +19,10 @@ from typing_extensions import TypeVar
 from metatrain.utils.abc import ModelInterface
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.match_tmaps import match_layout
-from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
+from metatrain.utils.data.target_info import (
+    DEPRECATED_METATOMIC_OUTPUT_NAMES,
+    get_variance_output_name,
+)
 from metatrain.utils.dtype import dtype_to_str
 from metatrain.utils.metadata import merge_metadata
 
@@ -138,6 +141,44 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
                         use_per_target_scales=True,
                         use_per_property_scales=True,
                     )
+
+                    # A variance scales with the square of its target's scale,
+                    # Var(c y) = c^2 Var(y). Additive models are not applied to
+                    # variances.
+                    for k in self.scaler.model.target_names:
+                        variance_name = get_variance_output_name(k)
+                        if variance_name not in return_dict:
+                            continue
+
+                        # unlike the target above, the variance is not converted to
+                        # the layout of the scaler
+                        if k in self._eval_transforms["pre_scaler"]:
+                            raise NotImplementedError(
+                                f"The variance of '{k}' can not be scaled, because "
+                                "the layout of the model is different from the one "
+                                "of the scaler"
+                            )
+
+                        # a per-structure variance is a sum over the atoms, so the
+                        # scales of a per-atom target (which depend on the atomic
+                        # type) can not be applied to it afterwards
+                        if (
+                            outputs[variance_name].sample_kind == "system"
+                            and self.scaler.model.sample_kinds[k] == "per_atom"
+                        ):
+                            raise NotImplementedError(
+                                f"The variance of '{k}' can not be requested for each "
+                                "system, because it is a per-atom target and its "
+                                "scales depend on the atomic type. Request it for each "
+                                "atom instead."
+                            )
+
+                        # like the LLPR uncertainty, scale the standard deviation
+                        std = mts.pow(return_dict[variance_name], 0.5)
+                        std = self.scaler.apply_scales(
+                            systems, {k: std}, selected_atoms=selected_atoms
+                        )[k]
+                        return_dict[variance_name] = mts.pow(std, 2.0)
 
                 for i, additive_model in enumerate(self.additive_models):
                     # Convert all targets whose layout is different at this point

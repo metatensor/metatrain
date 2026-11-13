@@ -1,4 +1,4 @@
-"""
+r"""
 LLPR
 ====
 
@@ -22,6 +22,28 @@ targets with more than one ``o3_lambda`` or targets in an atomic basis, are supp
 the uncertainties have the same layout as the target, and are calibrated separately for
 each property of each block. For Cartesian targets, they are the standard deviations of
 the single components, not of the magnitude of the vector.
+
+Some models also predict the (aleatoric) variance :math:`\sigma^2(x)` of a target, as
+the :ref:`mtt-aux-target-variance` output (for example :ref:`arch-flashmd` with
+``variance_heads``). For such a target, the LLPR is a heteroscedastic last-layer
+Laplace approximation, with the precision matrix
+
+.. math::
+
+    \Lambda = \sum_i \frac{c_i^2 f_i f_i^T}{\sigma^2(x_i)} + r I,
+
+where :math:`f` are the last-layer features, :math:`c` is the scale that the scaler of
+the wrapped model applies to the target, and :math:`r` is the ``regularizer``. The
+uncertainty output is still the epistemic standard deviation,
+:math:`\alpha c \sqrt{f^T \Lambda^{-1} f}`, so the total predictive variance is the
+predicted variance plus its square. The calibration factor :math:`\alpha` always
+minimizes the Gaussian NLL of this total variance on the validation set, whatever the
+``calibration_method``.
+
+Only targets with a single block and a single property are supported, and the
+predicted variance has to be the same for all the components of the target. Ensembles
+are sampled from the last-layer posterior, so they only carry the epistemic
+uncertainty.
 
 Additional outputs
 ------------------

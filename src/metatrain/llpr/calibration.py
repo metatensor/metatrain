@@ -322,3 +322,88 @@ def _solve_alpha_crps(
         out[m] = float(sol.root)
 
     return out
+
+
+class HeteroscedasticNLLCalibrator:
+    """
+    Gaussian NLL calibration of the epistemic part of a total predictive variance
+    ``s + alpha^2 * e``, where ``s`` is the aleatoric variance predicted by the model
+    and ``e`` the uncalibrated epistemic variance of the LLPR, for each channel (last
+    axis).
+
+    Unlike for the plain LLPR, the NLL-optimal ``alpha`` has no closed form, because
+    ``s`` differs between samples. With ``a = alpha^2``, the optimum is the root of the
+    derivative of the NLL, ``sum_i e_i (v_i - r_i^2) / v_i^2`` with
+    ``v_i = s_i + a e_i``. It is found with Brent's root-finding method, as for the CRPS
+    calibration, after bracketing it between ``a = 0`` and the first power of ten
+    where the derivative is positive. If the derivative is already non-negative at
+    ``a = 0``, ``alpha = 0``. In distributed mode, all ranks must call ``finalize``
+    together.
+    """
+
+    def __init__(self) -> None:
+        self._store: Dict[str, List[List[torch.Tensor]]] = {}
+
+    def update(
+        self,
+        *,
+        uncertainty_name: str,
+        residuals: torch.Tensor,
+        aleatoric_variances: torch.Tensor,
+        epistemic_variances: torch.Tensor,
+    ) -> None:
+        store = self._store.setdefault(uncertainty_name, [[], [], []])
+        for values, new in zip(
+            store, [residuals, aleatoric_variances, epistemic_variances], strict=True
+        ):
+            values.append(new.detach().to(torch.float64))
+
+    def finalize(self) -> Dict[str, torch.Tensor]:
+        from scipy.optimize import root_scalar
+
+        is_distributed = (
+            torch.distributed.is_available() and torch.distributed.is_initialized()
+        )
+
+        multipliers: Dict[str, torch.Tensor] = {}
+        for uncertainty_name, store in self._store.items():
+            # shapes (N, M)
+            residuals, s, e = (torch.cat(values, dim=0) for values in store)
+            r2 = residuals**2
+
+            alpha = torch.empty(r2.shape[1], dtype=torch.float64, device=r2.device)
+            for m in range(r2.shape[1]):
+
+                def nll_derivative(
+                    a: float,
+                    r2: torch.Tensor = r2[:, m],
+                    s: torch.Tensor = s[:, m],
+                    e: torch.Tensor = e[:, m],
+                ) -> float:
+                    # derivative of the NLL sum_i [log(v_i) + r2_i / v_i], with
+                    # v = s + a * e, with respect to a (up to a positive factor).
+                    # NaN residuals (missing targets) are ignored
+                    v = s + a * e
+                    derivative = torch.nansum(e * (v - r2) / v**2)
+                    if is_distributed:
+                        torch.distributed.all_reduce(derivative)
+                    return float(derivative.item())
+
+                # If the NLL already increases at a = 0, its minimum is at a = 0.
+                if nll_derivative(0.0) >= 0.0:
+                    alpha[m] = 0.0
+                    continue
+
+                # Brent's root-finding method requires an interval/bracket [0, a_max]
+                # where the derivative changes sign. The latter is negative at a = 0,
+                # and positive for large enough a.
+                a_max = 1.0
+                while nll_derivative(a_max) < 0.0:
+                    a_max *= 10.0
+
+                a = root_scalar(nll_derivative, bracket=[0.0, a_max], method="brentq")
+                alpha[m] = math.sqrt(a.root)
+
+            multipliers[uncertainty_name] = alpha
+
+        return multipliers
