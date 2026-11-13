@@ -89,6 +89,8 @@ Fixed
 Added
 #####
 
+- Experimental ``se_e2_a`` architecture: DeepMD-kit's smooth-edition two-body
+  descriptor, with the per-element last-layer features used by LLPR (#1337).
 - SPACE models can now be fine-tuned on targets they were not trained on, optionally
   initializing the new heads from existing ones with ``inherit_heads``.
 - Added ``experimental.lorem`` architecture (*Learning Long-Range

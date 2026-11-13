@@ -80,6 +80,11 @@ component_management:
       paths:
         - "src/metatrain/experimental/dpa3/.*"
 
+    - component_id: se_e2_a
+      name: se_e2_a
+      paths:
+        - "src/metatrain/experimental/se_e2_a/.*"
+
     - component_id: lorem
       name: LOREM
       paths:

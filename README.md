@@ -41,6 +41,7 @@ model:
 | [GAP][arch-gap]                               | Sparse Gaussian Approximation Potential (GAP) using Smooth Overlap of Atomic Positions (SOAP).                                       |
 | [FlashMD][arch-flashmd]                       | An architecture for the direct prediction of molecular dynamics                                                                      |
 | [DPA3][arch-dpa3]                             | An invariant graph neural network based on line graph series representations                                                         |
+| [se_e2_a][arch-se_e2_a]                       | Deep Potential ``se_e2_a``, an invariant two-body embedding with angular information                                                  |
 | [LOREM][arch-lorem]                           | Long-range equivariant messages                                                                                                       |
 | [Symplectic FlashMD][arch-flashmd_symplectic] | A symplectic variant of FlashMD for the direct prediction of molecular dynamics.                                                     |
 
@@ -59,6 +60,7 @@ on a PR, since the docs use this README file directly.-->
 [arch-composition]: https://docs.metatensor.org/metatrain/latest/architectures/generated/composition.html
 [arch-scaler]: https://docs.metatensor.org/metatrain/latest/architectures/generated/scaler.html
 [arch-dpa3]: https://docs.metatensor.org/metatrain/latest/architectures/generated/dpa3.html
+[arch-se_e2_a]: https://docs.metatensor.org/metatrain/latest/architectures/generated/se_e2_a.html
 [arch-lorem]: https://docs.metatensor.org/metatrain/latest/architectures/generated/lorem.html
 [arch-flashmd]: https://docs.metatensor.org/metatrain/latest/architectures/generated/flashmd.html
 [arch-gap]: https://docs.metatensor.org/metatrain/latest/architectures/generated/gap.html
