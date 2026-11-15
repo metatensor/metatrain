@@ -133,8 +133,35 @@ class SphericalTargetIrrepsConfig(TypedDict):
 @with_config(ConfigDict(extra="forbid", strict=True))
 class SphericalTargetConfig(TypedDict):
     irreps: (
-        list[SphericalTargetIrrepsConfig] | dict[int, list[SphericalTargetIrrepsConfig]]
+        list[SphericalTargetIrrepsConfig]  # Global irreps
+        | list[list[SphericalTargetIrrepsConfig]]  # Global irreps, rows and cols
+        | dict[int, list[SphericalTargetIrrepsConfig]]  # Atomic basis.
+        | dict[int, list[list[SphericalTargetIrrepsConfig]]]  # At. basis, rows and cols
     )
+    """Specification for the basis of the spherical target.
+
+    Every individual irrep is specified as a dictionary following
+    ``SphericalTargetIrrepsConfig``, however there are different
+    situations in which the basis will have a different grouping of
+    the irreps.
+
+    The simplest case is when a target's layout is just a list
+    of irreps. In that case, ``irreps`` simply receives a list
+    of irreps.
+
+    If the layout depends on the atomic type, then ``irreps``
+    is a dictionary with the atomic type as the key and a
+    list of irreps as the value.
+
+    If the target is a matrix and:
+
+       -  Rows and columns have the same basis: ``irreps`` contains
+       the basis of the rows and columns as specified above.
+       -  Rows and columns have different bases: for both cases when
+       the basis is global or per atom type, the list of irreps is
+       replaced by a list of two lists of irreps, one for the rows
+       and one for the columns.
+    """
     product: NotRequired[Literal[None, "coupled", "cartesian"]] = None
     """Means of describing a higher rank target that is made of the base irreps.
     If:
