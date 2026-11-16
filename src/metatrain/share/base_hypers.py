@@ -155,13 +155,12 @@ class SphericalTargetConfig(TypedDict):
 
     If the target is a matrix and:
 
-       -  Rows and columns have the same basis: ``irreps`` contains
-       the basis of the rows and columns as specified above.
-       -  Rows and columns have different bases: for both cases when
-       the basis is global or per atom type, the list of irreps is
-       replaced by a list of two lists of irreps, one for the rows
-       and one for the columns.
-    
+    - Rows and columns have the same basis: ``irreps`` contains
+      the basis of the rows and columns as specified above.
+    - Rows and columns have different bases: for both cases when
+      the basis is global or per atom type, the list of irreps is
+      replaced by a list of two lists of irreps, one for the rows
+      and one for the columns.
     """
     product: NotRequired[Literal[None, "coupled", "cartesian"]] = None
     """Means of describing a higher rank target that is made of the base irreps.
