@@ -77,26 +77,17 @@ class ExtenderInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta)
         """
 
     @abstractmethod
-    def requested_target_infos(self) -> dict[str, TargetInfo]:
-        """
-        Returns the inputs that the extender requires, with their layout.
-
-        :return: The requested inputs. Each key is the name of the requested input,
-          and the value is a :py:class:`TargetInfo` object describing the layout of
-          the requested input.
-        """
-
-    @abstractmethod
     def requested_extender_inputs(
-        self, outputs: dict[str, ModelOutput]
-    ) -> dict[str, ModelOutput]:
+        self, outputs: Optional[dict[str, ModelOutput]] = None
+    ) -> dict[str, TargetInfo]:
         """
-        Returns the list of requested inputs for the extender,
-        given some requested outputs.
+        Returns the inputs that the extender requires to produce some outputs.
 
         :param outputs: Dictionary of the outputs that will be
-           requested to the extender.
-        :return: A list of requested input names.
+           requested to the extender. If ``None``, the extender
+           should return the inputs that it needs to produce all
+           the outputs.
+        :return: A dictionary with all the required inputs.
         """
 
     @abstractmethod

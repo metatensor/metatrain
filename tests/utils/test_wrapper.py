@@ -21,6 +21,12 @@ from metatrain.utils.data.target_info import (
     get_generic_target_info,
 )
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.extenders.helpers import (
+    get_default_hypers as get_extender_default_hypers,
+)
+from metatrain.utils.extenders.helpers import (
+    setup_extenders,
+)
 from metatrain.utils.metadata import merge_metadata
 from metatrain.utils.wrapper import MetatrainModel
 
@@ -296,3 +302,72 @@ def test_with_different_dataset_infos(target_change):
     for output_name, output in capabilities.outputs.items():
         assert output.sample_kind == core.dataset_info.targets[output_name].sample_kind
         assert output.unit == core.dataset_info.targets[output_name].unit
+
+
+def test_with_extenders():
+    dataset_info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1, 8],
+        targets={"energy": get_energy_target_info("energy", {"unit": "eV"})},
+    )
+
+    extender_hypers = {"rename": get_extender_default_hypers("rename")}
+    extender_hypers["rename"]["outputs"] = "energy"
+    extender_hypers["rename"]["inputs"] = "mtt::some_energy"
+
+    extenders, model_outs = setup_extenders(dataset_info, extender_hypers)
+
+    core_dataset_info = DatasetInfo(
+        length_unit=dataset_info.length_unit,
+        atomic_types=dataset_info.atomic_types,
+        targets=model_outs,
+        extra_data=dataset_info.extra_data,
+    )
+
+    core = Model1({}, core_dataset_info)
+
+    model = MetatrainModel(
+        core=core,
+        additive_models=[],
+        scaler=None,
+        dataset_info=dataset_info,
+        extenders=extenders,
+    )
+
+    assert model.core is core
+    assert len(model.additive_models) == 0
+    assert model.scaler is None
+    assert model.dataset_info != core.dataset_info
+
+    # Check that there are no eval transforms
+    assert all(len(v) == 0 for v in model._eval_transforms.values())
+
+    # Check that scripting doesn't fail
+    torch.jit.script(model)
+
+    # Check that you can export the model.
+    extra_metadata = ModelMetadata(name="Cool model")
+    atomistic_model = model.export(extra_metadata)
+
+    # Check that the metadata is correct
+    metadata = atomistic_model.metadata()
+    assert metadata.authors == core.__default_metadata__.authors
+    assert metadata.name == "Cool model"
+
+    # Check that the capabilities are correct
+    capabilities = atomistic_model.capabilities()
+    assert capabilities.atomic_types == core.dataset_info.atomic_types
+    assert capabilities.interaction_range == 1
+    assert capabilities.supported_devices == core.__supported_devices__
+    assert len(capabilities.outputs) == 2
+    assert set(capabilities.outputs.keys()) == set(["energy", "mtt::some_energy"])
+    for output_name, output in capabilities.outputs.items():
+        if output_name == "energy":
+            target_info = extenders[0].supported_outputs()["energy"]
+        elif output_name == "mtt::some_energy":
+            target_info = core.dataset_info.targets["mtt::some_energy"]
+        else:
+            raise ValueError(f"Unexpected output name {output_name}")
+
+        assert output.sample_kind == target_info.sample_kind
+        assert output.unit == target_info.unit

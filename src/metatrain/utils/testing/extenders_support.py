@@ -88,7 +88,7 @@ class ExtendersSupportTests(ArchitectureTests):
             f" Found {first_target} in the core model's outputs: {core_outputs}"
         )
 
-        requested_inputs = model.extenders[0].requested_target_infos()
+        requested_inputs = model.extenders[0].requested_extender_inputs()
         extender_input = list(requested_inputs)[0]
         assert extender_input in core_outputs, (
             "The core model should have the extender's input as an output."

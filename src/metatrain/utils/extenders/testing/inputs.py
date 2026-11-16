@@ -73,7 +73,7 @@ class InputTests(ExtenderTests):
 
         all_target_infos = {**dataset_info.targets, **dataset_info.extra_data}
 
-        requested_target_infos = extender.requested_target_infos()
+        requested_target_infos = extender.requested_extender_inputs()
         supported_outputs = extender.supported_outputs()
         # requesting every output of the extender must request all its inputs
         requested_inputs = extender.requested_extender_inputs(supported_outputs)

@@ -190,45 +190,33 @@ class IntensiveGap(ExtenderInterface[Hypers]):
                 (-1, *block.values.shape[1:]) for block in out_target.layout.blocks()
             ]
 
-    def requested_target_infos(self) -> dict[str, TargetInfo]:
-        """
-        Returns the list of requested target infos for the extender.
-
-        :return: A list of requested target names.
-        """
-        return self._input_target_infos
-
     def requested_extender_inputs(
-        self, outputs: dict[str, ModelOutput]
-    ) -> dict[str, ModelOutput]:
+        self, outputs: Optional[dict[str, ModelOutput]] = None
+    ) -> dict[str, TargetInfo]:
         """
-        Returns the list of requested inputs for the extender.
+        Returns the inputs that the extender requires to produce some outputs.
 
-        :param outputs: Dictionary of requested outputs. These can contain outputs that
-            are handled by other extenders or the main model. In that case, the extender
-            ignores those outputs.
-        :return: A list of requested input names.
+        :param outputs: Dictionary of the outputs that will be
+            requested to the extender. If ``None``, the extender
+            should return the inputs that it needs to produce all
+            the outputs.
+        :return: A dictionary with all the required inputs.
         """
-        req_inputs: dict[str, ModelOutput] = {}
+        if outputs is None:
+            return self._input_target_infos
+
+        requested_inputs: dict[str, TargetInfo] = {}
         for out_name, out_info in self.out_targets.items():
             if out_name in outputs:
                 info = out_info.layout.info()
                 bottom_name = info["bottom_name"]
                 top_name = info["top_name"]
 
-                req_inputs[bottom_name] = ModelOutput(
-                    quantity=self._input_target_infos[bottom_name].quantity,
-                    unit=self._input_target_infos[bottom_name].unit,
-                    sample_kind="atom",
-                )
+                requested_inputs[bottom_name] = self._input_target_infos[bottom_name]
 
-                req_inputs[top_name] = ModelOutput(
-                    quantity=self._input_target_infos[top_name].quantity,
-                    unit=self._input_target_infos[top_name].unit,
-                    sample_kind="atom",
-                )
+                requested_inputs[top_name] = self._input_target_infos[top_name]
 
-        return req_inputs
+        return requested_inputs
 
     def supported_outputs(self) -> dict[str, TargetInfo]:
         """

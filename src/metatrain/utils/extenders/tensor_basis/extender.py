@@ -205,36 +205,29 @@ class TensorBasis(ExtenderInterface[Hypers]):
             else:
                 self._input_target_infos[input_name] = input_target_info
 
-    def requested_target_infos(self) -> dict[str, TargetInfo]:
-        """
-        Returns the list of requested target infos for the extender.
-
-        :return: A list of requested target names.
-        """
-        return self._input_target_infos
-
     def requested_extender_inputs(
-        self, outputs: dict[str, ModelOutput]
-    ) -> dict[str, ModelOutput]:
+        self, outputs: Optional[dict[str, ModelOutput]] = None
+    ) -> dict[str, TargetInfo]:
         """
-        Returns the list of requested inputs for the extender.
+        Returns the inputs that the extender requires to produce some outputs.
 
-        :param outputs: Dictionary of requested outputs. These can contain outputs that
-            are handled by other extenders or the main model. In that case, the extender
-            ignores those outputs.
-        :return: A list of requested input names.
+        :param outputs: Dictionary of the outputs that will be
+            requested to the extender. If ``None``, the extender
+            should return the inputs that it needs to produce all
+            the outputs.
+        :return: A dictionary with all the required inputs.
         """
-        req_inputs: dict[str, ModelOutput] = {}
+        if outputs is None:
+            return self._input_target_infos
+
+        requested_inputs: dict[str, TargetInfo] = {}
         for out_name in outputs:
             if out_name in self._out_to_input_name:
                 input_name = self._out_to_input_name[out_name]
                 target_info = self._input_target_infos[input_name]
-                req_inputs[input_name] = ModelOutput(
-                    quantity=target_info.quantity,
-                    unit=target_info.unit,
-                    sample_kind="atom",
-                )
-        return req_inputs
+                requested_inputs[input_name] = target_info
+
+        return requested_inputs
 
     def supported_outputs(self) -> dict[str, TargetInfo]:
         """

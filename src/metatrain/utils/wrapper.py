@@ -126,8 +126,11 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             )
 
             requested_inputs = extender.requested_extender_inputs(aux_outputs)
-            aux_outputs.update(requested_inputs)
-            core_outputs.update(requested_inputs)
+            for name, target_info in requested_inputs.items():
+                model_output = target_info.to_model_output()
+                aux_outputs[name] = model_output
+                core_outputs[name] = model_output
+
             for name in extender_outs:
                 core_outputs.pop(name)
 

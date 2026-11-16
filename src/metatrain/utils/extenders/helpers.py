@@ -221,7 +221,7 @@ def setup_extenders(
 
             # Add the inputs that the extender requests to the model outputs,
             # unless they are already present somewhere.
-            requested = extender.requested_target_infos()
+            requested = extender.requested_extender_inputs()
             extra_data_info = dataset_info.extra_data
             for req_name, req_info in requested.items():
                 if req_name in model_outputs:
