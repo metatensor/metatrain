@@ -507,6 +507,7 @@ class PETBackend(torch.nn.Module):
         system_indices: torch.Tensor,
         requested_output_names: List[str],
         per_edge_last_layers: bool = False,
+        head_output_names: Optional[List[str]] = None,
     ) -> Tuple[
         Dict[str, List[torch.Tensor]],
         Dict[str, List[torch.Tensor]],
@@ -526,6 +527,8 @@ class PETBackend(torch.nn.Module):
         :param requested_output_names: Names of the target outputs to compute.
         :param per_edge_last_layers: Whether to apply all the edge last layers to each
             edge before pooling over neighbors.
+        :param head_output_names: Names of additional targets whose heads are
+            evaluated, on top of ``requested_output_names``.
         :return: A tuple ``(atomic_predictions, node_ll_features, edge_ll_features)``
             where ``atomic_predictions`` maps each requested output to a list of
             per-block flat prediction tensors, and the last-layer feature dictionaries
@@ -538,9 +541,16 @@ class PETBackend(torch.nn.Module):
         if any(self.conditioned_last_layers.values()):
             present_types = torch.unique(element_indices_nodes)
 
+        evaluated_heads = list(requested_output_names)
+        if head_output_names is not None:
+            for name in head_output_names:
+                if name not in evaluated_heads:
+                    evaluated_heads.append(name)
+
         node_ll_features, edge_ll_features = self._calculate_last_layer_features(
             node_features_list,
             edge_features_list,
+            evaluated_heads,
         )
 
         node_atomic_predictions_dict, edge_atomic_predictions_dict = (
@@ -743,6 +753,7 @@ class PETBackend(torch.nn.Module):
         self,
         node_features_list: List[torch.Tensor],
         edge_features_list: List[torch.Tensor],
+        head_output_names: List[str],
     ) -> Tuple[Dict[str, List[torch.Tensor]], Dict[str, List[torch.Tensor]]]:
         """
         Apply output-specific heads to node and edge features from each GNN layer.
@@ -750,6 +761,7 @@ class PETBackend(torch.nn.Module):
 
         :param node_features_list: List of node feature tensors from each GNN layer.
         :param edge_features_list: List of edge feature tensors from each GNN layer.
+        :param head_output_names: Names of the outputs whose heads are evaluated.
         :return: Tuple of two dictionaries:
             - Dictionary mapping output names to lists of node last layer features
             - Dictionary mapping output names to lists of edge last layer features
@@ -759,23 +771,23 @@ class PETBackend(torch.nn.Module):
 
         # Calculating node last layer features
         for output_name, node_heads in self.node_heads.items():
-            if output_name not in node_last_layer_features_dict:
+            if output_name in head_output_names:
                 node_last_layer_features_dict[output_name] = []
-            heads_per_readout_layer = self.heads_per_readout_layer[output_name]
-            for i, node_head in enumerate(node_heads):
-                node_last_layer_features_dict[output_name].append(
-                    node_head(node_features_list[i // heads_per_readout_layer])
-                )
+                heads_per_readout_layer = self.heads_per_readout_layer[output_name]
+                for i, node_head in enumerate(node_heads):
+                    node_last_layer_features_dict[output_name].append(
+                        node_head(node_features_list[i // heads_per_readout_layer])
+                    )
 
         # Calculating edge last layer features
         for output_name, edge_heads in self.edge_heads.items():
-            if output_name not in edge_last_layer_features_dict:
+            if output_name in head_output_names:
                 edge_last_layer_features_dict[output_name] = []
-            heads_per_readout_layer = self.heads_per_readout_layer[output_name]
-            for i, edge_head in enumerate(edge_heads):
-                edge_last_layer_features_dict[output_name].append(
-                    edge_head(edge_features_list[i // heads_per_readout_layer])
-                )
+                heads_per_readout_layer = self.heads_per_readout_layer[output_name]
+                for i, edge_head in enumerate(edge_heads):
+                    edge_last_layer_features_dict[output_name].append(
+                        edge_head(edge_features_list[i // heads_per_readout_layer])
+                    )
 
         return node_last_layer_features_dict, edge_last_layer_features_dict
 
