@@ -1,7 +1,7 @@
 .. _concept-extenders:
 
 Using extenders
-===========
+===============
 
 Extenders are a powerful way to extend the functionality of architectures in ``metatrain``.
 
@@ -15,7 +15,7 @@ For a list of available extenders and their functionality, see :ref:`available-e
     feedback is highly appreciated.
 
 What extenders do
--------------
+-----------------
 
 They implement functions that are called in the forward pass, after the core of the
 model. Their purpose is to augment the capabilities of all architectures in a modular
@@ -103,7 +103,7 @@ wants to use the extender to fit a target in their dataset, simply using the def
 behavior of the extender.
 
 Contribute an extender
------------------
+----------------------
 
 Extenders represent a much lower barrier entry than full architectures and the maintainance
 effort required is lower. They are a great way to make published contributions accessible

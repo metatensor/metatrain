@@ -107,7 +107,7 @@ to understand the support of ``metatrain`` for all these different cases.
 .. _extenders-section:
 
 Extenders
-=====
+=========
 
 Another special parameter that you will find in the ``architecture.training`` section is
 the one dedicated to the extenders. Extenders are modules that can be used to augment the
