@@ -423,6 +423,7 @@ class PETBackend(torch.nn.Module):
         cells: torch.Tensor,
         system_indices: torch.Tensor,
         requested_output_names: List[str],
+        head_output_names: List[str],
     ) -> Tuple[
         Dict[str, List[torch.Tensor]],
         Dict[str, List[torch.Tensor]],
@@ -440,6 +441,8 @@ class PETBackend(torch.nn.Module):
             normalize non-conservative stress predictions by cell volume.
         :param system_indices: System index for each atom, shape ``(num_nodes,)``.
         :param requested_output_names: Names of the target outputs to compute.
+        :param head_output_names: Names of the targets whose heads are evaluated. Must
+            include ``requested_output_names``.
         :return: A tuple ``(atomic_predictions, node_ll_features, edge_ll_features)``
             where ``atomic_predictions`` maps each requested output to a list of
             per-block flat prediction tensors, and the last-layer feature dictionaries
@@ -451,6 +454,7 @@ class PETBackend(torch.nn.Module):
         node_ll_features, edge_ll_features = self._calculate_last_layer_features(
             node_features_list,
             edge_features_list,
+            head_output_names,
         )
 
         node_atomic_predictions_dict, edge_atomic_predictions_dict = (
@@ -650,6 +654,7 @@ class PETBackend(torch.nn.Module):
         self,
         node_features_list: List[torch.Tensor],
         edge_features_list: List[torch.Tensor],
+        head_output_names: List[str],
     ) -> Tuple[Dict[str, List[torch.Tensor]], Dict[str, List[torch.Tensor]]]:
         """
         Apply output-specific heads to node and edge features from each GNN layer.
@@ -657,6 +662,7 @@ class PETBackend(torch.nn.Module):
 
         :param node_features_list: List of node feature tensors from each GNN layer.
         :param edge_features_list: List of edge feature tensors from each GNN layer.
+        :param head_output_names: Names of the outputs whose heads are evaluated.
         :return: Tuple of two dictionaries:
             - Dictionary mapping output names to lists of node last layer features
             - Dictionary mapping output names to lists of edge last layer features
@@ -666,21 +672,21 @@ class PETBackend(torch.nn.Module):
 
         # Calculating node last layer features
         for output_name, node_heads in self.node_heads.items():
-            if output_name not in node_last_layer_features_dict:
+            if output_name in head_output_names:
                 node_last_layer_features_dict[output_name] = []
-            for i, node_head in enumerate(node_heads):
-                node_last_layer_features_dict[output_name].append(
-                    node_head(node_features_list[i])
-                )
+                for i, node_head in enumerate(node_heads):
+                    node_last_layer_features_dict[output_name].append(
+                        node_head(node_features_list[i])
+                    )
 
         # Calculating edge last layer features
         for output_name, edge_heads in self.edge_heads.items():
-            if output_name not in edge_last_layer_features_dict:
+            if output_name in head_output_names:
                 edge_last_layer_features_dict[output_name] = []
-            for i, edge_head in enumerate(edge_heads):
-                edge_last_layer_features_dict[output_name].append(
-                    edge_head(edge_features_list[i])
-                )
+                for i, edge_head in enumerate(edge_heads):
+                    edge_last_layer_features_dict[output_name].append(
+                        edge_head(edge_features_list[i])
+                    )
 
         return node_last_layer_features_dict, edge_last_layer_features_dict
 
