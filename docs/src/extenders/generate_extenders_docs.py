@@ -95,9 +95,9 @@ class ExtenderDocVariables(TypedDict):
     documentation."""
 
     extender: str
-    """The name of the extender.
-
-    This excludes any 'experimental.' or 'deprecated.' prefix."""
+    """The name of the extender."""
+    extender_name_for_install: str
+    """Name of the extender, with '_' replaced by '-'."""
     default_hypers_path: str
     """Path to the yaml file with the default hyperparameters for this
     extender.
@@ -179,6 +179,7 @@ def generate_rst(
     # Prepare template variables
     template_variables = dict(
         extender=extender_name,
+        extender_name_for_install=extender_name.replace("_", "-"),
         default_hypers_path=".." / yaml_path.relative_to(EXTENDERS_DIR),
         extender_path=extender_path,
         extender_hypers_path=f"{extender_path}.documentation.Hypers",

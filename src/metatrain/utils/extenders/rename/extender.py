@@ -12,7 +12,7 @@ from .documentation import Hypers
 class Rename(ExtenderInterface[Hypers]):
     """
     Passes the inputs to the outputs without any modification.
-    
+
     It is used to rename targets.
 
     :param hypers: A dictionary with the extender's hyper-parameters.

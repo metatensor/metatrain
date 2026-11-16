@@ -5,7 +5,7 @@ from omegaconf import OmegaConf
 from metatrain.utils.architectures import get_hypers_classes
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.extenders import ExtendersHypers, get_default_hypers
-from metatrain.utils.extenders.rename import Renamer
+from metatrain.utils.extenders.rename import Rename
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
 
@@ -59,10 +59,10 @@ class ExtendersSupportTests(ArchitectureTests):
             OmegaConf.resolve(loss_conf)
             hypers["training"]["loss"] = loss_conf
 
-        # Ask for an identity extender that handles the first target of the dataset.
+        # Ask for an rename extender that handles the first target of the dataset.
         first_target = list(dataset_info.targets)[0]
-        extenders_hypers = {"identity": get_default_hypers("identity")}
-        extenders_hypers["identity"]["outputs"] = first_target
+        extenders_hypers = {"rename": get_default_hypers("rename")}
+        extenders_hypers["rename"]["outputs"] = first_target
         hypers["training"]["extenders"] = extenders_hypers
 
         # Setup model
@@ -74,7 +74,7 @@ class ExtendersSupportTests(ArchitectureTests):
             f" Found {len(model.extenders)} forward extenders instead."
         )
 
-        assert isinstance(model.extenders[0], Renamer), (
+        assert isinstance(model.extenders[0], Rename), (
             "The model's forward extender should be an instance of Identity."
             f" Found {type(model.extenders[0])} instead."
         )
