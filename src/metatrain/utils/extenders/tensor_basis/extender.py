@@ -1,8 +1,8 @@
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
-from metatomic.torch import ModelOutput, System
+from metatomic.torch import ModelOutput, NeighborListOptions, System
 
 from metatrain.soap_bpnn.documentation import SOAPConfig
 from metatrain.soap_bpnn.modules.tensor_basis import TensorBasis as TensorBasisModule
@@ -16,7 +16,7 @@ from .documentation import Hypers
 
 
 def concatenate_structures(
-    systems: list[System],
+    systems: list[System], requested_nl: NeighborListOptions
 ) -> tuple[
     torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
 ]:
@@ -24,6 +24,7 @@ def concatenate_structures(
     Concatenate a list of systems into a single batch.
 
     :param systems: List of systems to concatenate.
+    :param requested_nl: The neighbor list that was requested by the tensor basis.
     :return: A tuple containing the concatenated positions, centers, neighbors,
         species, cells, and cell shifts.
     """
@@ -39,7 +40,7 @@ def concatenate_structures(
         positions.append(system.positions)
         species.append(system.types)
 
-        neighbor_list = system.get_neighbor_list(system.known_neighbor_lists()[0])
+        neighbor_list = system.get_neighbor_list(requested_nl)
         nl_values = neighbor_list.samples.values
 
         centers.append(nl_values[:, 0] + node_counter)
@@ -81,7 +82,12 @@ class TensorBasis(ExtenderInterface[Hypers]):
     def __init__(self, hypers: Hypers, dataset_info: DatasetInfo):
         super().__init__(hypers, dataset_info)
 
-        self.hypers = hypers
+        self.requested_nl = NeighborListOptions(
+            cutoff=self.hypers["soap"]["cutoff"]["radius"],
+            full_list=True,
+            strict=True,
+            requestor="TensorBasis",
+        )
 
         # Helper to map from atomic number to the index of that atomic
         # number in the list of atomic types.
@@ -229,6 +235,11 @@ class TensorBasis(ExtenderInterface[Hypers]):
 
         return requested_inputs
 
+    def requested_neighbor_lists(
+        self,
+    ) -> List[NeighborListOptions]:
+        return [self.requested_nl]
+
     def supported_outputs(self) -> dict[str, TargetInfo]:
         """
         Returns the supported outputs for the extender.
@@ -277,7 +288,7 @@ class TensorBasis(ExtenderInterface[Hypers]):
             species,
             cells,
             cell_shifts,
-        ) = concatenate_structures(systems)
+        ) = concatenate_structures(systems, self.requested_nl)
         species = self.species_to_species_index[species]
 
         # somehow the backward of this operation is very slow at evaluation,
