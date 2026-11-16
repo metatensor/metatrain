@@ -15,7 +15,18 @@ class ExtenderInterface(torch.nn.Module, Generic[HypersType], metaclass=ABCMeta)
     """
     Abstract base class for an extender in metatrain.
 
-    All extenders in metatrain must be implemented as sub-class of this class,
+    Extenders are a way to enhance the functionality of architectures in
+    metatrain. They implement functions that are modular and therefore
+    can be applied to any architecture that supports extenders. Extenders
+    can, for example, allow an architecture to produce an output that it
+    wouldn't be able to produce natively.
+
+    Extenders communicate with models and other architectures purely by
+    exchanging data on which inputs and outputs they support. On forward,
+    an extender receives all the inputs that it has requested and should
+    produce the outputs it has been asked to compute.
+
+    All extenders in metatrain must be implemented as a sub-class of this class,
     and implement the corresponding methods.
 
     :param hypers: A dictionary with the extender's hyper-parameters.
