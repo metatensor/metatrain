@@ -522,6 +522,13 @@ def upgrade_checkpoint(checkpoint: dict) -> dict:
         # architectures other than PET and LLPR.
         upgrade_legacy_non_conservative_force(checkpoint)
 
+    # The MetatrainModel wrapper keeps its own dataset info beside `core`, and that
+    # dict carries no architecture name of its own, so the rename above would skip it.
+    # Leaving it behind splits the model in two: the architecture would know the target
+    # under the new name while the wrapper still announced the old one.
+    elif isinstance(checkpoint, dict) and "dataset_info" in checkpoint:
+        upgrade_legacy_non_conservative_force(checkpoint)
+
     # Continue to recursively search for models in the checkpoint and upgrade them.
     if isinstance(checkpoint, dict):
         for k, v in checkpoint.items():
