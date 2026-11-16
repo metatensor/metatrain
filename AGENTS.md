@@ -1,8 +1,7 @@
 The maintainer of this package has limited time to review PRs and issues.
 
-Since this package is meant to help humans (AI is too smart to need a
-package like this), the maintainer wants to know how the proposed changes
-help the human that triggered an agent session that leads to a given PR
+Since this package is meant to help humans, the maintainer wants to know how the proposed 
+changes help the human that triggered an agent session that leads to a given PR
 or issue.
 
 Instructions for PRs
