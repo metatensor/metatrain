@@ -145,9 +145,13 @@ def upgrade_legacy_non_conservative_force(checkpoint: dict) -> None:
 
     :param checkpoint: Checkpoint dictionary to update.
     """
+    # architectures keep their dataset info under `model_data`, while the checkpoint
+    # that the LLPR wrapper stores for the model it wraps keeps it at the top level
     model_data = checkpoint.get("model_data")
-    if isinstance(model_data, dict):
-        dataset_info = model_data.get("dataset_info")
+    for holder in (model_data if isinstance(model_data, dict) else None, checkpoint):
+        if holder is None:
+            continue
+        dataset_info = holder.get("dataset_info")
         if dataset_info is not None and hasattr(dataset_info, "targets"):
             targets = dataset_info.targets
             if (
