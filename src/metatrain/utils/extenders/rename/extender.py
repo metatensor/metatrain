@@ -9,9 +9,11 @@ from ..abc import ExtenderInterface
 from .documentation import Hypers
 
 
-class Identity(ExtenderInterface[Hypers]):
+class Rename(ExtenderInterface[Hypers]):
     """
     Passes the inputs to the outputs without any modification.
+    
+    It is used to rename targets.
 
     :param hypers: A dictionary with the extender's hyper-parameters.
     :param dataset_info: Information containing details about the dataset, such as
@@ -28,7 +30,7 @@ class Identity(ExtenderInterface[Hypers]):
         if isinstance(out_names, str):
             out_names = [out_names]
         if out_names is None:
-            raise ValueError("Identity extender requires at least one output target")
+            raise ValueError("Rename extender requires at least one output target")
 
         # Get the information for the input targets.
         input_names = hypers["inputs"]
@@ -36,13 +38,13 @@ class Identity(ExtenderInterface[Hypers]):
             input_names = [input_names]
         elif input_names is None:
             input_names = [
-                f"mtt::extender_aux::identity::{out_name.replace('mtt::', '')}"
+                f"mtt::extender_aux::rename::{out_name.replace('mtt::', '')}"
                 for out_name in out_names
             ]
 
         if len(input_names) != len(out_names):
             raise ValueError(
-                f"Identity extender expects the same number of input and output "
+                f"Rename extender expects the same number of input and output "
                 f"targets, but got {len(input_names)} inputs and "
                 f"{len(out_names)} outputs"
             )
@@ -55,17 +57,17 @@ class Identity(ExtenderInterface[Hypers]):
             if in_name in all_targets and out_name in all_targets:
                 if all_targets[in_name] != all_targets[out_name]:
                     raise ValueError(
-                        f"Identity extender found both the input '{in_name}' "
+                        f"Rename extender found both the input '{in_name}' "
                         f"and the output '{out_name}' in the dataset, "
                         "but they have different layouts. To be able to apply "
-                        "the identity extender, the input and output must have the "
+                        "the rename extender, the input and output must have the "
                         "same layout."
                     )
                 else:
                     target = all_targets[in_name]
             elif out_name not in all_targets and in_name not in all_targets:
                 raise ValueError(
-                    f"Identity extender expects the output '{out_name}' or the input "
+                    f"Rename extender expects the output '{out_name}' or the input "
                     f"'{in_name}' to be present in the dataset targets, but neither "
                     f"was found."
                 )
@@ -136,7 +138,7 @@ class Identity(ExtenderInterface[Hypers]):
     def get_checkpoint(self, best_state_dict: Optional[dict[str, Any]] = None) -> dict:
         state_dict = self.state_dict()
         return {
-            "extender_name": "identity",
+            "extender_name": "rename",
             "extender_ckpt_version": self.__checkpoint_version__,
             "extender_data": {
                 "hypers": self.hypers,
@@ -146,7 +148,7 @@ class Identity(ExtenderInterface[Hypers]):
         }
 
     @classmethod
-    def load_checkpoint(cls, checkpoint: dict[str, Any], context: str) -> "Identity":
+    def load_checkpoint(cls, checkpoint: dict[str, Any], context: str) -> "Rename":
         if checkpoint["extender_ckpt_version"] != cls.__checkpoint_version__:
             raise ValueError(
                 f"Invalid checkpoint version for the extender: "

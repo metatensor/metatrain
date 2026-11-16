@@ -111,4 +111,4 @@ to the whole ``metatrain`` community across all architectures.
 
 Therefore, if you have a functionality that you think would be useful to the community,
 don't hesitate to contribute an extender!  To get an idea of what is required, you can
-check the simplest of all extenders: :ref:`the identity extender <extender-identity>`.
+check the simplest of all extenders: :ref:`the rename extender <extender-rename>`.

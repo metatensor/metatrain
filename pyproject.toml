@@ -101,7 +101,7 @@ lorem = [
 ]
 
 # Extras for extenders.
-extender-identity = []
+extender-rename = []
 extender-global_multipoles = []
 extender-intensive_gap = []
 extender-tensor_basis = [

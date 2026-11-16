@@ -48,7 +48,7 @@ def test_find_all_extenders():
     assert isinstance(extenders, list)
     assert all(isinstance(extender, str) for extender in extenders)
     assert len(extenders) == 4
-    assert "identity" in extenders
+    assert "rename" in extenders
     assert "global_multipoles" in extenders
     assert "intensive_gap" in extenders
     assert "tensor_basis" in extenders
@@ -70,8 +70,8 @@ class TestSetupExtenders:
         """Simplest test of an extender owning a single output, and its inputs
         are created so that the model can produce them."""
 
-        hypers = {"identity": get_default_hypers("identity")}
-        hypers["identity"]["outputs"] = "mtt::local_energy"
+        hypers = {"rename": get_default_hypers("rename")}
+        hypers["rename"]["outputs"] = "mtt::local_energy"
 
         dataset_info = dataset_info.copy()
 
@@ -90,9 +90,9 @@ class TestSetupExtenders:
         This means that the target will flow to the loss function,
         but still we can use it as input to an extender.
         """
-        hypers = {"identity": get_default_hypers("identity")}
-        hypers["identity"]["outputs"] = "mtt::local_energy"
-        hypers["identity"]["inputs"] = "mtt::some_other_energy"
+        hypers = {"rename": get_default_hypers("rename")}
+        hypers["rename"]["outputs"] = "mtt::local_energy"
+        hypers["rename"]["inputs"] = "mtt::some_other_energy"
 
         dataset_info = dataset_info.copy()
 
@@ -111,9 +111,9 @@ class TestSetupExtenders:
         """Test that extenders can get their inputs from the extra data, and
         that in that case they don't add an output to the model."""
 
-        hypers = {"identity": get_default_hypers("identity")}
-        hypers["identity"]["outputs"] = "mtt::local_energy"
-        hypers["identity"]["inputs"] = "mtt::extra_energy"
+        hypers = {"rename": get_default_hypers("rename")}
+        hypers["rename"]["outputs"] = "mtt::local_energy"
+        hypers["rename"]["inputs"] = "mtt::extra_energy"
 
         dataset_info = dataset_info.copy()
 
@@ -133,12 +133,12 @@ class TestSetupExtenders:
         as an input by the followinf extenders."""
 
         hypers = {
-            "identity": get_default_hypers("identity"),
+            "rename": get_default_hypers("rename"),
             "intensive_gap": get_default_hypers("intensive_gap"),
         }
 
-        hypers["identity"]["inputs"] = "mtt::local_energy"
-        hypers["identity"]["outputs"] = "mtt::gap_bottom"
+        hypers["rename"]["inputs"] = "mtt::local_energy"
+        hypers["rename"]["outputs"] = "mtt::gap_bottom"
         hypers["intensive_gap"]["inputs"] = {"bottom": "mtt::gap_bottom"}
         hypers["intensive_gap"]["outputs"] = "energy"
 
@@ -175,11 +175,11 @@ class TestSetupExtenders:
 
         hypers = {
             "intensive_gap": get_default_hypers("intensive_gap"),
-            "identity": get_default_hypers("identity"),
+            "rename": get_default_hypers("rename"),
         }
         hypers["intensive_gap"]["outputs"] = "mtt::intermediate_energy"
-        hypers["identity"]["inputs"] = "mtt::intermediate_energy"
-        hypers["identity"]["outputs"] = "energy"
+        hypers["rename"]["inputs"] = "mtt::intermediate_energy"
+        hypers["rename"]["outputs"] = "energy"
 
         dataset_info = dataset_info.copy()
 

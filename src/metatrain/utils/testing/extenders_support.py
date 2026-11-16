@@ -5,7 +5,7 @@ from omegaconf import OmegaConf
 from metatrain.utils.architectures import get_hypers_classes
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.extenders import ExtendersHypers, get_default_hypers
-from metatrain.utils.extenders.identity import Identity
+from metatrain.utils.extenders.rename import Renamer
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
 
@@ -74,7 +74,7 @@ class ExtendersSupportTests(ArchitectureTests):
             f" Found {len(model.extenders)} forward extenders instead."
         )
 
-        assert isinstance(model.extenders[0], Identity), (
+        assert isinstance(model.extenders[0], Renamer), (
             "The model's forward extender should be an instance of Identity."
             f" Found {type(model.extenders[0])} instead."
         )

@@ -8,7 +8,7 @@ from metatrain.utils.extenders.testing.torchscript import TorchscriptTests
 
 
 class IdentityTests(ExtenderTests):
-    extender = "identity"
+    extender = "rename"
 
     @pytest.fixture
     def hypers(self):
@@ -21,13 +21,13 @@ class IdentityTests(ExtenderTests):
         if input is None:
             output_name = output["energy"]
             input_name = (
-                f"mtt::extender_aux::identity::{output_name.replace('mtt::', '')}"
+                f"mtt::extender_aux::rename::{output_name.replace('mtt::', '')}"
             )
             return {**hypers, "outputs": output_name}, [input_name], [output_name]
         elif output is None:
             input_name = input["energy"]
             output_name = (
-                f"mtt::extender_aux::identity::{input_name.replace('mtt::', '')}"
+                f"mtt::extender_aux::rename::{input_name.replace('mtt::', '')}"
             )
             return {**hypers, "inputs": input_name}, [input_name], [output_name]
         else:

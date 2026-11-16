@@ -1,8 +1,10 @@
 """
-Identity
-========
+Rename
+======
 
 This extender just passes the inputs to the outputs without any modification.
+
+It is used to rename targets.
 
 For someone who wants to understand how extenders work or wants to implement
 their own extender, this is the best point to start, as it is the simplest
@@ -18,14 +20,14 @@ from typing_extensions import TypedDict
 
 class Hypers(TypedDict):
     """
-    Hyperparameters for the identity extender.
+    Hyperparameters for the rename extender.
     """
 
     inputs: Optional[str | list[str]] = None
     """The names of the inputs to be passed to the outputs.
 
     If ``None``, they will be set as
-    ``mtt::extender_aux::identity::{output_name.replace('mtt::', '')}``
+    ``mtt::extender_aux::rename::{output_name.replace('mtt::', '')}``
     for each output name.
     """
 
