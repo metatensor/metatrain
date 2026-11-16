@@ -4,6 +4,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 
 from metatrain.scaler.checkpoints import update_per_property_scales
 from metatrain.utils.data.atomic_basis_helpers import densify_atomic_basis_dataset_info
+from metatrain.utils.data.legacy_names import upgrade_legacy_non_conservative_force
 
 
 ###########################
@@ -437,6 +438,20 @@ def model_update_v18_v19(checkpoint: dict) -> None:
     model_hypers = checkpoint["model_data"]["model_hypers"]
     if "smooth_attention_cutoff" not in model_hypers:
         model_hypers["smooth_attention_cutoff"] = False
+
+
+def model_update_v19_v20(checkpoint: dict) -> None:
+    """
+    Update a v19 checkpoint to v20.
+
+    Rename the legacy ``non_conservative_forces`` property label (and target key,
+    when still plural) to ``non_conservative_force``. Checkpoints saved before the
+    rename keep the plural name, which no longer matches the layouts built for
+    fine-tuning.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    upgrade_legacy_non_conservative_force(checkpoint)
 
 
 ###########################

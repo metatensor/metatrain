@@ -1,5 +1,6 @@
 import torch
 
+from metatrain.utils.data.legacy_names import upgrade_legacy_non_conservative_force
 from metatrain.utils.io import _ckpt_from_arch_ckpt
 
 
@@ -165,6 +166,19 @@ def model_update_v6_v7(checkpoint: dict) -> None:
             else:
                 new_state_dict[key] = value
         checkpoint[state_dict_name] = new_state_dict
+
+
+def model_update_v7_v8(checkpoint: dict) -> None:
+    """
+    Update a v7 checkpoint to v8.
+
+    Rename the legacy ``non_conservative_forces`` property label to
+    ``non_conservative_force`` in this wrapper's dataset info and in the wrapped
+    model checkpoint.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    upgrade_legacy_non_conservative_force(checkpoint)
 
 
 def trainer_update_v1_v2(checkpoint: dict) -> None:
