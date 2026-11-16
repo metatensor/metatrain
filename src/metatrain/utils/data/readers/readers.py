@@ -116,11 +116,23 @@ def read_extra_data(
         the config as well as a ``Dict[str, TargetInfo]`` object containing the metadata
         of the extra data.
     """
-    return _read_conf_section(
+    data_dict, info_dict = _read_conf_section(
         conf,
         decide_reader=_decide_generic_reader,
         validate_key=_no_validate,
     )
+
+    # Missing targets are read as NaN, but extra data is an input and can not be
+    # missing for any system.
+    for key, tensor_maps in data_dict.items():
+        for i_system, tensor_map in enumerate(tensor_maps):
+            if all(torch.all(torch.isnan(block.values)) for block in tensor_map):
+                raise ValueError(
+                    f"Extra data {key!r} is missing for system {i_system}. Extra data "
+                    "must be given for all systems."
+                )
+
+    return data_dict, info_dict
 
 
 def _read_conf_section(

@@ -101,6 +101,10 @@ Added
   behavior is available with ``smooth_attention_cutoff: false``, and is kept for
   existing checkpoints.
 - The experimental DPA3 architecture can now be used with LLPR (#1335).
+- ASE-readable files can contain energies, forces and generic targets that are
+  missing for some structures, which are set to NaN. Before, a missing energy or
+  generic target raised an error, and forces missing from one structure disabled the
+  forces for the whole dataset.
 - SPACE models can now be fine-tuned on targets they were not trained on, optionally
   initializing the new heads from existing ones with ``inherit_heads``.
 - Added ``experimental.lorem`` architecture (*Learning Long-Range

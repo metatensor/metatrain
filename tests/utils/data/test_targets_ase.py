@@ -81,31 +81,12 @@ def test_read_energy_ase(tmpdir):
     [
         (_read_energy_ase, "energy"),
         (_read_forces_ase, "forces"),
-    ],
-)
-def test_ase_key_errors(func, target_name, monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-
-    filename = "systems.xyz"
-
-    systems = ase_systems()
-    ase.io.write(filename, systems)
-
-    match = f"{target_name} key 'foo' was not found in system {filename!r} at index 0"
-
-    with pytest.raises(ValueError, match=match):
-        func(filename=filename, key="foo")
-
-
-@pytest.mark.parametrize(
-    "func, target_name",
-    [
         (_read_virial_ase, "virial"),
         (_read_stress_ase, "stress"),
     ],
 )
-def test_ase_key_errors_stress_virial(func, target_name, monkeypatch, tmp_path):
-    """Stress/virial only raise if the key is missing from all systems."""
+def test_ase_key_errors(func, target_name, monkeypatch, tmp_path):
+    """Readers only raise if the key is missing from all systems."""
     monkeypatch.chdir(tmp_path)
 
     filename = "systems.xyz"
@@ -119,22 +100,33 @@ def test_ase_key_errors_stress_virial(func, target_name, monkeypatch, tmp_path):
         func(filename=filename, key="foo")
 
 
-@pytest.mark.parametrize("func", [_read_virial_ase, _read_stress_ase])
-def test_ase_missing_stress_virial_is_nan(func, monkeypatch, tmp_path, caplog):
-    """Systems without stress/virial get NaN values, the others are read as usual."""
+@pytest.mark.parametrize(
+    "func, key, shape",
+    [
+        (_read_energy_ase, "energy", (1, 1)),
+        (_read_forces_ase, "forces", (2, 3, 1)),
+        (_read_virial_ase, "stress", (1, 3, 3, 1)),
+        (_read_stress_ase, "stress", (1, 3, 3, 1)),
+    ],
+)
+def test_ase_missing_values_are_nan(func, key, shape, monkeypatch, tmp_path, caplog):
+    """Systems without the key get NaN values, the others are read as usual."""
     monkeypatch.chdir(tmp_path)
 
     filename = "systems.xyz"
 
     systems = ase_systems()
-    del systems[1].info["stress"]
+    if key in systems[1].info:
+        del systems[1].info[key]
+    else:
+        del systems[1].arrays[key]
     ase.io.write(filename, systems)
 
-    results = func(filename=filename, key="stress")
+    results = func(filename=filename, key=key)
 
     assert len(results) == 2
     assert not torch.any(torch.isnan(results[0].values))
-    assert results[1].values.shape == (1, 3, 3, 1)
+    assert results[1].values.shape == shape
     assert torch.all(torch.isnan(results[1].values))
     assert "was not found in 1 out of 2 systems" in caplog.text
 

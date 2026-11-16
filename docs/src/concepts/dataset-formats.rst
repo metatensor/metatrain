@@ -51,6 +51,11 @@ matrix; other result shapes are unchanged.
     ``key: initial_charges`` for these per-atom targets with ASE 3.22. With ASE 3.23
     and newer, use ``key: charges``.
 
+A target (energy, forces, stress or generic target) can be missing from some
+structures, by leaving out its key. Its values for these structures are set to NaN and
+ignored during training, as for the other formats. The key must be present in at least
+one structure. Extra data must be present in every structure.
+
 Targets can also be read from metatensor ``.mts`` files (one ``TensorMap`` per
 structure) by setting the target's ``read_from`` option to the corresponding file. See
 :ref:`train_yaml_config` for the full data configuration reference and
