@@ -100,6 +100,16 @@ lorem = [
     "wigners",
 ]
 
+# Extras for extenders.
+extender-identity = []
+extender-global_multipoles = []
+extender-intensive_gap = []
+extender-tensor_basis = [
+    "torch-spex>=0.1,<0.2",
+    'sphericart-torch >=2.0.3',
+    "wigners",
+]
+
 [tool.check-manifest]
 ignore = ["src/metatrain/_version.py"]
 

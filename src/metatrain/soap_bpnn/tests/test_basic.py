@@ -8,7 +8,7 @@ from metatrain.utils.testing import (
     AutogradTests,
     CheckpointTests,
     ExportedTests,
-    HooksSupportTests,
+    ExtendersSupportTests,
     InputTests,
     OutputTests,
     TorchscriptTests,
@@ -62,7 +62,7 @@ class TestOutput(OutputTests, SoapBPNNTests):
         return 0.0
 
 
-class TestHooksSupport(HooksSupportTests, SoapBPNNTests): ...
+class TestExtendersSupport(ExtendersSupportTests, SoapBPNNTests): ...
 
 
 class TestAutograd(AutogradTests, SoapBPNNTests):

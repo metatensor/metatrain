@@ -9,7 +9,7 @@ from metatrain.utils.testing import (
     AutogradTests,
     CheckpointTests,
     ExportedTests,
-    HooksSupportTests,
+    ExtendersSupportTests,
     InputTests,
     OutputTests,
     TorchscriptTests,
@@ -77,7 +77,7 @@ class TestOutput(OutputTests, PETTests):
         return model_hypers["d_head"] * num_readout_layers * 2
 
 
-class TestHooksSupport(HooksSupportTests, PETTests): ...
+class TestExtendersSupport(ExtendersSupportTests, PETTests): ...
 
 
 class TestAutograd(AutogradTests, PETTests): ...

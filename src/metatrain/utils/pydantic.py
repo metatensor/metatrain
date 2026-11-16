@@ -14,8 +14,8 @@ from typing_extensions import NotRequired
 
 from ..share import base_hypers
 from ..share.base_hypers import BaseHypers, EvalHypers, sanitize_architecture_hypers
-from .hooks import augment_hooks_annotations
-from .hooks.helpers import find_all_hooks
+from .extenders import augment_extenders_annotations
+from .extenders.helpers import find_all_extenders
 from .hypers import init_with_defaults
 
 
@@ -154,8 +154,8 @@ class MetatrainArchitectureValidationError(MetatrainValidationError):
 
         return f"https://docs.metatensor.org/metatrain/latest/architectures/generated/{architecture_name}.html#metatrain.{self._architecture}.documentation.{cls}"
 
-    def hook_link(self, hook_name: str) -> str:
-        return f"https://docs.metatensor.org/metatrain/latest/hooks/generated/{hook_name}.html#metatrain.utils.hooks.{hook_name}.documentation.Hypers"
+    def extender_link(self, extender_name: str) -> str:
+        return f"https://docs.metatensor.org/metatrain/latest/extenders/generated/{extender_name}.html#metatrain.utils.extenders.{extender_name}.documentation.Hypers"
 
     def get_error_string(self, error: dict) -> str:
         """Given an individual error from Pydantic, return a user-friendly string.
@@ -173,20 +173,21 @@ class MetatrainArchitectureValidationError(MetatrainValidationError):
         field = error["loc"][1]
         cls = "ModelHypers" if hyper_type == "model" else "TrainerHypers"
 
-        if hyper_type == "training" and field == "forward_hooks":
-            available_hooks = find_all_hooks()
-            hook_field = error["loc"][2]
-            if hook_field in available_hooks:
-                hook_link = self.hook_link(hook_field)
+        if hyper_type == "training" and field == "extenders":
+            available_extenders = find_all_extenders()
+            ext_field = error["loc"][2]
+            if ext_field in available_extenders:
+                extender_link = self.extender_link(ext_field)
                 if error["type"] == "extra_forbidden":
                     # This is a field that was not expected
                     error_loc = error["loc"]
                     field = error_loc[-1]
                     return (
-                        f"Unrecognized option '{field}' for '{hook_field}' "
-                        "hook hyperparameters."
-                        f"\n  For the available options of the '{hook_field}' hook see:"
-                        f"\n    {hook_link}"
+                        f"Unrecognized option '{field}' for '{ext_field}' "
+                        "extender hyperparameters."
+                        f"\n  For the available options of the '{ext_field}' extender, "
+                        "see:"
+                        f"\n    {extender_link}"
                     )
                 else:
                     # Rest of cases.
@@ -203,8 +204,8 @@ class MetatrainArchitectureValidationError(MetatrainValidationError):
 
                     msg += (
                         f"\n  For the documentation of the '{field}' hyper of the "
-                        f"'{hook_field}' hook, see:"
-                        f"\n    {hook_link}.{field}"
+                        f"'{ext_field}' extender, see:"
+                        f"\n    {extender_link}.{field}"
                         "\n  To understand this pydantic validation error in general"
                         ", see:"
                         f"\n    {error['url']}"
@@ -212,12 +213,12 @@ class MetatrainArchitectureValidationError(MetatrainValidationError):
                     return msg
             else:
                 return (
-                    f"Unrecognized hook '{hook_field}' passed to "
-                    "'training.forward_hooks'."
-                    f"\n  The available hooks are:"
-                    f"\n    {available_hooks}"
+                    f"Unrecognized extender '{ext_field}' passed to "
+                    "'training.extenders'."
+                    f"\n  The available extenders are:"
+                    f"\n    {available_extenders}"
                     f"\n  See here for their documentation:"
-                    f"\n    https://docs.metatensor.org/metatrain/latest/hooks/index.html"
+                    f"\n    https://docs.metatensor.org/metatrain/latest/extenders/index.html"
                 )
 
         arch_link = self.architecture_link(cls)
@@ -332,9 +333,9 @@ def validate_architecture_options(
         )
         return options
 
-    # Make sure we get validation specifically for the hooks that
+    # Make sure we get validation specifically for the extenders that
     # are being used.
-    trainer_hypers = augment_hooks_annotations(
+    trainer_hypers = augment_extenders_annotations(
         trainer_hypers, options.get("training", {})
     )
 

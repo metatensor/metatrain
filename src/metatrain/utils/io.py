@@ -17,7 +17,7 @@ from .architectures import (
     get_default_hypers,
     import_architecture,
 )
-from .hooks.helpers import load_hook
+from .extenders.helpers import load_extender
 from .wrapper import MetatrainModel
 
 
@@ -252,9 +252,9 @@ def model_from_checkpoint(
         if checkpoint["scaler"] is not None
         else None,
         dataset_info=checkpoint["dataset_info"],
-        forward_hooks=[
-            hook_from_checkpoint(hook_checkpoint, context=context)
-            for hook_checkpoint in checkpoint.get("forward_hooks", [])
+        extenders=[
+            extender_from_checkpoint(extender_checkpoint, context=context)
+            for extender_checkpoint in checkpoint.get("extenders", [])
         ],
         metadata=checkpoint.get("metadata", None),
     )
@@ -301,11 +301,11 @@ def arch_model_from_checkpoint(
     return model_cls.load_checkpoint(checkpoint, context=context)
 
 
-def hook_from_checkpoint(
+def extender_from_checkpoint(
     checkpoint: Dict[str, Any], context: Literal["restart", "finetune", "export"]
 ) -> ModelInterface:
     """
-    Load a hook from a checkpoint.
+    Load an extender from a checkpoint.
 
     :param checkpoint: checkpoint dictionary to load the model
     :param context: context in which the model is loaded
@@ -314,8 +314,8 @@ def hook_from_checkpoint(
     """
 
     # checkpoint = upgrade_checkpoint(checkpoint)
-    hook_name = checkpoint["hook_name"]
-    model_cls = load_hook(hook_name)
+    extender_name = checkpoint["extender_name"]
+    model_cls = load_extender(extender_name)
 
     return model_cls.load_checkpoint(checkpoint, context=context)
 

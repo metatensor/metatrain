@@ -11,7 +11,7 @@ from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 from metatrain.utils.testing import (
     ArchitectureTests,
     CheckpointTests,
-    HooksSupportTests,
+    ExtendersSupportTests,
     InputTests,
     OutputTests,
     TorchscriptTests,
@@ -63,7 +63,7 @@ class TestOutput(OutputTests, SPACETests):
         return defaults
 
 
-class TestHooksSupport(HooksSupportTests, SPACETests): ...
+class TestExtendersSupport(ExtendersSupportTests, SPACETests): ...
 
 
 class TestTorchscript(TorchscriptTests, SPACETests):

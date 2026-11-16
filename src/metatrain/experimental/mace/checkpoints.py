@@ -158,9 +158,9 @@ def trainer_update_v3_v4(checkpoint: dict) -> None:
 
 def trainer_update_v4_v5(checkpoint: dict) -> None:
     """
-    Adds the forward hooks hyperparameter to the trainer hypers.
+    Adds the extenders hyperparameter to the trainer hypers.
 
     :param checkpoint: The checkpoint to update.
     """
     train_hypers = checkpoint["train_hypers"]
-    train_hypers["forward_hooks"] = {}
+    train_hypers["extenders"] = {}

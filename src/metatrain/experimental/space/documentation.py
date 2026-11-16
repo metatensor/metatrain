@@ -75,7 +75,7 @@ from typing_extensions import NotRequired, TypedDict
 from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.pet.modules.finetuning import FinetuneHypers, NoFinetuneHypers
 from metatrain.scaler.documentation import FixedScalerWeights
-from metatrain.utils.hooks import HooksHypers
+from metatrain.utils.extenders import ExtendersHypers
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.loss import LossSpecification
 
@@ -429,8 +429,8 @@ class TrainerHypers(TypedDict):
             rank: 8
             alpha: 16
     """
-    forward_hooks: HooksHypers = {}
-    """Hooks that the model needs to apply at the end of forward.
+    extenders: ExtendersHypers = {}
+    """Extenders to be used for training the model.
 
-    See :ref:`concept-hooks` for more details.
+    See :ref:`concept-extenders` for more details.
     """

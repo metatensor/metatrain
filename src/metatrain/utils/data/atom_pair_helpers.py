@@ -184,21 +184,21 @@ def get_pair_target_neighborlist(
         return req_nls[0]
     else:
         nl = None
-        for hook in model.forward_hooks:
+        for extender in model.extenders:
             if any(
                 out.sample_kind == "atom_pair"
-                for out in hook.supported_outputs().values()
+                for out in extender.supported_outputs().values()
             ):
-                req_nls = hook.requested_neighbor_lists()
+                req_nls = extender.requested_neighbor_lists()
                 if len(req_nls) > 1:
                     raise ValueError(
-                        "Hook has multiple requested neighbor lists, can't determine"
-                        "which one to use for atom_pair targets."
+                        "Extender has multiple requested neighbor lists, can't"
+                        " determine which one to use for atom_pair targets."
                     )
                 if nl is not None:
                     raise ValueError(
-                        "Multiple hooks have atom_pair targets, can't determine which"
-                        "one to take the neighbor list from."
+                        "Multiple extenders have atom_pair targets, can't determine"
+                        " whichone to take the neighbor list from."
                     )
                 nl = req_nls[0]
         return nl

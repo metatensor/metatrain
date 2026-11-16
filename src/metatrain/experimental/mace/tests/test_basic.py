@@ -18,7 +18,7 @@ from metatrain.utils.testing import (
     AutogradTests,
     CheckpointTests,
     ExportedTests,
-    HooksSupportTests,
+    ExtendersSupportTests,
     InputTests,
     OutputTests,
     TorchscriptTests,
@@ -197,7 +197,7 @@ class TestOutput(OutputTests, MACETests):
         )
 
 
-class TestHooksSupport(HooksSupportTests, MACETests): ...
+class TestExtendersSupport(ExtendersSupportTests, MACETests): ...
 
 
 class TestAutograd(AutogradTests, MACETests):

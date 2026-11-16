@@ -11,11 +11,11 @@ from typing_extensions import TypedDict
 
 from metatrain.share.base_hypers import BaseHypers
 from metatrain.utils.architectures import preload_documentation_module
-from metatrain.utils.hooks import (
-    HooksHypers,
+from metatrain.utils.extenders import (
+    ExtendersHypers,
 )
-from metatrain.utils.hooks import (
-    get_default_hypers as get_hook_default_hypers,
+from metatrain.utils.extenders import (
+    get_default_hypers as get_extender_default_hypers,
 )
 from metatrain.utils.pydantic import (
     MetatrainArchitectureValidationError,
@@ -43,18 +43,18 @@ def simple_hypers_class(request: pytest.FixtureRequest):
 
 
 @pytest.fixture(params=["typed_dict", "pydantic_model"])
-def hypers_class_with_hooks(request: pytest.FixtureRequest):
+def hypers_class_with_extenders(request: pytest.FixtureRequest):
     if request.param == "typed_dict":
 
         class Hypers(TypedDict):
             a: float = 2.0
-            hooks_input: HooksHypers = {}
+            extenders_input: ExtendersHypers = {}
 
     elif request.param == "pydantic_model":
 
         class Hypers(BaseModel):
             a: float = 2.0
-            hooks_input: HooksHypers = {}
+            extenders_input: ExtendersHypers = {}
 
     return Hypers
 
@@ -133,21 +133,21 @@ def test_validate_architecture_options_warning(caplog):
 
 
 # ============================================================================
-# Tests for validating options with hooks
+# Tests for validating options with extenders
 # ============================================================================
 
 
-def test_validate_options_with_hooks(
-    simple_hypers_class: type, hypers_class_with_hooks: type
+def test_validate_options_with_extenders(
+    simple_hypers_class: type, hypers_class_with_extenders: type
 ):
-    """Test that options with hooks are validated correctly."""
+    """Test that options with extenders are validated correctly."""
 
     options = {
         "name": "dummy_architecture",
         "model": {"a": 2.0},
         "training": {
             "a": 2.0,
-            "hooks_input": {
+            "extenders_input": {
                 "identity": "energy",
             },
         },
@@ -158,26 +158,26 @@ def test_validate_options_with_hooks(
         validated = validate_architecture_options(
             options,
             model_hypers=simple_hypers_class,
-            trainer_hypers=hypers_class_with_hooks,
+            trainer_hypers=hypers_class_with_extenders,
         )
 
-    expected_hypers = {"identity": get_hook_default_hypers("identity")}
+    expected_hypers = {"identity": get_extender_default_hypers("identity")}
     expected_hypers["identity"]["outputs"] = "energy"
 
-    assert validated["training"]["hooks_input"] == expected_hypers
+    assert validated["training"]["extenders_input"] == expected_hypers
 
 
-def test_validate_options_with_hooks_error(
-    simple_hypers_class: type, hypers_class_with_hooks: type
+def test_validate_options_with_extenders_error(
+    simple_hypers_class: type, hypers_class_with_extenders: type
 ):
-    """Test that options with hooks raise error on invalid hypers."""
+    """Test that options with extenders raise error on invalid hypers."""
 
     options = {
         "name": "dummy_architecture",
         "model": {"a": 2.0},
         "training": {
             "a": 2.0,
-            "hooks_input": {
+            "extenders_input": {
                 "identity": 123,  # Invalid type for outputs
             },
         },
@@ -187,7 +187,7 @@ def test_validate_options_with_hooks_error(
         validate_architecture_options(
             options,
             model_hypers=simple_hypers_class,
-            trainer_hypers=hypers_class_with_hooks,
+            trainer_hypers=hypers_class_with_extenders,
         )
 
 

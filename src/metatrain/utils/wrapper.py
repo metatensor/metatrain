@@ -21,7 +21,7 @@ from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.match_tmaps import match_layout
 from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.dtype import dtype_to_str
-from metatrain.utils.hooks.abc import HookInterface
+from metatrain.utils.extenders.abc import ExtenderInterface
 from metatrain.utils.metadata import merge_metadata
 
 
@@ -41,7 +41,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         additive_models: list[ModelInterface],
         scaler: ScalerClass,  # Scaler,
         dataset_info: DatasetInfo,
-        forward_hooks: Optional[list[HookInterface]] = None,
+        extenders: Optional[list[ExtenderInterface]] = None,
         metadata: Optional[ModelMetadata] = None,
     ):
         super().__init__()
@@ -49,12 +49,12 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         self.additive_models = torch.nn.ModuleList(additive_models)
         self.scaler = scaler
         self.dataset_info = dataset_info
-        self.forward_hooks = torch.nn.ModuleList(forward_hooks or [])
+        self.extenders = torch.nn.ModuleList(extenders or [])
         self.metadata = metadata if metadata is not None else ModelMetadata()
 
         # Compute transformations needed at evaluation time.
         self._eval_transforms = self._get_eval_transforms()
-        self._forward_hooks_was_None = forward_hooks is None
+        self._extenders_was_None = extenders is None
 
     def _get_eval_transforms(self) -> dict[str, list[str]]:
         """Finds out which targets need to be transformed at evaluation time to
@@ -116,17 +116,19 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
         # -----------------------------------
-        #     Add outputs needed by hooks
+        #     Add outputs needed by extenders
         # -----------------------------------
         aux_outputs = outputs.copy()
         core_outputs = outputs.copy()
-        for hook in self.forward_hooks:
-            hook_outs = _filter_outputs_for_hook(aux_outputs, hook.supported_outputs())
+        for extender in self.extenders:
+            extender_outs = _filter_outputs_for_extender(
+                aux_outputs, extender.supported_outputs()
+            )
 
-            requested_inputs = hook.requested_hook_inputs(aux_outputs)
+            requested_inputs = extender.requested_extender_inputs(aux_outputs)
             aux_outputs.update(requested_inputs)
             core_outputs.update(requested_inputs)
-            for name in hook_outs:
+            for name in extender_outs:
                 core_outputs.pop(name)
 
         # -----------------------------------
@@ -138,26 +140,26 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             )
 
         # -----------------------------------
-        #            Apply hooks
+        #            Apply extenders
         # -----------------------------------
-        with torch.profiler.record_function("MTT_WRAPPER::apply_hooks"):
-            for hook in self.forward_hooks:
-                hook_outs = _filter_outputs_for_hook(
-                    aux_outputs, hook.supported_outputs()
+        with torch.profiler.record_function("MTT_WRAPPER::apply_extenders"):
+            for extender in self.extenders:
+                extender_outs = _filter_outputs_for_extender(
+                    aux_outputs, extender.supported_outputs()
                 )
 
-                # Run hook
+                # Run extender
                 return_dict.update(
-                    hook(
+                    extender(
                         systems,
-                        hook_outs,
+                        extender_outs,
                         return_dict,
                         selected_atoms,
                     )
                 )
 
             # Remove intermediate outputs that were not requested by the user.
-            # (they were needed by other hooks)
+            # (they were needed by other extenders)
             return_dict = {k: return_dict[k] for k in outputs}
 
         # ----------------------------------------------------------------
@@ -265,13 +267,13 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
     def internal_dataset_info(self) -> DatasetInfo:
         """
         Returns the dataset_info that the internal part of the model
-        (core + hooks) sees.
+        (core + extenders) sees.
 
         :return: The dataset_info for the internal part of the model.
         """
         targets = self.core.dataset_info.targets.copy()
-        for hook in self.forward_hooks:
-            targets.update(hook.supported_outputs())
+        for extender in self.extenders:
+            targets.update(extender.supported_outputs())
 
         return DatasetInfo(
             atomic_types=self.core.dataset_info.atomic_types,
@@ -297,8 +299,8 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             _add_model_requested_inputs(self.scaler)
         _add_model_requested_inputs(self.core)
 
-        for hook in self.forward_hooks:
-            _add_model_requested_inputs(hook)
+        for extender in self.extenders:
+            _add_model_requested_inputs(extender)
 
         return requested_inputs
 
@@ -319,8 +321,8 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             _add_model_requested_neighbor_lists(self.scaler)
         _add_model_requested_neighbor_lists(self.core)
 
-        for hook in self.forward_hooks:
-            _add_model_requested_neighbor_lists(hook)
+        for extender in self.extenders:
+            _add_model_requested_neighbor_lists(extender)
 
         return requested_neighbor_lists
 
@@ -333,8 +335,8 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             for name, info in self.core.supported_outputs().items()
         }
 
-        for hook in self.forward_hooks:
-            for name, output in hook.supported_outputs().items():
+        for extender in self.extenders:
+            for name, output in extender.supported_outputs().items():
                 supported_outputs[name] = targets.get(name, output)
 
         return supported_outputs
@@ -398,7 +400,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             core=core.module,
             additive_models=[model.module for model in additive_models],
             scaler=scaler.module if scaler is not None else None,  # type: ignore[arg-type]
-            forward_hooks=[hook.to(dtype) for hook in self.forward_hooks],
+            extenders=[extender.to(dtype) for extender in self.extenders],
             dataset_info=self.dataset_info,
         )
         # Some architectures have attributes that downstream code reads from the
@@ -419,9 +421,9 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             name: core.capabilities().outputs[name]
             for name in self.core.supported_outputs()
         }
-        # Outputs produced by the forward hooks, which the core does not know about
-        for hook in self.forward_hooks:
-            for name, info in hook.supported_outputs().items():
+        # Outputs produced by the forward extenders, which the core does not know about
+        for extender in self.extenders:
+            for name, info in extender.supported_outputs().items():
                 target_info = self.dataset_info.targets.get(name, info)
                 outputs[name] = target_info.to_model_output()
         # Clean deprecated names that ModelCapabilities add automatically for
@@ -460,8 +462,8 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             self.additive_models
         )
         scaler_best_state_dict: dict[str, Any] | None = None
-        hook_best_state_dicts: list[dict[str, Any] | None] = [None] * len(
-            self.forward_hooks
+        extender_best_state_dicts: list[dict[str, Any] | None] = [None] * len(
+            self.extenders
         )
 
         # Split the best_model_state_dict into the corresponding sub-models' state dicts
@@ -484,13 +486,13 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
                 for k, v in best_model_state_dict.items()
                 if k.startswith("scaler.")
             }
-            hook_best_state_dicts = [
+            extender_best_state_dicts = [
                 {
-                    k.removeprefix(f"forward_hooks.{i}."): v
+                    k.removeprefix(f"extenders.{i}."): v
                     for k, v in best_model_state_dict.items()
-                    if k.startswith(f"forward_hooks.{i}.")
+                    if k.startswith(f"extenders.{i}.")
                 }
-                for i in range(len(self.forward_hooks))
+                for i in range(len(self.extenders))
             ]
         checkpoint = {
             "model_ckpt_version": self.__checkpoint_version__,
@@ -505,23 +507,23 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             "scaler": self.scaler.get_checkpoint(scaler_best_state_dict)
             if self.scaler is not None
             else None,
-            "forward_hooks": [
+            "extenders": [
                 h.get_checkpoint(best_state)
                 for h, best_state in zip(
-                    self.forward_hooks, hook_best_state_dicts, strict=True
+                    self.extenders, extender_best_state_dicts, strict=True
                 )
             ],
             "metadata": self.metadata,
         }
 
-        # If forward hooks was None, the checkpoint should not contain the
-        # forward_hooks key. This is to avoid breaking compatibility for
-        # architectures that don't support hooks.
-        if self._forward_hooks_was_None:
-            assert len(checkpoint["forward_hooks"]) == 0, (
+        # If forward extenders was None, the checkpoint should not contain the
+        # extenders key. This is to avoid breaking compatibility for
+        # architectures that don't support extenders.
+        if self._extenders_was_None:
+            assert len(checkpoint["extenders"]) == 0, (
                 "Internal assertion error, please report this bug."
             )
-            del checkpoint["forward_hooks"]
+            del checkpoint["extenders"]
 
         return checkpoint
 
@@ -559,16 +561,16 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
                     {f"scaler.{k}": v for k, v in scaler_state_dict.items()}
                 )
 
-        for i, forward_hook_checkpoint in enumerate(
-            checkpoint.get("forward_hooks", [])
+        for i, forward_extender_checkpoint in enumerate(
+            checkpoint.get("extenders", [])
         ):
             if (
-                forward_hook_state_dict := forward_hook_checkpoint.get(key)
+                forward_extender_state_dict := forward_extender_checkpoint.get(key)
             ) is not None:
                 state_dict.update(
                     {
-                        f"forward_hooks.{i}.{k}": v
-                        for k, v in forward_hook_state_dict.items()
+                        f"extenders.{i}.{k}": v
+                        for k, v in forward_extender_state_dict.items()
                     }
                 )
 
@@ -648,23 +650,23 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         self.dataset_info.targets.pop(target_name, None)
 
 
-def _filter_outputs_for_hook(
+def _filter_outputs_for_extender(
     outputs: dict[str, ModelOutput], supported_outputs: dict[str, TargetInfo]
 ) -> dict[str, ModelOutput]:
     """
-    Filter the outputs to only include those that are supported by the hook.
+    Filter the outputs to only include those that are supported by the extender.
 
     This is just for torchscript, because dict comprehensions are not
     supported and having this written everywhere is not nice.
 
     :param outputs: Dictionary of requested outputs.
-    :param supported_outputs: Outputs supported by the hook.
-    :return: A dictionary of outputs that are supported by the hook.
+    :param supported_outputs: Outputs supported by the extender.
+    :return: A dictionary of outputs that are supported by the extender.
     """
     # Filter the outputs to only include those that are
-    # supported by the hook
-    hook_outs: dict[str, ModelOutput] = {}
+    # supported by the extender
+    extender_outs: dict[str, ModelOutput] = {}
     for name in supported_outputs:
         if name in outputs:
-            hook_outs[name] = outputs[name]
-    return hook_outs
+            extender_outs[name] = outputs[name]
+    return extender_outs

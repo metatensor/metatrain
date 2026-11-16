@@ -2,7 +2,7 @@ from .architectures import ArchitectureTests
 from .autograd import AutogradTests
 from .checkpoints import CheckpointTests
 from .exported import ExportedTests
-from .hooks_support import HooksSupportTests
+from .extenders_support import ExtendersSupportTests
 from .input import InputTests
 from .output import OutputTests
 from .torchscript import TorchscriptTests
@@ -18,5 +18,5 @@ __all__ = [
     "OutputTests",
     "TorchscriptTests",
     "TrainingTests",
-    "HooksSupportTests",
+    "ExtendersSupportTests",
 ]

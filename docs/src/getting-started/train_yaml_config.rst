@@ -104,14 +104,14 @@ ML workflows, and you can refer to :ref:`the loss functions documentation <loss-
 to understand the support of ``metatrain`` for all these different cases.
 
 
-.. _hooks-section:
+.. _extenders-section:
 
-Hooks
+Extenders
 =====
 
 Another special parameter that you will find in the ``architecture.training`` section is
-the one dedicated to the hooks. Hooks are modules that can be used to augment the
-capabilities of all architectures. See :ref:`the hooks documentation <concept-hooks>`
+the one dedicated to the extenders. Extenders are modules that can be used to augment the
+capabilities of all architectures. See :ref:`the extenders documentation <concept-extenders>`
 for more details on what they do and how to use them.
 
 .. _data-section:

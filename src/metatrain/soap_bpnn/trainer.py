@@ -41,7 +41,7 @@ from metatrain.utils.distributed.slurm import (
     resolve_distributed,
 )
 from metatrain.utils.evaluate_model import evaluate_model
-from metatrain.utils.hooks import restart_hooks, setup_hooks
+from metatrain.utils.extenders import restart_extenders, setup_extenders
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator, LossSpecification
@@ -113,8 +113,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     ) -> MetatrainModel[SoapBpnn, Scaler]:
         dense_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
 
-        forward_hooks, model_targets = setup_hooks(
-            dense_dataset_info, self.hypers["forward_hooks"]
+        extenders, model_targets = setup_extenders(
+            dense_dataset_info, self.hypers["extenders"]
         )
 
         core_dataset_info = DatasetInfo(
@@ -162,7 +162,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             additive_models=additive_models,
             scaler=scaler,
             dataset_info=dataset_info,
-            forward_hooks=forward_hooks,
+            extenders=extenders,
         )
 
     def restart(
@@ -188,16 +188,17 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         dense_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
 
         if self.has_new_targets:
-            # Only re-run the hook setup when the targets changed; ``restart_hooks``
-            # does not support rebuilding already-instantiated hooks.
-            forward_hooks, model_outs, new_hooks_hypers = restart_hooks(
-                list(model.forward_hooks),
+            # Only re-run the extender setup when the targets changed;
+            # ``restart_extenders`` does not support rebuilding
+            # already-instantiated extenders.
+            extenders, model_outs, new_extenders_hypers = restart_extenders(
+                list(model.extenders),
                 dense_dataset_info,
-                self.hypers["forward_hooks"],
+                self.hypers["extenders"],
             )
-            self.hypers["forward_hooks"] = new_hooks_hypers
+            self.hypers["extenders"] = new_extenders_hypers
 
-            model.forward_hooks = torch.nn.ModuleList(forward_hooks)
+            model.extenders = torch.nn.ModuleList(extenders)
             core_dataset_info = DatasetInfo(
                 length_unit=dense_dataset_info.length_unit,
                 atomic_types=dense_dataset_info.atomic_types,
