@@ -668,6 +668,13 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                         )
                     )
 
+            # Run the PET backend in eval mode for validation, so that it behaves as
+            # in the exported model (e.g. uses `low` instead of sampling from a
+            # [low, high] `num_neighbors_adaptive` range). Only the backend is
+            # switched, since the wrapper and long-range module have their own
+            # eval-mode behavior that must not apply to the validation loss.
+            pet_backend = (model.module if is_distributed else model).core.backend
+            pet_backend.eval()
             with torch.set_grad_enabled(
                 any(target_info.gradients for target_info in train_targets.values())
             ):  # keep gradients on if any of the targets require them
@@ -756,6 +763,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                         val_mae_calculator.update(
                             scaled_predictions, scaled_targets, extra_data
                         )
+            pet_backend.train()
 
             # Compute val metrics:
             finalized_val_info = val_rmse_calculator.finalize(

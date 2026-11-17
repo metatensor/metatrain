@@ -1,9 +1,11 @@
+from collections.abc import Sequence
 from math import prod
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 
 from ..documentation import ModelHypers
+from .adaptive_cutoff import parse_num_neighbors_adaptive, sample_num_neighbors_adaptive
 from .conditioning import SystemConditioningEmbedding
 from .structures import compute_batch_tensors
 from .transformer import CartesianTransformer
@@ -39,11 +41,7 @@ class PETBackend(torch.nn.Module):
         self.cutoff = float(hypers["cutoff"])
         self.cutoff_function = hypers["cutoff_function"]
         self.cutoff_width = float(hypers["cutoff_width"])
-        self.num_neighbors_adaptive = (
-            float(hypers["num_neighbors_adaptive"])
-            if hypers["num_neighbors_adaptive"] is not None
-            else None
-        )
+        self.set_num_neighbors_adaptive(hypers["num_neighbors_adaptive"])
         self.adaptive_cutoff_method = hypers["adaptive_cutoff_method"]
         self.d_pet = hypers["d_pet"]
         self.d_node = hypers["d_node"]
@@ -222,6 +220,28 @@ class PETBackend(torch.nn.Module):
             ]
         )
 
+    def set_num_neighbors_adaptive(
+        self, num_neighbors_adaptive: Optional[Union[int, Sequence[int]]]
+    ) -> None:
+        """Set the target number of neighbors of the adaptive cutoff.
+
+        :param num_neighbors_adaptive: ``None`` to disable the adaptive cutoff, a
+            single number, or a ``[low, high]`` range. With a range, the target is
+            sampled from ``[low, high]`` with :func:`sample_num_neighbors_adaptive`
+            when this module is in training mode, and ``low`` is used otherwise.
+        """
+        num_neighbors_range = parse_num_neighbors_adaptive(num_neighbors_adaptive)
+        if num_neighbors_range is None:
+            self.num_neighbors_adaptive: Optional[float] = None
+            self.num_neighbors_adaptive_low = 0
+            self.num_neighbors_adaptive_high = 0
+        else:
+            low, high = num_neighbors_range
+            # target used outside of training
+            self.num_neighbors_adaptive = float(low)
+            self.num_neighbors_adaptive_low = low
+            self.num_neighbors_adaptive_high = high
+
     def remove_output(self, target_name: str) -> None:
         """
         Remove the node/edge heads and last layers for a previously registered output
@@ -299,6 +319,12 @@ class PETBackend(torch.nn.Module):
             shape ``(n_edges, 3)``. Columns correspond to ``(cell_shift_a, cell_shift_b,
             cell_shift_c)``. Suitable for use with :func:`get_pair_sample_labels`.
         """
+        num_neighbors_adaptive = self.num_neighbors_adaptive
+        if num_neighbors_adaptive is not None and self.training:
+            num_neighbors_adaptive = sample_num_neighbors_adaptive(
+                self.num_neighbors_adaptive_low, self.num_neighbors_adaptive_high
+            )
+
         (
             element_indices_nodes,
             element_indices_neighbors,
@@ -323,7 +349,7 @@ class PETBackend(torch.nn.Module):
             self.cutoff,
             self.cutoff_function,
             self.cutoff_width,
-            self.num_neighbors_adaptive,
+            num_neighbors_adaptive,
             self.adaptive_cutoff_method,
             cutoff_width_adaptive,
             self.nl_is_strict,

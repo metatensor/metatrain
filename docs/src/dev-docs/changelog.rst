@@ -89,6 +89,11 @@ Fixed
 Added
 #####
 
+- PET's ``num_neighbors_adaptive`` can be a ``[low, high]`` range. During training,
+  the target number of neighbors of the adaptive cutoff is sampled uniformly from
+  this range at each step, while validation, evaluation and exported models use
+  ``low``. ``num_neighbors_adaptive`` can now be changed when restarting or
+  fine-tuning a model, since it does not affect the model parameters.
 - PET has a smoother attention cutoff. The attention that the central atom pays to a
   neighbor in the tail of the cutoff function is now proportional to its cutoff
   function, instead of switching on abruptly when the neighbor has few competitors,

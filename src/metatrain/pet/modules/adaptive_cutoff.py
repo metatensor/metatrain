@@ -1,5 +1,6 @@
 import math
-from typing import Optional, Tuple
+from collections.abc import Sequence
+from typing import Any, Optional, Tuple
 
 import torch
 
@@ -9,6 +10,62 @@ from .utilities import cutoff_func_bump as cutoff_func
 # minimum value for the probe cutoff. this avoids getting too close
 # to the central atom. in practice it could be also set to a larger value
 DEFAULT_MIN_PROBE_CUTOFF = 0.5
+
+
+def parse_num_neighbors_adaptive(
+    num_neighbors_adaptive: Any,
+) -> Optional[Tuple[int, int]]:
+    """Parse the ``num_neighbors_adaptive`` hyperparameter.
+
+    ``num_neighbors_adaptive`` is either ``None`` (adaptive cutoff disabled), a
+    single number (fixed target number of neighbors), or a ``[low, high]`` range.
+    With a range, the target is sampled from ``[low, high]`` during training (see
+    :func:`sample_num_neighbors_adaptive`) and ``low`` is used otherwise.
+
+    :param num_neighbors_adaptive: The ``num_neighbors_adaptive`` hyperparameter.
+    :return: ``(low, high)``, with ``low == high`` for a single number, or ``None``
+        if the adaptive cutoff is disabled.
+    """
+    if num_neighbors_adaptive is None:
+        return None
+
+    if isinstance(num_neighbors_adaptive, Sequence) and not isinstance(
+        num_neighbors_adaptive, str
+    ):
+        if len(num_neighbors_adaptive) != 2:
+            raise ValueError(
+                "`num_neighbors_adaptive` must be a single number or a list of two "
+                f"numbers [low, high], got {list(num_neighbors_adaptive)}"
+            )
+        low, high = (int(v) for v in num_neighbors_adaptive)
+    else:
+        low = high = int(num_neighbors_adaptive)
+
+    if low <= 0 or low > high:
+        raise ValueError(
+            "`num_neighbors_adaptive` must be positive, and given as [low, high] with "
+            f"low <= high, got {num_neighbors_adaptive}"
+        )
+
+    return low, high
+
+
+def sample_num_neighbors_adaptive(low: int, high: int) -> float:
+    """Sample the target number of neighbors used by the adaptive cutoff.
+
+    This is called once per forward pass during training when
+    ``num_neighbors_adaptive`` is given as a range. The current strategy draws an
+    integer uniformly from the closed interval ``[low, high]``. Changing the
+    sampling strategy only requires changing this function.
+
+    :param low: Lower bound (inclusive) of the range.
+    :param high: Upper bound (inclusive) of the range.
+    :return: The sampled target number of neighbors.
+    """
+    if low == high:
+        # don't consume random numbers when there is nothing to sample
+        return float(low)
+    return float(torch.randint(low, high + 1, (1,)).item())
 
 
 def _n_total(
