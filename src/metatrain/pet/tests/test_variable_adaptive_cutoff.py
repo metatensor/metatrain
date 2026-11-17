@@ -40,25 +40,36 @@ def _hypers(num_neighbors_adaptive):
     return hypers
 
 
-def _system(model):
-    torch.manual_seed(1)
+def _system(model, n_atoms=12, seed=1):
+    torch.manual_seed(seed)
     system = System(
-        types=torch.full((12,), 6),
-        positions=torch.rand(12, 3) * 5.0,
+        types=torch.full((n_atoms,), 6),
+        positions=torch.rand(n_atoms, 3) * 5.0,
         cell=torch.zeros(3, 3),
         pbc=torch.tensor([False, False, False]),
     )
     return get_system_with_neighbor_lists(system, model.requested_neighbor_lists())
 
 
+def _per_system(targets, sizes):
+    """Split per-atom targets into per-system values, checking that each system
+    uses a single target."""
+    values = []
+    for chunk in torch.split(targets, sizes):
+        assert torch.all(chunk == chunk[0])
+        values.append(chunk[0].item())
+    return values
+
+
 @pytest.fixture
 def recorded_targets(monkeypatch):
-    """Record the target number of neighbors passed to ``compute_batch_tensors``."""
+    """Record the per-atom target number of neighbors passed to
+    ``compute_batch_tensors``."""
     recorded = []
     original = backend_module.compute_batch_tensors
 
     def wrapper(*args, **kwargs):
-        recorded.append(args[10])
+        recorded.append(args[10].detach().clone())
         return original(*args, **kwargs)
 
     monkeypatch.setattr(backend_module, "compute_batch_tensors", wrapper)
@@ -85,17 +96,21 @@ def test_parse_invalid(value):
         parse_num_neighbors_adaptive(value)
 
 
+def _sample(low, high, n):
+    return sample_num_neighbors_adaptive(
+        low, high, n, torch.device("cpu"), torch.float64
+    )
+
+
 def test_sample():
     torch.manual_seed(0)
-    samples = {sample_num_neighbors_adaptive(4, 7) for _ in range(200)}
-    assert samples == {4.0, 5.0, 6.0, 7.0}
+    samples = _sample(4, 7, 200)
+    assert samples.shape == (200,)
+    assert set(samples.tolist()) == {4.0, 5.0, 6.0, 7.0}
 
     # the samples follow the discretized log-uniform distribution
-    torch.manual_seed(0)
-    low, high, n_samples = 4, 64, 20000
-    samples = torch.tensor(
-        [sample_num_neighbors_adaptive(low, high) for _ in range(n_samples)]
-    )
+    low, high = 4, 64
+    samples = _sample(low, high, 20000)
     assert samples.min() == low and samples.max() == high
     for k in [4, 8, 16, 32]:
         expected = math.log((high + 1) / k) / math.log((high + 1) / low)
@@ -104,26 +119,57 @@ def test_sample():
 
     # a degenerate range does not consume random numbers
     state = torch.get_rng_state()
-    assert sample_num_neighbors_adaptive(5, 5) == 5.0
+    assert torch.equal(_sample(5, 5, 3), torch.full((3,), 5.0, dtype=torch.float64))
     assert torch.equal(state, torch.get_rng_state())
 
 
-def test_training_samples_from_range(recorded_targets):
+def test_training_samples_per_structure(recorded_targets):
     torch.manual_seed(0)
     model = PET(_hypers([4, 12]), DATASET_INFO)
-    system = _system(model)
+    sizes = [12, 7, 9]
+    systems = [_system(model, n, seed=i) for i, n in enumerate(sizes)]
     outputs = {"energy": ModelOutput(sample_kind="system")}
 
     model.train()
-    for _ in range(50):
-        model([system], outputs)
-    assert all(v == int(v) and 4 <= v <= 12 for v in recorded_targets)
-    assert len(set(recorded_targets)) > 1
+    for _ in range(20):
+        model(systems, outputs)
+    per_system = [_per_system(t, sizes) for t in recorded_targets]
+    values = [v for batch in per_system for v in batch]
+    assert all(v == int(v) and 4 <= v <= 12 for v in values)
+    # structures in the same batch get different targets
+    assert any(len(set(batch)) > 1 for batch in per_system)
 
     recorded_targets.clear()
     model.eval()
-    model([system], outputs)
-    assert recorded_targets == [4.0]
+    model(systems, outputs)
+    assert _per_system(recorded_targets[0], sizes) == [4.0, 4.0, 4.0]
+
+
+def test_per_atom_targets_match_single_structures(recorded_targets):
+    """Atoms of a structure only see the target sampled for that structure: the
+    cutoffs in a batch with targets (a, b) match the ones of each structure
+    evaluated alone with a fixed target."""
+    torch.manual_seed(0)
+    model = PET(_hypers([4, 12]), DATASET_INFO)
+    sizes = [12, 9]
+    systems = [_system(model, n, seed=i) for i, n in enumerate(sizes)]
+    outputs = {"mtt::aux::cutoff_stats": ModelOutput(sample_kind="atom")}
+
+    model.train()
+    # run until the two structures get different targets
+    for _ in range(20):
+        recorded_targets.clear()
+        batch = model(systems, outputs)["mtt::aux::cutoff_stats"].block()
+        targets = _per_system(recorded_targets[0], sizes)
+        if targets[0] != targets[1]:
+            break
+    assert targets[0] != targets[1]
+
+    for i, (system, target) in enumerate(zip(systems, targets, strict=True)):
+        model.set_num_neighbors_adaptive(int(target))
+        single = model([system], outputs)["mtt::aux::cutoff_stats"].block()
+        mask = batch.samples.column("system") == i
+        torch.testing.assert_close(batch.values[mask], single.values)
 
 
 def test_eval_matches_fixed_model():
@@ -154,7 +200,7 @@ def test_change_num_neighbors_adaptive(recorded_targets):
     model.set_num_neighbors_adaptive(10)
     assert model.hypers["num_neighbors_adaptive"] == 10
     model([system], outputs)
-    assert recorded_targets == [10.0]
+    assert set(recorded_targets[0].tolist()) == {10.0}
 
     # restarting with a different value is allowed
     recorded_targets.clear()
@@ -164,8 +210,8 @@ def test_change_num_neighbors_adaptive(recorded_targets):
     model.train()
     for _ in range(20):
         model([system], outputs)
-    assert recorded_targets[0] == 6.0
-    assert set(recorded_targets[1:]) <= {6.0, 7.0, 8.0}
+    assert set(recorded_targets[0].tolist()) == {6.0}
+    assert set(torch.cat(recorded_targets[1:]).tolist()) <= {6.0, 7.0, 8.0}
     model.eval()
 
     # the value is kept in the checkpoint
@@ -209,7 +255,7 @@ def test_torchscript():
 
 class TestVariableAdaptiveTraining(PETTests):
     def test_train(self, monkeypatch, tmp_path, dataset_path, dataset_targets):
-        """Training samples the target from the range, validation uses ``low``."""
+        """Training samples the targets from the range, validation uses ``low``."""
         monkeypatch.chdir(tmp_path)
         dataset, _, dataset_info = self.get_dataset(dataset_targets, dataset_path)
 
@@ -234,7 +280,7 @@ class TestVariableAdaptiveTraining(PETTests):
 
         def wrapper(*args, **kwargs):
             is_validation = not model.core.backend.training
-            recorded.append((is_validation, args[10]))
+            recorded.append((is_validation, args[10].detach().clone()))
             return original(*args, **kwargs)
 
         monkeypatch.setattr(backend_module, "compute_batch_tensors", wrapper)
@@ -251,7 +297,8 @@ class TestVariableAdaptiveTraining(PETTests):
         train_targets = [t for is_val, t in recorded if not is_val]
         val_targets = [t for is_val, t in recorded if is_val]
         assert len(train_targets) > 0 and len(val_targets) > 0
-        assert all(3 <= t <= 8 for t in train_targets)
-        assert len(set(train_targets)) > 1
-        assert set(val_targets) == {3.0}
+        assert all(t.min() >= 3 and t.max() <= 8 for t in train_targets)
+        # several targets are used inside the same batch
+        assert any(len(t.unique()) > 1 for t in train_targets)
+        assert set(torch.cat(val_targets).tolist()) == {3.0}
         assert model.core.backend.training

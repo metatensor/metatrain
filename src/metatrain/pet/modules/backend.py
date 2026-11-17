@@ -270,6 +270,8 @@ class PETBackend(torch.nn.Module):
         cell_contributions: torch.Tensor,
         cell_shifts: torch.Tensor,
         cutoff_width_adaptive: float,
+        system_indices: Optional[torch.Tensor] = None,
+        num_systems: int = 1,
     ) -> Dict[str, torch.Tensor]:
         """
         Run structure preprocessing on plain tensors.
@@ -290,6 +292,12 @@ class PETBackend(torch.nn.Module):
         :param cell_shifts: Integer cell shift vectors, shape ``(n_edges, 3)``.
         :param cutoff_width_adaptive: Width of the smooth cutoff taper used by the
             adaptive cutoff scheme when ``num_neighbors_adaptive`` is set.
+        :param system_indices: Index of the structure of each atom, shape
+            ``(num_nodes,)``. In training mode, with ``num_neighbors_adaptive`` given
+            as a range, a target number of neighbors is sampled for each structure.
+            If ``None``, all atoms are treated as a single structure.
+        :param num_systems: Number of structures in the batch. Only used together
+            with ``system_indices``.
         :return: A dictionary ``batch_data`` of the intermediate tensors:
             - `element_indices_nodes`: The atomic species of the central atoms
             - `element_indices_neighbors`: The atomic species of the neighboring atoms
@@ -319,11 +327,36 @@ class PETBackend(torch.nn.Module):
             shape ``(n_edges, 3)``. Columns correspond to ``(cell_shift_a, cell_shift_b,
             cell_shift_c)``. Suitable for use with :func:`get_pair_sample_labels`.
         """
-        num_neighbors_adaptive = self.num_neighbors_adaptive
-        if num_neighbors_adaptive is not None and self.training:
-            num_neighbors_adaptive = sample_num_neighbors_adaptive(
-                self.num_neighbors_adaptive_low, self.num_neighbors_adaptive_high
-            )
+        # per-atom target number of neighbors of the adaptive cutoff
+        num_neighbors_adaptive: Optional[torch.Tensor] = None
+        fixed_num_neighbors_adaptive = self.num_neighbors_adaptive
+        if fixed_num_neighbors_adaptive is not None:
+            num_nodes = positions.shape[0]
+            if self.training:
+                # one target per structure, shared by all its atoms
+                if system_indices is None:
+                    num_neighbors_adaptive = sample_num_neighbors_adaptive(
+                        self.num_neighbors_adaptive_low,
+                        self.num_neighbors_adaptive_high,
+                        1,
+                        positions.device,
+                        positions.dtype,
+                    ).expand(num_nodes)
+                else:
+                    num_neighbors_adaptive = sample_num_neighbors_adaptive(
+                        self.num_neighbors_adaptive_low,
+                        self.num_neighbors_adaptive_high,
+                        num_systems,
+                        positions.device,
+                        positions.dtype,
+                    )[system_indices]
+            else:
+                num_neighbors_adaptive = torch.full(
+                    (num_nodes,),
+                    fixed_num_neighbors_adaptive,
+                    device=positions.device,
+                    dtype=positions.dtype,
+                )
 
         (
             element_indices_nodes,

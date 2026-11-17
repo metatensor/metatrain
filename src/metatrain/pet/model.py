@@ -413,6 +413,8 @@ class PET(ModelInterface[ModelHypers]):
                 cell_contributions,
                 cell_shifts,
                 self.cutoff_width_adaptive,
+                system_indices,
+                len(systems),
             )
 
         # ===== BEGIN DIAGNOSTIC-RELATED BLOCK
