@@ -50,12 +50,28 @@ def parse_num_neighbors_adaptive(
     return low, high
 
 
+def loguniform(low: float, high: float) -> float:
+    """Sample from a log-uniform distribution on ``[low, high)``.
+
+    :param low: Lower bound of the distribution, must be positive.
+    :param high: Upper bound of the distribution.
+    :return: A sample ``exp(u)`` with ``u`` uniform in ``[log(low), log(high))``.
+    """
+    log_low = math.log(low)
+    log_high = math.log(high)
+    u = float(torch.rand(1).item())
+    return math.exp(log_low + u * (log_high - log_low))
+
+
 def sample_num_neighbors_adaptive(low: int, high: int) -> float:
     """Sample the target number of neighbors used by the adaptive cutoff.
 
     This is called once per forward pass during training when
     ``num_neighbors_adaptive`` is given as a range. The current strategy draws an
-    integer uniformly from the closed interval ``[low, high]``. Changing the
+    integer from the closed interval ``[low, high]`` with a log-uniform
+    distribution: ``floor(x)`` with ``x`` log-uniform on ``[low, high + 1)``, so
+    that the integer ``k`` has probability ``log((k + 1) / k) / log((high + 1) /
+    low)``. Smaller targets are therefore sampled more often. Changing the
     sampling strategy only requires changing this function.
 
     :param low: Lower bound (inclusive) of the range.
@@ -65,7 +81,9 @@ def sample_num_neighbors_adaptive(low: int, high: int) -> float:
     if low == high:
         # don't consume random numbers when there is nothing to sample
         return float(low)
-    return float(torch.randint(low, high + 1, (1,)).item())
+    sample = math.floor(loguniform(float(low), float(high + 1)))
+    # guard against floating point round-off at the upper edge
+    return float(min(max(sample, low), high))
 
 
 def _n_total(

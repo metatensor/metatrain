@@ -1,6 +1,7 @@
 """Tests for ``num_neighbors_adaptive`` given as a ``[low, high]`` range."""
 
 import copy
+import math
 
 import pytest
 import torch
@@ -88,6 +89,18 @@ def test_sample():
     torch.manual_seed(0)
     samples = {sample_num_neighbors_adaptive(4, 7) for _ in range(200)}
     assert samples == {4.0, 5.0, 6.0, 7.0}
+
+    # the samples follow the discretized log-uniform distribution
+    torch.manual_seed(0)
+    low, high, n_samples = 4, 64, 20000
+    samples = torch.tensor(
+        [sample_num_neighbors_adaptive(low, high) for _ in range(n_samples)]
+    )
+    assert samples.min() == low and samples.max() == high
+    for k in [4, 8, 16, 32]:
+        expected = math.log((high + 1) / k) / math.log((high + 1) / low)
+        observed = (samples >= k).double().mean().item()
+        assert abs(observed - expected) < 0.02
 
     # a degenerate range does not consume random numbers
     state = torch.get_rng_state()
