@@ -65,8 +65,7 @@ class DPA3Tests(ArchitectureTests):
         directly."""
         return torch.device(request.param)
 
-    @pytest.fixture
-    def model_hypers(
+    def _make_model_hypers(
         self,
         tmp_path: Path,
         source: str,
@@ -114,6 +113,15 @@ class DPA3Tests(ArchitectureTests):
         return hypers
 
     @pytest.fixture
+    def model_hypers(
+        self,
+        tmp_path: Path,
+        source: str,
+        dpa3_multitask: bool,
+    ) -> dict:
+        return self._make_model_hypers(tmp_path, source, dpa3_multitask)
+
+    @pytest.fixture
     def minimal_model_hypers(self) -> dict:
         """Minimal hyperparameters for a DPA3 model for the smallest
         checkpoint possible.
@@ -131,7 +139,21 @@ class TestOutput(OutputTests, DPA3Tests):
     supports_spherical_outputs = False
     supports_vector_outputs = False
     supports_features = False
-    supports_last_layer_features = False
+
+    @pytest.fixture
+    def model_hypers(
+        self,
+        tmp_path: Path,
+        source: str,
+        dpa3_multitask: bool,
+    ) -> dict:
+        hypers = self._make_model_hypers(tmp_path, source, dpa3_multitask)
+        if source == "from_hypers":
+            # The generic affine-output check requires more distinct samples than
+            # last-layer features. Keep this test-specific fitting network small;
+            # all other DPA3 tests continue to exercise the default architecture.
+            hypers["fitting_net"]["neuron"] = [2, 2]
+        return hypers
 
     def test_prediction_energy_subset_atoms(self, model_hypers, dataset_info, source):
         # deepmd-kit precision is a construction-time setting.  This test sets
