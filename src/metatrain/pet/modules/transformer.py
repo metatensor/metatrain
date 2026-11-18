@@ -700,24 +700,17 @@ def smooth_cutoff_attention(
 
     .. code-block:: text
 
-        f * exp(logit) / (1 + (1 - f) * exp(logit) / established)
+        f * exp(logit) / (1 + (1 - f) * exp(logit) / others)
 
-    where ``established`` is the total weight of the *other* keys, each counted with
-    a factor ``f**established_power``, i.e. only once they are well inside the cutoff.
-    For a single key in the cutoff tail, the attention it receives is then exactly
-    ``f`` times what it would receive with ``f = 1``, however strongly the query
-    prefers it. Keys with ``f = 1`` are not affected.
-
-    The normalization of the softmax cancels out, and the weights are those of a
-    softmax over ``logit + bias``, with
+    where ``others`` is the sum of ``f**established_power * exp(logit)`` over the
+    *other* keys, i.e. the keys that are well inside the cutoff. A single key in the
+    cutoff tail then receives exactly ``f`` times the attention it would receive with
+    ``f = 1``, however strongly the query prefers it. Keys with ``f = 1`` are not
+    affected. In log space, this is a softmax over ``logit + bias``, with
 
     .. code-block:: text
 
         bias = log(f) - softplus(log(1 - f) + logit - log(others))
-
-    where ``others`` is the sum of ``f**established_power * exp(logit)`` over the
-    other keys. This is evaluated in log space, since ``others`` can be many orders
-    of magnitude below ``exp(logit)`` when the query strongly prefers a key.
 
     :param logits: The attention logits, of shape (..., num_queries, num_keys).
     :param factors: The cutoff factors of the keys. Broadcastable to the logits.
@@ -725,40 +718,67 @@ def smooth_cutoff_attention(
         an established competitor for the attention received by the other keys.
     :return: The attention weights, normalized over the keys.
     """
-    # Finite stand-in for log(0), which keeps the gradients free of inf - inf
-    lowest = -1e30
-    min_factor = 1e-15
-    present = factors > 0.0
-    # log(f) is exact, but its gradient 1/f (1/f**2 in the second derivative)
-    # overflows for tiny f, so it is only propagated above ``min_factor``, like the
-    # log(f) bias of the standard attention
-    log_factors = torch.where(
-        factors > min_factor,
-        torch.log(factors.clamp(min=min_factor)),
-        torch.log(factors.clamp(min=0.0)).detach(),
-    )
-
-    # log(others) for each key. Removing a key's term from the total would be
-    # inaccurate for the key that dominates it, so that key gets the log-sum of the
-    # other terms, and every other key the total of the largest term and that
-    # log-sum, minus its own term (which is part of the log-sum).
-    counted = torch.where(present, logits + established_power * log_factors, lowest)
-    index = counted.detach().argmax(dim=-1, keepdim=True)
-    is_largest = torch.zeros_like(counted, dtype=torch.bool).scatter(-1, index, True)
-    largest = counted.gather(-1, index)
-    # the largest term is masked in both branches, so that neither has a log(0)
-    counted = counted.masked_fill(is_largest, lowest)
-    rest = torch.logsumexp(counted, dim=-1, keepdim=True)
-    log_others = torch.where(
-        is_largest,
-        rest,
-        largest + torch.log1p(torch.exp(rest - largest) - torch.exp(counted - largest)),
-    )
-
-    # keys with f = 1 get no bias; log(1 - f) is only evaluated below one, so that
-    # its gradient stays finite
+    excluded = factors <= 0.0
     inside = factors >= 1.0
-    log_outside = torch.log1p(-torch.where(inside, torch.zeros_like(factors), factors))
-    bias = log_factors - F.softplus(log_outside + logits - log_others)
-    bias = torch.where(inside, torch.zeros_like(bias), bias)
-    return torch.softmax(logits + bias, dim=-1)
+
+    log_f = _log_with_bounded_gradient(factors)
+    # f is replaced by 0 for the keys inside, whose bias is zero anyway, so that the
+    # gradient of log(1 - f) stays finite
+    log_1mf = torch.log1p(-factors.masked_fill(inside, 0.0))
+
+    log_others = _logsumexp_of_others(logits + established_power * log_f, excluded)
+
+    bias = log_f - F.softplus(log_1mf + logits - log_others)
+    return torch.softmax(logits + bias.masked_fill(inside, 0.0), dim=-1)
+
+
+def _log_with_bounded_gradient(
+    x: torch.Tensor, threshold: float = 1e-15
+) -> torch.Tensor:
+    """
+    ``log(x)``, with the gradient only propagated for ``x > threshold``.
+
+    The value is exact (with ``log(0) = -inf``), but the gradient ``1/x`` (and
+    ``-1/x**2`` for the second derivative) would overflow for tiny ``x``.
+
+    :param x: A non-negative tensor.
+    :param threshold: Values below which no gradient is propagated.
+    :return: The logarithm of ``x``.
+    """
+    return torch.where(
+        x > threshold,
+        torch.log(x.clamp(min=threshold)),
+        torch.log(x.clamp(min=0.0)).detach(),
+    )
+
+
+def _logsumexp_of_others(
+    x: torch.Tensor, excluded: torch.Tensor, log_zero: float = -1e30
+) -> torch.Tensor:
+    """
+    ``log(sum_{j != i} exp(x_j))`` for every ``i`` along the last dimension, where
+    the sum runs over the entries that are not excluded.
+
+    Subtracting ``exp(x_i)`` from the total loses all precision for the largest
+    entry, whose sum of others can be many orders of magnitude below it. The largest
+    entry instead gets the log-sum of the rest, and every other entry the largest
+    one plus the rest, minus itself. That sum is always at least ``exp(x_max)``, so
+    the subtraction is accurate.
+
+    :param x: The input tensor.
+    :param excluded: Entries left out of all the sums. Broadcastable to ``x``.
+    :param log_zero: Finite stand-in for ``log(0)``, which keeps the gradients free
+        of ``inf - inf``.
+    :return: A tensor of the same shape as ``x``.
+    """
+    x = x.masked_fill(excluded, log_zero)
+    index = x.detach().argmax(dim=-1, keepdim=True)
+    is_max = torch.arange(x.shape[-1], device=x.device) == index
+    x_max = x.gather(-1, index)
+    # the largest entry is masked in both branches, so that neither takes a log(0)
+    rest = x.masked_fill(is_max, log_zero)
+    log_rest = torch.logsumexp(rest, dim=-1, keepdim=True)
+    log_others = x_max + torch.log1p(
+        torch.exp(log_rest - x_max) - torch.exp(rest - x_max)
+    )
+    return torch.where(is_max, log_rest, log_others)
