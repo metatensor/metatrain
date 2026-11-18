@@ -247,7 +247,9 @@ A single string in a gradient section automatically expands, using the string as
 
 Sections set to ``true`` or ``on`` automatically expand with default parameters. A
 warning is raised if requisite data for a gradient is missing, but training proceeds
-without them. For instance,
+without them. For stresses and virials read with ASE, this only happens if none of the
+structures has them: structures without a stress or virial get NaN values, which are
+ignored during training (see :ref:`mixed-stress-tutorial`). For instance,
 
 .. code-block:: yaml
 
