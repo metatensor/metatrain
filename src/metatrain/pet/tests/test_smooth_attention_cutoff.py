@@ -7,6 +7,7 @@ capped, so that it grows in proportion to its cutoff factor.
 """
 
 import copy
+import functools
 
 import pytest
 import torch
@@ -14,6 +15,7 @@ from metatomic.torch import ModelOutput, System
 
 from metatrain.pet import PET
 from metatrain.pet.checkpoints import model_update_v18_v19
+from metatrain.pet.modules import transformer
 from metatrain.pet.modules.transformer import (
     AttentionBlock,
     CartesianTransformer,
@@ -28,6 +30,11 @@ from . import MODEL_HYPERS
 
 CUTOFF = 4.0
 CUTOFF_WIDTH = 1.0
+LOGIT_CAP = 5.0
+
+
+def _capped(logits):
+    return LOGIT_CAP * torch.tanh(logits / LOGIT_CAP)
 
 
 def _hypers(smooth_attention_cutoff, num_neighbors_adaptive=None):
@@ -161,8 +168,13 @@ def test_default_is_smooth():
     assert MODEL_HYPERS["smooth_attention_cutoff"] is True
 
 
-def test_no_effect_without_neighbors_in_the_tail():
+def test_no_effect_without_neighbors_in_the_tail(monkeypatch):
+    # apart from the soft cap on the logits, which acts on every environment
     legacy, smooth = _make_pair_of_models()
+    assert abs(_energy(legacy, COMPACT) - _energy(smooth, COMPACT)) > 1e-8
+
+    uncapped = functools.partial(transformer.smooth_cutoff_attention, logit_cap=1e6)
+    monkeypatch.setattr(transformer, "smooth_cutoff_attention", uncapped)
     # not bit-identical, since the two settings use different attention kernels
     assert _energy(legacy, COMPACT) == pytest.approx(_energy(smooth, COMPACT), 1e-12)
 
@@ -240,13 +252,14 @@ def test_keys_inside_the_cutoff_are_not_affected():
     factors = torch.ones(4, 1, 6, 6, dtype=torch.float64)
 
     weights = smooth_cutoff_attention(logits, factors)
-    assert torch.allclose(weights, logits.softmax(dim=-1), atol=1e-14, rtol=1e-12)
+    expected = _capped(logits).softmax(dim=-1)
+    assert torch.allclose(weights, expected, atol=1e-14, rtol=1e-12)
 
     # a key in the tail gets at most the weight it has with the plain log(f) bias,
     # and the weights of the other keys keep their proportions
     factors[..., 5] = 0.3
     weights = smooth_cutoff_attention(logits, factors)
-    plain = (logits + torch.log(factors)).softmax(dim=-1)
+    plain = (_capped(logits) + torch.log(factors)).softmax(dim=-1)
     assert torch.all(weights[..., 5] <= plain[..., 5] * (1 + 1e-12))
     ratios = weights[..., :5] / plain[..., :5]
     assert torch.allclose(ratios, ratios[..., :1].expand_as(ratios), rtol=1e-10)
@@ -265,7 +278,7 @@ def test_single_tail_key_gets_a_share_proportional_to_its_factor(
     factors = torch.tensor([[1.0, 1.0, 1.0, factor]], dtype=dtype)
 
     weights = smooth_cutoff_attention(logits, factors)
-    share_inside = logits.softmax(dim=-1)[0, 3]
+    share_inside = _capped(logits).softmax(dim=-1)[0, 3]
 
     assert torch.allclose(weights[0, 3], factor * share_inside, rtol=1e-4, atol=0)
     assert torch.allclose(weights.sum(), torch.tensor(1.0, dtype=dtype))
@@ -355,6 +368,42 @@ def test_float32_key_deep_in_the_tail_dominates_the_logits():
     full = smooth_cutoff_attention(logits, torch.where(factors < 1e-3, 1.0, factors))
     assert torch.all(weights_64[..., 13] <= 1.01 * 2.7e-17 * full[..., 13])
     assert torch.allclose(grad_logits.double(), grad_logits_64, rtol=1e-3, atol=1e-5)
+
+
+def test_logits_are_soft_capped():
+    torch.manual_seed(0)
+    logits = 3.0 * torch.randn(3, 2, 1, 6, dtype=torch.float64)
+    factors = torch.rand(3, 1, 1, 6, dtype=torch.float64)
+    factors[..., :2] = 1.0
+
+    weights = smooth_cutoff_attention(logits, factors)
+    reference = smooth_cutoff_attention(_capped(logits), factors, logit_cap=1e6)
+    assert torch.allclose(weights, reference, atol=1e-12, rtol=1e-10)
+
+    # far beyond the cap, a larger preference makes no difference
+    logits[..., 3] = 200.0
+    weights = smooth_cutoff_attention(logits, factors)
+    logits[..., 3] = 400.0
+    assert torch.allclose(smooth_cutoff_attention(logits, factors), weights)
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_preferred_key_in_the_tail_does_not_shelter_another_one(dtype):
+    # The query prefers key 3 enormously and key 4 a lot, and both are in the tail.
+    # Key 3 counts as a huge competitor for key 4 (f**8 exp(60)), while its own
+    # attention is limited by its cutoff factor. Without the cap, key 4 slips into
+    # that gap and takes ~64% of the attention with a cutoff factor of 1.6e-14.
+    logits = torch.tensor([[0.0, 2.0, -1.0, 60.0, 35.0]], dtype=dtype)
+    factors = torch.tensor([[1.0, 1.0, 1.0, 0.37, 1.6e-14]], dtype=dtype)
+
+    uncapped = smooth_cutoff_attention(logits, factors, logit_cap=1e6)
+    assert uncapped[0, 4] > 0.5
+
+    weights = smooth_cutoff_attention(logits, factors)
+    assert weights[0, 4] < 1e-12
+    # key 3 gets about f times its share when it is fully inside
+    full = smooth_cutoff_attention(logits, torch.where(factors > 0.3, 1.0, factors))
+    assert torch.allclose(weights[0, 3], 0.37 * full[0, 3], rtol=0.05)
 
 
 def _attention_block(smooth_cutoff):

@@ -33,8 +33,12 @@ Fixed
   in log space, and without the lower bound of ``1e-12`` on the weight of the other
   neighbors. This bound let a neighbor that the central atom strongly prefers take
   a large share of the attention at the very edge of the cutoff (e.g. 22% with a
-  cutoff factor of ``3e-17``). Models trained with ``smooth_attention_cutoff``
-  before this change give different predictions for such environments.
+  cutoff factor of ``3e-17``). The logits of the central atom's attention are also
+  soft-capped to ``5 * tanh(logit / 5)``, since with several neighbors in the
+  cutoff tail, one that the central atom strongly prefers could otherwise let
+  another one take most of the attention at the very edge of the cutoff. Models
+  trained with ``smooth_attention_cutoff`` before this change give different
+  predictions.
 - Datasets from XYZ files containing at least one missing stress/virial
   would silently disable stress/virial training. Now partially missing data
   is  accepted and the trainings run on the available data (#1344).

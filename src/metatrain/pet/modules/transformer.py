@@ -688,7 +688,10 @@ def manual_attention(
 
 
 def smooth_cutoff_attention(
-    logits: torch.Tensor, factors: torch.Tensor, established_power: float = 8.0
+    logits: torch.Tensor,
+    factors: torch.Tensor,
+    established_power: float = 8.0,
+    logit_cap: float = 5.0,
 ) -> torch.Tensor:
     """
     Attention weights that grow smoothly with the cutoff factors of the keys.
@@ -712,12 +715,22 @@ def smooth_cutoff_attention(
 
         bias = log(f) - softplus(log(1 - f) + logit - log(others))
 
+    With several keys in the tail, counting the competitors with
+    ``f**established_power`` is only an approximation. A key that the query prefers
+    by a huge margin then counts as a huge competitor for the other keys, while its
+    own attention is limited by its cutoff factor, and a second preferred key can
+    take most of the attention at the very edge of the cutoff. The logits are
+    therefore soft-capped to ``logit_cap * tanh(logit / logit_cap)``, so that no key
+    can be preferred over another by more than ``exp(2 * logit_cap)``.
+
     :param logits: The attention logits, of shape (..., num_queries, num_keys).
     :param factors: The cutoff factors of the keys. Broadcastable to the logits.
     :param established_power: Power of the cutoff factor with which a key counts as
         an established competitor for the attention received by the other keys.
+    :param logit_cap: Bound on the absolute value of the logits.
     :return: The attention weights, normalized over the keys.
     """
+    logits = logit_cap * torch.tanh(logits / logit_cap)
     excluded = factors <= 0.0
     inside = factors >= 1.0
 
