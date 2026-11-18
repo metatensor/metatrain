@@ -148,7 +148,7 @@ def test_validate_options_with_extenders(
         "training": {
             "a": 2.0,
             "extenders_input": {
-                "identity": "energy",
+                "rename": "energy",
             },
         },
     }
@@ -161,8 +161,8 @@ def test_validate_options_with_extenders(
             trainer_hypers=hypers_class_with_extenders,
         )
 
-    expected_hypers = {"identity": get_extender_default_hypers("identity")}
-    expected_hypers["identity"]["outputs"] = "energy"
+    expected_hypers = {"rename": get_extender_default_hypers("rename")}
+    expected_hypers["rename"]["outputs"] = "energy"
 
     assert validated["training"]["extenders_input"] == expected_hypers
 
@@ -178,7 +178,7 @@ def test_validate_options_with_extenders_error(
         "training": {
             "a": 2.0,
             "extenders_input": {
-                "identity": 123,  # Invalid type for outputs
+                "rename": 123,  # Invalid type for outputs
             },
         },
     }
