@@ -88,8 +88,7 @@ def sample_num_neighbors_adaptive(
     with a log-uniform distribution: ``floor(x)`` with ``x`` log-uniform on
     ``[low, high + 1)``, so that the integer ``k`` has probability
     ``log((k + 1) / k) / log((high + 1) / low)``. Smaller targets are therefore
-    sampled more often. Changing the sampling strategy only requires changing
-    this function.
+    sampled more often.
 
     :param low: Lower bound (inclusive) of the range.
     :param high: Upper bound (inclusive) of the range.
