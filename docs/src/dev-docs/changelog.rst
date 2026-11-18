@@ -27,6 +27,14 @@ Unreleased
 Fixed
 #####
 
+- PET with ``smooth_attention_cutoff`` no longer gives NaN forces, stresses and
+  parameter gradients in float32 when the neighbor that the central atom attends to
+  most sits deep in the cutoff tail. The smooth attention weights are now computed
+  in log space, and without the lower bound of ``1e-12`` on the weight of the other
+  neighbors. This bound let a neighbor that the central atom strongly prefers take
+  a large share of the attention at the very edge of the cutoff (e.g. 22% with a
+  cutoff factor of ``3e-17``). Models trained with ``smooth_attention_cutoff``
+  before this change give different predictions for such environments.
 - Datasets from XYZ files containing at least one missing stress/virial
   would silently disable stress/virial training. Now partially missing data
   is  accepted and the trainings run on the available data (#1344).

@@ -253,13 +253,14 @@ def test_keys_inside_the_cutoff_are_not_affected():
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
-@pytest.mark.parametrize("preference", [-3.0, 0.0, 8.0, 25.0])
+@pytest.mark.parametrize("preference", [-3.0, 0.0, 8.0, 25.0, 40.0, 65.0])
 @pytest.mark.parametrize("factor", [1e-6, 1e-3, 0.1, 0.7, 1.0])
 def test_single_tail_key_gets_a_share_proportional_to_its_factor(
     dtype, preference, factor
 ):
     # one query, three established keys and one key in the tail, which the query
-    # prefers over the others by exp(preference)
+    # prefers over the others by exp(preference). Above a preference of ~28, the
+    # other keys weigh less than 1e-12 of the total, which used to be clamped.
     logits = torch.tensor([[0.3, -1.0, 0.5, preference]], dtype=dtype)
     factors = torch.tensor([[1.0, 1.0, 1.0, factor]], dtype=dtype)
 
@@ -317,6 +318,43 @@ def test_gradients_are_finite(dtype):
     (grad_logits.sum() + grad_factors.sum()).backward()
     assert torch.isfinite(logits.grad).all()
     assert torch.isfinite(factors.grad).all()
+
+
+def test_float32_key_deep_in_the_tail_dominates_the_logits():
+    # Regression test for NaN forces in float32. The key that dominates the logits
+    # sits deep in the cutoff tail, so all the weights before normalization are tiny
+    # (~1e-28). In linear space, the gradient of the normalization overflowed.
+    torch.manual_seed(0)
+    num_keys = 21
+    logits = 3.0 * torch.randn(1, 8, 1, num_keys, dtype=torch.float64)
+    logits[..., 13] = 64.0
+    factors = torch.rand(1, 1, 1, num_keys, dtype=torch.float64)
+    factors[..., ::2] = 1.0
+    factors[..., 13] = 2.7e-17
+    grad_out = torch.randn(1, 8, 1, num_keys, dtype=torch.float64)
+
+    def derivatives(dtype):
+        logits_ = logits.to(dtype).requires_grad_(True)
+        factors_ = factors.to(dtype).requires_grad_(True)
+        weights = smooth_cutoff_attention(logits_, factors_)
+        grad_logits, grad_factors = torch.autograd.grad(
+            (weights * grad_out.to(dtype)).sum(), [logits_, factors_], create_graph=True
+        )
+        second = torch.autograd.grad(
+            (grad_logits**2).sum() + (grad_factors**2).sum(), [logits_, factors_]
+        )
+        return weights, grad_logits, grad_factors, second
+
+    weights, grad_logits, grad_factors, second = derivatives(torch.float32)
+    for tensor in (weights, grad_logits, grad_factors, *second):
+        assert torch.isfinite(tensor).all()
+
+    weights_64, grad_logits_64, _, _ = derivatives(torch.float64)
+    assert torch.allclose(weights.double(), weights_64, rtol=1e-4, atol=1e-6)
+    # the key gets f times its share with f = 1, not a sizeable part of the attention
+    full = smooth_cutoff_attention(logits, torch.where(factors < 1e-3, 1.0, factors))
+    assert torch.all(weights_64[..., 13] <= 1.01 * 2.7e-17 * full[..., 13])
+    assert torch.allclose(grad_logits.double(), grad_logits_64, rtol=1e-3, atol=1e-5)
 
 
 def _attention_block(smooth_cutoff):
