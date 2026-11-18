@@ -29,6 +29,7 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
+from metatrain.utils.data.atom_pair_helpers import get_pair_target_neighborlist
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
     get_prepare_atomic_basis_targets_transform,
@@ -206,7 +207,12 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 extra_data=dense_dataset_info.extra_data,
             )
         else:
-            core_dataset_info = model.core.dataset_info
+            core_dataset_info = DatasetInfo(
+                length_unit=dense_dataset_info.length_unit,
+                atomic_types=dense_dataset_info.atomic_types,
+                targets=model.core.dataset_info.targets,
+                extra_data=dense_dataset_info.extra_data,
+            )
 
         comp_model_info = DatasetInfo(
             length_unit=dense_dataset_info.length_unit,
@@ -284,7 +290,9 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         atomic_basis_transform, atomic_basis_reverse_transform = (
             get_prepare_atomic_basis_targets_transform(
-                model.dataset_info, model.core.dataset_info
+                model.dataset_info,
+                model.internal_dataset_info(),
+                nl_options=get_pair_target_neighborlist(model),
             )
         )
 

@@ -262,7 +262,12 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                 extra_data=dense_dataset_info.extra_data,
             )
         else:
-            core_dataset_info = model.core.dataset_info
+            core_dataset_info = DatasetInfo(
+                length_unit=dense_dataset_info.length_unit,
+                atomic_types=dense_dataset_info.atomic_types,
+                targets=model.core.dataset_info.targets,
+                extra_data=dense_dataset_info.extra_data,
+            )
 
         comp_model_info = DatasetInfo(
             length_unit=dense_dataset_info.length_unit,
