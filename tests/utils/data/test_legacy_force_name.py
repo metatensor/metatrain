@@ -117,6 +117,29 @@ def test_upgrade_renames_legacy_target_key_and_state_dict_path():
     )
 
 
+def test_upgrade_renames_target_keyed_model_hypers():
+    # LLPR keeps its ensembles in `hypers`, SOAP-BPNN its heads in `model_hypers`,
+    # both keyed by target name
+    checkpoint = {
+        "model_data": {
+            "hypers": {"num_ensemble_members": {LEGACY_NON_CONSERVATIVE_FORCE: 4}},
+        },
+        "model_state_dict": {},
+        "best_model_state_dict": None,
+        "wrapped_model_checkpoint": {
+            "model_data": {
+                "model_hypers": {"heads": {LEGACY_NON_CONSERVATIVE_FORCE: "mlp"}},
+            },
+        },
+    }
+    upgrade_legacy_non_conservative_force(checkpoint)
+
+    hypers = checkpoint["model_data"]["hypers"]
+    assert hypers["num_ensemble_members"] == {"non_conservative_force": 4}
+    wrapped = checkpoint["wrapped_model_checkpoint"]["model_data"]["model_hypers"]
+    assert wrapped["heads"] == {"non_conservative_force": "mlp"}
+
+
 def test_upgrade_leaves_singular_checkpoints_unchanged():
     checkpoint = {
         "model_data": {

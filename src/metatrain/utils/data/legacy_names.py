@@ -139,9 +139,10 @@ def upgrade_legacy_non_conservative_force(checkpoint: dict) -> None:
     """Rename ``non_conservative_forces`` to ``non_conservative_force`` in-place.
 
     Covers dataset layouts, serialized scaler and composition buffers, state-dict
-    key paths, and target-keyed training hypers. Nested ``wrapped_model_checkpoint``
-    entries (LLPR) are updated as well. Checkpoints that already use the singular
-    name are left unchanged.
+    key paths, and target-keyed model and training hypers (such as LLPR ensembles
+    and SOAP-BPNN heads). Nested ``wrapped_model_checkpoint`` entries (LLPR) are
+    updated as well. Checkpoints that already use the singular name are left
+    unchanged.
 
     :param checkpoint: Checkpoint dictionary to update.
     """
@@ -151,6 +152,8 @@ def upgrade_legacy_non_conservative_force(checkpoint: dict) -> None:
     for holder in (model_data if isinstance(model_data, dict) else None, checkpoint):
         if holder is None:
             continue
+        _rename_mapping(holder.get("hypers"))
+        _rename_mapping(holder.get("model_hypers"))
         dataset_info = holder.get("dataset_info")
         if dataset_info is not None and hasattr(dataset_info, "targets"):
             targets = dataset_info.targets
