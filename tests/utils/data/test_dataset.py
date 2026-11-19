@@ -372,6 +372,46 @@ def test_dataset_info_update_different_target_info(layout_scalar):
         info.update(info2)
 
 
+def _rank1_layout(property_name: str) -> TensorMap:
+    block = TensorBlock(
+        values=torch.empty((0, 3, 1), dtype=torch.float64),
+        samples=Labels(["system", "atom"], torch.empty((0, 2), dtype=torch.int32)),
+        components=[Labels(["xyz"], torch.arange(3, dtype=torch.int32).reshape(-1, 1))],
+        properties=Labels([property_name], torch.zeros((1, 1), dtype=torch.int32)),
+    )
+    return TensorMap(keys=Labels.single(), blocks=[block])
+
+
+def test_dataset_info_update_reports_property_label_names():
+    """Incompatible layouts name the property labels that differ."""
+    info = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1],
+        targets={
+            "non_conservative_force": TargetInfo(
+                layout=_rank1_layout("non_conservative_forces"),
+                quantity="force",
+                unit="eV/A",
+            )
+        },
+    )
+    other = DatasetInfo(
+        length_unit="angstrom",
+        atomic_types=[1],
+        targets={
+            "non_conservative_force": TargetInfo(
+                layout=_rank1_layout("non_conservative_force"),
+                quantity="force",
+                unit="eV/A",
+            )
+        },
+    )
+    with pytest.raises(
+        ValueError, match="non_conservative_forces.*non_conservative_force"
+    ):
+        info.update(other)
+
+
 def test_dataset_info_union(layout_scalar, layout_cartesian):
     """Tests the union method."""
     targets = {}
@@ -946,13 +986,17 @@ def test_memmap_extra_data_system_label(tmp_path):
         assert system_label == [i]
 
 
-def test_memmap_extra_data_property_name_from_key(tmp_path):
-    """Properties label name is the extra_data key with the 'mtt::' prefix stripped."""
+@pytest.mark.parametrize(
+    "extra_key",
+    ["charge", "mtt::charge", "charge/dft", "mtt::charge/dft"],
+)
+def test_memmap_extra_data_property_name_from_key(tmp_path, extra_key):
+    """The property label drops an ``mtt::`` prefix and a ``/<variant>`` suffix."""
     target_options, _ = _write_minimal_memmap(tmp_path)
     np.array([1.0, 2.0, 3.0], dtype="float32").tofile(tmp_path / "charge.bin")
 
     extra_data_options = {
-        "charge": {
+        extra_key: {
             "key": "charge",
             "type": "scalar",
             "sample_kind": "system",
@@ -962,7 +1006,7 @@ def test_memmap_extra_data_property_name_from_key(tmp_path):
     }
     dataset = MemmapDataset(tmp_path, target_options, extra_data_options)
 
-    tm = dataset[0]._asdict()["charge"]
+    tm = dataset[0]._asdict()[extra_key]
     prop_name = tm.block().properties.names[0]
     assert prop_name == "charge"
 
