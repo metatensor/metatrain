@@ -128,7 +128,7 @@ class OutputTests(ExtenderTests):
         # Check that each output has the expected metadata
         for out_name in expected_outputs:
             out_tmap = result[out_name]
-            layout = out_targets[out_name].layout
+            layout = out_targets[out_name].layout.to(dtype=dtype, device=device)
 
             assert out_tmap.keys == layout.keys, (
                 f"Output {out_name} has keys {out_tmap.keys}, "

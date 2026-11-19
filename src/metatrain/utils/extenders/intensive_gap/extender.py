@@ -278,8 +278,8 @@ class IntensiveGap(ExtenderInterface[Hypers]):
                 values_bottom = values_bottom.reshape(n_samples, -1)
                 values_top = values_top.reshape(n_samples, -1)
 
-                alphas_bottom = torch.full((n_samples,), sharpness_bottom)
-                alphas_top = torch.full((n_samples,), sharpness_top)
+                alphas_bottom = torch.full((n_samples,), sharpness_bottom, device=device)
+                alphas_top = torch.full((n_samples,), sharpness_top, device=device)
 
                 # Loop over properties. This can probably be done without
                 # a for loop. I leave this optimization for later.
