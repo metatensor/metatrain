@@ -29,7 +29,6 @@ from metatrain.utils.data import (
     unpack_batch,
     validate_num_workers,
 )
-from metatrain.utils.data.atom_pair_helpers import get_pair_target_neighborlist
 from metatrain.utils.data.atomic_basis_helpers import (
     densify_atomic_basis_dataset_info,
     get_prepare_atomic_basis_targets_transform,
@@ -292,7 +291,6 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             get_prepare_atomic_basis_targets_transform(
                 model.dataset_info,
                 model.internal_dataset_info(),
-                nl_options=get_pair_target_neighborlist(model),
             )
         )
 
