@@ -7,6 +7,7 @@ from types import ModuleType
 from typing import Optional
 
 import torch
+from metatomic.torch import ModelOutput
 from omegaconf import OmegaConf
 
 from metatrain.utils.data import DatasetInfo, TargetInfo
@@ -282,3 +283,59 @@ def restart_extenders(
     extenders, model_outs = setup_extenders(dataset_info, new_extenders_hypers)
 
     return extenders, model_outs, new_extenders_hypers
+
+
+def get_requested_inputs(
+    extenders: list[ExtenderInterface],
+    outputs: dict[str, ModelOutput],
+) -> dict[str, ModelOutput]:
+    """
+    Get the requested inputs from a list of extenders.
+
+    This is using the function implemented in the MetatrainModel
+    wrapper. Ideally it should be the opposite (functionality
+    implemented here and used in the wrapper), but type hinting
+    with ExtenderInterface is not torchscript compatible, so we
+    have to use this trick. Let's see when we get rid of
+    torchscript.
+
+    :param extenders: List of extenders to get the requested inputs from.
+    :param outputs: Dictionary of outputs that are requested.
+    :return: A dictionary with the requested inputs.
+    """
+    from metatrain.utils.wrapper import MetatrainModel
+
+    d_info = DatasetInfo(length_unit="Angstrom", atomic_types=[], targets={})
+    fake_core = torch.nn.Module()
+    fake_core.dataset_info = d_info
+
+    fake_wrapper = MetatrainModel(
+        core=fake_core,
+        additive_models=[],
+        scaler=None,
+        dataset_info=d_info,
+        extenders=extenders,
+    )
+
+    return fake_wrapper._get_requested_extender_inputs(outputs)
+
+
+def _filter_outputs(
+    outputs: dict[str, ModelOutput], supported_outputs: dict[str, TargetInfo]
+) -> dict[str, ModelOutput]:
+    """
+    Filter the outputs to only include those that are supported.
+
+    This is just for torchscript, because dict comprehensions ifs are not
+    supported and having this written everywhere is not nice.
+
+    :param outputs: Dictionary of requested outputs.
+    :param supported_outputs: Outputs supported.
+    :return: A dictionary of outputs that are supported.
+    """
+    # Filter the outputs to only include those that are supported
+    extender_outs: dict[str, ModelOutput] = {}
+    for name in supported_outputs:
+        if name in outputs:
+            extender_outs[name] = outputs[name]
+    return extender_outs

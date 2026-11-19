@@ -118,21 +118,13 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         # -----------------------------------
         #     Add outputs needed by extenders
         # -----------------------------------
-        aux_outputs = outputs.copy()
-        core_outputs = outputs.copy()
-        for extender in self.extenders:
-            extender_outs = _filter_outputs_for_extender(
-                aux_outputs, extender.supported_outputs()
-            )
-
-            requested_inputs = extender.requested_extender_inputs(aux_outputs)
-            for name, target_info in requested_inputs.items():
-                model_output = target_info.to_model_output()
-                aux_outputs[name] = model_output
-                core_outputs[name] = model_output
-
-            for name in extender_outs:
-                core_outputs.pop(name)
+        extender_inputs: dict[str, ModelOutput] = {}
+        core_outputs = outputs
+        all_outputs = outputs.copy()
+        if len(self.extenders) > 0:
+            extender_inputs = self._get_requested_extender_inputs(outputs)
+            all_outputs.update(extender_inputs)
+            core_outputs = _filter_outputs(all_outputs, self.core.supported_outputs())
 
         # -----------------------------------
         #         Run the core model
@@ -147,8 +139,8 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         # -----------------------------------
         with torch.profiler.record_function("MTT_WRAPPER::apply_extenders"):
             for extender in self.extenders:
-                extender_outs = _filter_outputs_for_extender(
-                    aux_outputs, extender.supported_outputs()
+                extender_outs = _filter_outputs(
+                    all_outputs, extender.supported_outputs()
                 )
 
                 # Run extender
@@ -652,22 +644,51 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         self.dataset_info.targets.pop(target_name, None)
 
+    def _get_requested_extender_inputs(
+        self,
+        outputs: dict[str, ModelOutput],
+    ) -> dict[str, ModelOutput]:
+        """
+        Get the requested inputs for the list of extenders.
 
-def _filter_outputs_for_extender(
+        :param outputs: Dictionary of outputs that are requested.
+        :return: A dictionary with the requested inputs.
+        """
+        aux_outputs = outputs.copy()
+        req_inputs: dict[str, ModelOutput] = {}
+        prev_aux_outputs: dict[str, ModelOutput] = {}
+
+        while list(prev_aux_outputs) != list(aux_outputs):
+            prev_aux_outputs = aux_outputs.copy()
+            for extender in self.extenders:
+                extender_outs = _filter_outputs(
+                    aux_outputs, extender.supported_outputs()
+                )
+
+                requested_inputs = extender.requested_extender_inputs(extender_outs)
+                for name, target_info in requested_inputs.items():
+                    model_output = target_info.to_model_output()
+                    aux_outputs[name] = model_output
+                    req_inputs[name] = model_output
+
+        return req_inputs
+
+
+def _filter_outputs(
     outputs: dict[str, ModelOutput], supported_outputs: dict[str, TargetInfo]
 ) -> dict[str, ModelOutput]:
     """
-    Filter the outputs to only include those that are supported by the extender.
+    Filter the outputs to only include those that are supported.
 
-    This is just for torchscript, because dict comprehensions are not
+    This is just for torchscript, because dict comprehensions ifs are not
     supported and having this written everywhere is not nice.
 
     :param outputs: Dictionary of requested outputs.
-    :param supported_outputs: Outputs supported by the extender.
-    :return: A dictionary of outputs that are supported by the extender.
+    :param supported_outputs: Outputs supported.
+    :return: A dictionary of outputs that are supported.
     """
     # Filter the outputs to only include those that are
-    # supported by the extender
+    # supported
     extender_outs: dict[str, ModelOutput] = {}
     for name in supported_outputs:
         if name in outputs:

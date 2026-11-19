@@ -1,10 +1,12 @@
 import pytest
+from metatomic.torch import ModelOutput
 
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.extenders.helpers import (
     find_all_extenders,
     get_default_hypers,
+    get_requested_inputs,
     load_extender,
     setup_extenders,
 )
@@ -62,10 +64,16 @@ class TestSetupExtenders:
 
         dataset_info = dataset_info
 
-        post_extenders, model_outs = setup_extenders(dataset_info, hypers)
+        extenders, model_outs = setup_extenders(dataset_info, hypers)
 
-        assert len(post_extenders) == 0
+        assert len(extenders) == 0
         assert model_outs == dataset_info.targets
+
+        req_inputs = get_requested_inputs(extenders, {"energy": ModelOutput()})
+
+        # Check that there are no extra variables needed to produce the "energy"
+        # output, since there are no extenders.
+        assert len(req_inputs) == 0
 
     def test_single_extender(self, dataset_info):
         """Simplest test of an extender owning a single output, and its inputs
@@ -76,14 +84,25 @@ class TestSetupExtenders:
 
         dataset_info = dataset_info.copy()
 
-        post_extenders, model_outs = setup_extenders(dataset_info, hypers)
+        extenders, model_outs = setup_extenders(dataset_info, hypers)
 
-        assert len(post_extenders) == 1
+        assert len(extenders) == 1
         assert "mtt::local_energy" not in model_outs
 
         assert "energy" in model_outs
         assert "mtt::some_other_energy" in model_outs
         assert len(model_outs) > 2
+
+        req_inputs = get_requested_inputs(
+            extenders, {"mtt::local_energy": ModelOutput()}
+        )
+
+        # Check that all the variables needed to produce the "mtt::local_energy" output
+        # are there.
+        assert len(req_inputs) == 1
+        assert set(req_inputs.keys()) == {
+            "mtt::extender_aux::rename::local_energy",
+        }
 
     def test_single_extender_with_inputs(self, dataset_info):
         """Test that extenders can use a target as input.
@@ -97,9 +116,9 @@ class TestSetupExtenders:
 
         dataset_info = dataset_info.copy()
 
-        post_extenders, model_outs = setup_extenders(dataset_info, hypers)
+        extenders, model_outs = setup_extenders(dataset_info, hypers)
 
-        assert len(post_extenders) == 1
+        assert len(extenders) == 1
         assert "mtt::local_energy" not in model_outs
         assert model_outs == {
             k: v for k, v in dataset_info.targets.items() if k != "mtt::local_energy"
@@ -107,6 +126,17 @@ class TestSetupExtenders:
             "Extender should not add extra outputs to the model, since its inputs"
             " are already present in the model outputs."
         )
+
+        req_inputs = get_requested_inputs(
+            extenders, {"mtt::local_energy": ModelOutput()}
+        )
+
+        # Check that all the variables needed to produce the "mtt::local_energy" output
+        # are there.
+        assert len(req_inputs) == 1
+        assert set(req_inputs.keys()) == {
+            "mtt::some_other_energy",
+        }
 
     def test_single_extender_with_inputs_from_extra_data(self, dataset_info):
         """Test that extenders can get their inputs from the extra data, and
@@ -118,9 +148,9 @@ class TestSetupExtenders:
 
         dataset_info = dataset_info.copy()
 
-        post_extenders, model_outs = setup_extenders(dataset_info, hypers)
+        extenders, model_outs = setup_extenders(dataset_info, hypers)
 
-        assert len(post_extenders) == 1
+        assert len(extenders) == 1
         assert "mtt::local_energy" not in model_outs
         assert model_outs == {
             k: v for k, v in dataset_info.targets.items() if k != "mtt::local_energy"
@@ -128,6 +158,17 @@ class TestSetupExtenders:
             "Extender should not add extra outputs to the model, since its inputs"
             " are already present in the extra data."
         )
+
+        req_inputs = get_requested_inputs(
+            extenders, {"mtt::local_energy": ModelOutput()}
+        )
+
+        # Check that all the variables needed to produce the "mtt::local_energy" output
+        # are there.
+        assert len(req_inputs) == 1
+        assert set(req_inputs.keys()) == {
+            "mtt::extra_energy",
+        }
 
     def test_chained_extenders(self, dataset_info):
         """Check that an output from a previous extender can be used
@@ -145,9 +186,9 @@ class TestSetupExtenders:
 
         dataset_info = dataset_info.copy()
 
-        post_extenders, model_outs = setup_extenders(dataset_info, hypers)
+        extenders, model_outs = setup_extenders(dataset_info, hypers)
 
-        assert len(post_extenders) == 2
+        assert len(extenders) == 2
         assert "energy" not in model_outs
 
         assert "mtt::local_energy" in model_outs
@@ -156,6 +197,17 @@ class TestSetupExtenders:
         # There should be an extra model output for the top of the gap,
         # requested by the intensive gap extender.
         assert len(model_outs) == 3
+
+        req_inputs = get_requested_inputs(extenders, {"energy": ModelOutput()})
+
+        # Check that all the variables needed to produce the "energy" output
+        # are there.
+        assert len(req_inputs) == 3
+        assert set(req_inputs.keys()) == {
+            "mtt::local_energy",
+            "mtt::gap_bottom",
+            "mtt::extender_aux::gap_top::energy",
+        }
 
     def test_not_available_output_error(self, dataset_info):
         """an extender is asked to use an output that doesn't exist,
@@ -197,3 +249,16 @@ class TestSetupExtenders:
         # There should be two extra model outputs requested by the
         # intensive gap extender.
         assert len(model_outs) == 4
+
+        outputs = {"energy": ModelOutput(sample_kind="system")}
+
+        req_inputs = get_requested_inputs(extenders, outputs)
+
+        # Check that all the variables needed to produce the "energy" output
+        # are there.
+        assert len(req_inputs) == 3
+        assert set(req_inputs.keys()) == {
+            "mtt::extender_aux::gap_bottom::intermediate_energy",
+            "mtt::extender_aux::gap_top::intermediate_energy",
+            "mtt::intermediate_energy",
+        }
