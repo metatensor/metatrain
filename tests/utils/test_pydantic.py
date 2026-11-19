@@ -1,8 +1,10 @@
 # mypy: ignore-errors
 # Satisfying mypy in this file is hard because the fixtures
 # define different classes depending on the parametrization.
+import warnings
 from copy import deepcopy
 
+import pydantic
 import pytest
 import requests
 from pydantic import BaseModel
@@ -10,6 +12,12 @@ from typing_extensions import TypedDict
 
 from metatrain.share.base_hypers import BaseHypers
 from metatrain.utils.architectures import preload_documentation_module
+from metatrain.utils.extenders import (
+    ExtendersHypers,
+)
+from metatrain.utils.extenders import (
+    get_default_hypers as get_extender_default_hypers,
+)
 from metatrain.utils.pydantic import (
     MetatrainArchitectureValidationError,
     MetatrainValidationError,
@@ -31,6 +39,26 @@ def simple_hypers_class(request: pytest.FixtureRequest):
 
         class Hypers(BaseModel):
             a: float = 2.0
+
+    return Hypers
+
+
+@pytest.fixture(params=["typed_dict", "pydantic_model"])
+def hypers_class_with_extenders(request: pytest.FixtureRequest):
+    if request.param == "typed_dict":
+
+        @pydantic.with_config(extra="forbid", strict=True)
+        class Hypers(TypedDict):
+            a: float = 2.0
+            extenders_input: ExtendersHypers = {}
+
+    elif request.param == "pydantic_model":
+
+        class Hypers(BaseModel):
+            __config__ = pydantic.ConfigDict(extra="forbid", strict=True)
+
+            a: float = 2.0
+            extenders_input: ExtendersHypers = {}
 
     return Hypers
 
@@ -106,6 +134,65 @@ def test_validate_architecture_options_warning(caplog):
     validate_architecture_options(options, model_hypers=Hypers, trainer_hypers=Hypers)
 
     assert "Architecture does not provide validation of hyperparameters" in caplog.text
+
+
+# ============================================================================
+# Tests for validating options with extenders
+# ============================================================================
+
+
+def test_validate_options_with_extenders(
+    simple_hypers_class: type, hypers_class_with_extenders: type
+):
+    """Test that options with extenders are validated correctly."""
+
+    options = {
+        "name": "dummy_architecture",
+        "model": {"a": 2.0},
+        "training": {
+            "a": 2.0,
+            "extenders_input": {
+                "rename": "energy",
+            },
+        },
+    }
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*Pydantic serializer.*")
+        validated = validate_architecture_options(
+            options,
+            model_hypers=simple_hypers_class,
+            trainer_hypers=hypers_class_with_extenders,
+        )
+
+    expected_hypers = {"rename": get_extender_default_hypers("rename")}
+    expected_hypers["rename"]["outputs"] = "energy"
+
+    assert validated["training"]["extenders_input"] == expected_hypers
+
+
+def test_validate_options_with_extenders_error(
+    simple_hypers_class: type, hypers_class_with_extenders: type
+):
+    """Test that options with extenders raise error on invalid hypers."""
+
+    options = {
+        "name": "dummy_architecture",
+        "model": {"a": 2.0},
+        "training": {
+            "a": 2.0,
+            "extenders_input": {
+                "rename": 123,  # Invalid type for outputs
+            },
+        },
+    }
+
+    with pytest.raises(MetatrainValidationError):
+        validate_architecture_options(
+            options,
+            model_hypers=simple_hypers_class,
+            trainer_hypers=hypers_class_with_extenders,
+        )
 
 
 # ============================================================================

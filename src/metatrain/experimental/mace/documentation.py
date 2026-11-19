@@ -122,6 +122,7 @@ from typing_extensions import NotRequired, TypedDict
 from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.pet.modules.finetuning import FullFinetuneHypers
 from metatrain.scaler.documentation import FixedScalerWeights
+from metatrain.utils.extenders import ExtendersHypers
 from metatrain.utils.loss import LossSpecification
 
 
@@ -446,5 +447,10 @@ class TrainerHypers(TypedDict):
     finetune: NotRequired[FullFinetuneHypers]
     """Finetuning parameters for MetaMACE models that have been pretrained.
 
-    See :ref:`fine-tuning` for more details.
+    See :ref:`label_fine_tuning_concept` for more details.
+    """
+    extenders: ExtendersHypers = {}
+    """Extenders to be used for training the model.
+
+    See :ref:`concept-extenders` for more details.
     """

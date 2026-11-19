@@ -443,7 +443,7 @@ def test_composition_contribution_in_eval_atomic_basis():
         }
     )
 
-    trainer = Trainer(get_default_hypers("composition")["training"])
+    trainer = Trainer(get_default_hypers("pet")["training"])
     model = trainer.setup(MODEL_HYPERS, dataset_info)
     # Identical PET weights, but its composition model stays unfitted (zero
     # weights): the difference between the two eval outputs must be exactly
