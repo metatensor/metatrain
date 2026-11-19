@@ -5,6 +5,7 @@ from metatrain.utils.data.target_info import get_energy_target_info
 from metatrain.utils.extenders.helpers import (
     find_all_extenders,
     get_default_hypers,
+    load_extender,
     setup_extenders,
 )
 
@@ -183,9 +184,11 @@ class TestSetupExtenders:
 
         dataset_info = dataset_info.copy()
 
-        post_extenders, model_outs = setup_extenders(dataset_info, hypers)
+        extenders, model_outs = setup_extenders(dataset_info, hypers)
 
-        assert len(post_extenders) == 2
+        assert len(extenders) == 2
+        assert isinstance(extenders[0], load_extender("intensive_gap"))
+        assert isinstance(extenders[1], load_extender("rename"))
         assert "energy" not in model_outs
 
         assert "mtt::local_energy" in model_outs

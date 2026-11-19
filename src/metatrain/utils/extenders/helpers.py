@@ -188,14 +188,12 @@ def setup_extenders(
     model_outputs = dataset_info.targets.copy()
 
     all_extender_outputs = []
-    post_extenders = []
+    extenders = []
 
-    def _set_up(
-        post_extenders_hypers: dict, dataset_info: DatasetInfo
-    ) -> tuple[dict, list]:
+    def _set_up(extenders_hypers: dict, dataset_info: DatasetInfo) -> tuple[dict, list]:
         unavailable_out_extenders = {}
         unavailable_errors = []
-        for extender_name, extender_hypers in post_extenders_hypers.items():
+        for extender_name, extender_hypers in extenders_hypers.items():
             extender_class = load_extender(extender_name)
 
             # Get extender and add it to the list of extenders.
@@ -205,7 +203,7 @@ def setup_extenders(
                 unavailable_out_extenders[extender_name] = extender_hypers
                 unavailable_errors.append(e)
                 continue
-            post_extenders.append(extender)
+            extenders.append(extender)
 
             # The model will not need to produce the outputs that this extender
             # takes care of, so remove them from the list of model outputs.
@@ -252,7 +250,11 @@ def setup_extenders(
         extenders_to_set_up = new_extenders_to_set_up
         dataset_info.targets.update(model_outputs)
 
-    return post_extenders, model_outputs
+    # Reorder extenders to match the order in which they were specified in the hypers.
+    req_extenders_classes = [load_extender(name) for name in extenders_hypers.keys()]
+    extenders.sort(key=lambda e: req_extenders_classes.index(type(e)))
+
+    return extenders, model_outputs
 
 
 def restart_extenders(
