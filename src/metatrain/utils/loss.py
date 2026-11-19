@@ -200,11 +200,15 @@ class BaseTensorMapLoss(LossInterface):
         all_predictions_flattened = torch.cat(list_of_prediction_segments)
         all_targets_flattened = torch.cat(list_of_target_segments)
 
-        # Don't include in the loss calculation any points where
-        # the target is NaN
-        not_nan = ~torch.isnan(all_targets_flattened)
-        all_targets_flattened = all_targets_flattened[not_nan]
-        all_predictions_flattened = all_predictions_flattened[not_nan]
+        # Points where the target is NaN (missing data, e.g. structures without
+        # stress) have a zero error (and no gradient), but are still counted when
+        # averaging. This way, each structure has the same weight in the loss,
+        # independently of how many structures in the batch have this target.
+        all_targets_flattened = torch.where(
+            torch.isnan(all_targets_flattened),
+            all_predictions_flattened.detach(),
+            all_targets_flattened,
+        )
 
         if len(all_targets_flattened) == 0:
             # No valid data points to compute the loss
