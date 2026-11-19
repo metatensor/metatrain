@@ -120,11 +120,19 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         # -----------------------------------
         extender_inputs: dict[str, ModelOutput] = {}
         core_outputs = outputs
-        all_outputs = outputs.copy()
+        all_outputs = outputs
         if len(self.extenders) > 0:
+            all_outputs = all_outputs.copy()
             extender_inputs = self._get_requested_extender_inputs(outputs)
             all_outputs.update(extender_inputs)
-            core_outputs = _filter_outputs(all_outputs, self.core.supported_outputs())
+
+            # Core outputs are all outputs except the ones that
+            # the extenders produce.
+            core_outputs = all_outputs.copy()
+            for extender in self.extenders:
+                for out_name in extender.supported_outputs():
+                    if out_name in core_outputs:
+                        core_outputs.pop(out_name)
 
         # -----------------------------------
         #         Run the core model
