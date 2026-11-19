@@ -42,6 +42,10 @@ class PETBackend(torch.nn.Module):
         self.cutoff_function = hypers["cutoff_function"]
         self.cutoff_width = float(hypers["cutoff_width"])
         self.set_num_neighbors_adaptive(hypers["num_neighbors_adaptive"])
+        # Whether to sample the target number of neighbors of each structure from
+        # the ``[low, high]`` range of ``num_neighbors_adaptive``. The trainer enables
+        # it for the training batches only; otherwise ``low`` is used.
+        self.sample_num_neighbors: bool = False
         self.adaptive_cutoff_method = hypers["adaptive_cutoff_method"]
         self.d_pet = hypers["d_pet"]
         self.d_node = hypers["d_node"]
@@ -228,7 +232,7 @@ class PETBackend(torch.nn.Module):
         :param num_neighbors_adaptive: ``None`` to disable the adaptive cutoff, a
             single number, or a ``[low, high]`` range. With a range, the target is
             sampled from ``[low, high]`` with :func:`sample_num_neighbors_adaptive`
-            when this module is in training mode, and ``low`` is used otherwise.
+            when ``sample_num_neighbors`` is set, and ``low`` is used otherwise.
         """
         num_neighbors_range = parse_num_neighbors_adaptive(num_neighbors_adaptive)
         if num_neighbors_range is None:
@@ -293,8 +297,9 @@ class PETBackend(torch.nn.Module):
         :param cutoff_width_adaptive: Width of the smooth cutoff taper used by the
             adaptive cutoff scheme when ``num_neighbors_adaptive`` is set.
         :param system_indices: Index of the structure of each atom, shape
-            ``(num_nodes,)``. In training mode, with ``num_neighbors_adaptive`` given
-            as a range, a target number of neighbors is sampled for each structure.
+            ``(num_nodes,)``. When ``sample_num_neighbors`` is set, with
+            ``num_neighbors_adaptive`` given as a range, a target number of neighbors
+            is sampled for each structure.
             If ``None``, all atoms are treated as a single structure.
         :param num_systems: Number of structures in the batch. Only used together
             with ``system_indices``.
@@ -332,7 +337,7 @@ class PETBackend(torch.nn.Module):
         fixed_num_neighbors_adaptive = self.num_neighbors_adaptive
         if fixed_num_neighbors_adaptive is not None:
             num_nodes = positions.shape[0]
-            if self.training:
+            if self.sample_num_neighbors:
                 # one target per structure, shared by all its atoms
                 if system_indices is None:
                     num_neighbors_adaptive = sample_num_neighbors_adaptive(

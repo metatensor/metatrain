@@ -130,7 +130,7 @@ def test_training_samples_per_structure(recorded_targets):
     systems = [_system(model, n, seed=i) for i, n in enumerate(sizes)]
     outputs = {"energy": ModelOutput(sample_kind="system")}
 
-    model.train()
+    model.backend.sample_num_neighbors = True
     for _ in range(20):
         model(systems, outputs)
     per_system = [_per_system(t, sizes) for t in recorded_targets]
@@ -140,9 +140,22 @@ def test_training_samples_per_structure(recorded_targets):
     assert any(len(set(batch)) > 1 for batch in per_system)
 
     recorded_targets.clear()
-    model.eval()
+    model.backend.sample_num_neighbors = False
     model(systems, outputs)
     assert _per_system(recorded_targets[0], sizes) == [4.0, 4.0, 4.0]
+
+
+def test_training_mode_does_not_sample(recorded_targets):
+    # sampling is only switched on explicitly (by the trainer), not by train()
+    model = PET(_hypers([4, 12]), DATASET_INFO)
+    assert not model.backend.sample_num_neighbors
+    system = _system(model)
+    outputs = {"energy": ModelOutput(sample_kind="system")}
+
+    model.train()
+    for _ in range(5):
+        model([system], outputs)
+    assert set(torch.cat(recorded_targets).tolist()) == {4.0}
 
 
 def test_per_atom_targets_match_single_structures(recorded_targets):
@@ -155,7 +168,7 @@ def test_per_atom_targets_match_single_structures(recorded_targets):
     systems = [_system(model, n, seed=i) for i, n in enumerate(sizes)]
     outputs = {"mtt::aux::cutoff_stats": ModelOutput(sample_kind="atom")}
 
-    model.train()
+    model.backend.sample_num_neighbors = True
     # run until the two structures get different targets
     for _ in range(20):
         recorded_targets.clear()
@@ -165,6 +178,7 @@ def test_per_atom_targets_match_single_structures(recorded_targets):
             break
     assert targets[0] != targets[1]
 
+    model.backend.sample_num_neighbors = False
     for i, (system, target) in enumerate(zip(systems, targets, strict=True)):
         model.set_num_neighbors_adaptive(int(target))
         single = model([system], outputs)["mtt::aux::cutoff_stats"].block()
@@ -173,7 +187,7 @@ def test_per_atom_targets_match_single_structures(recorded_targets):
 
 
 def test_eval_matches_fixed_model():
-    """In eval mode, a range model behaves as a fixed model with ``low``."""
+    """Without sampling, a range model behaves as a fixed model with ``low``."""
     torch.manual_seed(0)
     range_model = PET(_hypers([4, 12]), DATASET_INFO).eval()
     fixed_model = PET(_hypers(4), DATASET_INFO).eval()
@@ -207,12 +221,12 @@ def test_change_num_neighbors_adaptive(recorded_targets):
     model.restart(DATASET_INFO, _hypers([6, 8]))
     assert model.hypers["num_neighbors_adaptive"] == [6, 8]
     model([system], outputs)
-    model.train()
+    model.backend.sample_num_neighbors = True
     for _ in range(20):
         model([system], outputs)
     assert set(recorded_targets[0].tolist()) == {6.0}
     assert set(torch.cat(recorded_targets[1:]).tolist()) <= {6.0, 7.0, 8.0}
-    model.eval()
+    model.backend.sample_num_neighbors = False
 
     # the value is kept in the checkpoint
     loaded = PET.load_checkpoint(model.get_checkpoint(), context="export")
@@ -242,11 +256,12 @@ def test_torchscript():
     outputs = {"energy": ModelOutput(sample_kind="system")}
 
     scripted = torch.jit.script(model)
-    scripted.train()
+    scripted.backend.sample_num_neighbors = True
     scripted([system], outputs)
 
     model.eval()
     scripted.eval()
+    scripted.backend.sample_num_neighbors = False
     torch.testing.assert_close(
         model([system], outputs)["energy"].block().values,
         scripted([system], outputs)["energy"].block().values,
@@ -279,7 +294,7 @@ class TestVariableAdaptiveTraining(PETTests):
         original = backend_module.compute_batch_tensors
 
         def wrapper(*args, **kwargs):
-            is_validation = not model.core.backend.training
+            is_validation = not model.core.backend.sample_num_neighbors
             recorded.append((is_validation, args[10].detach().clone()))
             return original(*args, **kwargs)
 
@@ -301,4 +316,5 @@ class TestVariableAdaptiveTraining(PETTests):
         # several targets are used inside the same batch
         assert any(len(t.unique()) > 1 for t in train_targets)
         assert set(torch.cat(val_targets).tolist()) == {3.0}
-        assert model.core.backend.training
+        # the trained model does not sample any more
+        assert not model.core.backend.sample_num_neighbors
