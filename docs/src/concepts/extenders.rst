@@ -45,10 +45,10 @@ How they work
 Extenders can only communicate with the architecture and the other extenders by requesting
 outputs to each other.
 
-**On initialization**, every extender declares the outputs that it supports and their
+**On model initialization**, every extender declares the outputs that it supports and their
 layout, as well as the inputs that it will need.
 
-**On forward**, extenders receive the outputs of the model and the preceding extenders,
+**On model execution**, extenders receive the outputs of the model and the preceding extenders,
 and they return their own outputs which the next extender can see.
 
 By limiting the communication in this way, we ensure that extenders are modular and
