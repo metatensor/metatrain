@@ -50,3 +50,41 @@ class TestInputs(InputTests, IntensiveGapTests): ...
 
 
 class TestOutputs(OutputTests, IntensiveGapTests): ...
+
+
+class LearnableIntensiveGapTests(IntensiveGapTests):
+    """The same suites with learnable per-atom sharpness (two more per-atom inputs)."""
+
+    @pytest.fixture
+    def hypers(self):
+        hypers = get_default_hypers(self.extender)
+        hypers["outputs"] = "mtt::energy"
+        hypers["learnable_sharpness"] = True
+        return hypers
+
+    def build_hypers(self, input, output):
+        hypers, input_names, output_names = super().build_hypers(input, output)
+        hypers["learnable_sharpness"] = True
+        if input is None:
+            base = output_names[0].replace("mtt::", "")
+            input_names = input_names + [
+                f"mtt::extender_aux::intensive_gap::log_sharpness_bottom::{base}",
+                f"mtt::extender_aux::intensive_gap::log_sharpness_top::{base}",
+            ]
+        else:
+            bottom_name, top_name = input_names
+            hypers["inputs"] = {
+                **hypers["inputs"],
+                "log_sharpness_bottom": bottom_name,
+                "log_sharpness_top": top_name,
+            }
+        return hypers, input_names, output_names
+
+
+class TestTorchscriptLearnable(TorchscriptTests, LearnableIntensiveGapTests): ...
+
+
+class TestInputsLearnable(InputTests, LearnableIntensiveGapTests): ...
+
+
+class TestOutputsLearnable(OutputTests, LearnableIntensiveGapTests): ...

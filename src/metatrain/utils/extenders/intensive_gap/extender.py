@@ -76,6 +76,19 @@ class IntensiveGap(ExtenderInterface[Hypers]):
 
         sharpness_bottom = self.hypers["sharpness_bottom"]
         sharpness_top = self.hypers["sharpness_top"]
+        # absent from older checkpoints
+        learnable_sharpness = bool(self.hypers.get("learnable_sharpness", False))
+        if learnable_sharpness:
+            for hyper_name, sharpness in [
+                ("sharpness_bottom", sharpness_bottom),
+                ("sharpness_top", sharpness_top),
+            ]:
+                if float(sharpness) == 0.0:
+                    raise ValueError(
+                        f"IntensiveGap extender requires a non-zero '{hyper_name}' "
+                        "when `learnable_sharpness` is enabled, since its sign "
+                        "selects max- vs min-pooling"
+                    )
 
         # Get the information about the output targets from the dataset info
         out_names = hypers["outputs"]
@@ -106,6 +119,16 @@ class IntensiveGap(ExtenderInterface[Hypers]):
                 "top": in_names.get(
                     "top",
                     "mtt::extender_aux::intensive_gap::top::"
+                    f"{out_name.replace('mtt::', '')}",
+                ),
+                "log_sharpness_bottom": in_names.get(
+                    "log_sharpness_bottom",
+                    "mtt::extender_aux::intensive_gap::log_sharpness_bottom::"
+                    f"{out_name.replace('mtt::', '')}",
+                ),
+                "log_sharpness_top": in_names.get(
+                    "log_sharpness_top",
+                    "mtt::extender_aux::intensive_gap::log_sharpness_top::"
                     f"{out_name.replace('mtt::', '')}",
                 ),
             }
@@ -152,11 +175,20 @@ class IntensiveGap(ExtenderInterface[Hypers]):
                 ],
             )
 
-            for in_name in [in_names["bottom"], in_names["top"]]:
+            requested = [
+                (in_names["bottom"], out_target.quantity, out_target.unit),
+                (in_names["top"], out_target.quantity, out_target.unit),
+            ]
+            if learnable_sharpness:
+                requested += [
+                    (in_names["log_sharpness_bottom"], "", ""),
+                    (in_names["log_sharpness_top"], "", ""),
+                ]
+            for in_name, quantity, unit in requested:
                 built_target_info = TargetInfo(
                     per_atom_layout,
-                    quantity=out_target.quantity,
-                    unit=out_target.unit,
+                    quantity=quantity,
+                    unit=unit,
                 )
                 if (
                     in_name in dataset_info.targets
@@ -187,6 +219,17 @@ class IntensiveGap(ExtenderInterface[Hypers]):
             layout.set_info("sharpness_top", str(sharpness_top))
             layout.set_info("bottom_name", in_names["bottom"])
             layout.set_info("top_name", in_names["top"])
+            layout.set_info(
+                "learnable_sharpness", "true" if learnable_sharpness else "false"
+            )
+            layout.set_info(
+                "log_sharpness_bottom_name",
+                in_names["log_sharpness_bottom"] if learnable_sharpness else "",
+            )
+            layout.set_info(
+                "log_sharpness_top_name",
+                in_names["log_sharpness_top"] if learnable_sharpness else "",
+            )
 
             self._block_shapes[out_name] = [
                 (-1, *block.values.shape[1:]) for block in out_target.layout.blocks()
@@ -217,6 +260,13 @@ class IntensiveGap(ExtenderInterface[Hypers]):
                 requested_inputs[bottom_name] = self._input_target_infos[bottom_name]
 
                 requested_inputs[top_name] = self._input_target_infos[top_name]
+
+                if info["learnable_sharpness"] == "true":
+                    for name in [
+                        info["log_sharpness_bottom_name"],
+                        info["log_sharpness_top_name"],
+                    ]:
+                        requested_inputs[name] = self._input_target_infos[name]
 
         return requested_inputs
 
@@ -264,6 +314,7 @@ class IntensiveGap(ExtenderInterface[Hypers]):
             sharpness_top = float(info["sharpness_top"])
             input_bottom = info["bottom_name"]
             input_top = info["top_name"]
+            learnable_sharpness = info["learnable_sharpness"] == "true"
             block_shapes = self._block_shapes[out_name]
 
             # Build the output TensorMap by pooling over the per-atom values
@@ -285,10 +336,30 @@ class IntensiveGap(ExtenderInterface[Hypers]):
                 )
                 alphas_top = torch.full((n_samples,), sharpness_top, device=device)
 
+                if learnable_sharpness:
+                    log_sharpness_bottom = (
+                        inputs[info["log_sharpness_bottom_name"]]
+                        .block(i)
+                        .values.reshape(n_samples, -1)
+                    )
+                    log_sharpness_top = (
+                        inputs[info["log_sharpness_top_name"]]
+                        .block(i)
+                        .values.reshape(n_samples, -1)
+                    )
+                else:
+                    log_sharpness_bottom = values_bottom
+                    log_sharpness_top = values_top
+
                 # Loop over properties. This can probably be done without
                 # a for loop. I leave this optimization for later.
                 gap_values = []
                 for j in range(n_props):
+                    if learnable_sharpness:
+                        alphas_bottom = sharpness_bottom * torch.exp(
+                            log_sharpness_bottom[:, j]
+                        )
+                        alphas_top = sharpness_top * torch.exp(log_sharpness_top[:, j])
                     out_bottom = _scatter_softmax_pool(
                         values_bottom[:, j], alphas_bottom, system_indices, num_systems
                     )

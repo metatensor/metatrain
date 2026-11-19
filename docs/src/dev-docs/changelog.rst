@@ -89,6 +89,9 @@ Fixed
 Added
 #####
 
+- The ``intensive_gap`` extender can learn a per-atom pooling sharpness
+  (``learnable_sharpness: true``): the model predicts two more per-atom inputs
+  :math:`u_i` and the sharpness of each atom is ``sharpness_bottom/top * exp(u_i)``.
 - PET has a smoother attention cutoff. The attention that the central atom pays to a
   neighbor in the tail of the cutoff function is now proportional to its cutoff
   function, instead of switching on abruptly when the neighbor has few competitors,
