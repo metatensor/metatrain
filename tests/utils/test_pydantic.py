@@ -4,6 +4,7 @@
 import warnings
 from copy import deepcopy
 
+import pydantic
 import pytest
 import requests
 from pydantic import BaseModel
@@ -46,6 +47,7 @@ def simple_hypers_class(request: pytest.FixtureRequest):
 def hypers_class_with_extenders(request: pytest.FixtureRequest):
     if request.param == "typed_dict":
 
+        @pydantic.with_config(extra="forbid", strict=True)
         class Hypers(TypedDict):
             a: float = 2.0
             extenders_input: ExtendersHypers = {}
@@ -53,6 +55,8 @@ def hypers_class_with_extenders(request: pytest.FixtureRequest):
     elif request.param == "pydantic_model":
 
         class Hypers(BaseModel):
+            __config__ = pydantic.ConfigDict(extra="forbid", strict=True)
+
             a: float = 2.0
             extenders_input: ExtendersHypers = {}
 

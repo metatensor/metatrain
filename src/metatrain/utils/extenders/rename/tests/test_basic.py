@@ -7,7 +7,7 @@ from metatrain.utils.extenders.testing.output import OutputTests
 from metatrain.utils.extenders.testing.torchscript import TorchscriptTests
 
 
-class IdentityTests(ExtenderTests):
+class RenameTests(ExtenderTests):
     extender = "rename"
 
     @pytest.fixture
@@ -40,10 +40,10 @@ class IdentityTests(ExtenderTests):
             )
 
 
-class TestTorchscript(TorchscriptTests, IdentityTests): ...
+class TestTorchscript(TorchscriptTests, RenameTests): ...
 
 
-class TestInputs(InputTests, IdentityTests): ...
+class TestInputs(InputTests, RenameTests): ...
 
 
-class TestOutputs(OutputTests, IdentityTests): ...
+class TestOutputs(OutputTests, RenameTests): ...

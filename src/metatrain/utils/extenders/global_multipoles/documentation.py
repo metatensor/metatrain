@@ -66,12 +66,16 @@ class Hypers(TypedDict):
     """
 
     inputs: Optional[str | list[str]] = None
-    """
+    r"""
     Name or names for the inputs that this extender will request.
 
     If ``None``, the extender will request an input named
     ``mtt::extender_aux::local_multipoles::{output_name.replace('mtt::', '')}``
     for each output name.
+
+    These targets should be spherical and of order :math:`\leq \ell`, where
+    :math:`\ell` is the order of the output. They should also be local,
+    i.e. with sample kind ``"atom"``.
     """
 
     outputs: Optional[str | list[str]] = None

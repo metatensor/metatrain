@@ -1,5 +1,6 @@
 from typing import Annotated, Any, Callable
 
+import pydantic
 from omegaconf import OmegaConf
 from pydantic import (
     AfterValidator,
@@ -169,8 +170,11 @@ def augment_extenders_annotations(
             __config__=dict(extra="forbid"),
         )
     else:
-        return type(
-            getattr(obj, "__name__", "AugmentedClass"),
-            (obj,),
-            {"__annotations__": modified_annotations},
+        annotations = {**obj.__annotations__, **modified_annotations}
+        return pydantic.with_config(extra="forbid", strict=True)(
+            type(
+                getattr(obj, "__name__", "AugmentedClass"),
+                (obj,),
+                {"__annotations__": annotations},
+            )
         )

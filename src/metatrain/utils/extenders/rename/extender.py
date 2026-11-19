@@ -107,7 +107,7 @@ class Rename(ExtenderInterface[Hypers]):
         """
         Returns the supported outputs for the extender.
 
-        :return: A list of supported output names.
+        :return: A dictionary with the target infos of the supported outputs.
         """
         return self.out_targets
 
