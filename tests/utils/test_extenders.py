@@ -206,7 +206,7 @@ class TestSetupExtenders:
         assert set(req_inputs.keys()) == {
             "mtt::local_energy",
             "mtt::gap_bottom",
-            "mtt::extender_aux::gap_top::energy",
+            "mtt::extender_aux::intensive_gap::top::energy",
         }
 
     def test_not_available_output_error(self, dataset_info):
@@ -258,7 +258,7 @@ class TestSetupExtenders:
         # are there.
         assert len(req_inputs) == 3
         assert set(req_inputs.keys()) == {
-            "mtt::extender_aux::gap_bottom::intermediate_energy",
-            "mtt::extender_aux::gap_top::intermediate_energy",
+            "mtt::extender_aux::intensive_gap::bottom::intermediate_energy",
+            "mtt::extender_aux::intensive_gap::top::intermediate_energy",
             "mtt::intermediate_energy",
         }

@@ -21,7 +21,7 @@ class TensorBasisTests(ExtenderTests):
         if input is None:
             output_name = output["global_dipole"]
             input_name = (
-                f"mtt::extender_aux::scalars::{output_name.replace('mtt::', '')}"
+                f"mtt::extender_aux::tensor_basis::{output_name.replace('mtt::', '')}"
             )
             return {**hypers, "outputs": output_name}, [input_name], [output_name]
         elif output is None:

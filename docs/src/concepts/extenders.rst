@@ -39,6 +39,10 @@ intermediate outputs from the architecture. However, one can do more complex stu
 like chaining extenders or specifying the outputs of the architecture that the extender
 should use as input. The exact functionality really depends on each particular extender.
 
+By default, the outputs that an extender requests from the architecture are named
+``mtt::extender_aux::<extender_name>::...``, for example
+``mtt::extender_aux::intensive_gap::bottom::<target_name>``.
+
 How they work
 -------------
 

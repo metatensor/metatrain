@@ -21,7 +21,7 @@ class GlobalMultipolesTests(ExtenderTests):
         if input is None:
             output_name = output["global_dipole"]
             output_suffix = output_name.replace("mtt::", "")
-            input_name = f"mtt::extender_aux::local_multipoles::{output_suffix}"
+            input_name = f"mtt::extender_aux::global_multipoles::{output_suffix}"
             return {**hypers, "outputs": output_name}, [input_name], [output_name]
         elif output is None:
             ...

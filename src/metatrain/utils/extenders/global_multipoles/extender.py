@@ -54,7 +54,7 @@ class GlobalMultipole(ExtenderInterface[Hypers]):
             input_names = [input_names]
         elif input_names is None:
             input_names = [
-                f"mtt::extender_aux::local_multipoles::{out_name.replace('mtt::', '')}"
+                f"mtt::extender_aux::global_multipoles::{out_name.replace('mtt::', '')}"
                 for out_name in out_names
             ]
 
