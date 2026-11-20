@@ -1,0 +1,63 @@
+.. _extender-tensor_basis:
+
+Tensor basis
+============
+
+Provides a tensor basis in which to predict spherical tensor targets,
+following the approach described in this work :footcite:p:`domina2025representing`.
+
+This extender creates a basis for each target and each angular channel
+(``o3_lambda`` block) of the outputs. Then it asks for invariant
+coefficients to apply to the basis to produce the target. By using
+this extender one can:
+
+- **Use an architecture that produces only scalar outputs**, and still be
+  able to predict tensorial targets.
+- **Reduce the cost of equivariant models** by asking them to produce only
+  scalar outputs, and then use this extender to access the angular momentum
+  channels of the target.
+
+.. _extender-tensor_basis_installation:
+
+Installation
+------------
+
+To install this extender along with the ``metatrain`` package, run:
+
+.. code-block:: bash
+
+    pip install metatrain[extender-tensor-basis]
+
+where the square brackets indicate that you want to install the optional
+dependencies required for the ``tensor_basis`` extender.
+
+.. _extender-tensor_basis_hypers:
+
+Extender hyperparameters
+------------------------
+
+The default hyperparameters for this extender are:
+
+.. literalinclude:: ../default_hypers/tensor_basis-default-hypers.yaml
+   :language: yaml
+
+and here is the documentation for each hyperparameter:
+
+.. container:: mtt-hypers-remove-classname
+
+    ..
+
+        .. autoattribute:: metatrain.utils.extenders.tensor_basis.documentation.Hypers.soap
+
+        .. autoattribute:: metatrain.utils.extenders.tensor_basis.documentation.Hypers.inputs
+
+        .. autoattribute:: metatrain.utils.extenders.tensor_basis.documentation.Hypers.outputs
+
+
+
+.. _extender-tensor_basis_references:
+
+References
+----------
+
+.. footbibliography::
