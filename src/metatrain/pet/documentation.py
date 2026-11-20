@@ -140,7 +140,7 @@ important** (in decreasing order of importance):
       :no-index:
 """
 
-from typing import Literal, Optional
+from typing import List, Literal, Optional, Union
 
 from typing_extensions import NotRequired, TypedDict
 
@@ -164,7 +164,7 @@ class ModelHypers(TypedDict):
     between atoms is expected to be negligible. A lower cutoff will lead
     to faster models.
     """
-    num_neighbors_adaptive: Optional[int] = None
+    num_neighbors_adaptive: Optional[Union[int, List[int]]] = None
     """Target number of neighbors for the adaptive cutoff scheme.
 
     This parameter activates the adaptive cutoff functionality.
@@ -173,6 +173,16 @@ class ModelHypers(TypedDict):
     value. This can be useful to have a more uniform number of neighbors
     per atom, especially in sparse systems. Setting it to None disables
     this feature and uses all neighbors within the fixed cutoff radius.
+
+    It can also be given as a range ``[low, high]``. In this case, at each
+    training step the target number of neighbors of each structure in the batch is
+    an integer sampled independently from ``[low, high]`` with a log-uniform
+    distribution (smaller values are sampled more often), so that the model learns
+    to work with different numbers of neighbors. Outside of training (validation,
+    evaluation, exported models), ``low`` is used. Since this value does not affect
+    the model parameters, it can be changed when restarting or fine-tuning a
+    model, e.g. setting it to a single number ``n`` to evaluate the model with
+    ``n`` neighbors.
     """
     adaptive_cutoff_method: Literal["grid", "solver"] = "solver"
     """Algorithm used to compute the per-atom adaptive cutoffs.

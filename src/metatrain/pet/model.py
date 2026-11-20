@@ -1,8 +1,8 @@
 import logging
 import typing
 import warnings
-from collections.abc import Mapping
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from collections.abc import Mapping, Sequence
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import metatensor.torch as mts
 import torch
@@ -35,6 +35,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .documentation import ModelHypers
+from .modules.adaptive_cutoff import parse_num_neighbors_adaptive
 from .modules.backend import PETBackend
 from .modules.diagnostic import (
     DIAGNOSTIC_PREFIX,
@@ -84,10 +85,13 @@ class PET(ModelInterface[ModelHypers]):
         self.cutoff_function = self.hypers["cutoff_function"]
         self.cutoff_width = float(self.hypers["cutoff_width"])
         self.cutoff_width_adaptive = float(self.hypers["cutoff_width_adaptive"])
+        # Target number of neighbors used outside of training; see
+        # ``PETBackend.preprocess`` for the sampling done during training.
+        num_neighbors_range = parse_num_neighbors_adaptive(
+            self.hypers["num_neighbors_adaptive"]
+        )
         self.num_neighbors_adaptive = (
-            float(self.hypers["num_neighbors_adaptive"])
-            if self.hypers["num_neighbors_adaptive"] is not None
-            else None
+            float(num_neighbors_range[0]) if num_neighbors_range is not None else None
         )
         self.adaptive_cutoff_method = self.hypers["adaptive_cutoff_method"]
         self.d_pet = self.hypers["d_pet"]
@@ -178,6 +182,36 @@ class PET(ModelInterface[ModelHypers]):
     def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
+    def set_num_neighbors_adaptive(
+        self, num_neighbors_adaptive: Union[int, Sequence[int]]
+    ) -> None:
+        """Change the target number of neighbors of the adaptive cutoff.
+
+        The target does not affect the model parameters, so it can be changed after
+        training, for example to evaluate a model trained with a ``[low, high]``
+        range (which uses ``low`` outside of training) at a different number of
+        neighbors. The new value is stored in the hyperparameters, and so in the
+        checkpoints and exported models.
+
+        :param num_neighbors_adaptive: A single number, or a ``[low, high]`` range.
+        """
+        if self.hypers["num_neighbors_adaptive"] is None:
+            raise ValueError(
+                "`num_neighbors_adaptive` can not be set on a model trained without "
+                "the adaptive cutoff"
+            )
+        if num_neighbors_adaptive is None:
+            raise ValueError(
+                "the adaptive cutoff can not be disabled on a model trained with it"
+            )
+        num_neighbors_range = parse_num_neighbors_adaptive(num_neighbors_adaptive)
+        assert num_neighbors_range is not None
+        self.backend.set_num_neighbors_adaptive(num_neighbors_adaptive)
+        self.num_neighbors_adaptive = float(num_neighbors_range[0])
+        if isinstance(num_neighbors_adaptive, Sequence):
+            num_neighbors_adaptive = list(num_neighbors_adaptive)
+        self.hypers["num_neighbors_adaptive"] = num_neighbors_adaptive
+
     def restart(
         self,
         dataset_info: DatasetInfo,
@@ -185,6 +219,14 @@ class PET(ModelInterface[ModelHypers]):
     ) -> "PET":
 
         if model_hypers is not None:
+            # The target number of neighbors of the adaptive cutoff does not affect
+            # the model parameters, so it is allowed to change when restarting.
+            new_num_neighbors = model_hypers.get("num_neighbors_adaptive")
+            if (
+                new_num_neighbors is not None
+                and self.hypers["num_neighbors_adaptive"] is not None
+            ):
+                self.set_num_neighbors_adaptive(new_num_neighbors)
             default_hypers = get_default_hypers("pet")["model"]
             raise_if_hypers_mismatch(
                 self.hypers, model_hypers, default_hypers=default_hypers
@@ -371,6 +413,8 @@ class PET(ModelInterface[ModelHypers]):
                 cell_contributions,
                 cell_shifts,
                 self.cutoff_width_adaptive,
+                system_indices,
+                len(systems),
             )
 
         # ===== BEGIN DIAGNOSTIC-RELATED BLOCK

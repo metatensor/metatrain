@@ -578,6 +578,11 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             self.best_metric = float("inf")
         logging.info("Starting training")
         epoch = start_epoch
+        # Sample the target number of neighbors of the adaptive cutoff from the
+        # [low, high] `num_neighbors_adaptive` range for the training batches only.
+        # Validation uses `low`, as the exported model does.
+        pet_backend = (model.module if is_distributed else model).core.backend
+        pet_backend.sample_num_neighbors = True
 
         for epoch in range(start_epoch, self.hypers["num_epochs"]):
             for sampler in epoch_samplers:
@@ -708,6 +713,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                         )
                     )
 
+            pet_backend.sample_num_neighbors = False
             with torch.set_grad_enabled(
                 any(target_info.gradients for target_info in train_targets.values())
             ):  # keep gradients on if any of the targets require them
@@ -796,6 +802,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                         val_mae_calculator.update(
                             scaled_predictions, scaled_targets, extra_data
                         )
+            pet_backend.sample_num_neighbors = True
 
             # Compute val metrics:
             finalized_val_info = val_rmse_calculator.finalize(
@@ -862,6 +869,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
                         (model.module if is_distributed else model),
                         Path(checkpoint_dir) / f"model_{epoch}.ckpt",
                     )
+
+        pet_backend.sample_num_neighbors = False
 
         # prepare for the checkpoint that will be saved outside the function
         self.epoch = epoch

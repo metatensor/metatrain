@@ -1,9 +1,11 @@
+from collections.abc import Sequence
 from math import prod
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 
 from ..documentation import ModelHypers
+from .adaptive_cutoff import parse_num_neighbors_adaptive, sample_num_neighbors_adaptive
 from .conditioning import SystemConditioningEmbedding
 from .structures import compute_batch_tensors
 from .transformer import CartesianTransformer
@@ -39,11 +41,11 @@ class PETBackend(torch.nn.Module):
         self.cutoff = float(hypers["cutoff"])
         self.cutoff_function = hypers["cutoff_function"]
         self.cutoff_width = float(hypers["cutoff_width"])
-        self.num_neighbors_adaptive = (
-            float(hypers["num_neighbors_adaptive"])
-            if hypers["num_neighbors_adaptive"] is not None
-            else None
-        )
+        self.set_num_neighbors_adaptive(hypers["num_neighbors_adaptive"])
+        # Whether to sample the target number of neighbors of each structure from
+        # the ``[low, high]`` range of ``num_neighbors_adaptive``. The trainer enables
+        # it for the training batches only; otherwise ``low`` is used.
+        self.sample_num_neighbors: bool = False
         self.adaptive_cutoff_method = hypers["adaptive_cutoff_method"]
         self.d_pet = hypers["d_pet"]
         self.d_node = hypers["d_node"]
@@ -222,6 +224,28 @@ class PETBackend(torch.nn.Module):
             ]
         )
 
+    def set_num_neighbors_adaptive(
+        self, num_neighbors_adaptive: Optional[Union[int, Sequence[int]]]
+    ) -> None:
+        """Set the target number of neighbors of the adaptive cutoff.
+
+        :param num_neighbors_adaptive: ``None`` to disable the adaptive cutoff, a
+            single number, or a ``[low, high]`` range. With a range, the target is
+            sampled from ``[low, high]`` with :func:`sample_num_neighbors_adaptive`
+            when ``sample_num_neighbors`` is set, and ``low`` is used otherwise.
+        """
+        num_neighbors_range = parse_num_neighbors_adaptive(num_neighbors_adaptive)
+        if num_neighbors_range is None:
+            self.num_neighbors_adaptive: Optional[float] = None
+            self.num_neighbors_adaptive_low = 0
+            self.num_neighbors_adaptive_high = 0
+        else:
+            low, high = num_neighbors_range
+            # target used outside of training
+            self.num_neighbors_adaptive = float(low)
+            self.num_neighbors_adaptive_low = low
+            self.num_neighbors_adaptive_high = high
+
     def remove_output(self, target_name: str) -> None:
         """
         Remove the node/edge heads and last layers for a previously registered output
@@ -250,6 +274,8 @@ class PETBackend(torch.nn.Module):
         cell_contributions: torch.Tensor,
         cell_shifts: torch.Tensor,
         cutoff_width_adaptive: float,
+        system_indices: Optional[torch.Tensor] = None,
+        num_systems: int = 1,
     ) -> Dict[str, torch.Tensor]:
         """
         Run structure preprocessing on plain tensors.
@@ -270,6 +296,13 @@ class PETBackend(torch.nn.Module):
         :param cell_shifts: Integer cell shift vectors, shape ``(n_edges, 3)``.
         :param cutoff_width_adaptive: Width of the smooth cutoff taper used by the
             adaptive cutoff scheme when ``num_neighbors_adaptive`` is set.
+        :param system_indices: Index of the structure of each atom, shape
+            ``(num_nodes,)``. When ``sample_num_neighbors`` is set, with
+            ``num_neighbors_adaptive`` given as a range, a target number of neighbors
+            is sampled for each structure.
+            If ``None``, all atoms are treated as a single structure.
+        :param num_systems: Number of structures in the batch. Only used together
+            with ``system_indices``.
         :return: A dictionary ``batch_data`` of the intermediate tensors:
             - `element_indices_nodes`: The atomic species of the central atoms
             - `element_indices_neighbors`: The atomic species of the neighboring atoms
@@ -299,6 +332,37 @@ class PETBackend(torch.nn.Module):
             shape ``(n_edges, 3)``. Columns correspond to ``(cell_shift_a, cell_shift_b,
             cell_shift_c)``. Suitable for use with :func:`get_pair_sample_labels`.
         """
+        # per-atom target number of neighbors of the adaptive cutoff
+        num_neighbors_adaptive: Optional[torch.Tensor] = None
+        fixed_num_neighbors_adaptive = self.num_neighbors_adaptive
+        if fixed_num_neighbors_adaptive is not None:
+            num_nodes = positions.shape[0]
+            if self.sample_num_neighbors:
+                # one target per structure, shared by all its atoms
+                if system_indices is None:
+                    num_neighbors_adaptive = sample_num_neighbors_adaptive(
+                        self.num_neighbors_adaptive_low,
+                        self.num_neighbors_adaptive_high,
+                        1,
+                        positions.device,
+                        positions.dtype,
+                    ).expand(num_nodes)
+                else:
+                    num_neighbors_adaptive = sample_num_neighbors_adaptive(
+                        self.num_neighbors_adaptive_low,
+                        self.num_neighbors_adaptive_high,
+                        num_systems,
+                        positions.device,
+                        positions.dtype,
+                    )[system_indices]
+            else:
+                num_neighbors_adaptive = torch.full(
+                    (num_nodes,),
+                    fixed_num_neighbors_adaptive,
+                    device=positions.device,
+                    dtype=positions.dtype,
+                )
+
         (
             element_indices_nodes,
             element_indices_neighbors,
@@ -323,7 +387,7 @@ class PETBackend(torch.nn.Module):
             self.cutoff,
             self.cutoff_function,
             self.cutoff_width,
-            self.num_neighbors_adaptive,
+            num_neighbors_adaptive,
             self.adaptive_cutoff_method,
             cutoff_width_adaptive,
             self.nl_is_strict,
