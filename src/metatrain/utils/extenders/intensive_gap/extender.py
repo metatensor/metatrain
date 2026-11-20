@@ -100,11 +100,13 @@ class IntensiveGap(ExtenderInterface[Hypers]):
             {
                 "bottom": in_names.get(
                     "bottom",
-                    f"mtt::extender_aux::gap_bottom::{out_name.replace('mtt::', '')}",
+                    "mtt::extender_aux::intensive_gap::bottom::"
+                    f"{out_name.replace('mtt::', '')}",
                 ),
                 "top": in_names.get(
                     "top",
-                    f"mtt::extender_aux::gap_top::{out_name.replace('mtt::', '')}",
+                    "mtt::extender_aux::intensive_gap::top::"
+                    f"{out_name.replace('mtt::', '')}",
                 ),
             }
             for in_names, out_name in zip(input_names, out_names, strict=True)

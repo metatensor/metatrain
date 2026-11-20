@@ -59,7 +59,7 @@ class ExtenderInputs(TypedDict):
 
     If not provided, it is determined automatically from
     the output name as
-    ``mtt::extender_aux::gap_bottom::{output_name.replace('mtt::', '')}``.
+    ``mtt::extender_aux::intensive_gap::bottom::{output_name.replace('mtt::', '')}``.
 
     This input is a per-atom scalar quantity.
     """
@@ -68,7 +68,7 @@ class ExtenderInputs(TypedDict):
 
     If not provided, it is determined automatically from
     the output name as
-    ``mtt::extender_aux::gap_top::{output_name.replace('mtt::', '')}``.
+    ``mtt::extender_aux::intensive_gap::top::{output_name.replace('mtt::', '')}``.
 
     This input is a per-atom scalar quantity.
     """

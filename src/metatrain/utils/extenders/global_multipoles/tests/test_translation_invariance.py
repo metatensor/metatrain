@@ -23,7 +23,7 @@ from metatrain.utils.extenders.helpers import get_default_hypers, load_extender
 
 
 OUTPUT_NAME = "mtt::global_dipole"
-INPUT_NAME = "mtt::extender_aux::local_multipoles::global_dipole"
+INPUT_NAME = "mtt::extender_aux::global_multipoles::global_dipole"
 
 ATOMIC_TYPES = [1, 6, 7, 8]
 SYSTEM_SIZES = [4, 11, 7]

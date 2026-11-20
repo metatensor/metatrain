@@ -20,9 +20,10 @@ class IntensiveGapTests(ExtenderTests):
         hypers = get_default_hypers(self.extender)
         if input is None:
             output_name = output["energy"]
+            output_suffix = output_name.replace("mtt::", "")
             input_names = [
-                f"mtt::extender_aux::gap_bottom::{output_name.replace('mtt::', '')}",
-                f"mtt::extender_aux::gap_top::{output_name.replace('mtt::', '')}",
+                f"mtt::extender_aux::intensive_gap::bottom::{output_suffix}",
+                f"mtt::extender_aux::intensive_gap::top::{output_suffix}",
             ]
             return {**hypers, "outputs": output_name}, input_names, [output_name]
         elif output is None:

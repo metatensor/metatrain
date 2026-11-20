@@ -113,7 +113,7 @@ class TensorBasis(ExtenderInterface[Hypers]):
             inputs = [inputs]
         if inputs is None:
             inputs = [
-                f"mtt::extender_aux::scalars::{name.replace('mtt::', '')}"
+                f"mtt::extender_aux::tensor_basis::{name.replace('mtt::', '')}"
                 for name in outputs
             ]
         if len(inputs) != len(outputs):
