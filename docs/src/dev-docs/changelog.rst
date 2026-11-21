@@ -101,19 +101,11 @@ Fixed
 Added
 #####
 
-- PET has a ``variable_num_neighbors_adaptive`` option. When set to a ``[low, high]``
-  range, the target number of neighbors of the adaptive cutoff is sampled
-  log-uniformly from this range for each structure during training, while
-  validation, evaluation and exported models use ``num_neighbors_adaptive``.
+- PET can now randomly vary the ``num_neighbors_adaptive`` parameter during training. (#1356)
 - Extenders as a new concept in metatrain. They can be used to augment the capabilities
   of architectures (#1209).
-- PET has a smoother attention cutoff. The attention that the central atom pays to a
-  neighbor in the tail of the cutoff function is now proportional to its cutoff
-  function, instead of switching on abruptly when the neighbor has few competitors,
-  and the cutoff function no longer damps the attention of a neighbor to itself. This removes sharp features of the
-  potential energy surface when atoms enter or leave the cutoff (#1330). The previous
-  behavior is available with ``smooth_attention_cutoff: false``, and is kept for
-  existing checkpoints.
+- PET has a smoother attention cutoff for central tokens, that makes the attention weights
+  proportional to the cutoff weights. (#1330)
 - The experimental DPA3 architecture can now be used with LLPR (#1335).
 - SPACE models can now be fine-tuned on targets they were not trained on, optionally
   initializing the new heads from existing ones with ``inherit_heads``.
