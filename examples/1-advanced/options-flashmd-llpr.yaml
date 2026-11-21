@@ -2,12 +2,17 @@ seed: 42
 
 architecture:
   name: llpr
+  model:
+    # a variance head for each of these targets, on top of the frozen model
+    variance_heads: [position, momentum]
   training:
-    model_checkpoint: model-variance.ckpt
+    model_checkpoint: flashmd_pet-omatpes-v2_32fs.ckpt
     batch_size: 4
+    variance_num_epochs: 20  # to be increased in a production scenario
+    log_interval: 5
 
-# The same data as for the variance heads. The validation set is used to calibrate
-# the epistemic part of the uncertainty.
+# The variance heads are trained on the training set, and selected on the validation
+# set, which is also used to calibrate the epistemic part of the uncertainty.
 training_set:
   systems:
     read_from: flashmd.xyz

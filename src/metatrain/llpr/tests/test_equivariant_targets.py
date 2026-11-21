@@ -18,6 +18,7 @@ from .helpers import (
     LLF,
     TARGET,
     UNCERTAINTY,
+    VARIANCE,
     atomic_basis_dataset_info,
     dummy_backbone,
     fit_llpr,
@@ -208,7 +209,7 @@ def test_ensemble_variance_matches_analytic_uncertainty():
     irreps = [{"o3_lambda": 1, "o3_sigma": 1}]
     dataset_info = target_dataset_info({"spherical": {"irreps": irreps}}, "atom")
     model = LLPRUncertaintyModel(
-        {"num_ensemble_members": {TARGET: n_ens}}, dataset_info
+        {"num_ensemble_members": {TARGET: n_ens}, "variance_heads": []}, dataset_info
     )
     model.set_wrapped_model(dummy_backbone(dataset_info))
     model = model.to(torch.float64)
@@ -315,3 +316,48 @@ def test_export_and_checkpoint(dataset_info: DatasetInfo, tmp_path: Path) -> Non
                 actual[name].blocks(), expected[name].blocks(), strict=True
             ):
                 torch.testing.assert_close(block.values, expected_block.values)
+
+
+@pytest.mark.usefixtures("dummy_architecture")
+def test_export_and_checkpoint_with_variance_head(tmp_path: Path) -> None:
+    """Same as above, with a variance head for a per-atom Cartesian target."""
+    dataset_info = target_dataset_info({"cartesian": {"rank": 1}}, "atom")
+    model = wrap_backbone(
+        dummy_backbone(dataset_info, shared=True),
+        dataset_info,
+        ensembles=True,
+        variance_head=True,
+    )
+    systems = make_systems(model.model, 8)
+    fit_llpr(model, systems)
+    model.generate_ensemble()
+
+    path = str(tmp_path / "model.pt")
+    model.export().save(path)
+
+    outputs = {
+        name: ModelOutput(sample_kind="atom")
+        for name in (TARGET, UNCERTAINTY, ENSEMBLE, VARIANCE)
+    }
+    expected = model(systems[:1], outputs)
+    # the variance is the same for all the components
+    variance = expected[VARIANCE].block().values
+    assert VARIANCE in model.supported_outputs()
+    torch.testing.assert_close(variance, variance[:, :1].expand_as(variance))
+
+    exported = load_atomistic_model(path)(
+        systems[:1],
+        ModelEvaluationOptions(length_unit="angstrom", outputs=outputs),
+        check_consistency=True,
+    )
+    reloaded = [
+        LLPRUncertaintyModel.load_checkpoint(model.get_checkpoint(), context).to(
+            torch.float64
+        )(systems[:1], outputs)
+        for context in ("restart", "export")
+    ]
+    for actual in [exported] + reloaded:
+        for name in outputs:
+            torch.testing.assert_close(
+                actual[name].block().values, expected[name].block().values
+            )

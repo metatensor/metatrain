@@ -23,10 +23,14 @@ the uncertainties have the same layout as the target, and are calibrated separat
 each property of each block. For Cartesian targets, they are the standard deviations of
 the single components, not of the magnitude of the vector.
 
-Some models also predict the (aleatoric) variance :math:`\sigma^2(x)` of a target, as
-the :ref:`mtt-aux-target-variance` output (for example :ref:`arch-flashmd` with
-``variance_heads``). For such a target, the LLPR is a heteroscedastic last-layer
-Laplace approximation, with the precision matrix
+The LLPR can also estimate the (aleatoric) noise of the data, with mean-variance
+estimation (MVE). Each target listed in ``variance_heads`` gets a linear layer on its
+last-layer features, followed by a softplus, that predicts the variance
+:math:`\sigma^2(x)` of the target. These
+heads are trained first, by minimizing the Gaussian negative log-likelihood of the
+training set, while the wrapped model, and so the mean prediction, stays frozen. For
+these targets, the LLPR is then a heteroscedastic last-layer Laplace approximation,
+with the precision matrix
 
 .. math::
 
@@ -40,10 +44,9 @@ predicted variance plus its square. The calibration factor :math:`\alpha` always
 minimizes the Gaussian NLL of this total variance on the validation set, whatever the
 ``calibration_method``.
 
-Only targets with a single block and a single property are supported, and the
-predicted variance has to be the same for all the components of the target. Ensembles
-are sampled from the last-layer posterior, so they only carry the epistemic
-uncertainty.
+Only per-atom targets with a single block and a single property are supported, and the
+predicted variance is the same for all the components of the target. Ensembles are
+sampled from the last-layer posterior, so they only carry the epistemic uncertainty.
 
 Additional outputs
 ------------------
@@ -55,6 +58,8 @@ architecture can also output the following additional quantity:
   target, computed with the LLPR approach.
 - :ref:`mtt-aux-target-ensemble`: The ensemble predictions for a given target, computed
   with the LLPR approach.
+- :ref:`mtt-aux-target-variance`: The predicted (aleatoric) variance of a target, for
+  the targets in ``variance_heads``.
 """
 
 from typing import Literal, Optional
@@ -71,6 +76,18 @@ class ModelHypers(TypedDict):
     """Number of ensemble members for each target property for which LLPR ensembles
     should be generated. No ensembles will be generated for targets which are not
     listed.
+    """
+
+    variance_heads: list[str] = []
+    """Targets that get a mean-variance estimation (MVE) head.
+
+    The head is a linear layer on the last-layer features of the target, followed by a
+    softplus. It predicts the (aleatoric) variance of the target as the
+    :ref:`mtt-aux-target-variance` output, and the LLPR of these targets is
+    heteroscedastic. The head is trained before the
+    LLPR, with the Gaussian negative log-likelihood and the wrapped model frozen. Only
+    per-atom targets with a single block and a single property are supported, and
+    their last-layer features must be a single block without components.
     """
 
 
@@ -116,6 +133,13 @@ class TrainerHypers(TypedDict):
     "empirical_crps_ensemble".
     Please refer to the :ref:`loss-functions` documentation for more details of the rest
     of the hypers."""
+
+    variance_num_epochs: int = 50
+    """Number of epochs to train the ``variance_heads``. The heads with the lowest
+    validation loss are kept."""
+
+    variance_learning_rate: float = 1e-3
+    """Learning rate to train the ``variance_heads``."""
 
     num_epochs: Optional[int] = None
     """Number of epochs for which the LLPR ensemble weight training should

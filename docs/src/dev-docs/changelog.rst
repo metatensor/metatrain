@@ -27,14 +27,13 @@ Unreleased
 Added
 #####
 
-- FlashMD can train heteroscedastic variance heads on top of a frozen, trained model,
-  with the new ``variance_heads`` training hyperparameter. The predicted variances are
-  exposed as ``mtt::aux::{target}_variance`` outputs.
+- The LLPR can train mean-variance estimation heads, with the new ``variance_heads``
+  model hyperparameter. They predict the (aleatoric) variance of a target on top of
+  the frozen wrapped model, as the ``mtt::aux::{target}_variance`` output, and the
+  LLPR of these targets uses them as heteroscedastic noise. The uncertainty of these
+  targets is still the epistemic one, calibrated by minimizing the Gaussian NLL of
+  the total (aleatoric + epistemic) variance.
 - New ``gaussian_nll`` loss, using the predicted variance of a target.
-- The LLPR uses the predicted variances of the wrapped model, if any, as
-  heteroscedastic noise of the last-layer Laplace approximation. The uncertainty of
-  these targets is still the epistemic one, calibrated by minimizing the Gaussian NLL
-  of the total (aleatoric + epistemic) variance.
 
 Fixed
 #####

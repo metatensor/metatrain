@@ -337,7 +337,7 @@ def untrained_llpr_model(target_name, quantity, num_subtargets=1):
     pet_hypers.update(SMALL_PET)
 
     model = LLPRUncertaintyModel(
-        {"num_ensemble_members": {target_name: 4}}, dataset_info
+        {"num_ensemble_members": {target_name: 4}, "variance_heads": []}, dataset_info
     )
     model.set_wrapped_model(
         MetatrainModel(

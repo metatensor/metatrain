@@ -1,5 +1,6 @@
 """Heteroscedastic LLPR against the closed-form solution of Bayesian linear
-regression, using a wrapped model whose last layer is a known linear model."""
+regression, using a wrapped model whose last layer is a known linear model, and a
+variance head that predicts the known noise variance."""
 
 import types
 from typing import Dict, List, Optional
@@ -10,7 +11,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelCapabilities, ModelOutput, System
 
 from metatrain.llpr import LLPRUncertaintyModel
-from metatrain.llpr.trainer import _per_sample_variance, calibrate, compute_covariance
+from metatrain.llpr.trainer import calibrate, compute_covariance, train_variance_heads
 from metatrain.scaler import Scaler
 from metatrain.scaler.utils.samples import get_samples_labels
 from metatrain.utils.architectures import get_default_hypers
@@ -38,7 +39,7 @@ def features(positions: torch.Tensor) -> torch.Tensor:
 
 def normalized_variance(positions: torch.Tensor) -> torch.Tensor:
     """Noise variance, in the normalized units of the (unscaled) model."""
-    return 0.05 + 0.1 * positions[:, 0] ** 2
+    return torch.nn.functional.softplus(positions[:, 0] - 2.0)
 
 
 def _scalar_info(name: str) -> TargetInfo:
@@ -54,9 +55,17 @@ def _scalar_info(name: str) -> TargetInfo:
     )
 
 
+class KnownVariance(torch.nn.Module):
+    """A variance head that predicts the noise variance, in normalized units, from
+    the features ``phi(r)``, whose first two entries are ``1`` and ``x``."""
+
+    def forward(self, phi: torch.Tensor) -> torch.Tensor:
+        return torch.nn.functional.softplus(phi[:, 1] - 2.0 * phi[:, 0]).unsqueeze(1)
+
+
 class LinearModel(torch.nn.Module):
-    """Per-atom model ``w^T phi(r)`` with a predicted noise variance, in normalized
-    units (the scaler of the wrapper converts them to physical units)."""
+    """Per-atom model ``w^T phi(r)``, in normalized units (the scaler of the wrapper
+    converts them to physical units)."""
 
     def __init__(self, dataset_info: DatasetInfo) -> None:
         super().__init__()
@@ -71,8 +80,6 @@ class LinearModel(torch.nn.Module):
         self.outputs = {
             TARGET: dataset_info.targets[TARGET],
             FEATURES: get_features_info(len(WEIGHTS)),
-            # same layout as the target
-            VARIANCE: _scalar_info(TARGET),
         }
 
     def supported_outputs(self) -> Dict[str, TargetInfo]:
@@ -110,13 +117,11 @@ class LinearModel(torch.nn.Module):
         values = {
             TARGET: phi @ self.weights.T,
             FEATURES: phi,
-            VARIANCE: normalized_variance(positions).unsqueeze(1),
         }
 
         properties = {
             TARGET: Labels.range("y", 1),
             FEATURES: Labels.range("feature", phi.shape[1]),
-            VARIANCE: Labels.range("y", 1),
         }
 
         return {
@@ -187,18 +192,12 @@ def _make_dataset(systems, scales):
     return Dataset.from_dict({"system": systems, TARGET: targets})
 
 
-@pytest.fixture(params=[{1: 1.0, 6: 1.0}, {1: 2.0, 6: 0.5}], ids=["unscaled", "scaled"])
-def setup(request):
-    """The LLPR around the linear model, trained on noisy data from that model."""
-    scales = request.param
-
+def _wrap(dataset, scales):
+    """The LLPR around the linear model, with a variance head for the target."""
     target_info = _scalar_info(TARGET)
     dataset_info = DatasetInfo(
         length_unit="Angstrom", atomic_types=[1, 6], targets={TARGET: target_info}
     )
-
-    systems = _systems(40, seed=1)
-    dataset = _make_dataset(systems, scales)
 
     scaler = Scaler(get_default_hypers("scaler")["model"], dataset_info)
     with pytest.warns(FutureWarning):
@@ -219,9 +218,23 @@ def setup(request):
 
     llpr_hypers = get_default_hypers("llpr")["model"]
     llpr_hypers["num_ensemble_members"] = {TARGET: NUM_ENSEMBLE_MEMBERS}
+    llpr_hypers["variance_heads"] = [TARGET]
     llpr = LLPRUncertaintyModel(llpr_hypers, dataset_info)
     llpr.set_wrapped_model(wrapped)
-    llpr.to(dtype=DTYPE)  # as done by the LLPR trainer
+
+    return llpr.to(dtype=DTYPE)  # as done by the LLPR trainer
+
+
+@pytest.fixture(params=[{1: 1.0, 6: 1.0}, {1: 2.0, 6: 0.5}], ids=["unscaled", "scaled"])
+def setup(request):
+    """The LLPR around the linear model, trained on noisy data from that model, with
+    a variance head that predicts the known noise variance."""
+    scales = request.param
+    systems = _systems(40, seed=1)
+    dataset = _make_dataset(systems, scales)
+
+    llpr = _wrap(dataset, scales)
+    llpr.variance_heads[TARGET] = KnownVariance()
 
     compute_covariance(llpr, [dataset], batch_size=4, is_distributed=False)
     llpr.compute_cholesky_decomposition(regularizer=REGULARIZER)
@@ -353,13 +366,67 @@ def test_calibration_minimizes_the_nll_of_the_total_variance(setup):
         assert nll(alpha) <= nll(factor * alpha)
 
 
-def test_variance_has_to_be_the_same_for_all_components():
-    # shape: (samples, components, properties)
-    variance = torch.tensor([[[1.0], [1.0], [1.0]], [[2.0], [2.0], [2.0]]])
+def test_variance_head_starts_at_unit_variance():
+    """Before training, the variance is 1 in normalized units, i.e. c^2."""
+    scales = {1: 2.0, 6: 0.5}
+    systems = _systems(5, seed=2)
+    llpr = _wrap(_make_dataset(_systems(10, seed=1), scales), scales)
+
+    outputs = llpr.eval()(systems, {VARIANCE: ModelOutput(sample_kind="atom")})
+
+    c = torch.tensor([scales[int(t)] for s in systems for t in s.types], dtype=DTYPE)
     torch.testing.assert_close(
-        _per_sample_variance(variance, TARGET), torch.tensor([1.0, 2.0])
+        outputs[VARIANCE].block().values[:, 0], c**2 + 1e-6 * c**2
     )
 
-    variance[0, 1, 0] = 1.5
-    with pytest.raises(NotImplementedError, match="same for all the components"):
-        _per_sample_variance(variance, TARGET)
+
+@pytest.mark.parametrize("scales", [{1: 1.0, 6: 1.0}, {1: 2.0, 6: 0.5}])
+def test_trained_variance_head_learns_the_noise(scales):
+    """The variance head, trained with the Gaussian NLL, recovers the noise variance,
+    and the mean stays the same."""
+    train = _make_dataset(_systems(400, seed=1), scales)
+    val = _make_dataset(_systems(100, seed=3), scales)
+    llpr = _wrap(train, scales)
+    weights = llpr.model.core.weights.clone()
+
+    hypers = get_default_hypers("llpr")["training"]
+    hypers["variance_num_epochs"] = 30
+    hypers["variance_learning_rate"] = 1e-2
+    train_variance_heads(llpr, [train], [val], hypers, is_distributed=False)
+
+    torch.testing.assert_close(llpr.model.core.weights, weights)
+
+    test_systems = _systems(50, seed=4)
+    outputs = llpr.eval()(test_systems, {VARIANCE: ModelOutput(sample_kind="atom")})
+    positions = torch.cat([s.positions for s in test_systems])
+    c = torch.tensor(
+        [scales[int(t)] for s in test_systems for t in s.types], dtype=DTYPE
+    )
+    expected = c**2 * normalized_variance(positions)
+    relative_error = (outputs[VARIANCE].block().values[:, 0] - expected) / expected
+    assert relative_error.abs().median() < 0.15
+
+
+def test_variance_has_to_be_requested_per_atom(setup):
+    llpr, systems, _ = setup
+    with pytest.raises(ValueError, match="can only be requested per atom"):
+        llpr(systems[:1], {VARIANCE: ModelOutput(sample_kind="system")})
+
+
+def test_variance_head_for_an_unknown_target():
+    dataset_info = DatasetInfo(
+        length_unit="Angstrom",
+        atomic_types=[1, 6],
+        targets={TARGET: _scalar_info(TARGET)},
+    )
+    hypers = get_default_hypers("llpr")["model"]
+    hypers["variance_heads"] = ["mtt::other"]
+    llpr = LLPRUncertaintyModel(hypers, dataset_info)
+    wrapped = MetatrainModel(
+        core=LinearModel(dataset_info),
+        additive_models=[],
+        scaler=None,
+        dataset_info=dataset_info,
+    )
+    with pytest.raises(ValueError, match="Cannot add a variance head"):
+        llpr.set_wrapped_model(wrapped)

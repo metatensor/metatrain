@@ -4,12 +4,11 @@ import math
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Literal, Optional, Union, cast
 
-import metatensor.torch as mts
 import torch
 from metatensor.torch import TensorBlock, TensorMap
-from metatomic.torch import ModelOutput, System
+from metatomic.torch import ModelOutput
 from torch.optim.lr_scheduler import LambdaLR
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader, DistributedSampler, RandomSampler
 
 from metatrain.utils.abc import (
     ModelInterface,
@@ -39,7 +38,11 @@ from metatrain.utils.distributed.slurm import (
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension, model_from_checkpoint
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import LossAggregator, LossSpecification
+from metatrain.utils.loss import (
+    LossAggregator,
+    LossSpecification,
+    TensorMapGaussianNLLVarianceLoss,
+)
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -63,6 +66,7 @@ def get_scheduler(
     optimizer: torch.optim.Optimizer,
     train_hypers: TrainerHypers,
     steps_per_epoch: int,
+    num_epochs: int,
 ) -> LambdaLR:
     """
     Get a CosineAnnealing learning-rate scheduler with warmup
@@ -70,10 +74,10 @@ def get_scheduler(
     :param optimizer: The optimizer for which to create the scheduler.
     :param train_hypers: The training hyperparameters.
     :param steps_per_epoch: The number of steps per epoch.
+    :param num_epochs: The number of epochs.
     :return: The learning rate scheduler.
     """
-    assert train_hypers["num_epochs"] is not None
-    total_steps = train_hypers["num_epochs"] * steps_per_epoch
+    total_steps = num_epochs * steps_per_epoch
     warmup_steps = int(train_hypers["warmup_fraction"] * total_steps)
     min_lr_ratio = 0.0  # hardcoded for now, could be made configurable in the future
 
@@ -94,7 +98,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
-    __checkpoint_version__ = 7
+    __checkpoint_version__ = 8
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -201,6 +205,16 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         model.to(device=device, dtype=dtype)
 
         if start_epoch == 0:
+            if len(llpr_model.heteroscedastic_outputs) > 0:
+                names = llpr_model.heteroscedastic_outputs
+                logging.info(f"Training the variance heads of {names}")
+                train_variance_heads(
+                    llpr_model,
+                    train_datasets,
+                    val_datasets,
+                    self.hypers,
+                    is_distributed,
+                )
             logging.info("Computing LLPR covariance matrix")
             compute_covariance(
                 llpr_model, train_datasets, self.hypers["batch_size"], is_distributed
@@ -357,7 +371,9 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             optimizer.load_state_dict(self.optimizer_state_dict)
 
         # Create a learning rate scheduler
-        lr_scheduler = get_scheduler(optimizer, self.hypers, len(train_dataloader))
+        lr_scheduler = get_scheduler(
+            optimizer, self.hypers, len(train_dataloader), self.hypers["num_epochs"]
+        )
 
         if self.scheduler_state_dict is not None:
             lr_scheduler.load_state_dict(self.scheduler_state_dict)
@@ -682,6 +698,166 @@ def _apply_ensemble_training_strategy(
     return model
 
 
+def train_variance_heads(
+    model: LLPRUncertaintyModel,
+    train_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    val_datasets: List[Union[Dataset, torch.utils.data.Subset]],
+    hypers: TrainerHypers,
+    is_distributed: bool,
+) -> None:
+    """Train the variance heads with the Gaussian negative log-likelihood, with the
+    wrapped model, and so the mean, frozen. The heads with the lowest validation loss
+    are kept.
+
+    :param model: the LLPR model.
+    :param train_datasets: the datasets to train on.
+    :param val_datasets: the datasets to select the best heads on.
+    :param hypers: the training hyperparameters.
+    :param is_distributed: whether the datasets are split between processes.
+    """
+    # the scaler and additive models of the wrapped model are only applied in
+    # evaluation mode. The heads behave the same in both modes
+    model.eval()
+    for parameter in model.model.parameters():
+        parameter.requires_grad = False
+
+    losses = {
+        name: TensorMapGaussianNLLVarianceLoss(
+            name, gradient=None, weight=1.0, reduction="sum", eps=0.0
+        )
+        for name in model.heteroscedastic_outputs
+    }
+
+    parameters = list(model.variance_heads.parameters())
+    if hypers["weight_decay"] is not None:
+        optimizer: torch.optim.Optimizer = torch.optim.AdamW(
+            parameters,
+            lr=hypers["variance_learning_rate"],
+            weight_decay=hypers["weight_decay"],
+        )
+    else:
+        optimizer = torch.optim.Adam(parameters, lr=hypers["variance_learning_rate"])
+
+    num_epochs = hypers["variance_num_epochs"]
+    steps_per_epoch = len(
+        _get_dataloader(
+            model, train_datasets, hypers["batch_size"], is_distributed, shuffle=True
+        )
+    )
+    scheduler = get_scheduler(optimizer, hypers, steps_per_epoch, num_epochs)
+
+    val_dataloader = _get_dataloader(
+        model, val_datasets, hypers["batch_size"], is_distributed
+    )
+    best_loss = float("inf")
+    best_state_dict = copy.deepcopy(model.variance_heads.state_dict())
+
+    for epoch in range(num_epochs):
+        train_dataloader = _get_dataloader(
+            model,
+            train_datasets,
+            hypers["batch_size"],
+            is_distributed,
+            shuffle=True,
+            seed=epoch,
+        )
+        train_loss = _variance_epoch(
+            model,
+            train_dataloader,
+            losses,
+            is_distributed,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            grad_clip_norm=hypers["grad_clip_norm"],
+        )
+        with torch.no_grad():
+            val_loss = _variance_epoch(model, val_dataloader, losses, is_distributed)
+
+        if epoch % hypers["log_interval"] == 0 or epoch == num_epochs - 1:
+            logging.info(
+                f"Variance heads, epoch {epoch}: training loss {train_loss:.5g}, "
+                f"validation loss {val_loss:.5g}"
+            )
+        if val_loss < best_loss:
+            best_loss = val_loss
+            best_state_dict = copy.deepcopy(model.variance_heads.state_dict())
+
+    model.variance_heads.load_state_dict(best_state_dict)
+
+
+def _variance_epoch(
+    model: LLPRUncertaintyModel,
+    dataloader: CombinedDataLoader,
+    losses: Dict[str, TensorMapGaussianNLLVarianceLoss],
+    is_distributed: bool,
+    optimizer: Optional[torch.optim.Optimizer] = None,
+    scheduler: Optional[LambdaLR] = None,
+    grad_clip_norm: float = float("inf"),
+) -> float:
+    """One pass over ``dataloader`` with the Gaussian negative log-likelihood of the
+    targets with a variance head, training the heads if ``optimizer`` is given.
+
+    :param model: the LLPR model.
+    :param dataloader: the data.
+    :param losses: the loss of each target with a variance head.
+    :param is_distributed: whether the data is split between processes.
+    :param optimizer: the optimizer of the variance heads, or ``None`` to only
+        evaluate the loss.
+    :param scheduler: the learning rate scheduler, stepped after each batch.
+    :param grad_clip_norm: the maximum norm of the gradients.
+    :return: the loss, averaged over all the values of the targets.
+    """
+    reference = next(model.model.parameters())
+    device, dtype = reference.device, reference.dtype
+
+    # sum of the losses, and number of values
+    total = torch.zeros(2, dtype=torch.float64, device=device)
+    for batch in dataloader:
+        systems, targets, _ = unpack_batch(batch)
+        systems = [system.to(device=device, dtype=dtype) for system in systems]
+        targets = {
+            name: target.to(device=device, dtype=dtype)
+            for name, target in targets.items()
+            if name in losses
+        }
+
+        outputs: Dict[str, ModelOutput] = {}
+        for name in targets:
+            outputs[name] = ModelOutput(sample_kind="atom")
+            outputs[get_variance_output_name(name)] = outputs[name]
+        predictions = model(systems, outputs)
+
+        loss = torch.zeros((), dtype=dtype, device=device)
+        count = 0
+        for name, target in targets.items():
+            loss = loss + losses[name].compute(predictions, targets)
+            for block in target.blocks():
+                count += int(torch.sum(~torch.isnan(block.values)))
+
+        if optimizer is not None:
+            optimizer.zero_grad()
+            (loss / max(count, 1)).backward()
+            if is_distributed:
+                world_size = torch.distributed.get_world_size()
+                for parameter in model.variance_heads.parameters():
+                    if parameter.grad is not None:
+                        torch.distributed.all_reduce(parameter.grad)
+                        parameter.grad /= world_size
+            torch.nn.utils.clip_grad_norm_(
+                model.variance_heads.parameters(), grad_clip_norm
+            )
+            optimizer.step()
+            if scheduler is not None:
+                scheduler.step()
+
+        total[0] += loss.detach().to(torch.float64)
+        total[1] += count
+
+    if is_distributed:
+        torch.distributed.all_reduce(total)
+    return float(total[0] / total[1].clamp(min=1))
+
+
 def compute_covariance(
     model: LLPRUncertaintyModel,
     datasets: List[Union[Dataset, torch.utils.data.Subset]],
@@ -712,25 +888,19 @@ def compute_covariance(
                 )
                 for name in names
             }
-            for name in names:
-                if name in model.heteroscedastic_outputs:
-                    outputs[get_variance_output_name(name)] = ModelOutput(
-                        sample_kind=sample_kinds[name]
-                    )
             features = model(systems, outputs)
             n_atoms = torch.tensor([len(s) for s in systems], device=device)
             for name in names:
                 llpr_target = model.targets[name]
+                target_features = features[llpr_target.features_name]
                 variance: Optional[torch.Tensor] = None
                 if name in model.heteroscedastic_outputs:
-                    variance = _core_variance(
-                        model.model,
-                        systems,
-                        name,
-                        features[get_variance_output_name(name)],
-                    )
+                    # in the units of the core, as the last layer
+                    variance = model.variance_heads[name](
+                        target_features.block(0).values
+                    )[:, 0]
                 llpr_target.accumulate(
-                    features[llpr_target.features_name],
+                    target_features,
                     n_atoms if sample_kinds[name] == "system" else None,
                     variance,
                 )
@@ -740,55 +910,6 @@ def compute_covariance(
         for llpr_target in model.targets.values():
             for covariance in llpr_target.covariances:
                 torch.distributed.all_reduce(covariance.covariance)
-
-
-def _core_variance(
-    model: MetatrainModel,
-    systems: List[System],
-    name: str,
-    variance: TensorMap,
-) -> torch.Tensor:
-    """The predicted (aleatoric) variance of each sample of a target, in the units of
-    the core of the wrapped model, i.e. without the scales of its scaler.
-
-    The LLPR is computed for the weights of the (unscaled) last layer of the core, so
-    its Hessian is weighted by the variance in these units.
-
-    :param model: the wrapped model.
-    :param systems: the systems the variance was predicted for.
-    :param name: the name of the target.
-    :param variance: the predicted variance, as returned by the wrapped model.
-    :return: the variance of each sample, with shape ``(num_samples,)``.
-    """
-    if model.scaler is not None and name in model.scaler.model.target_names:
-        # as in the wrapped model, the scales apply to the standard deviation
-        std = model.scaler.apply_scales(
-            systems, {name: mts.pow(variance, 0.5)}, remove=True
-        )[name]
-        variance = mts.pow(std, 2.0)
-
-    return _per_sample_variance(variance.block().values, name)
-
-
-def _per_sample_variance(variance: torch.Tensor, name: str) -> torch.Tensor:
-    """The variance of each sample, from a predicted variance that is isotropic, i.e.
-    the same for all the components of a sample.
-
-    :param variance: the predicted variance, with shape
-        ``(num_samples, ..., num_properties)``.
-    :param name: the name of the target, for the error message.
-    :return: the variance of each sample, with shape ``(num_samples,)``.
-    :raises NotImplementedError: if the variance differs between the components of a
-        sample.
-    """
-    variance = variance.reshape(variance.shape[0], -1)
-    if not torch.allclose(variance, variance[:, :1].expand_as(variance)):
-        raise NotImplementedError(
-            "LLPR with predicted variances is only implemented for isotropic noise, "
-            f"i.e. the variance has to be the same for all the components of '{name}'"
-        )
-
-    return variance[:, 0]
 
 
 def calibrate(
@@ -925,14 +1046,21 @@ def _get_dataloader(
     datasets: List[Union[Dataset, torch.utils.data.Subset]],
     batch_size: int,
     is_distributed: bool,
+    shuffle: bool = False,
+    seed: int = 0,
 ) -> CombinedDataLoader:
-    """A dataloader over ``datasets`` for a pass of LLPR fitting, without shuffling
-    or dropping samples, split between processes if ``is_distributed``.
+    """A dataloader over ``datasets`` for a pass of LLPR fitting, split between
+    processes if ``is_distributed``.
+
+    Without shuffling, no sample is dropped. With shuffling, all the processes get
+    the same number of samples, so some samples can be dropped.
 
     :param model: the LLPR model.
     :param datasets: the datasets.
     :param batch_size: the batch size.
     :param is_distributed: whether to split the datasets between processes.
+    :param shuffle: whether to shuffle the samples.
+    :param seed: the seed of the shuffling.
     :return: the dataloader.
     """
     if len(datasets) == 0:
@@ -953,15 +1081,21 @@ def _get_dataloader(
                 f"A dataset has fewer samples ({len(dataset)}) than the batch size "
                 f"({batch_size}). Please reduce the batch size."
             )
-        sampler = (
-            _NoPadDistributedSampler(
+        sampler: Optional[torch.utils.data.Sampler[int]] = None
+        if is_distributed and shuffle:
+            sampler = DistributedSampler(
+                dataset, shuffle=True, seed=seed, drop_last=True
+            )
+        elif is_distributed:
+            sampler = _NoPadDistributedSampler(
                 dataset,
                 num_replicas=torch.distributed.get_world_size(),
                 rank=torch.distributed.get_rank(),
             )
-            if is_distributed
-            else None
-        )
+        elif shuffle:
+            sampler = RandomSampler(
+                dataset, generator=torch.Generator().manual_seed(seed)
+            )
         dataloaders.append(
             DataLoader(
                 dataset=dataset,
@@ -971,8 +1105,8 @@ def _get_dataloader(
                 collate_fn=collate_fn,
             )
         )
-    # not shuffled, so that the results do not depend on the number of processes
-    return CombinedDataLoader(dataloaders, shuffle=False)
+    # without shuffling, the results do not depend on the number of processes
+    return CombinedDataLoader(dataloaders, shuffle=shuffle)
 
 
 class _NoPadDistributedSampler(torch.utils.data.Sampler[int]):

@@ -228,9 +228,9 @@ See :class:`~metatrain.utils.loss.ShiftAgnosticMSE` for more details on the impl
 Gaussian NLL Loss with Predicted Variance
 -----------------------------------------
 
-Models which predict the variance of a target, as the
-:ref:`mtt-aux-target-variance` output, can be trained with the Gaussian negative
-log-likelihood
+The ``variance_heads`` of the :ref:`LLPR architecture <arch-llpr>`, which predict the
+variance of a target as the :ref:`mtt-aux-target-variance` output, are trained with
+the Gaussian negative log-likelihood
 
 .. math::
 
@@ -240,14 +240,6 @@ where :math:`\mu` is the prediction for the target and :math:`\sigma^2` its pred
 variance. Gradients of the target (e.g. forces) are not supported by this loss.
 See :class:`~metatrain.utils.loss.TensorMapGaussianNLLVarianceLoss` for the
 implementation.
-
-YAML configuration:
-
-.. code-block:: yaml
-
-    loss:
-      position:
-        type: gaussian_nll
 
 Ensemble Loss Function
 ----------------------

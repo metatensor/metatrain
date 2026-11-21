@@ -6,27 +6,27 @@ This tutorial shows how to equip a trained :ref:`FlashMD <arch-flashmd>` model w
 uncertainty estimates. The predictions of a FlashMD model (the positions and momenta of
 the atoms some time in the future) are uncertain for two reasons:
 
-- **Aleatoric uncertainty:** although MD is deterministic, it is chaotic. Similar
-  current positions and momenta can thus lead to different future ones if the time lag
-  is large enough, and the model sees this as noise, as if the output were not fully
-  determined by its input.
-- **Epistemic uncertainty:** the model itself is uncertain, e.g. because the structure
-  is far from the training data. This uncertainty decreases with more data.
+- Aleatoric uncertainty: MD is deterministic but chaotic, so over a long enough time
+  lag, small differences in the current positions and momenta grow into large
+  differences in the future ones. A model that only sees the current state up to some
+  precision therefore sees the future state as noisy.
+- Epistemic uncertainty: the model itself is uncertain, e.g. because the structure is
+  far from the training data. This uncertainty decreases with more data.
 
-We estimate both in two cheap steps, on top of a frozen pre-trained model:
+The :ref:`LLPR <arch-llpr>` estimates both on top of a frozen pre-trained model, in two
+cheap steps:
 
-1. **Variance heads.** A new head predicts the variance :math:`\sigma^2(x)` of the
-   noise on each target (positions, momenta). Only these heads are trained, with the
-   Gaussian negative log-likelihood (:ref:`gaussian_nll <loss-functions>`) loss, so the
-   mean predictions of the model do not change. This is a mean-variance estimation
-   (MVE) network.
-2. **LLPR.** The :ref:`LLPR <arch-llpr>` (a `last-layer Laplace approximation
-   <https://arxiv.org/abs/2106.14806>`_) is applied to the model to estimate the
-   epistemic uncertainty. Unlike the standard LLPR, it weights each training sample by
-   the variance predicted by the variance heads.
+1. A variance head for each target (positions, momenta) predicts the variance
+   :math:`\sigma^2(x)` of its noise. Only these heads are trained, with the Gaussian
+   negative log-likelihood, so the mean predictions of the model do not change. This
+   is a mean-variance estimation (MVE) network, and gives the aleatoric uncertainty.
+2. The LLPR (a `last-layer Laplace approximation <https://arxiv.org/abs/2106.14806>`_)
+   gives the epistemic uncertainty. Unlike the standard LLPR, it weights each training
+   sample by the variance predicted by the variance heads.
 
-Both steps are needed: the variance heads give the aleatoric uncertainty, and the LLPR
-the epistemic one.
+The aleatoric uncertainty does not decrease with more data, while the epistemic one
+flags structures unlike the training data. The total predictive variance is the sum of
+the two.
 
 We will reuse the aluminum dataset of the :ref:`FlashMD tutorial
 <sphx_glr_generated_examples_1-advanced_04-flashmd.py>`, which also explains how
@@ -123,12 +123,12 @@ print(f"{len(train_pairs)} training structures")
 # you should space them further apart in practice (see the :ref:`FlashMD tutorial
 # <sphx_glr_generated_examples_1-advanced_04-flashmd.py>`).
 #
-# Training the variance heads
-# ---------------------------
+# Training the variance heads and the LLPR
+# -----------------------------------------
 #
 # We start from the universal pre-trained FlashMD model with the matching time lag. In
-# practice, you would usually fine-tune it on your system first, and then add variance
-# heads on top of the fine-tuned model.
+# practice, you would usually fine-tune it on your system first, and then wrap the
+# fine-tuned model with the LLPR.
 
 hf_hub_download(
     repo_id="lab-cosmo/flashmd",
@@ -138,19 +138,22 @@ hf_hub_download(
 
 # %%
 #
-# Variance heads are added with the ``variance_heads`` training hyperparameter, which
-# lists the targets that get one. The model to start from is given in the ``finetune``
-# section. Everything else in the model (the backbone, the heads predicting the
-# targets, the scaler and the atomic baseline) is frozen, and the ``gaussian_nll`` loss
-# is used automatically for these targets.
+# The ``variance_heads`` model hyperparameter of the LLPR lists the targets that get a
+# variance head. The LLPR first trains these heads on the training set, for
+# ``variance_num_epochs`` epochs, and keeps the heads with the lowest validation loss.
+# The wrapped FlashMD model stays frozen. The LLPR then uses the predicted variances as
+# the noise of the last-layer Laplace approximation. This only requires one pass over
+# the training set to compute the precision matrix, and one over the validation set to
+# calibrate the epistemic part of the uncertainty.
 #
 # .. note::
 #
-#    This procedure is equivalent to the faithful heteroscedastic regression of
-#    `Stirn et al., 2023 <https://proceedings.mlr.press/v206/stirn23a.html>`_, which
-#    ensures that the mean predictions of the model are the same as those of the
-#    MSE-trained model. This is in the same spirit as the Laplace approximation (LLPR),
-#    which is also applied post hoc and leaves the mean unchanged.
+#    Training the variance on top of a frozen mean is equivalent to the faithful
+#    heteroscedastic regression of `Stirn et al., 2023
+#    <https://proceedings.mlr.press/v206/stirn23a.html>`_, which ensures that the mean
+#    predictions of the model are the same as those of the MSE-trained model. This is in
+#    the same spirit as the Laplace approximation, which is also applied post hoc and
+#    leaves the mean unchanged.
 #
 # .. note::
 #
@@ -161,34 +164,11 @@ hf_hub_download(
 #    a :math:`6N \times 6N` covariance per structure, which can be expensive to store
 #    and invert.
 #
-# .. literalinclude:: options-flashmd-variance.yaml
+# .. literalinclude:: options-flashmd-llpr.yaml
 #    :language: yaml
 #
 # Here, we run training as a subprocess. In reality you would run this from the command
-# line as ``mtt train options-flashmd-variance.yaml -o model-variance.pt``.
-
-subprocess.run(
-    ["mtt", "train", "options-flashmd-variance.yaml", "-o", "model-variance.pt"],
-    check=True,
-)
-
-# %%
-#
-# The resulting model has two new outputs, ``mtt::aux::position_variance`` and
-# ``mtt::aux::momentum_variance``, holding the predicted (aleatoric) variance of each
-# target, per atom.
-#
-# Adding the LLPR
-# ---------------
-#
-# Next, we wrap the model with variance heads with the :ref:`LLPR architecture
-# <arch-llpr>`. The LLPR detects the variance outputs and uses them as the noise of the
-# last-layer Laplace approximation. This only requires one pass over the training set
-# to compute the precision matrix, and one over the validation set to calibrate the
-# epistemic part of the uncertainty.
-#
-# .. literalinclude:: options-flashmd-llpr.yaml
-#    :language: yaml
+# line as ``mtt train options-flashmd-llpr.yaml -o model-llpr.pt``.
 
 subprocess.run(
     ["mtt", "train", "options-flashmd-llpr.yaml", "-o", "model-llpr.pt"], check=True
@@ -342,6 +322,8 @@ plt.show()
 #
 # At 300 K, the temperature of the training data, the predicted uncertainties match the
 # errors for both targets. At 900 K, outside of the training distribution, the
-# calibration gets worse, as expected. The epistemic uncertainty of the LLPR is also
-# several times larger there, so it can be used to detect such out-of-distribution
-# structures.
+# positions are overconfident. The epistemic uncertainty is several times larger at
+# 900 K for both targets, so it can be used to detect such out-of-distribution
+# structures. A few atoms at 900 K have a much larger epistemic uncertainty on their
+# momenta than their error, which makes the last bin of the momenta overly
+# conservative.

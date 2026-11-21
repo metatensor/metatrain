@@ -126,21 +126,15 @@ This output is only supported by the :ref:`LLPR architecture <arch-llpr>`.
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 This output contains the variance of the noise on target ``target``, i.e. its
-aleatoric uncertainty. A separate head of the model predicts it, and is trained
-with the ``gaussian_nll`` :ref:`loss <loss-functions>`. The metadata of this
-output is the same as for the target, and its unit is the square of the unit of
-the target. Per-structure variances are the sums of the per-atom variances. If the
-model has a scaler, the variance of a per-atom target can only be requested for each
-atom, because the scales depend on the atomic type.
+aleatoric uncertainty. A variance head on the last-layer features of the target
+predicts it, and is trained with the ``gaussian_nll`` :ref:`loss <loss-functions>`.
+The metadata of this output is the same as for the target, and its unit is the square
+of the unit of the target. It can only be requested for each atom.
 
-If a model with variance outputs is wrapped with the :ref:`LLPR architecture
-<arch-llpr>`, the LLPR uses these variances as the noise of its last-layer
-Laplace approximation. The corresponding :ref:`mtt-aux-target-uncertainty`
-output still contains the (calibrated) epistemic uncertainty, so the total
-predictive variance is this variance plus the square of the uncertainty.
+The LLPR uses these variances as the noise of its last-layer Laplace approximation.
+The corresponding :ref:`mtt-aux-target-uncertainty` output still contains the
+(calibrated) epistemic uncertainty, so the total predictive variance is this variance
+plus the square of the uncertainty.
 
-This output is supported by the following architectures:
-
-+---------------------+
-| :ref:`arch-flashmd` |
-+---------------------+
+This output is only supported by the :ref:`LLPR architecture <arch-llpr>`, for the
+targets in its ``variance_heads``.
