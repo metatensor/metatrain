@@ -1,6 +1,5 @@
 import math
-from collections.abc import Sequence
-from typing import Any, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 
@@ -12,42 +11,47 @@ from .utilities import cutoff_func_bump as cutoff_func
 DEFAULT_MIN_PROBE_CUTOFF = 0.5
 
 
-def parse_num_neighbors_adaptive(
-    num_neighbors_adaptive: Any,
-) -> Optional[Tuple[int, int]]:
-    """Parse the ``num_neighbors_adaptive`` hyperparameter.
+def check_num_neighbors_adaptive(
+    num_neighbors_adaptive: Optional[int],
+    variable_num_neighbors_adaptive: Optional[List[int]],
+    adaptive_cutoff: bool,
+) -> None:
+    """Check the target numbers of neighbors of the adaptive cutoff.
 
-    ``num_neighbors_adaptive`` is either ``None`` (adaptive cutoff disabled), a
-    single number (fixed target number of neighbors), or a ``[low, high]`` range.
-    With a range, the target is sampled from ``[low, high]`` during training (see
-    :func:`sample_num_neighbors_adaptive`) and ``low`` is used otherwise.
-
-    :param num_neighbors_adaptive: The ``num_neighbors_adaptive`` hyperparameter.
-    :return: ``(low, high)``, with ``low == high`` for a single number, or ``None``
-        if the adaptive cutoff is disabled.
+    :param num_neighbors_adaptive: The ``num_neighbors_adaptive`` hyperparameter:
+        ``None``, or the (positive) target number of neighbors.
+    :param variable_num_neighbors_adaptive: The ``variable_num_neighbors_adaptive``
+        hyperparameter: ``None``, or a ``[low, high]`` range with ``0 < low <= high``,
+        which requires ``num_neighbors_adaptive``.
+    :param adaptive_cutoff: Whether the model uses the adaptive cutoff, which can not
+        be switched on or off for an existing model.
+    :raises ValueError: If the values are not valid.
     """
-    if num_neighbors_adaptive is None:
-        return None
-
-    if isinstance(num_neighbors_adaptive, Sequence) and not isinstance(
-        num_neighbors_adaptive, str
-    ):
-        if len(num_neighbors_adaptive) != 2:
-            raise ValueError(
-                "`num_neighbors_adaptive` must be a single number or a list of two "
-                f"numbers [low, high], got {list(num_neighbors_adaptive)}"
-            )
-        low, high = (int(v) for v in num_neighbors_adaptive)
-    else:
-        low = high = int(num_neighbors_adaptive)
-
-    if low <= 0 or low > high:
+    if (num_neighbors_adaptive is not None) != adaptive_cutoff:
         raise ValueError(
-            "`num_neighbors_adaptive` must be positive, and given as [low, high] with "
-            f"low <= high, got {num_neighbors_adaptive}"
+            "The adaptive cutoff can not be switched on or off for an existing model"
         )
-
-    return low, high
+    if num_neighbors_adaptive is not None and num_neighbors_adaptive <= 0:
+        raise ValueError(
+            f"`num_neighbors_adaptive` must be positive, got {num_neighbors_adaptive}"
+        )
+    if variable_num_neighbors_adaptive is not None:
+        if num_neighbors_adaptive is None:
+            raise ValueError(
+                "`variable_num_neighbors_adaptive` requires the adaptive cutoff: "
+                "please also set `num_neighbors_adaptive`, which is the target "
+                "number of neighbors used outside of training"
+            )
+        if (
+            len(variable_num_neighbors_adaptive) != 2
+            or not 0
+            < variable_num_neighbors_adaptive[0]
+            <= variable_num_neighbors_adaptive[1]
+        ):
+            raise ValueError(
+                "`variable_num_neighbors_adaptive` must be a list [low, high] with "
+                f"0 < low <= high, got {variable_num_neighbors_adaptive}"
+            )
 
 
 def loguniform(
@@ -82,8 +86,8 @@ def sample_num_neighbors_adaptive(
 ) -> torch.Tensor:
     """Sample target numbers of neighbors used by the adaptive cutoff.
 
-    During training, when ``num_neighbors_adaptive`` is given as a range, this is
-    called at every forward pass to draw one target per structure in the batch.
+    During training, when ``variable_num_neighbors_adaptive`` is set, this is called
+    at every forward pass to draw one target per structure in the batch.
     The current strategy draws integers from the closed interval ``[low, high]``
     with a log-uniform distribution: ``floor(x)`` with ``x`` log-uniform on
     ``[low, high + 1)``, so that the integer ``k`` has probability

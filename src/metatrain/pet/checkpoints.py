@@ -439,6 +439,23 @@ def model_update_v18_v19(checkpoint: dict) -> None:
         model_hypers["smooth_attention_cutoff"] = False
 
 
+def model_update_v19_v20(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 19 to version 20.
+
+    Adds the ``variable_num_neighbors_adaptive`` hyperparameter. Development versions
+    of the code gave the range of sampled numbers of neighbors as
+    ``num_neighbors_adaptive: [low, high]``, and used ``low`` outside of training:
+    this becomes ``num_neighbors_adaptive: low`` and
+    ``variable_num_neighbors_adaptive: [low, high]``.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    model_hypers = checkpoint["model_data"]["model_hypers"]
+    if "variable_num_neighbors_adaptive" not in model_hypers:
+        model_hypers["variable_num_neighbors_adaptive"] = None
+
+
 ###########################
 # TRAINER #################
 ###########################

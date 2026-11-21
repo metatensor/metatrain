@@ -1,11 +1,10 @@
-from collections.abc import Sequence
 from math import prod
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 import torch
 
 from ..documentation import ModelHypers
-from .adaptive_cutoff import parse_num_neighbors_adaptive, sample_num_neighbors_adaptive
+from .adaptive_cutoff import sample_num_neighbors_adaptive
 from .conditioning import SystemConditioningEmbedding
 from .structures import compute_batch_tensors
 from .transformer import CartesianTransformer
@@ -41,12 +40,18 @@ class PETBackend(torch.nn.Module):
         self.cutoff = float(hypers["cutoff"])
         self.cutoff_function = hypers["cutoff_function"]
         self.cutoff_width = float(hypers["cutoff_width"])
-        self.set_num_neighbors_adaptive(hypers["num_neighbors_adaptive"])
-        # Whether to sample the target number of neighbors of each structure from
-        # the ``[low, high]`` range of ``num_neighbors_adaptive``. The trainer enables
-        # it for the training batches only; otherwise ``low`` is used.
+        # Targets of the adaptive cutoff (disabled until set): ``PET`` checks and sets
+        # them with ``_set_num_neighbors_adaptive`` right after creating the backend.
+        self.num_neighbors_adaptive: Optional[float] = None
+        self.variable_num_neighbors: bool = False
+        self.variable_num_neighbors_low: int = 0
+        self.variable_num_neighbors_high: int = 0
+        # Whether to sample the target number of neighbors of each structure from the
+        # ``variable_num_neighbors_adaptive`` range. The trainer enables it for the
+        # training batches only; otherwise ``num_neighbors_adaptive`` is used.
         self.sample_num_neighbors: bool = False
         self.adaptive_cutoff_method = hypers["adaptive_cutoff_method"]
+        self.cutoff_width_adaptive = float(hypers["cutoff_width_adaptive"])
         self.d_pet = hypers["d_pet"]
         self.d_node = hypers["d_node"]
         self.d_head = hypers["d_head"]
@@ -224,27 +229,32 @@ class PETBackend(torch.nn.Module):
             ]
         )
 
-    def set_num_neighbors_adaptive(
-        self, num_neighbors_adaptive: Optional[Union[int, Sequence[int]]]
+    def _set_num_neighbors_adaptive(
+        self,
+        num_neighbors_adaptive: Optional[int],
+        variable_num_neighbors_adaptive: Optional[List[int]] = None,
     ) -> None:
-        """Set the target number of neighbors of the adaptive cutoff.
+        """Set the target numbers of neighbors of the adaptive cutoff.
 
-        :param num_neighbors_adaptive: ``None`` to disable the adaptive cutoff, a
-            single number, or a ``[low, high]`` range. With a range, the target is
-            sampled from ``[low, high]`` with :func:`sample_num_neighbors_adaptive`
-            when ``sample_num_neighbors`` is set, and ``low`` is used otherwise.
+        The values are checked by :meth:`PET._set_num_neighbors_adaptive`.
+
+        :param num_neighbors_adaptive: ``None`` to disable the adaptive cutoff, or the
+            target number of neighbors used outside of training (and during training
+            when no range is set).
+        :param variable_num_neighbors_adaptive: ``None``, or a ``[low, high]`` range
+            from which the target is sampled with :func:`sample_num_neighbors_adaptive`
+            when ``sample_num_neighbors`` is set.
         """
-        num_neighbors_range = parse_num_neighbors_adaptive(num_neighbors_adaptive)
-        if num_neighbors_range is None:
-            self.num_neighbors_adaptive: Optional[float] = None
-            self.num_neighbors_adaptive_low = 0
-            self.num_neighbors_adaptive_high = 0
+        self.num_neighbors_adaptive = (
+            None if num_neighbors_adaptive is None else float(num_neighbors_adaptive)
+        )
+        self.variable_num_neighbors = variable_num_neighbors_adaptive is not None
+        if variable_num_neighbors_adaptive is None:
+            self.variable_num_neighbors_low = 0
+            self.variable_num_neighbors_high = 0
         else:
-            low, high = num_neighbors_range
-            # target used outside of training
-            self.num_neighbors_adaptive = float(low)
-            self.num_neighbors_adaptive_low = low
-            self.num_neighbors_adaptive_high = high
+            self.variable_num_neighbors_low = int(variable_num_neighbors_adaptive[0])
+            self.variable_num_neighbors_high = int(variable_num_neighbors_adaptive[1])
 
     def remove_output(self, target_name: str) -> None:
         """
@@ -273,7 +283,6 @@ class PETBackend(torch.nn.Module):
         species: torch.Tensor,
         cell_contributions: torch.Tensor,
         cell_shifts: torch.Tensor,
-        cutoff_width_adaptive: float,
         system_indices: Optional[torch.Tensor] = None,
         num_systems: int = 1,
     ) -> Dict[str, torch.Tensor]:
@@ -294,11 +303,9 @@ class PETBackend(torch.nn.Module):
         :param cell_contributions: Contributions of the cell shifts to the edge
             vectors, shape ``(n_edges, 3)``.
         :param cell_shifts: Integer cell shift vectors, shape ``(n_edges, 3)``.
-        :param cutoff_width_adaptive: Width of the smooth cutoff taper used by the
-            adaptive cutoff scheme when ``num_neighbors_adaptive`` is set.
         :param system_indices: Index of the structure of each atom, shape
             ``(num_nodes,)``. When ``sample_num_neighbors`` is set, with
-            ``num_neighbors_adaptive`` given as a range, a target number of neighbors
+            ``variable_num_neighbors_adaptive`` given, a target number of neighbors
             is sampled for each structure.
             If ``None``, all atoms are treated as a single structure.
         :param num_systems: Number of structures in the batch. Only used together
@@ -337,20 +344,20 @@ class PETBackend(torch.nn.Module):
         fixed_num_neighbors_adaptive = self.num_neighbors_adaptive
         if fixed_num_neighbors_adaptive is not None:
             num_nodes = positions.shape[0]
-            if self.sample_num_neighbors:
+            if self.sample_num_neighbors and self.variable_num_neighbors:
                 # one target per structure, shared by all its atoms
                 if system_indices is None:
                     num_neighbors_adaptive = sample_num_neighbors_adaptive(
-                        self.num_neighbors_adaptive_low,
-                        self.num_neighbors_adaptive_high,
+                        self.variable_num_neighbors_low,
+                        self.variable_num_neighbors_high,
                         1,
                         positions.device,
                         positions.dtype,
                     ).expand(num_nodes)
                 else:
                     num_neighbors_adaptive = sample_num_neighbors_adaptive(
-                        self.num_neighbors_adaptive_low,
-                        self.num_neighbors_adaptive_high,
+                        self.variable_num_neighbors_low,
+                        self.variable_num_neighbors_high,
                         num_systems,
                         positions.device,
                         positions.dtype,
@@ -389,7 +396,7 @@ class PETBackend(torch.nn.Module):
             self.cutoff_width,
             num_neighbors_adaptive,
             self.adaptive_cutoff_method,
-            cutoff_width_adaptive,
+            self.cutoff_width_adaptive,
             self.nl_is_strict,
         )
 

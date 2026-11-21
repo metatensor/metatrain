@@ -539,8 +539,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         logging.info("Starting training")
         epoch = start_epoch
         # Sample the target number of neighbors of the adaptive cutoff from the
-        # [low, high] `num_neighbors_adaptive` range for the training batches only.
-        # Validation uses `low`, as the exported model does.
+        # `variable_num_neighbors_adaptive` range (if set) for the training batches
+        # only. Validation uses `num_neighbors_adaptive`, as the exported model does.
         pet_backend = (model.module if is_distributed else model).core.backend
         pet_backend.sample_num_neighbors = True
 

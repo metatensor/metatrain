@@ -118,7 +118,6 @@ def _backend_inputs(model, system):
         species,
         cell_contributions,
         cell_shifts,
-        model.cutoff_width_adaptive,
     )
     return inputs, cells, system_indices
 
@@ -219,7 +218,6 @@ def test_backend_torch_compile(fullgraph):
         species,
         cell_contributions,
         cell_shifts,
-        cutoff_width_adaptive,
     ) = inputs
     batch_data_e = backend.preprocess(*inputs)
 
@@ -247,7 +245,6 @@ def test_backend_torch_compile(fullgraph):
                 species,
                 cell_contributions @ strain,
                 cell_shifts,
-                cutoff_width_adaptive,
             )
             node_list, edge_list = backend.calculate_features(batch_data)
             preds, _, _ = backend.predict(
@@ -323,7 +320,6 @@ def test_batched_preprocessing_is_not_slower():
             species,
             cell_contributions,
             cell_shifts,
-            model.cutoff_width_adaptive,
         )
         torch.autograd.grad(
             batch_data["edge_vectors"].sum(),

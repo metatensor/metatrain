@@ -161,7 +161,6 @@ def test_non_strict_nl_does_not_inflate_nef_tensors():
                 species,
                 cell_contributions,
                 cell_shifts,
-                model.cutoff_width_adaptive,
             )
         )
     strict_data, non_strict_data = batch_data

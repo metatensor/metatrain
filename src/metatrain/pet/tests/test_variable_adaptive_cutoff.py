@@ -1,4 +1,5 @@
-"""Tests for ``num_neighbors_adaptive`` given as a ``[low, high]`` range."""
+"""Tests for ``variable_num_neighbors_adaptive``, the range of target numbers of
+neighbors sampled during training, and for changing ``num_neighbors_adaptive``."""
 
 import copy
 import math
@@ -10,8 +11,8 @@ from omegaconf import OmegaConf
 
 import metatrain.pet.modules.backend as backend_module
 from metatrain.pet import PET, Trainer
+from metatrain.pet.checkpoints import model_update_v19_v20
 from metatrain.pet.modules.adaptive_cutoff import (
-    parse_num_neighbors_adaptive,
     sample_num_neighbors_adaptive,
 )
 from metatrain.utils.data import DatasetInfo
@@ -33,10 +34,11 @@ DATASET_INFO = DatasetInfo(
 )
 
 
-def _hypers(num_neighbors_adaptive):
+def _hypers(num_neighbors_adaptive, variable=None):
     hypers = copy.deepcopy(MODEL_HYPERS)
     hypers["cutoff"] = 6.0
     hypers["num_neighbors_adaptive"] = num_neighbors_adaptive
+    hypers["variable_num_neighbors_adaptive"] = variable
     return hypers
 
 
@@ -76,24 +78,27 @@ def recorded_targets(monkeypatch):
     return recorded
 
 
-@pytest.mark.parametrize(
-    "value, expected",
-    [
-        (None, None),
-        (8, (8, 8)),
-        ([4, 12], (4, 12)),
-        ((4, 12), (4, 12)),
-        ([7, 7], (7, 7)),
-    ],
-)
-def test_parse(value, expected):
-    assert parse_num_neighbors_adaptive(value) == expected
+@pytest.mark.parametrize("value", [[4, 12], (4, 12), [7, 7], None])
+def test_valid_range(value):
+    model = PET(_hypers(4, value), DATASET_INFO)
+    assert model.hypers["variable_num_neighbors_adaptive"] == value
+    assert model.backend.variable_num_neighbors == (value is not None)
 
 
-@pytest.mark.parametrize("value", [[4], [4, 8, 12], [12, 4], 0, [0, 4]])
-def test_parse_invalid(value):
-    with pytest.raises(ValueError):
-        parse_num_neighbors_adaptive(value)
+@pytest.mark.parametrize("value", [[4], [4, 8, 12], [12, 4], [0, 4]])
+def test_invalid_range(value):
+    with pytest.raises(ValueError, match="must be a list"):
+        PET(_hypers(4, value), DATASET_INFO)
+
+
+def test_invalid_num_neighbors():
+    with pytest.raises(ValueError, match="must be positive"):
+        PET(_hypers(0), DATASET_INFO)
+
+
+def test_variable_requires_adaptive_cutoff():
+    with pytest.raises(ValueError, match="requires the adaptive cutoff"):
+        PET(_hypers(None, [4, 12]), DATASET_INFO)
 
 
 def _sample(low, high, n):
@@ -125,7 +130,7 @@ def test_sample():
 
 def test_training_samples_per_structure(recorded_targets):
     torch.manual_seed(0)
-    model = PET(_hypers([4, 12]), DATASET_INFO)
+    model = PET(_hypers(4, [4, 12]), DATASET_INFO)
     sizes = [12, 7, 9]
     systems = [_system(model, n, seed=i) for i, n in enumerate(sizes)]
     outputs = {"energy": ModelOutput(sample_kind="system")}
@@ -147,7 +152,7 @@ def test_training_samples_per_structure(recorded_targets):
 
 def test_training_mode_does_not_sample(recorded_targets):
     # sampling is only switched on explicitly (by the trainer), not by train()
-    model = PET(_hypers([4, 12]), DATASET_INFO)
+    model = PET(_hypers(4, [4, 12]), DATASET_INFO)
     assert not model.backend.sample_num_neighbors
     system = _system(model)
     outputs = {"energy": ModelOutput(sample_kind="system")}
@@ -163,7 +168,7 @@ def test_per_atom_targets_match_single_structures(recorded_targets):
     cutoffs in a batch with targets (a, b) match the ones of each structure
     evaluated alone with a fixed target."""
     torch.manual_seed(0)
-    model = PET(_hypers([4, 12]), DATASET_INFO)
+    model = PET(_hypers(4, [4, 12]), DATASET_INFO)
     sizes = [12, 9]
     systems = [_system(model, n, seed=i) for i, n in enumerate(sizes)]
     outputs = {"mtt::aux::cutoff_stats": ModelOutput(sample_kind="atom")}
@@ -180,16 +185,17 @@ def test_per_atom_targets_match_single_structures(recorded_targets):
 
     model.backend.sample_num_neighbors = False
     for i, (system, target) in enumerate(zip(systems, targets, strict=True)):
-        model.set_num_neighbors_adaptive(int(target))
+        model._set_num_neighbors_adaptive(int(target))
         single = model([system], outputs)["mtt::aux::cutoff_stats"].block()
         mask = batch.samples.column("system") == i
         torch.testing.assert_close(batch.values[mask], single.values)
 
 
 def test_eval_matches_fixed_model():
-    """Without sampling, a range model behaves as a fixed model with ``low``."""
+    """Without sampling, a model with a range behaves as a fixed model with
+    ``num_neighbors_adaptive``."""
     torch.manual_seed(0)
-    range_model = PET(_hypers([4, 12]), DATASET_INFO).eval()
+    range_model = PET(_hypers(4, [4, 12]), DATASET_INFO).eval()
     fixed_model = PET(_hypers(4), DATASET_INFO).eval()
     fixed_model.load_state_dict(range_model.state_dict())
 
@@ -206,52 +212,95 @@ def test_eval_matches_fixed_model():
         )
 
 
-def test_change_num_neighbors_adaptive(recorded_targets):
-    model = PET(_hypers([4, 12]), DATASET_INFO).eval()
+def test_inference_value_inside_range(recorded_targets):
+    """Outside of sampling, ``num_neighbors_adaptive`` is used, whatever the range."""
+    model = PET(_hypers(8, [4, 12]), DATASET_INFO)
     system = _system(model)
     outputs = {"energy": ModelOutput(sample_kind="system")}
 
-    model.set_num_neighbors_adaptive(10)
-    assert model.hypers["num_neighbors_adaptive"] == 10
     model([system], outputs)
-    assert set(recorded_targets[0].tolist()) == {10.0}
+    assert set(recorded_targets[0].tolist()) == {8.0}
 
-    # restarting with a different value is allowed
     recorded_targets.clear()
-    model.restart(DATASET_INFO, _hypers([6, 8]))
-    assert model.hypers["num_neighbors_adaptive"] == [6, 8]
-    model([system], outputs)
     model.backend.sample_num_neighbors = True
     for _ in range(20):
         model([system], outputs)
-    assert set(recorded_targets[0].tolist()) == {6.0}
-    assert set(torch.cat(recorded_targets[1:]).tolist()) <= {6.0, 7.0, 8.0}
+    values = set(torch.cat(recorded_targets).tolist())
+    assert values <= set(float(v) for v in range(4, 13)) and len(values) > 1
+
+
+def test_no_range_does_not_sample(recorded_targets):
+    """Without a range, the trainer's sampling switch has no effect."""
+    model = PET(_hypers(6), DATASET_INFO)
+    system = _system(model)
+    model.backend.sample_num_neighbors = True
+    for _ in range(5):
+        model([system], {"energy": ModelOutput(sample_kind="system")})
+    assert set(torch.cat(recorded_targets).tolist()) == {6.0}
+
+
+def test_set_num_neighbors_adaptive(recorded_targets):
+    model = PET(_hypers(4, [4, 12]), DATASET_INFO).eval()
+    system = _system(model)
+    outputs = {"energy": ModelOutput(sample_kind="system")}
+
+    model._set_num_neighbors_adaptive(10)
+    assert model.hypers["num_neighbors_adaptive"] == 10
+    assert model.hypers["variable_num_neighbors_adaptive"] is None
+    model([system], outputs)
+    assert set(recorded_targets[0].tolist()) == {10.0}
+
+    recorded_targets.clear()
+    model._set_num_neighbors_adaptive(6, [6, 8])
+    assert model.hypers["variable_num_neighbors_adaptive"] == [6, 8]
+    model.backend.sample_num_neighbors = True
+    for _ in range(20):
+        model([system], outputs)
+    assert set(torch.cat(recorded_targets).tolist()) <= {6.0, 7.0, 8.0}
     model.backend.sample_num_neighbors = False
 
-    # the value is kept in the checkpoint
+    # the values are kept in the checkpoint
     loaded = PET.load_checkpoint(model.get_checkpoint(), context="export")
-    assert loaded.hypers["num_neighbors_adaptive"] == [6, 8]
+    assert loaded.hypers["num_neighbors_adaptive"] == 6
+    assert loaded.hypers["variable_num_neighbors_adaptive"] == [6, 8]
     assert loaded.backend.num_neighbors_adaptive == 6.0
 
-    # but other hypers still can't change
-    other = _hypers([6, 8])
-    other["d_pet"] += 1
+    # invalid values
     with pytest.raises(ValueError):
-        model.restart(DATASET_INFO, other)
+        model._set_num_neighbors_adaptive(0)
+    with pytest.raises(ValueError):
+        model._set_num_neighbors_adaptive(6, [8, 6])
 
-    # and the adaptive cutoff can't be switched on or off
-    with pytest.raises(ValueError):
-        model.set_num_neighbors_adaptive(None)
-    with pytest.raises(ValueError):
-        model.restart(DATASET_INFO, _hypers(None))
+    # the adaptive cutoff can't be switched on or off
+    with pytest.raises(ValueError, match="switched on or off"):
+        model._set_num_neighbors_adaptive(None)
     no_adaptive = PET(_hypers(None), DATASET_INFO)
-    with pytest.raises(ValueError):
-        no_adaptive.set_num_neighbors_adaptive(8)
+    with pytest.raises(ValueError, match="switched on or off"):
+        no_adaptive._set_num_neighbors_adaptive(8)
+
+
+def test_restart_can_not_change_num_neighbors_adaptive():
+    model = PET(_hypers(4, [4, 12]), DATASET_INFO)
+    model.restart(DATASET_INFO, _hypers(4, [4, 12]))
+    with pytest.raises(ValueError, match="mismatch"):
+        model.restart(DATASET_INFO, _hypers(6, [4, 12]))
+    with pytest.raises(ValueError, match="mismatch"):
+        model.restart(DATASET_INFO, _hypers(4, [4, 16]))
+
+
+@pytest.mark.parametrize("old", [None, 16])
+def test_checkpoint_update_v19_v20(old):
+    """The update adds an empty ``variable_num_neighbors_adaptive``."""
+    checkpoint = {"model_data": {"model_hypers": {"num_neighbors_adaptive": old}}}
+    model_update_v19_v20(checkpoint)
+    hypers = checkpoint["model_data"]["model_hypers"]
+    assert hypers["num_neighbors_adaptive"] == old
+    assert hypers["variable_num_neighbors_adaptive"] is None
 
 
 def test_torchscript():
     torch.manual_seed(0)
-    model = PET(_hypers([4, 12]), DATASET_INFO)
+    model = PET(_hypers(4, [4, 12]), DATASET_INFO)
     system = _system(model)
     outputs = {"energy": ModelOutput(sample_kind="system")}
 
@@ -270,7 +319,8 @@ def test_torchscript():
 
 class TestVariableAdaptiveTraining(PETTests):
     def test_train(self, monkeypatch, tmp_path, dataset_path, dataset_targets):
-        """Training samples the targets from the range, validation uses ``low``."""
+        """Training samples the targets from the range, validation uses
+        ``num_neighbors_adaptive``."""
         monkeypatch.chdir(tmp_path)
         dataset, _, dataset_info = self.get_dataset(dataset_targets, dataset_path)
 
@@ -284,7 +334,8 @@ class TestVariableAdaptiveTraining(PETTests):
         hypers["training"]["loss"] = loss_conf
 
         model_hypers = copy.deepcopy(hypers["model"])
-        model_hypers["num_neighbors_adaptive"] = [3, 8]
+        model_hypers["num_neighbors_adaptive"] = 5
+        model_hypers["variable_num_neighbors_adaptive"] = [3, 8]
 
         trainer = Trainer(hypers["training"])
         model = trainer.setup(model_hypers, dataset_info)
@@ -315,6 +366,6 @@ class TestVariableAdaptiveTraining(PETTests):
         assert all(t.min() >= 3 and t.max() <= 8 for t in train_targets)
         # several targets are used inside the same batch
         assert any(len(t.unique()) > 1 for t in train_targets)
-        assert set(torch.cat(val_targets).tolist()) == {3.0}
+        assert set(torch.cat(val_targets).tolist()) == {5.0}
         # the trained model does not sample any more
         assert not model.core.backend.sample_num_neighbors
