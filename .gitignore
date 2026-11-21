@@ -188,6 +188,9 @@ docs/src/mtt_README.md
 # Sphinx architecture docs
 docs/src/architectures/generated/*
 docs/src/architectures/default_hypers/*
+# Sphinx extenders docs
+docs/src/extenders/generated/*
+docs/src/extenders/default_hypers/*
 
 # JavaScript
 node_modules/

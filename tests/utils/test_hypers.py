@@ -21,11 +21,13 @@ def simple_hypers_class(request: pytest.FixtureRequest):
 
         class Hypers:
             a: float = 2.0
+            b: int  # hyper with no defaults
 
     elif request.param == "typed_dict":
 
         class Hypers(TypedDict):
             a: float = 2.0
+            b: int  # hyper with no defaults
 
     return Hypers
 
@@ -55,7 +57,7 @@ def test_default_hypers(simple_hypers_class: type):
 
 def test_get_hypers_list(simple_hypers_class: type):
     hypers_list = get_hypers_list(simple_hypers_class)
-    assert hypers_list == ["a"]
+    assert hypers_list == ["a", "b"]
 
 
 def test_default_hypers_nested(nested_hypers_class: type):
@@ -76,13 +78,13 @@ def test_default_hypers_inheritance(simple_hypers_class: type):
 
 def test_hypers_list_inheritance(simple_hypers_class: type):
     class Hypers(simple_hypers_class):
-        b: int = 3
+        c: int = 3
 
     hypers_list = get_hypers_list(Hypers)
-    assert hypers_list == ["a", "b"]
+    assert hypers_list == ["a", "b", "c"]
 
     parent_hypers_list = get_hypers_list(simple_hypers_class)
-    assert parent_hypers_list == ["a"]
+    assert parent_hypers_list == ["a", "b"]
 
 
 def test_default_hypers_inheritance_overwrite(simple_hypers_class: type):

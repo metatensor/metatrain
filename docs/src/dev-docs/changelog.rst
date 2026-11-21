@@ -105,6 +105,8 @@ Added
   range, the target number of neighbors of the adaptive cutoff is sampled
   log-uniformly from this range for each structure during training, while
   validation, evaluation and exported models use ``num_neighbors_adaptive``.
+- Extenders as a new concept in metatrain. They can be used to augment the capabilities
+  of architectures (#1209).
 - PET has a smoother attention cutoff. The attention that the central atom pays to a
   neighbor in the tail of the cutoff function is now proportional to its cutoff
   function, instead of switching on abruptly when the neighbor has few competitors,

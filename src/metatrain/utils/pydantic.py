@@ -14,6 +14,8 @@ from typing_extensions import NotRequired
 
 from ..share import base_hypers
 from ..share.base_hypers import BaseHypers, EvalHypers, sanitize_architecture_hypers
+from .extenders import augment_extenders_annotations
+from .extenders.helpers import find_all_extenders
 from .hypers import init_with_defaults
 
 
@@ -152,6 +154,9 @@ class MetatrainArchitectureValidationError(MetatrainValidationError):
 
         return f"https://docs.metatensor.org/metatrain/latest/architectures/generated/{architecture_name}.html#metatrain.{self._architecture}.documentation.{cls}"
 
+    def extender_link(self, extender_name: str) -> str:
+        return f"https://docs.metatensor.org/metatrain/latest/extenders/generated/{extender_name}.html#metatrain.utils.extenders.{extender_name}.documentation.Hypers"
+
     def get_error_string(self, error: dict) -> str:
         """Given an individual error from Pydantic, return a user-friendly string.
 
@@ -167,6 +172,54 @@ class MetatrainArchitectureValidationError(MetatrainValidationError):
         hyper_type: Literal["model", "training"] = error["loc"][0]
         field = error["loc"][1]
         cls = "ModelHypers" if hyper_type == "model" else "TrainerHypers"
+
+        if hyper_type == "training" and field == "extenders":
+            available_extenders = find_all_extenders()
+            ext_field = error["loc"][2]
+            if ext_field in available_extenders:
+                extender_link = self.extender_link(ext_field)
+                if error["type"] == "extra_forbidden":
+                    # This is a field that was not expected
+                    error_loc = error["loc"]
+                    field = error_loc[-1]
+                    return (
+                        f"Unrecognized option '{field}' for '{ext_field}' "
+                        "extender hyperparameters."
+                        f"\n  For the available options of the '{ext_field}' extender, "
+                        "see:"
+                        f"\n    {extender_link}"
+                    )
+                else:
+                    # Rest of cases.
+                    msg = error["msg"]
+                    msg += f" [type={error['type']}, input_value={error['input']},"
+                    msg += f" input_type={error.get('type', 'unknown')}]"
+
+                    if error["loc"][3] == "dict":
+                        field = error["loc"][4]
+                    elif error["loc"][3] != ".":
+                        field = error["loc"][3]
+                    else:
+                        field = "outputs"
+
+                    msg += (
+                        f"\n  For the documentation of the '{field}' hyper of the "
+                        f"'{ext_field}' extender, see:"
+                        f"\n    {extender_link}.{field}"
+                        "\n  To understand this pydantic validation error in general"
+                        ", see:"
+                        f"\n    {error['url']}"
+                    )
+                    return msg
+            else:
+                return (
+                    f"Unrecognized extender '{ext_field}' passed to "
+                    "'training.extenders'."
+                    f"\n  The available extenders are:"
+                    f"\n    {available_extenders}"
+                    f"\n  See here for their documentation:"
+                    f"\n    https://docs.metatensor.org/metatrain/latest/extenders/index.html"
+                )
 
         arch_link = self.architecture_link(cls)
 
@@ -280,6 +333,12 @@ def validate_architecture_options(
         )
         return options
 
+    # Make sure we get validation specifically for the extenders that
+    # are being used.
+    trainer_hypers = augment_extenders_annotations(
+        trainer_hypers, options.get("training", {})
+    )
+
     ArchitectureOptions = create_model(
         "ArchitectureOptions",
         name=str,
@@ -321,6 +380,8 @@ def validate_architecture_options(
     )
 
     if added_atomic_types:
+        if validated["atomic_types"] == []:
+            del validated["atomic_types"]
         del options["atomic_types"]
 
     return validated

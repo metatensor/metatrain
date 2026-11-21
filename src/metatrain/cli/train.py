@@ -300,7 +300,7 @@ def train_model(
         options,
     )
 
-    check_architecture_options(
+    options["architecture"] = check_architecture_options(
         name=architecture_name, options=OmegaConf.to_container(options["architecture"])
     )
 
