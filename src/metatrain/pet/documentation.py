@@ -140,7 +140,7 @@ important** (in decreasing order of importance):
       :no-index:
 """
 
-from typing import List, Literal, Optional
+from typing import Literal, Optional, Tuple
 
 from typing_extensions import NotRequired, TypedDict
 
@@ -178,7 +178,7 @@ class ModelHypers(TypedDict):
     models, and also during training unless ``variable_num_neighbors_adaptive`` is
     set.
     """
-    variable_num_neighbors_adaptive: Optional[List[int]] = None
+    variable_num_neighbors_adaptive: Optional[Tuple[int, int]] = None
     """Range ``[low, high]`` of target numbers of neighbors sampled during training.
 
     If set, at each training step the target number of neighbors of the adaptive
