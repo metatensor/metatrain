@@ -24,6 +24,7 @@ TARGET = "mtt::target"
 UNCERTAINTY = "mtt::aux::target_uncertainty"
 ENSEMBLE = "mtt::aux::target_ensemble"
 LLF = "mtt::aux::target_last_layer_features"
+VARIANCE = "mtt::aux::target_variance"
 NUM_ENSEMBLE_MEMBERS = 32
 
 
@@ -147,17 +148,23 @@ def wrap_backbone(
     backbone: MetatrainModel,
     dataset_info: DatasetInfo,
     ensembles: bool,
+    variance_head: bool = False,
 ) -> LLPRUncertaintyModel:
     """The backbone wrapped in an LLPR model.
 
     :param backbone: the backbone to wrap.
     :param dataset_info: the dataset info the backbone was built with.
     :param ensembles: whether to request ensemble members for the target.
+    :param variance_head: whether to add a variance head for the target.
     :return: the wrapped model.
     """
     num_ensemble_members = {TARGET: NUM_ENSEMBLE_MEMBERS} if ensembles else {}
     model = LLPRUncertaintyModel(
-        {"num_ensemble_members": num_ensemble_members}, dataset_info
+        {
+            "num_ensemble_members": num_ensemble_members,
+            "variance_heads": [TARGET] if variance_head else [],
+        },
+        dataset_info,
     )
     model.set_wrapped_model(backbone)
     return model.to(torch.float64)

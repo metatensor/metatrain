@@ -167,6 +167,16 @@ def model_update_v6_v7(checkpoint: dict) -> None:
         checkpoint[state_dict_name] = new_state_dict
 
 
+def model_update_v7_v8(checkpoint: dict) -> None:
+    """
+    Update a v7 checkpoint to v8.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # added variance heads
+    checkpoint["model_data"]["hypers"]["variance_heads"] = []
+
+
 def trainer_update_v1_v2(checkpoint: dict) -> None:
     """
     Update trainer checkpoint from version 1 to version 2.
@@ -258,3 +268,15 @@ def trainer_update_v6_v7(checkpoint: dict) -> None:
         train_hypers = checkpoint["train_hypers"]
         if "distributed" in train_hypers and train_hypers["distributed"] is None:
             train_hypers.pop("distributed")
+
+
+def trainer_update_v7_v8(checkpoint: dict) -> None:
+    """
+    Update trainer checkpoint from version 7 to version 8.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    # added the training of the variance heads
+    if "train_hypers" in checkpoint:
+        checkpoint["train_hypers"]["variance_num_epochs"] = 50
+        checkpoint["train_hypers"]["variance_learning_rate"] = 1e-3

@@ -225,6 +225,22 @@ The values used in the above example are the ones used for PETMADDOS training an
 
 See :class:`~metatrain.utils.loss.ShiftAgnosticMSE` for more details on the implementation and parameters of this loss function.
 
+Gaussian NLL Loss with Predicted Variance
+-----------------------------------------
+
+The ``variance_heads`` of the :ref:`LLPR architecture <arch-llpr>`, which predict the
+variance of a target as the :ref:`mtt-aux-target-variance` output, are trained with
+the Gaussian negative log-likelihood
+
+.. math::
+
+    \mathcal{L} = \frac{1}{2} \left[ \log \sigma^2(x) + \frac{(y - \mu(x))^2}{\sigma^2(x)} \right],
+
+where :math:`\mu` is the prediction for the target and :math:`\sigma^2` its predicted
+variance. Gradients of the target (e.g. forces) are not supported by this loss.
+See :class:`~metatrain.utils.loss.TensorMapGaussianNLLVarianceLoss` for the
+implementation.
+
 Ensemble Loss Function
 ----------------------
 

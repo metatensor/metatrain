@@ -1,5 +1,6 @@
 import copy
 import logging
+import math
 from collections.abc import Mapping
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
@@ -19,6 +20,7 @@ from metatrain.utils.abc import ModelInterface, common_upgrade_checkpoint
 from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.atom_pair_helpers import check_no_atom_pair_targets
 from metatrain.utils.data.match_tmaps import match_layout
+from metatrain.utils.data.target_info import get_variance_output_name
 from metatrain.utils.hypers import raise_if_hypers_mismatch
 from metatrain.utils.io import model_from_checkpoint
 from metatrain.utils.metadata import merge_metadata
@@ -45,10 +47,11 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
     :param dataset_info: The dataset info of the targets to wrap.
     """
 
-    __checkpoint_version__ = 7
+    __checkpoint_version__ = 8
 
     ensemble_gradient_outputs: List[str]
     llpr_outputs: List[str]
+    heteroscedastic_outputs: List[str]
 
     # all torch devices and dtypes are supported, if they are supported by the wrapped
     # the check is performed in the trainer
@@ -131,7 +134,33 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 "compute any uncertainty"
             )
 
+        # targets with a variance head, which predicts their (aleatoric) variance.
+        # Their covariance is weighted by the inverse of this variance
+        # (heteroscedastic LLPR), and their uncertainty is still the epistemic one
+        self.heteroscedastic_outputs = list(self.hypers["variance_heads"])
+        for name in self.heteroscedastic_outputs:
+            if name not in names:
+                raise ValueError(
+                    f"Cannot add a variance head for '{name}': it is not a target of "
+                    "the wrapped model with last-layer features"
+                )
+
+            target_info = self.model.dataset_info.targets[name]
+            layout = target_info.layout
+            if (
+                target_info.sample_kind != "atom"
+                or len(layout) != 1
+                or len(layout.block(0).properties) != 1
+            ):
+                raise NotImplementedError(
+                    "Variance heads are only implemented for per-atom targets with a "
+                    f"single block and a single property, but '{name}' is a "
+                    f"'{target_info.sample_kind}' target with {len(layout)} blocks "
+                    f"and {len(layout.block(0).properties)} properties"
+                )
+
         self.targets = torch.nn.ModuleDict()
+        self.variance_heads = torch.nn.ModuleDict()
         self.llpr_outputs = []
         self.ensemble_gradient_outputs = []
         outputs = {name: old_capabilities.outputs[name] for name in backbone_outputs}
@@ -153,6 +182,29 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 description=output.description,
             )
             self.llpr_outputs.append(target.uncertainty_name)
+
+            if name in self.heteroscedastic_outputs:
+                if not target.shared:
+                    raise NotImplementedError(
+                        f"Variance heads are only implemented for targets whose "
+                        "last-layer features are a single block without components, "
+                        f"which is not the case for '{name}'"
+                    )
+                features_layout = backbone_outputs[
+                    _get_last_layer_features_name(name)
+                ].layout
+                self.variance_heads[name] = _VarianceHead(
+                    len(features_layout.block(0).properties), dtype
+                )
+
+                variance_name = get_variance_output_name(name)
+                outputs[variance_name] = ModelOutput(
+                    unit=_squared_unit(output.unit),
+                    sample_kind=output.sample_kind,
+                    description=f"predicted (aleatoric) variance of {name}",
+                )
+                self.llpr_outputs.append(variance_name)
+
             if target.has_ensemble:
                 explicit_gradients = self._ensemble_explicit_gradients(name)
                 if len(explicit_gradients) > 0:
@@ -242,6 +294,20 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 request = outputs[target.uncertainty_name]
             elif target.has_ensemble and target.ensemble_name in outputs:
                 request = outputs[target.ensemble_name]
+
+            variance_name = get_variance_output_name(name)
+            if variance_name in outputs and name in self.heteroscedastic_outputs:
+                # the variance heads read per-atom features
+                if outputs[variance_name].sample_kind != "atom" or (
+                    request is not None and request.sample_kind != "atom"
+                ):
+                    raise ValueError(
+                        f"the variance of '{name}' can only be requested per atom, "
+                        "and then the other outputs of this target too"
+                    )
+                if request is None:
+                    request = outputs[variance_name]
+
             if request is not None:
                 requested.append(name)
                 if name not in outputs_for_model:
@@ -273,10 +339,23 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
 
         results = self.model(systems, outputs_for_model, selected_atoms)
 
+        # the predicted variances, in the units of the core
+        core_variances: Dict[str, torch.Tensor] = {}
+        for name, head in self.variance_heads.items():
+            if get_variance_output_name(name) in outputs:
+                features = results[_get_last_layer_features_name(name)]
+                core_variances[name] = head(features.block(0).values)
+
         for name, target in self.targets.items():
             if name in requested:
                 features = results[target.features_name]
                 target.move_layouts(features.device)
+
+                if name in core_variances:
+                    # the scales apply to the standard deviation
+                    std = target.expand(features, torch.sqrt(core_variances[name]))
+                    std = self._to_target_units(systems, name, std, selected_atoms)
+                    results[get_variance_output_name(name)] = mts.pow(std, 2.0)
 
                 if target.uncertainty_name in outputs:
                     uncertainty = self._to_target_units(
@@ -749,6 +828,13 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 outputs[target.ensemble_name] = TargetInfo(
                     TensorMap(keys, ensemble_blocks), unit=target_info.unit
                 )
+            if name in self.heteroscedastic_outputs:
+                outputs[get_variance_output_name(name)] = TargetInfo(
+                    mts.remove_gradients(target_info.layout),
+                    quantity=target_info.quantity,
+                    unit=_squared_unit(target_info.unit),
+                    description=f"predicted (aleatoric) variance of {name}",
+                )
         return outputs
 
     def _ensemble_explicit_gradients(self, name: str) -> List[str]:
@@ -888,6 +974,31 @@ class _TargetLLPR(torch.nn.Module):
             )
         return TensorMap(keys=self.core_layout.keys, blocks=blocks)
 
+    def expand(self, features: TensorMap, values: torch.Tensor) -> TensorMap:
+        """Spread one value for each sample over the components of the target, in the
+        layout of the core. Only for a target with a single property and features
+        shared by all its blocks.
+
+        :param features: the last-layer features of the target, for the samples.
+        :param values: the values, with shape ``(num_samples, 1)``.
+        :return: the values, in the layout of the core.
+        """
+        samples = features.block(0).samples
+        blocks: List[TensorBlock] = []
+        for layout_block in self.core_layout.blocks():
+            shape = [values.shape[0]] + list(layout_block.values.shape[1:])
+            blocks.append(
+                TensorBlock(
+                    values=values.unsqueeze(1)
+                    .expand(-1, _prod(shape[1:-1]), shape[-1])
+                    .reshape(shape),
+                    samples=samples,
+                    components=layout_block.components,
+                    properties=layout_block.properties,
+                )
+            )
+        return TensorMap(keys=self.core_layout.keys, blocks=blocks)
+
     def deviations(self, features: TensorMap) -> TensorMap:
         """The uncalibrated deviations of the ensemble members from their mean, in the
         layout and units of the core, with the members as the last component.
@@ -965,20 +1076,34 @@ class _TargetLLPR(torch.nn.Module):
         end = self.multiplier_offsets[block_index + 1]
         self.multipliers[start:end] = values.to(self.multipliers)
 
-    def accumulate(self, features: TensorMap, n_atoms: Optional[torch.Tensor]) -> None:
+    def accumulate(
+        self,
+        features: TensorMap,
+        n_atoms: Optional[torch.Tensor],
+        variance: Optional[torch.Tensor] = None,
+    ) -> None:
         """Add the contribution of a batch of last-layer features to the covariances.
 
         :param features: the last-layer features of the target.
         :param n_atoms: the number of atoms of each system, to normalize per-system
             features, or ``None`` for per-atom features.
+        :param variance: the predicted (aleatoric) variance of each sample of the
+            target, in the units of the core, for a heteroscedastic LLPR.
         """
         self.move_layouts(features.device)
         feature_blocks = self._feature_blocks(features)
         for index, covariance in enumerate(self.covariances):
             values = feature_blocks[index].values.detach()
+            if variance is not None:
+                # Gauss-Newton Hessian of the Gaussian NLL with predicted variance,
+                # sum_i f_i f_i^T / var_i. Per-system targets are not divided by
+                # n_atoms: the factor cancels between the features and the variance
+                values = values / torch.sqrt(variance).reshape(
+                    [-1] + [1] * (values.dim() - 1)
+                )
             # TODO: interface ll_feat calculation with the loss function, paying
             # attention to normalization w.r.t. n_atoms
-            if n_atoms is not None:
+            elif n_atoms is not None:
                 values = values / n_atoms.reshape([-1] + [1] * (values.dim() - 1))
             # components count as samples, as the last layer is shared across them
             values = values.reshape(-1, values.shape[-1]).to(torch.float64)
@@ -997,6 +1122,38 @@ class _TargetLLPR(torch.nn.Module):
                 layer.weight.copy_(
                     torch.linalg.solve_triangular(cholesky.T, z, upper=True).T
                 )
+
+
+class _VarianceHead(torch.nn.Module):
+    """A mean-variance estimation head: a linear layer from the last-layer features of
+    a target to its (aleatoric) variance, in the units of the core, through a
+    softplus.
+
+    The features are detached, so that training the head leaves the mean unchanged.
+    The weights start at zero, so that the initial variance is 1 for all samples.
+
+    :param num_features: the number of last-layer features.
+    :param dtype: dtype of the parameters.
+    """
+
+    def __init__(self, num_features: int, dtype: torch.dtype) -> None:
+        super().__init__()
+        self.linear = torch.nn.Linear(num_features, 1, dtype=dtype)
+
+        # With the default initialization, the softplus can start saturated, and the
+        # head then never trains
+        with torch.no_grad():
+            self.linear.weight.zero_()
+            self.linear.bias.fill_(math.log(math.expm1(1.0)))
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        """The variance of each sample.
+
+        :param features: the last-layer features, with shape
+            ``(num_samples, num_features)``.
+        :return: the variance, with shape ``(num_samples, 1)``.
+        """
+        return torch.nn.functional.softplus(self.linear(features.detach())) + 1e-6
 
 
 class _Covariance(torch.nn.Module):
@@ -1147,6 +1304,10 @@ def _ensemble_properties(properties: Labels, num_members: int, energy: bool) -> 
         names=["ensemble_member"] + properties.names,
         values=torch.cat([members, values.repeat(num_members, 1)], dim=-1),
     )
+
+
+def _squared_unit(unit: str) -> str:
+    return f"({unit})^2" if unit != "" else ""
 
 
 def _get_last_layer_features_name(name: str) -> str:

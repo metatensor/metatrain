@@ -24,6 +24,17 @@ changelog <https://keepachangelog.com/en/1.1.0/>`_ format. This project follows
 Unreleased
 -----------------------------
 
+Added
+#####
+
+- The LLPR can train mean-variance estimation heads, with the new ``variance_heads``
+  model hyperparameter. They predict the (aleatoric) variance of a target on top of
+  the frozen wrapped model, as the ``mtt::aux::{target}_variance`` output, and the
+  LLPR of these targets uses them as heteroscedastic noise. The uncertainty of these
+  targets is still the epistemic one, calibrated by minimizing the Gaussian NLL of
+  the total (aleatoric + epistemic) variance.
+- New ``gaussian_nll`` loss, using the predicted variance of a target.
+
 Fixed
 #####
 
