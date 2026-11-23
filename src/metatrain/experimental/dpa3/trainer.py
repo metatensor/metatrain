@@ -423,7 +423,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             self.best_metric = float("inf")
         logging.info("Starting training")
         epoch = start_epoch
-        for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
+        for epoch in range(start_epoch, self.hypers["num_epochs"]):
             for sampler in epoch_samplers:
                 sampler.set_epoch(epoch)
 
