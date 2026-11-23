@@ -27,6 +27,8 @@ Unreleased
 Fixed
 #####
 
+- Restarting FlashMD, FlashMD-symplectic, MACE, DPA3, SPACE and LLPR trainings now
+  stops at ``num_epochs`` instead of running ``num_epochs`` more epochs, as in PET.
 - Datasets from XYZ files containing at least one missing stress/virial
   would silently disable stress/virial training. Now partially missing data
   is  accepted and the trainings run on the available data (#1344).

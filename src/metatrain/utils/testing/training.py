@@ -356,7 +356,9 @@ class TrainingTests(ArchitectureTests):
         model_after.restart(model.dataset_info)
 
         hypers["training"]["num_epochs"] = 4  # modify max num epochs to 4
-        trainer = self.trainer_cls(hypers["training"])
+        trainer = self.trainer_cls.load_checkpoint(
+            checkpoint, hypers["training"], context="restart"
+        )
         trainer.train(
             model=model_after,
             dtype=torch.float32,
