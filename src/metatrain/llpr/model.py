@@ -103,7 +103,15 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
                 raise ValueError(
                     f"Atomic type {atomic_type} not supported by the wrapped model"
                 )
+        # the outputs of the extenders are passed through, without uncertainties
+        extender_outputs: Dict[str, ModelOutput] = {}
+        for extender in self.model.extenders:
+            for name, info in extender.supported_outputs().items():
+                extender_outputs[name] = info.to_model_output()
+
         for target_name, target in self.dataset_info.targets.items():
+            if target_name in extender_outputs:
+                continue
             if target_name not in old_capabilities.outputs:
                 raise ValueError(
                     f"Target {target_name} not supported by the wrapped model"
@@ -140,6 +148,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
         self.llpr_outputs = []
         self.ensemble_gradient_outputs = []
         outputs = {name: old_capabilities.outputs[name] for name in backbone_outputs}
+        outputs.update(extender_outputs)
         for name in names:
             output = outputs[name]
             features = backbone_outputs[_get_last_layer_features_name(name)].layout
