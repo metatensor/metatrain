@@ -18,5 +18,6 @@ exclude CODEOWNERS
 exclude CONTRIBUTING.rst
 exclude tox.ini
 exclude CITATION.cff
+exclude AGENTS.md
 
 global-exclude *.py[cod] __pycache__/* *.so *.dylib

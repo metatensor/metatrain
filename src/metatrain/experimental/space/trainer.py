@@ -43,6 +43,7 @@ from metatrain.utils.distributed.slurm import (
     initialize_slurm_nccl_process_group,
     resolve_distributed,
 )
+from metatrain.utils.extenders import restart_extenders, setup_extenders
 from metatrain.utils.io import check_file_extension
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
 from metatrain.utils.loss import LossAggregator, LossSpecification
@@ -152,7 +153,7 @@ def get_scheduler(
 
 
 class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
-    __checkpoint_version__ = 4
+    __checkpoint_version__ = 5
 
     def __init__(self, hypers: TrainerHypers) -> None:
         super().__init__(hypers)
@@ -171,13 +172,24 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
     def setup(
         self, model_hypers: ModelHypers, dataset_info: DatasetInfo
     ) -> MetatrainModel[SPACE, Scaler]:
-        model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+        dense_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
 
-        model = SPACE(hypers=model_hypers, dataset_info=model_dataset_info)
+        extenders, model_targets = setup_extenders(
+            dense_dataset_info, self.hypers["extenders"]
+        )
+
+        core_dataset_info = DatasetInfo(
+            length_unit=dense_dataset_info.length_unit,
+            atomic_types=dense_dataset_info.atomic_types,
+            targets=model_targets,
+            extra_data=dense_dataset_info.extra_data,
+        )
+
+        model = SPACE(hypers=model_hypers, dataset_info=core_dataset_info)
 
         # Set up additive models
         composition_model = CompositionModel.from_valid_targets(
-            model_dataset_info, model_dataset_info.atomic_types
+            dense_dataset_info, dense_dataset_info.atomic_types
         )
         additive_models = [composition_model]
 
@@ -185,15 +197,15 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         if model_hypers["zbl"]:
             zbl_targets = {
                 target_name: target_info
-                for target_name, target_info in model_dataset_info.targets.items()
+                for target_name, target_info in dense_dataset_info.targets.items()
                 if ZBL.is_valid_target(target_name, target_info)
             }
             additive_models.append(
                 ZBL(
                     {},
                     dataset_info=DatasetInfo(
-                        length_unit=model_dataset_info.length_unit,
-                        atomic_types=model_dataset_info.atomic_types,
+                        length_unit=dense_dataset_info.length_unit,
+                        atomic_types=dense_dataset_info.atomic_types,
                         targets=zbl_targets,
                     ),
                 )
@@ -203,7 +215,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         # Initialize scaler
         scaler_hypers = get_default_hypers("scaler")["model"]
         scaler = Scaler.from_valid_targets(
-            hypers=scaler_hypers, dataset_info=model_dataset_info
+            hypers=scaler_hypers, dataset_info=dense_dataset_info
         )
 
         return MetatrainModel(
@@ -211,6 +223,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             additive_models=additive_models,
             scaler=scaler,
             dataset_info=dataset_info,
+            extenders=extenders,
         )
 
     def restart(
@@ -248,34 +261,60 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         # ------------------------------------------------------
         #  Ask the models to restart with the new dataset info
         # -------------------------------------------------------
-        model_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+        dense_dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+
+        if self.has_new_targets:
+            # Only re-run the extender setup when the targets changed;
+            # ``restart_extenders`` does not support rebuilding
+            # already-instantiated extenders.
+            extenders, model_outs, new_extenders_hypers = restart_extenders(
+                list(model.extenders),
+                dense_dataset_info,
+                self.hypers["extenders"],
+            )
+            self.hypers["extenders"] = new_extenders_hypers
+
+            model.extenders = torch.nn.ModuleList(extenders)
+            core_dataset_info = DatasetInfo(
+                length_unit=dense_dataset_info.length_unit,
+                atomic_types=dense_dataset_info.atomic_types,
+                targets=model_outs,
+                extra_data=dense_dataset_info.extra_data,
+            )
+        else:
+            core_dataset_info = DatasetInfo(
+                length_unit=dense_dataset_info.length_unit,
+                atomic_types=dense_dataset_info.atomic_types,
+                targets=model.core.dataset_info.targets,
+                extra_data=dense_dataset_info.extra_data,
+            )
 
         comp_model_info = DatasetInfo(
-            length_unit=model_dataset_info.length_unit,
-            atomic_types=model_dataset_info.atomic_types,
+            length_unit=dense_dataset_info.length_unit,
+            atomic_types=dense_dataset_info.atomic_types,
             targets={
                 target_name: target_info
-                for target_name, target_info in model_dataset_info.targets.items()
+                for target_name, target_info in dense_dataset_info.targets.items()
                 if model.additive_models[0].is_valid_target(target_name, target_info)
             },
         )
 
         scaler_info = DatasetInfo(
-            length_unit=model_dataset_info.length_unit,
-            atomic_types=model_dataset_info.atomic_types,
+            length_unit=dense_dataset_info.length_unit,
+            atomic_types=dense_dataset_info.atomic_types,
             targets={
                 target_name: target_info
-                for target_name, target_info in model_dataset_info.targets.items()
+                for target_name, target_info in dense_dataset_info.targets.items()
                 if Scaler.is_valid_target(target_name, target_info)
             },
-            extra_data=model_dataset_info.extra_data,
+            extra_data=dense_dataset_info.extra_data,
         )
 
         model.restart(
             dataset_info,
-            model_dataset_info,
+            core_dataset_info,
             additive_models_dataset_info=[comp_model_info]
-            + [model_dataset_info] * (len(model.additive_models) - 1),
+            + [dense_dataset_info] * (len(model.additive_models) - 1),
             scaler_dataset_info=scaler_info,
             model_hypers=model_hypers,
         )
@@ -371,7 +410,8 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
         requested_neighbor_lists = get_requested_neighbor_lists(model)
         atomic_basis_transform, atomic_basis_reverse_transform = (
             get_prepare_atomic_basis_targets_transform(
-                model.dataset_info, model.core.dataset_info
+                model.dataset_info,
+                model.internal_dataset_info(),
             )
         )
 
@@ -594,7 +634,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
             self.best_metric = float("inf")
         logging.info("Starting training")
         epoch = start_epoch
-        for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
+        for epoch in range(start_epoch, self.hypers["num_epochs"]):
             for sampler in epoch_samplers:
                 sampler.set_epoch(epoch)
 

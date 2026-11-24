@@ -59,6 +59,9 @@ class AttentionBlock(nn.Module):
     :param temperature: An additional scaling factor for attention scores.
            This is combined with the standard scaling by the square root of
            the head dimension.
+    :param smooth_cutoff: Whether the central token attends to its neighbors with
+        weights that grow smoothly with their cutoff factors, see
+        :func:`smooth_cutoff_attention`.
     :param epsilon: A small value to avoid division by zero.
     """
 
@@ -67,6 +70,7 @@ class AttentionBlock(nn.Module):
         total_dim: int,
         num_heads: int,
         temperature: float,
+        smooth_cutoff: bool = False,
         epsilon: float = 1e-15,
     ) -> None:
         super(AttentionBlock, self).__init__()
@@ -77,6 +81,7 @@ class AttentionBlock(nn.Module):
         self.num_heads = num_heads
         self.epsilon = epsilon
         self.temperature = temperature
+        self.smooth_cutoff = smooth_cutoff
         if total_dim % num_heads != 0:
             raise ValueError("total dimension is not divisible by the number of heads")
         self.head_dim = total_dim // num_heads
@@ -116,10 +121,63 @@ class AttentionBlock(nn.Module):
         # excluded keys get zero weight in the softmax
         attn_weights = attn_weights.masked_fill(excluded, float("-inf"))
 
+        if self.smooth_cutoff:
+            # The central token comes first. It is the one whose attention a single
+            # neighbor can take over, so it is the only query that needs the smooth
+            # weights. Attention is computed row by row, so its row can be done on
+            # its own at O(num_keys) cost, while the other queries (still attending
+            # to all the keys) go through the standard, possibly fused, attention.
+            scale = 1.0 / (self.head_dim**0.5 * self.temperature)
+            central_logits = scale * torch.matmul(
+                queries[:, :, :1], keys.transpose(-2, -1)
+            )
+            central_weights = smooth_cutoff_attention(central_logits, factors[:, :, :1])
+            central = torch.matmul(central_weights, values)
+            others = self._attention(
+                queries[:, :, 1:],
+                keys,
+                values,
+                attn_weights[:, :, 1:],
+                use_manual_attention,
+            )
+            x = torch.cat([central, others], dim=2)
+        else:
+            x = self._attention(
+                queries, keys, values, attn_weights, use_manual_attention
+            )
+
+        x = x.transpose(1, 2).reshape(initial_shape)
+        x = self.output_linear(x)
+        return x
+
+    def _attention(
+        self,
+        queries: torch.Tensor,
+        keys: torch.Tensor,
+        values: torch.Tensor,
+        attn_mask: torch.Tensor,
+        use_manual_attention: bool,
+    ) -> torch.Tensor:
+        """
+        Standard scaled dot-product attention with an additive mask.
+
+        :param queries: The queries, of shape (batch_size, num_heads, num_queries,
+            head_dim)
+        :param keys: The keys, of shape (batch_size, num_heads, num_keys, head_dim)
+        :param values: The values, of shape (batch_size, num_heads, num_keys,
+            head_dim)
+        :param attn_mask: The additive attention mask, broadcastable to
+            (batch_size, num_heads, num_queries, num_keys)
+        :param use_manual_attention: Whether to use the manual attention
+            implementation, which supports double backward.
+        :return: The attention output, of shape (batch_size, num_heads, num_queries,
+            head_dim)
+        """
         scale = 1.0 / (self.head_dim**0.5 * self.temperature)
+        batch_size = queries.shape[0]
         if use_manual_attention:
-            x = manual_attention(queries, keys, values, attn_weights, self.temperature)
-        elif x.requires_grad and initial_shape[0] > self.max_cuda_grid_dim:
+            x = manual_attention(queries, keys, values, attn_mask, self.temperature)
+        elif queries.requires_grad and batch_size > self.max_cuda_grid_dim:
             if not self._warned_cuda_grid_dim:
                 warnings.warn(
                     "The number of nodes exceeds the CUDA grid dimension of "
@@ -135,14 +193,14 @@ class AttentionBlock(nn.Module):
                 )
                 self._warned_cuda_grid_dim = True
             outputs = []
-            for start in range(0, initial_shape[0], self.max_cuda_grid_dim):
+            for start in range(0, batch_size, self.max_cuda_grid_dim):
                 end = start + self.max_cuda_grid_dim
                 outputs.append(
                     torch.nn.functional.scaled_dot_product_attention(
                         queries[start:end],
                         keys[start:end],
                         values[start:end],
-                        attn_mask=attn_weights[start:end],
+                        attn_mask=attn_mask[start:end],
                         scale=scale,
                     )
                 )
@@ -152,11 +210,9 @@ class AttentionBlock(nn.Module):
                 queries,
                 keys,
                 values,
-                attn_mask=attn_weights,
+                attn_mask=attn_mask,
                 scale=scale,
             )
-        x = x.transpose(1, 2).reshape(initial_shape)
-        x = self.output_linear(x)
         return x
 
 
@@ -172,6 +228,8 @@ class TransformerLayer(torch.nn.Module):
     :param activation: The activation function, either "SiLU" or "SwiGLU".
     :param transformer_type: The type of transformer, either "PostLN" or "PreLN".
     :param temperature: An additional scaling factor for attention scores.
+    :param smooth_cutoff: Whether to use a smooth attention cutoff, see
+        :class:`AttentionBlock`.
     """
 
     def __init__(
@@ -184,9 +242,10 @@ class TransformerLayer(torch.nn.Module):
         activation: str = "SiLU",
         transformer_type: str = "PostLN",
         temperature: float = 1.0,
+        smooth_cutoff: bool = False,
     ) -> None:
         super(TransformerLayer, self).__init__()
-        self.attention = AttentionBlock(d_model, n_heads, temperature)
+        self.attention = AttentionBlock(d_model, n_heads, temperature, smooth_cutoff)
         self.transformer_type = transformer_type
         self.d_model = d_model
         norm_class = getattr(nn, norm)
@@ -321,6 +380,8 @@ class Transformer(torch.nn.Module):
     :param attention_temperature: The temperature scaling factor for attention
         scores. This is combined with the standard scaling by the square root of
         the head dimension.
+    :param smooth_cutoff: Whether to use a smooth attention cutoff, see
+        :class:`AttentionBlock`.
     """
 
     def __init__(
@@ -334,6 +395,7 @@ class Transformer(torch.nn.Module):
         activation: str = "SiLU",
         transformer_type: str = "PostLN",
         attention_temperature: float = 1.0,
+        smooth_cutoff: bool = False,
     ) -> None:
         super(Transformer, self).__init__()
         if norm not in AVAILABLE_NORMALIZATIONS:
@@ -366,6 +428,7 @@ class Transformer(torch.nn.Module):
                     activation=activation,
                     transformer_type=transformer_type,
                     temperature=attention_temperature,
+                    smooth_cutoff=smooth_cutoff,
                 )
                 for _ in range(num_layers)
             ]
@@ -419,6 +482,11 @@ class CartesianTransformer(torch.nn.Module):
     :param transformer_type: The type of transformer, either "PostLN" or "PreLN".
     :param n_atomic_species: The number of atomic species.
     :param is_first: Whether this is the first transformer in the model.
+    :param smooth_attention_cutoff: Whether the cutoff function enters the attention
+        in a way that avoids sharp features when an atom enters or leaves the cutoff.
+        The attention that the central atom pays to a neighbor is then proportional
+        to its cutoff function (see :func:`smooth_cutoff_attention`), and the cutoff
+        function is not applied to the attention of a neighbor to itself.
     """
 
     def __init__(
@@ -436,9 +504,11 @@ class CartesianTransformer(torch.nn.Module):
         transformer_type: str,
         n_atomic_species: int,
         is_first: bool,
+        smooth_attention_cutoff: bool = False,
     ) -> None:
         super(CartesianTransformer, self).__init__()
         self.is_first = is_first
+        self.smooth_attention_cutoff = smooth_attention_cutoff
         self.cutoff = cutoff
         self.cutoff_width = cutoff_width
         self.trans = Transformer(
@@ -451,6 +521,7 @@ class CartesianTransformer(torch.nn.Module):
             activation=activation,
             transformer_type=transformer_type,
             attention_temperature=attention_temperature,
+            smooth_cutoff=smooth_attention_cutoff,
         )
 
         self.edge_embedder = nn.Linear(4, d_model)
@@ -549,6 +620,23 @@ class CartesianTransformer(torch.nn.Module):
         cutoff_factors = cutoff_factors[:, None, :]
         cutoff_factors = cutoff_factors.repeat(1, cutoff_factors.shape[2], 1)
 
+        if self.smooth_attention_cutoff:
+            # The cutoff factor of a neighbor controls how much the other tokens
+            # attend to it, but its own token attends to itself at full weight.
+            # Otherwise the features of a neighbor in the cutoff tail depend on its
+            # own cutoff factor f, and since everything this token contributes to is
+            # multiplied by f again, the energy picks up terms in f^2, f^3, ... that
+            # vary much faster with distance than f itself. Padded tokens keep a
+            # zero factor, so that they stay excluded from the attention.
+            num_tokens = cutoff_factors.shape[1]
+            is_self = torch.eye(
+                num_tokens, dtype=torch.bool, device=cutoff_factors.device
+            )
+            is_self = is_self[None, :, :] & total_padding_mask[:, :, None]
+            cutoff_factors = torch.where(
+                is_self, torch.ones_like(cutoff_factors), cutoff_factors
+            )
+
         initial_num_tokens = edge_vectors.shape[1]
         max_num_tokens = input_messages.shape[1]
 
@@ -597,3 +685,48 @@ def manual_attention(
     attention_weights = attention_weights.softmax(dim=-1)
     attention_output = torch.matmul(attention_weights, v)
     return attention_output
+
+
+def smooth_cutoff_attention(
+    logits: torch.Tensor, factors: torch.Tensor, established_power: float = 8.0
+) -> torch.Tensor:
+    """
+    Attention weights that grow smoothly with the cutoff factors of the keys.
+
+    Adding ``log(f)`` to the logits gives a key the weight ``f * exp(logit)`` in the
+    softmax. A key whose logit is much larger than those of the other keys then takes
+    most of the attention as soon as it enters the cutoff, however small ``f`` is.
+    Here, the weight of a key before normalization is instead
+
+    .. code-block:: text
+
+        f * exp(logit) / (1 + (1 - f) * exp(logit) / established)
+
+    where ``established`` is the total weight of the *other* keys, each counted with
+    a factor ``f**established_power``, i.e. only once they are well inside the cutoff.
+    For a single key in the cutoff tail, the attention it receives is then exactly
+    ``f`` times what it would receive with ``f = 1``. Keys with ``f = 1`` are not
+    affected.
+
+    :param logits: The attention logits, of shape (..., num_queries, num_keys).
+    :param factors: The cutoff factors of the keys. Broadcastable to the logits.
+    :param established_power: Power of the cutoff factor with which a key counts as
+        an established competitor for the attention received by the other keys.
+    :return: The attention weights, normalized over the keys.
+    """
+    weights = torch.softmax(logits.masked_fill(factors <= 0.0, float("-inf")), dim=-1)
+
+    # Established weight of the keys other than each one. Subtracting each term from
+    # the total would be inaccurate for a key that dominates it, so we start from the
+    # sum of all the terms but the largest.
+    counted = weights * factors**established_power
+    largest, index = counted.max(dim=-1, keepdim=True)
+    rest = counted.scatter(-1, index, 0.0).sum(dim=-1, keepdim=True)
+    # the clamp only acts when there are no other keys, or when a key outweighs all
+    # the others by more than twelve orders of magnitude
+    established = (rest + (largest - counted)).clamp(min=1e-12)
+
+    weights = (
+        factors * weights * established / (established + (1.0 - factors) * weights)
+    )
+    return weights / weights.sum(dim=-1, keepdim=True)

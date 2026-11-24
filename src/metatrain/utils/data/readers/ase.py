@@ -201,16 +201,19 @@ def _read_virial_stress_ase(
     ]
     properties = Labels("energy", torch.tensor([[0]]))
 
+    target_name = "virial" if is_virial else "stress"
+
     blocks = []
+    missing_systems = []
     for i_system, atoms in enumerate(frames):
         if key not in atoms.info:
-            target_name = "virial" if is_virial else "stress"
-            raise ValueError(
-                f"{target_name} key {key!r} was not found in system {filename!r} at "
-                f"index {i_system}"
-            )
-
-        values = torch.tensor(atoms.info[key].tolist(), dtype=torch.float64)
+            # Systems without stress/virial are filled with NaN, which are ignored by
+            # the losses and metrics. This allows mixing systems with and without
+            # stress/virial in the same dataset.
+            missing_systems.append(i_system)
+            values = torch.full((3, 3), torch.nan, dtype=torch.float64)
+        else:
+            values = torch.tensor(atoms.info[key].tolist(), dtype=torch.float64)
 
         if values.shape == (9,):
             warnings.warn(
@@ -244,6 +247,17 @@ def _read_virial_stress_ase(
             properties=properties,
         )
         blocks.append(block)
+
+    if len(missing_systems) == len(frames):
+        raise ValueError(
+            f"{target_name} key {key!r} was not found in any system of {filename!r}"
+        )
+    elif len(missing_systems) > 0:
+        logging.warning(
+            f"{target_name} key {key!r} was not found in {len(missing_systems)} out "
+            f"of {len(frames)} systems of {filename!r}. The {target_name} of these "
+            "systems is set to NaN and will be ignored during training."
+        )
 
     return blocks
 

@@ -146,6 +146,7 @@ from typing_extensions import NotRequired, TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.scaler.documentation import FixedScalerWeights
+from metatrain.utils.extenders import ExtendersHypers
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.long_range import LongRangeHypers
 from metatrain.utils.loss import LossSpecification
@@ -188,7 +189,7 @@ class ModelHypers(TypedDict):
     ``"grid"`` evaluates the smoothed neighbor count on a discrete probe-cutoff
     grid and returns a Gaussian-weighted average of the probes (legacy
     behaviour). ``"solver"`` solves ``n_total(r) = num_neighbors_adaptive`` via
-    a Newton-bisection root finder (default; faster and more accurate). Only
+    a bisection root finder (default; faster and more accurate). Only
     has effect when ``num_neighbors_adaptive`` is set.
     """
     cutoff_function: Literal["Cosine", "Bump"] = "Bump"
@@ -280,6 +281,15 @@ class ModelHypers(TypedDict):
     """Activation function."""
     attention_temperature: float = 1.0
     """The temperature scaling factor for attention scores."""
+    smooth_attention_cutoff: bool = True
+    """Whether the attention that the central atom pays to a neighbor grows in
+    proportion to its cutoff function, while the attention of a neighbor to itself is
+    not affected by it.
+
+    This was ``False`` in early PET models, which simply added the logarithm of the
+    cutoff function to the attention scores. It is usually best to set it to ``True``,
+    as this avoids introducing sharp features in the potential energy surface when an
+    atom leaves the cutoff."""
     transformer_type: Literal["PreLN", "PostLN"] = "PreLN"
     """The order in which the layer normalization and attention
     are applied in a transformer block. Available options are ``PreLN``
@@ -439,4 +449,9 @@ class TrainerHypers(TypedDict):
     """Parameters for fine-tuning trained PET models.
 
     See :ref:`label_fine_tuning_concept` for more details.
+    """
+    extenders: ExtendersHypers = {}
+    """Extenders to be used for training the model.
+
+    See :ref:`concept-extenders` for more details.
     """

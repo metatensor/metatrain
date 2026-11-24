@@ -45,6 +45,7 @@ from typing_extensions import NotRequired, TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.scaler.documentation import FixedScalerWeights
+from metatrain.utils.extenders import ExtendersHypers
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.long_range import LongRangeHypers
 from metatrain.utils.loss import LossSpecification
@@ -249,3 +250,8 @@ class TrainerHypers(TypedDict):
     """Minimum total number of atoms required to keep a batch when
     ``max_atoms_per_batch`` is set. Batches whose total atom count falls below this
     threshold are discarded during packing. Defaults to ``0`` (no minimum)."""
+    extenders: ExtendersHypers = {}
+    """Extenders to be used for training the model.
+
+    See :ref:`concept-extenders` for more details.
+    """

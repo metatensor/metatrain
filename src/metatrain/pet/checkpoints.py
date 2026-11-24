@@ -427,7 +427,21 @@ def model_update_v17_v18(checkpoint: dict) -> None:
 
 def model_update_v18_v19(checkpoint: dict) -> None:
     """
-    Update a v18 checkpoint to v19.
+    Update model checkpoint from version 18 to version 19.
+
+    Adds the ``smooth_attention_cutoff`` hyperparameter. Models trained before it
+    existed added the logarithm of the cutoff function to all attention scores.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    model_hypers = checkpoint["model_data"]["model_hypers"]
+    if "smooth_attention_cutoff" not in model_hypers:
+        model_hypers["smooth_attention_cutoff"] = False
+
+
+def model_update_v19_v20(checkpoint: dict) -> None:
+    """
+    Update a v19 checkpoint to v20.
 
     It adds the ``head_type``, ``num_head_layers`` and ``readout_type``
     hyperparameters, with the values reproducing the previous architecture. The
@@ -642,3 +656,13 @@ def trainer_update_v14_v15(checkpoint: dict) -> None:
     train_hypers = checkpoint["train_hypers"]
     if "distributed" in train_hypers and train_hypers["distributed"] is None:
         train_hypers.pop("distributed")
+
+
+def trainer_update_v15_v16(checkpoint: dict) -> None:
+    """
+    Adds the extenders hyperparameter to the trainer hypers.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    train_hypers = checkpoint["train_hypers"]
+    train_hypers["extenders"] = {}

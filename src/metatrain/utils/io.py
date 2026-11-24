@@ -18,6 +18,7 @@ from .architectures import (
     get_default_hypers,
     import_architecture,
 )
+from .extenders.helpers import load_extender
 from .wrapper import MetatrainModel
 
 
@@ -252,6 +253,10 @@ def model_from_checkpoint(
         if checkpoint["scaler"] is not None
         else None,
         dataset_info=checkpoint["dataset_info"],
+        extenders=[
+            extender_from_checkpoint(extender_checkpoint, context=context)
+            for extender_checkpoint in checkpoint.get("extenders", [])
+        ],
         metadata=checkpoint.get("metadata", None),
     )
 
@@ -297,6 +302,25 @@ def arch_model_from_checkpoint(
     return model_cls.load_checkpoint(checkpoint, context=context)
 
 
+def extender_from_checkpoint(
+    checkpoint: Dict[str, Any], context: Literal["restart", "finetune", "export"]
+) -> ModelInterface:
+    """
+    Load an extender from a checkpoint.
+
+    :param checkpoint: checkpoint dictionary to load the model
+    :param context: context in which the model is loaded
+
+    :return: the loaded model instance
+    """
+
+    # checkpoint = upgrade_checkpoint(checkpoint)
+    extender_name = checkpoint["extender_name"]
+    model_cls = load_extender(extender_name)
+
+    return model_cls.load_checkpoint(checkpoint, context=context)
+
+
 # For each architecture, versions of (model, trainer) at which the MetatrainModel
 # wrapper was introduced.
 _mtt_model_versions = {
@@ -330,7 +354,6 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
     architecture = import_architecture(architecture_name)
 
     model_cls = architecture.__model__
-    print(f"Upgrading checkpoint for architecture '{architecture_name}'")
     if architecture_name in _mtt_model_versions:
         target_version = _mtt_model_versions[architecture_name][0] - 1
         if "model_ckpt_version" not in checkpoint:

@@ -13,7 +13,7 @@ from metatrain.utils.data import Dataset, DatasetInfo, DiskDataset
 from metatrain.utils.data.readers import read_systems
 from metatrain.utils.data.writers import DiskDatasetWriter
 from metatrain.utils.hypers import init_with_defaults
-from metatrain.utils.io import model_from_checkpoint
+from metatrain.utils.io import model_from_checkpoint, trainer_from_checkpoint
 from metatrain.utils.loss import LossSpecification
 from metatrain.utils.neighbor_lists import (
     get_system_with_neighbor_lists,
@@ -356,7 +356,9 @@ class TrainingTests(ArchitectureTests):
         model_after.restart(model.dataset_info)
 
         hypers["training"]["num_epochs"] = 4  # modify max num epochs to 4
-        trainer = self.trainer_cls(hypers["training"])
+        trainer = trainer_from_checkpoint(
+            checkpoint, context="restart", hypers=hypers["training"]
+        )
         trainer.train(
             model=model_after,
             dtype=torch.float32,

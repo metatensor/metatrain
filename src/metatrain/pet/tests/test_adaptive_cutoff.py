@@ -8,6 +8,7 @@ from metatomic.torch import ModelOutput, NeighborListOptions, System, systems_to
 
 from metatrain.pet import PET
 from metatrain.pet.modules.adaptive_cutoff import (
+    _n_total,
     get_adaptive_cutoffs_grid,
     get_adaptive_cutoffs_solver,
     get_effective_num_neighbors,
@@ -355,7 +356,7 @@ def test_adapted_cutoffs(num_neighbors_adaptive, get_adaptive_cutoffs):
 def test_adaptive_cutoff_gradients(get_adaptive_cutoffs):
     """``d r_bar / d edge_distances`` is correct.
 
-    The solver bypasses the Newton iterations on the backward path via an
+    The solver bypasses the bisection iterations on the backward path via an
     implicit-function-theorem step; this test verifies the resulting gradient
     matches finite differences. The grid path's gradient (through the Gaussian
     weighting) is checked too.
@@ -392,6 +393,53 @@ def test_adaptive_cutoff_gradients(get_adaptive_cutoffs):
     assert torch.autograd.gradcheck(
         fn, (edge_distances,), eps=1e-5, atol=1e-4, rtol=1e-3, fast_mode=True
     )
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_adaptive_cutoff_solver_converges(dtype):
+    """The solver returns the root of ``n_total(r) = num_neighbors_adaptive``.
+
+    Regression test for #1324: the neighbor distances of a surface atom of a Pd
+    cluster, on which a Newton-bisection hybrid two-cycles between 3.76 and 4.78
+    inside the bracket and returns 4.685 instead of the root at 4.159.
+    """
+    # fmt: off
+    distances = [
+        2.6438, 2.6805, 2.6813, 2.6914, 2.7026, 2.7072, 2.7680, 2.7724, 2.8071,
+        2.8113, 2.8302, 2.8473, 3.6458, 3.7493, 3.8703, 3.9268, 3.9275, 3.9958,
+        4.5983, 4.6906, 4.6999, 4.7060, 4.7174, 4.7250, 4.7268, 4.7493, 4.7513,
+        4.7698, 4.7740, 4.7795, 4.7833, 4.8046, 4.8267, 4.8323, 4.8403, 4.8424,
+        4.8506, 4.8631, 5.4531, 5.4779, 5.4867, 5.5006, 5.5111, 5.5167, 5.5214,
+        5.5869, 5.6298, 5.6467, 6.0969, 6.1321, 6.1425, 6.1688, 6.1729, 6.1828,
+        6.1892, 6.1896, 6.2005, 6.2010, 6.2025, 6.2128, 6.2295, 6.2378, 6.2682,
+        6.2796, 6.3135, 6.6912, 6.6931, 6.7052, 6.7293, 6.7398, 6.8774, 7.1155,
+        7.1646, 7.1779, 7.1800, 7.1838, 7.1925, 7.2289, 7.2329, 7.2347, 7.2461,
+        7.2464, 7.2583, 7.2606, 7.2610, 7.2674, 7.2751, 7.3072, 7.3094, 7.3135,
+        7.3152, 7.3207, 7.3223, 7.3279, 7.3287, 7.3317, 7.3336, 7.3371, 7.3397,
+        7.3595, 7.3698, 7.3814, 7.3851, 7.4075, 7.4351,
+    ]
+    # fmt: on
+    edge_distances = torch.tensor(distances, dtype=dtype)
+    centers = torch.zeros(len(distances), dtype=torch.long)
+    num_neighbors_adaptive = 16.0
+    max_cutoff = 7.5
+    cutoff_width = 1.0
+
+    cutoff = get_adaptive_cutoffs_solver(
+        centers, edge_distances, num_neighbors_adaptive, 1, max_cutoff, cutoff_width
+    )
+    assert cutoff.item() == pytest.approx(4.1590, abs=1e-4)
+
+    n_total = _n_total(
+        cutoff.to(torch.float64),
+        edge_distances.to(torch.float64),
+        centers,
+        1,
+        cutoff_width,
+        1.0 / max_cutoff,
+        num_neighbors_adaptive,
+    )
+    assert n_total.item() == pytest.approx(num_neighbors_adaptive, abs=1e-4)
 
 
 @pytest.mark.parametrize("adaptive_cutoff_method", ["solver", "grid"])

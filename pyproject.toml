@@ -91,12 +91,22 @@ mace = [
 flashmd = []
 flashmd-symplectic = []
 dpa3 = [
-    "deepmd-kit[torch]>=3.1.0",
+    "deepmd-kit[torch]>=3.2.0",
     "torch>=2.7",
 ]
 lorem = [
     "torch-pme>=0.3.2",
     "sphericart-torch>=2.0.3",
+    "wigners",
+]
+
+# Extras for extenders.
+extender-rename = []
+extender-global-multipoles = []
+extender-intensive-gap = []
+extender-tensor-basis = [
+    "torch-spex>=0.1,<0.2",
+    'sphericart-torch >=2.0.3',
     "wigners",
 ]
 
@@ -140,11 +150,12 @@ exclude = ["docs/src/examples/**", "src/metatrain/_version.py"]
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "B", "I", "D103"]
+select = ["E", "F", "B", "I", "D103", "T20"]
 ignore = ["B018", "B904"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/{docs,deprecated,examples,experimental,tests}/*" = ["D"]
+"**/{cli,examples,developer}/*" = ["T20"]
 
 [tool.ruff.lint.isort]
 lines-after-imports = 2
