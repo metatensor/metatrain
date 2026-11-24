@@ -35,7 +35,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .documentation import ModelHypers
-from .modules.backend import PETBackend
+from .modules.backend import PER_TARGET_HYPERS, PETBackend, resolve_per_target
 from .modules.diagnostic import (
     DIAGNOSTIC_PREFIX,
     FEATURIZER_INPUT_NAMES,
@@ -186,6 +186,25 @@ class PET(ModelInterface[ModelHypers]):
 
         if model_hypers is not None:
             default_hypers = get_default_hypers("pet")["model"]
+            model_hypers = dict(model_hypers)
+            for name, default in PER_TARGET_HYPERS.items():
+                if name not in model_hypers:
+                    continue
+                old = {
+                    target: resolve_per_target(self.hypers[name], target, default)
+                    for target in self.dataset_info.targets
+                }
+                new = {
+                    target: resolve_per_target(model_hypers[name], target, default)
+                    for target in list(old) + list(dataset_info.targets)
+                }
+                if all(new[target] == value for target, value in old.items()):
+                    # a global value and a per-target dict can describe the same
+                    # model: keep what the existing targets have, and let the new
+                    # targets follow the new hypers
+                    self.hypers[name] = new
+                    setattr(self.backend, name, new)
+                    model_hypers[name] = new
             raise_if_hypers_mismatch(
                 self.hypers, model_hypers, default_hypers=default_hypers
             )

@@ -11,7 +11,12 @@ from .structures import compute_batch_tensors
 from .transformer import CartesianTransformer
 
 
-def _resolve_per_target(hyper: Any, target_name: str, default: Any) -> Any:
+#: Hypers set either globally or per target, with the value for targets absent from a
+#: per-target dict.
+PER_TARGET_HYPERS = {"head_type": "per_target", "readout_type": None}
+
+
+def resolve_per_target(hyper: Any, target_name: str, default: Any) -> Any:
     """Resolve a hyperparameter that is set either globally or per target.
 
     :param hyper: The hyperparameter value, either global or keyed by target name.
@@ -210,10 +215,12 @@ class PETBackend(torch.nn.Module):
             component sizes followed by the number of properties), as computed by
             :meth:`metatrain.pet.model.PET._add_output`.
         """
-        head_type = _resolve_per_target(
-            self.head_type, target_name, default="per_target"
+        head_type = resolve_per_target(
+            self.head_type, target_name, PER_TARGET_HYPERS["head_type"]
         )
-        readout_type = _resolve_per_target(self.readout_type, target_name, default=None)
+        readout_type = resolve_per_target(
+            self.readout_type, target_name, PER_TARGET_HYPERS["readout_type"]
+        )
 
         heads_per_readout_layer = len(output_shapes) if head_type == "per_block" else 1
         self.heads_per_readout_layer[target_name] = heads_per_readout_layer

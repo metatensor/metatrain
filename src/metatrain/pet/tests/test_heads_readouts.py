@@ -189,3 +189,50 @@ def test_checkpoint():
         _predict(loaded, system), _predict(model, system), strict=True
     ):
         torch.testing.assert_close(actual, expected)
+
+
+def _other_target_info():
+    return get_generic_target_info(
+        "mtt::other",
+        {
+            "quantity": "",
+            "unit": "",
+            "type": {"spherical": {"irreps": IRREPS}},
+            "num_subtargets": 1,
+            "sample_kind": "atom",
+        },
+    )
+
+
+def test_restart_with_equivalent_per_target_hypers():
+    """A global value and a per-target dict describing the same model are accepted on
+    restart, in both directions, and a new target follows the new hypers."""
+    for old, new in (
+        ("per_block", {TARGET: "per_block"}),
+        ({TARGET: "per_block"}, "per_block"),
+    ):
+        model = _model(head_type=old, readout_type="one-hot")
+        hypers = copy.deepcopy(model.hypers)
+        hypers["head_type"] = new
+        hypers["readout_type"] = {TARGET: "one-hot"}
+        model = model.restart(_dataset_info(), hypers)
+        assert model.hypers["head_type"] == {TARGET: "per_block"}
+        assert model.hypers["readout_type"] == {TARGET: "one-hot"}
+
+    model = _model(head_type="per_block")
+    dataset_info = _dataset_info()
+    dataset_info.targets["mtt::other"] = _other_target_info()
+    dataset_info = densify_atomic_basis_dataset_info(dataset_info)
+    hypers = copy.deepcopy(model.hypers)
+    hypers["head_type"] = {TARGET: "per_block", "mtt::other": "per_target"}
+    model = model.restart(dataset_info, hypers)
+    assert model.backend.heads_per_readout_layer[TARGET] == 2
+    assert model.backend.heads_per_readout_layer["mtt::other"] == 1
+
+
+def test_restart_with_different_per_target_hypers_is_refused():
+    model = _model(head_type="per_block")
+    hypers = copy.deepcopy(model.hypers)
+    hypers["head_type"] = {TARGET: "per_target"}
+    with pytest.raises(ValueError, match="head_type"):
+        model.restart(_dataset_info(), hypers)
