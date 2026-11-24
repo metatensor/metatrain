@@ -1030,6 +1030,23 @@ class _TargetLLPR(torch.nn.Module):
         ).to(torch.long)
         return torch.searchsorted(self.atomic_types, types[atoms])
 
+    def _counts(self, groups: Optional[torch.Tensor]) -> List[int]:
+        """The number of samples of each atomic type, to skip the absent ones.
+
+        This reads the counts back from the device once for each call. With many
+        atomic types and few of them in a batch, that is much cheaper than running
+        the covariances and ensemble layers of every type on empty selections.
+
+        :param groups: the output of :py:meth:`_groups`.
+        :return: the numbers, or an empty list if ``groups`` is ``None``.
+        """
+        if groups is None:
+            return []
+        counts: List[int] = torch.bincount(
+            groups, minlength=len(self.atomic_types)
+        ).tolist()
+        return counts
+
     def uncertainty(self, features: TensorMap, systems: List[System]) -> TensorMap:
         """The uncalibrated uncertainty, in the layout and units of the core.
 
@@ -1039,6 +1056,7 @@ class _TargetLLPR(torch.nn.Module):
         """
         feature_blocks = self._feature_blocks(features)
         groups = self._groups(systems, features)
+        counts = self._counts(groups)
         # computed once for each feature block, and shared by the blocks reading it
         one_over_pr: List[torch.Tensor] = []
         for index, covariance in enumerate(self.covariances):
@@ -1060,10 +1078,11 @@ class _TargetLLPR(torch.nn.Module):
                             device=values.device,
                         )
                     )
-                mask = groups == group
-                one_over_pr[feature_index][mask] = covariance.one_over_pr(
-                    self._select(values[mask], feature_index)
-                )
+                if counts[group] > 0:
+                    mask = groups == group
+                    one_over_pr[feature_index][mask] = covariance.one_over_pr(
+                        self._select(values[mask], feature_index)
+                    )
 
         blocks: List[TensorBlock] = []
         for index, layout_block in enumerate(self.core_layout.blocks()):
@@ -1091,6 +1110,7 @@ class _TargetLLPR(torch.nn.Module):
         """
         feature_blocks = self._feature_blocks(features)
         groups = self._groups(systems, features)
+        counts = self._counts(groups)
         outputs: List[torch.Tensor] = []
         for index, layer in enumerate(self.ensemble_layers):
             block_index = index % len(self.core_layout)
@@ -1110,7 +1130,7 @@ class _TargetLLPR(torch.nn.Module):
                             device=values.device,
                         )
                     )
-                if layer.out_features > 0:
+                if layer.out_features > 0 and counts[group] > 0:
                     mask = groups == group
                     members = layer(self._select(values[mask], feature_index))
                     if layer.out_features != self.num_outputs[block_index]:

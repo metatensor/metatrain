@@ -5,7 +5,12 @@ import metatensor.torch as mts
 import pytest
 import torch
 from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
-from metatomic.torch import ModelEvaluationOptions, ModelOutput, load_atomistic_model
+from metatomic.torch import (
+    ModelEvaluationOptions,
+    ModelOutput,
+    System,
+    load_atomistic_model,
+)
 from metatomic.torch.o3 import random_transformations
 
 from metatrain.llpr.model import LLPRUncertaintyModel
@@ -354,6 +359,36 @@ def test_ensemble_of_atomic_basis_with_last_layer_depending_on_atomic_type():
     outputs = model(
         systems[:1], {name: ModelOutput(sample_kind="atom") for name in names}
     )
+    for key, block in outputs[UNCERTAINTY].items():
+        _check_ensemble_variance(
+            outputs[ENSEMBLE].block(key), block.values.detach(), n_ens
+        )
+
+
+def test_last_layer_depending_on_atomic_type_with_a_type_missing():
+    """Check the ensemble and the uncertainty of a system without one of the atomic
+    types, with a last layer depending on the atomic type."""
+    torch.manual_seed(0)
+    n_ens = 20000
+    dataset_info = atomic_basis_dataset_info()
+    model = LLPRUncertaintyModel(
+        {"num_ensemble_members": {TARGET: n_ens}}, dataset_info
+    )
+    model.set_wrapped_model(dummy_backbone(dataset_info, shared=True, per_type=True))
+    model = model.to(torch.float64)
+    systems = make_systems(model.model, 8)
+    fit_llpr(model, systems)
+    model.generate_ensemble()
+
+    hydrogens = systems[0].types == 1
+    system = System(
+        types=systems[0].types[hydrogens],
+        positions=systems[0].positions[hydrogens],
+        cell=systems[0].cell,
+        pbc=systems[0].pbc,
+    )
+    names = (UNCERTAINTY, ENSEMBLE)
+    outputs = model([system], {name: ModelOutput(sample_kind="atom") for name in names})
     for key, block in outputs[UNCERTAINTY].items():
         _check_ensemble_variance(
             outputs[ENSEMBLE].block(key), block.values.detach(), n_ens
