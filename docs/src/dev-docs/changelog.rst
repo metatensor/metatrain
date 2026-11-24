@@ -119,10 +119,8 @@ Added
   ``readout_type`` hyperparameters, globally or per target (#1308).
 - LLPR supports PET with ``head_type: per_block`` and ``readout_type: one-hot``
   (#1308).
-- LLPR models can keep only their ensembles, without the covariances
-  (``LLPRUncertaintyModel.remove_covariances()``). For atomic-basis targets with a
-  last layer depending on the atomic type, the ensemble layers of each type only
-  predict the properties of that type.
+- LLPR models can drop their covariances and keep only the ensembles, with
+  ``LLPRUncertaintyModel.remove_covariances()`` (#1308).
 
 Changed
 #######

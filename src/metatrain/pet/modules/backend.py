@@ -1,14 +1,27 @@
+from collections.abc import Mapping
 from math import prod
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
-from ...utils.hypers import resolve_per_target
 from ..documentation import ModelHypers
 from .conditioning import SystemConditioningEmbedding
 from .readout import LinearReadout
 from .structures import compute_batch_tensors
 from .transformer import CartesianTransformer
+
+
+def _resolve_per_target(hyper: Any, target_name: str, default: Any) -> Any:
+    """Resolve a hyperparameter that is set either globally or per target.
+
+    :param hyper: The hyperparameter value, either global or keyed by target name.
+    :param target_name: Name of the target to resolve the hyperparameter for.
+    :param default: Value to use for targets absent from a per-target dict.
+    :return: The value of the hyperparameter for this target.
+    """
+    if isinstance(hyper, Mapping):
+        return hyper.get(target_name, default)
+    return hyper
 
 
 class PETBackend(torch.nn.Module):
@@ -197,10 +210,10 @@ class PETBackend(torch.nn.Module):
             component sizes followed by the number of properties), as computed by
             :meth:`metatrain.pet.model.PET._add_output`.
         """
-        head_type = resolve_per_target(
+        head_type = _resolve_per_target(
             self.head_type, target_name, default="per_target"
         )
-        readout_type = resolve_per_target(self.readout_type, target_name, default=None)
+        readout_type = _resolve_per_target(self.readout_type, target_name, default=None)
 
         heads_per_readout_layer = len(output_shapes) if head_type == "per_block" else 1
         self.heads_per_readout_layer[target_name] = heads_per_readout_layer

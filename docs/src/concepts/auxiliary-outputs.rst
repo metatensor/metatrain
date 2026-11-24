@@ -72,11 +72,17 @@ type, the layout of its last-layer features has the info
       equivariant.
 
   * - properties
-    - ``"feature"``, optionally preceded by some of the key names of the target
-    - the last-layer features have a property dimension named ``"feature"``,
-      with entries ranging from 0 to the number of features in the last layer,
-      and optionally key dimensions such as ``["o3_lambda", "o3_sigma", "feature"]``
-      labelling the features of each block.
+    - ``"feature"``, or key names of the target followed by ``"feature"``
+    - usually a single dimension named ``"feature"``, with entries ranging from 0
+      to the number of features in the last layer.
+
+      Some models predict each block of a target from its own set of features
+      (for example PET with ``head_type: per_block``). The features of all the
+      blocks are then stored one after the other, and the properties have
+      additional dimensions, named after keys of the target, saying which block
+      each feature belongs to. With the dimensions
+      ``["o3_lambda", "o3_sigma", "feature"]``, the entry ``[2, 1, 5]`` is
+      feature 5 of the block with ``o3_lambda=2`` and ``o3_sigma=1``.
 
 Last-layer features are supported by the following architectures:
 
