@@ -47,6 +47,10 @@ class DummyModel(ModelInterface):
         self.shared = bool(hypers["shared"])
         self.labelled = bool(hypers["labelled"])
         self.per_type = bool(hypers["per_type"])
+        if (self.labelled or self.per_type) and not self.shared:
+            raise ValueError("`labelled` and `per_type` require `shared`")
+        if self.labelled and self.per_type:
+            raise ValueError("`labelled` and `per_type` can not be used together")
         self.register_buffer(
             "atomic_types", torch.tensor(dataset_info.atomic_types), persistent=False
         )

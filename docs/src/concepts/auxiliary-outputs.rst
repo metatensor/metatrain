@@ -79,7 +79,7 @@ type, the layout of its last-layer features has the info
       Some models predict each block of a target from its own set of features
       (for example PET with ``head_type: per_block``). The features of all the
       blocks are then stored one after the other, and the properties have
-      additional dimensions, named after keys of the target, saying which block
+      additional dimensions, named after the keys of the target, saying which block
       each feature belongs to. With the dimensions
       ``["o3_lambda", "o3_sigma", "feature"]``, the entry ``[2, 1, 5]`` is
       feature 5 of the block with ``o3_lambda=2`` and ``o3_sigma=1``.

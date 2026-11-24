@@ -250,8 +250,7 @@ class ModelHypers(TypedDict):
     ``{"mtt::foo": "one-hot"}``, in which case the targets that are not listed use
     ``None``.
 
-    With ``"one-hot"``, LLPR keeps the covariance of the last-layer features of each
-    atomic type separately, which requires a per-atom target.
+    LLPR supports ``"one-hot"`` only for per-atom targets.
     """
     d_node: int = 256
     """Dimension of the node features.

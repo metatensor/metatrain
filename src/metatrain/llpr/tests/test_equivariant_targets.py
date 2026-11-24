@@ -13,7 +13,7 @@ from metatrain.llpr.trainer import calibrate, compute_covariance
 from metatrain.pet import PET
 from metatrain.utils import io
 from metatrain.utils.architectures import get_default_hypers
-from metatrain.utils.data import Dataset, DatasetInfo
+from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
 from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from .helpers import (
@@ -206,6 +206,19 @@ def test_calibration_is_per_property_of_each_block():
         )
 
 
+def _check_ensemble_variance(ensemble, uncertainty, n_ens):
+    """Check the variance of the ensemble members against the uncertainty."""
+    ensemble_var = (
+        ensemble.values.detach()
+        .reshape(uncertainty.shape[:-1] + (n_ens, -1))
+        .var(dim=-2, unbiased=True)
+    )
+    # Monte Carlo error on a variance from n_ens samples is ~sqrt(2 / n_ens)
+    torch.testing.assert_close(
+        ensemble_var, uncertainty**2, rtol=5.0 * (2.0 / n_ens) ** 0.5, atol=0.0
+    )
+
+
 def test_ensemble_variance_matches_analytic_uncertainty():
     """Check the ensemble variance against the analytic uncertainty."""
     torch.manual_seed(0)
@@ -235,28 +248,7 @@ def test_ensemble_variance_matches_analytic_uncertainty():
         },
     )
     uncertainty = outputs[UNCERTAINTY].block().values.detach()
-    ensemble = outputs[ENSEMBLE].block().values.detach()
-    ensemble_var = ensemble.reshape(ensemble.shape[0], 3, n_ens, -1).var(
-        dim=-2, unbiased=True
-    )
-
-    # Monte Carlo error on a variance from n_ens samples is ~sqrt(2 / n_ens)
-    torch.testing.assert_close(
-        ensemble_var, uncertainty**2, rtol=5.0 * (2.0 / n_ens) ** 0.5, atol=0.0
-    )
-
-
-def _check_ensemble_variance(ensemble, uncertainty, n_ens):
-    """Check the variance of the ensemble members against the uncertainty."""
-    ensemble_var = (
-        ensemble.values.detach()
-        .reshape(uncertainty.shape[:-1] + (n_ens, -1))
-        .var(dim=-2, unbiased=True)
-    )
-    # Monte Carlo error on a variance from n_ens samples is ~sqrt(2 / n_ens)
-    torch.testing.assert_close(
-        ensemble_var, uncertainty**2, rtol=5.0 * (2.0 / n_ens) ** 0.5, atol=0.0
-    )
+    _check_ensemble_variance(outputs[ENSEMBLE].block(), uncertainty, n_ens)
 
 
 def test_features_labelled_by_block():
@@ -300,8 +292,8 @@ def test_features_labelled_by_block():
 
 
 def test_last_layer_depending_on_atomic_type():
-    """Check the covariances, uncertainty and ensemble of a last layer with
-    different weights for each atomic type."""
+    """Check the uncertainty and ensemble of a last layer with different weights for
+    each atomic type."""
     torch.manual_seed(0)
     n_ens = 20000
     dataset_info = two_types_dataset_info()
@@ -315,15 +307,6 @@ def test_last_layer_depending_on_atomic_type():
     model.generate_ensemble()
 
     target = model.targets[TARGET]
-    features = model(systems, {LLF: ModelOutput(sample_kind="atom")})[LLF]
-    types = torch.cat([system.types for system in systems])
-    for type_index, atomic_type in enumerate([1, 6]):
-        type_features = features.block().values[types == atomic_type]
-        torch.testing.assert_close(
-            target.covariances[type_index].covariance,
-            type_features.T @ type_features,
-        )
-
     names = (UNCERTAINTY, ENSEMBLE, LLF)
     outputs = model(
         systems[:1], {name: ModelOutput(sample_kind="atom") for name in names}
@@ -427,7 +410,9 @@ def test_last_layer_depending_on_atomic_type_needs_per_atom_target():
     dataset_info = spherical_dataset_info("system")
     message = (
         f"the last layer of '{TARGET}' depends on the atomic type, which LLPR only "
-        "supports for per-atom targets whose last-layer features have no components"
+        "supports for per-atom targets whose last-layer features have no "
+        "components; use the same last layer for all atomic types to compute the "
+        "uncertainty of this target"
     )
     with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
         wrap_backbone(
@@ -435,6 +420,24 @@ def test_last_layer_depending_on_atomic_type_needs_per_atom_target():
             dataset_info,
             ensembles=False,
         )
+
+
+def test_features_labelled_by_some_keys_are_refused():
+    """Check features labelled by only some of the keys of the target are refused."""
+    dataset_info = spherical_dataset_info("atom")
+    backbone = dummy_backbone(dataset_info, shared=True)
+    properties = Labels(["o3_lambda", "feature"], torch.tensor([[0, 0], [1, 0]]))
+    block = TensorBlock(
+        torch.empty(0, 2), Labels.empty(["system", "atom"]), [], properties
+    )
+    backbone.core.outputs[LLF] = TargetInfo(TensorMap(Labels.single(), [block]))
+    message = (
+        f"the properties of the last-layer features of '{TARGET}' must either be "
+        "'feature', or the keys of the target followed by 'feature', with features "
+        "for each block"
+    )
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
+        wrap_backbone(backbone, dataset_info, ensembles=False)
 
 
 @pytest.mark.parametrize("dataset_info", DATASET_INFOS, ids=["per-system", "per-atom"])
@@ -550,9 +553,9 @@ def test_pet_with_per_block_heads_and_one_hot_readouts(tmp_path: Path) -> None:
         )
         for type_index, atomic_type in enumerate([1, 6]):
             block_features = features.values[types == atomic_type][:, selection]
+            # one covariance for each block, for each atomic type one after the other
             covariance = target.covariances[
-                type_index * target.num_feature_blocks
-                + target.feature_indices[block_index]
+                type_index * len(target.core_layout) + block_index
             ]
             torch.testing.assert_close(
                 covariance.covariance,
