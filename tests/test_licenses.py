@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 
-pytest.importorskip("licensecheck")  # only installed on Python >= 3.12
+if sys.version_info < (3, 12):
+    pytest.skip("licensecheck requires Python >= 3.12", allow_module_level=True)
 
 import tomllib  # noqa: E402
 
