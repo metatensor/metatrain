@@ -1,3 +1,4 @@
+import copy
 from collections.abc import Mapping
 from typing import Any, Dict, Generic, List, Optional
 
@@ -637,11 +638,61 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         Remove a previously registered output target.
 
         Used to drop targets whose heads are no longer meaningful after a
-        backbone-altering fine-tuning run (``full``/``lora``).
+        backbone-altering fine-tuning run (``full``/``lora``). An output produced by
+        an extender is removed from the extender, together with the inputs that no
+        other output needs.
 
         :param target_name: Name of the target to remove.
         """
-        self.core.remove_output(target_name)
+        indices = [
+            i
+            for i, extender in enumerate(self.extenders)
+            if target_name in extender.supported_outputs()
+        ]
+        if len(indices) == 0:
+            self.core.remove_output(target_name)
+        else:
+            index = indices[0]
+            extender = self.extenders[index]
+            output = extender.supported_outputs()[target_name].to_model_output()
+            inputs = list(extender.requested_extender_inputs({target_name: output}))
+
+            # extenders are rebuilt from their hypers, so drop the output there
+            hypers = copy.deepcopy(extender.hypers)
+            outputs = hypers["outputs"]
+            outputs = [outputs] if isinstance(outputs, str) else list(outputs)
+            position = outputs.index(target_name)
+            if len(outputs) == 1:
+                del self.extenders[index]
+            else:
+                hypers["outputs"] = outputs[:position] + outputs[position + 1 :]
+                if hypers.get("inputs") is not None:
+                    extender_inputs = list(hypers["inputs"])
+                    hypers["inputs"] = (
+                        extender_inputs[:position] + extender_inputs[position + 1 :]
+                    )
+                new_extender = type(extender)(hypers, extender.dataset_info)
+                state_dict = extender.state_dict()
+                new_extender.load_state_dict(
+                    {k: state_dict[k] for k in new_extender.state_dict()}
+                )
+                self.extenders[index] = new_extender
+
+            needed = self._get_requested_extender_inputs(
+                {
+                    name: info.to_model_output()
+                    for other in self.extenders
+                    for name, info in other.supported_outputs().items()
+                }
+            )
+            internal_targets = self.internal_dataset_info().targets
+            for name in inputs:
+                if (
+                    name not in needed
+                    and name not in self.dataset_info.targets
+                    and name in internal_targets
+                ):
+                    self.remove_output(name)
 
         for additive_model in self.additive_models:
             if target_name in additive_model.supported_outputs():
