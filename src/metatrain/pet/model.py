@@ -2,7 +2,7 @@ import logging
 import typing
 import warnings
 from collections.abc import Mapping
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 import metatensor.torch as mts
 import torch
@@ -187,11 +187,12 @@ class PET(ModelInterface[ModelHypers]):
         if model_hypers is not None:
             default_hypers = get_default_hypers("pet")["model"]
             model_hypers = dict(model_hypers)
+            hypers = cast(Dict[str, Any], self.hypers)
             for name, default in PER_TARGET_HYPERS.items():
                 if name not in model_hypers:
                     continue
                 old = {
-                    target: resolve_per_target(self.hypers[name], target, default)
+                    target: resolve_per_target(hypers[name], target, default)
                     for target in self.dataset_info.targets
                 }
                 new = {
@@ -202,7 +203,7 @@ class PET(ModelInterface[ModelHypers]):
                     # a global value and a per-target dict can describe the same
                     # model: keep what the existing targets have, and let the new
                     # targets follow the new hypers
-                    self.hypers[name] = new
+                    hypers[name] = new
                     setattr(self.backend, name, new)
                     model_hypers[name] = new
             raise_if_hypers_mismatch(
