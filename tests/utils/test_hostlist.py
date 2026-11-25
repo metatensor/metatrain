@@ -14,6 +14,7 @@ from metatrain.utils.distributed.hostlist import expand_hostlist
         ("a[1-2],b3,c[09-10]", ["a1", "a2", "b3", "c09", "c10"]),
         ("r[1-2]n[1-2]", ["r1n1", "r1n2", "r2n1", "r2n2"]),
         ("gpu-[1,3]-ib", ["gpu-1-ib", "gpu-3-ib"]),
+        ("n[1-2],n1", ["n1", "n2"]),
     ],
 )
 def test_expand_hostlist(nodelist, expected):

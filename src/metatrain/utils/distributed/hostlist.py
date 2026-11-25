@@ -52,7 +52,7 @@ def expand_hostlist(nodelist: str) -> list[str]:
     several bracket groups per host, e.g. ``"nid[001-002],gpu-[1,3]-ib"``.
 
     :param nodelist: The hostlist expression, e.g. ``SLURM_JOB_NODELIST``.
-    :return: The expanded hostnames, in order.
+    :return: The expanded hostnames, in order and without duplicates.
     """
     hostnames: list[str] = []
     for host in _split_top_level(nodelist.strip()):
@@ -64,4 +64,4 @@ def expand_hostlist(nodelist: str) -> list[str]:
             _expand_range(piece) if i % 2 else [piece] for i, piece in enumerate(pieces)
         ]
         hostnames.extend("".join(combo) for combo in itertools.product(*choices))
-    return hostnames
+    return list(dict.fromkeys(hostnames))
