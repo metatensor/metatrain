@@ -1,0 +1,57 @@
+.. _extender-rename:
+
+Rename
+======
+
+This extender just passes the inputs to the outputs without any modification.
+
+It is used to rename targets.
+
+For someone who wants to understand how extenders work or wants to implement
+their own extender, this is the best point to start, as it is the simplest
+extender possible.
+
+It is also very useful for testing and debugging.
+
+.. _extender-rename_installation:
+
+Installation
+------------
+
+To install this extender along with the ``metatrain`` package, run:
+
+.. code-block:: bash
+
+    pip install metatrain[extender-rename]
+
+where the square brackets indicate that you want to install the optional
+dependencies required for the ``rename`` extender.
+
+.. _extender-rename_hypers:
+
+Extender hyperparameters
+------------------------
+
+The default hyperparameters for this extender are:
+
+.. literalinclude:: ../default_hypers/rename-default-hypers.yaml
+   :language: yaml
+
+and here is the documentation for each hyperparameter:
+
+.. container:: mtt-hypers-remove-classname
+
+    ..
+
+        .. autoattribute:: metatrain.utils.extenders.rename.documentation.Hypers.inputs
+
+        .. autoattribute:: metatrain.utils.extenders.rename.documentation.Hypers.outputs
+
+
+
+.. _extender-rename_references:
+
+References
+----------
+
+.. footbibliography::
