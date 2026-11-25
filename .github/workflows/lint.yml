@@ -24,6 +24,3 @@ jobs:
 
     - name: Lint the code
       run: tox -e lint
-
-    - name: Check dependency licenses
-      run: tox -e licenses

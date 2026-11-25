@@ -2,6 +2,29 @@ import itertools
 import re
 
 
+def expand_hostlist(nodelist: str) -> list[str]:
+    """
+    Expand a SLURM hostlist expression into the list of hostnames.
+
+    Supports comma-separated hosts, bracketed ranges with zero padding and
+    several bracket groups per host, e.g. ``"nid[001-002],gpu-[1,3]-ib"``.
+
+    :param nodelist: The hostlist expression, e.g. ``SLURM_JOB_NODELIST``.
+    :return: The expanded hostnames, in order and without duplicates.
+    """
+    hostnames: list[str] = []
+    for host in _split_top_level(nodelist.strip()):
+        pieces = re.split(r"\[([^\]]*)\]", host)
+        if "[" in "".join(pieces[::2]) or "]" in "".join(pieces[::2]):
+            raise ValueError(f"unbalanced brackets in hostlist '{nodelist}'")
+        # even entries are literal text, odd entries are bracket contents
+        choices = [
+            _expand_range(piece) if i % 2 else [piece] for i, piece in enumerate(pieces)
+        ]
+        hostnames.extend("".join(combo) for combo in itertools.product(*choices))
+    return list(dict.fromkeys(hostnames))
+
+
 def _split_top_level(text: str) -> list[str]:
     """
     Split ``text`` on commas that are not inside square brackets.
@@ -42,26 +65,3 @@ def _expand_range(ranges: str) -> list[str]:
             str(i).zfill(len(first)) for i in range(int(first), int(last) + 1)
         )
     return values
-
-
-def expand_hostlist(nodelist: str) -> list[str]:
-    """
-    Expand a SLURM hostlist expression into the list of hostnames.
-
-    Supports comma-separated hosts, bracketed ranges with zero padding and
-    several bracket groups per host, e.g. ``"nid[001-002],gpu-[1,3]-ib"``.
-
-    :param nodelist: The hostlist expression, e.g. ``SLURM_JOB_NODELIST``.
-    :return: The expanded hostnames, in order and without duplicates.
-    """
-    hostnames: list[str] = []
-    for host in _split_top_level(nodelist.strip()):
-        pieces = re.split(r"\[([^\]]*)\]", host)
-        if "[" in "".join(pieces[::2]) or "]" in "".join(pieces[::2]):
-            raise ValueError(f"unbalanced brackets in hostlist '{nodelist}'")
-        # even entries are literal text, odd entries are bracket contents
-        choices = [
-            _expand_range(piece) if i % 2 else [piece] for i, piece in enumerate(pieces)
-        ]
-        hostnames.extend("".join(combo) for combo in itertools.product(*choices))
-    return list(dict.fromkeys(hostnames))
