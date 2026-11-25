@@ -11,8 +11,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 
-# These packages do not declare a license yet
-IGNORED = ["torch-spex", "physical-basis"]
+IGNORED = [
+    # These packages do not declare a license yet
+    "torch-spex",
+    "physical-basis",
+    # NVIDIA runtime libraries pulled in by CUDA builds of torch (not by metatrain)
+    "nvidia-*",
+    "cuda-*",
+]
 
 
 def main() -> int:
