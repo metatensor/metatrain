@@ -441,7 +441,23 @@ def model_update_v18_v19(checkpoint: dict) -> None:
 
 def model_update_v19_v20(checkpoint: dict) -> None:
     """
-    Update model checkpoint from version 19 to version 20.
+    Update a v19 checkpoint to v20.
+
+    It adds the ``head_type``, ``num_head_layers`` and ``readout_type``
+    hyperparameters, with the values reproducing the previous architecture. The
+    ``state_dict`` is unchanged.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    hypers = checkpoint["model_data"]["model_hypers"]
+    hypers["head_type"] = "per_target"
+    hypers["num_head_layers"] = 2
+    hypers["readout_type"] = None
+
+
+def model_update_v20_v21(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 20 to version 21.
 
     Adds the ``variable_num_neighbors_adaptive`` hyperparameter. Development versions
     of the code gave the range of sampled numbers of neighbors as

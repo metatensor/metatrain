@@ -27,18 +27,11 @@ Unreleased
 Fixed
 #####
 
-- PET with ``smooth_attention_cutoff`` no longer gives NaN forces, stresses and
-  parameter gradients in float32 when the neighbor that the central atom attends to
-  most sits deep in the cutoff tail. The smooth attention weights are now computed
-  in log space, and without the lower bound of ``1e-12`` on the weight of the other
-  neighbors. This bound let a neighbor that the central atom strongly prefers take
-  a large share of the attention at the very edge of the cutoff (e.g. 22% with a
-  cutoff factor of ``3e-17``). The logits of the central atom's attention are also
-  soft-capped to ``5 * tanh(logit / 5)``, since with several neighbors in the
-  cutoff tail, one that the central atom strongly prefers could otherwise let
-  another one take most of the attention at the very edge of the cutoff. Models
-  trained with ``smooth_attention_cutoff`` before this change give different
-  predictions.
+- PET with smooth attention weights are now computed in log space with soft-capping,
+  and no longer yield NaN forces, stresses and parameter gradients in float32 when 
+  the neighbor that the central atom attends to most sits deep in the cutoff tail. 
+- Restarting FlashMD, FlashMD-symplectic, MACE, DPA3, SPACE and LLPR trainings now
+  stops at ``num_epochs`` instead of running ``num_epochs`` more epochs, as in PET.
 - Datasets from XYZ files containing at least one missing stress/virial
   would silently disable stress/virial training. Now partially missing data
   is  accepted and the trainings run on the available data (#1344).
@@ -120,6 +113,15 @@ Added
 - LLPR uncertainties and ensembles for targets with several blocks, such as spherical
   targets and targets in an atomic basis, and for SPACE and MACE (#1286).
 - Ensemble losses for targets with several blocks (#1286).
+- PET heads/readouts can be configured with the ``d_head`` (now optionally separate
+  for node and edge heads), ``head_type``, ``num_head_layers`` and
+  ``readout_type`` hyperparameters, globally or per target (#1308).
+- LLPR supports PET with ``head_type: per_block`` and ``readout_type: one-hot``
+  (#1308).
+- LLPR models can drop their covariances and keep only the ensembles, with
+  ``LLPRUncertaintyModel.remove_covariances()`` (#1308).
+- ``tox -e lint`` checks that all dependencies, including extras, have licenses
+  compatible with BSD-3-Clause (#1362).
 
 Changed
 #######
@@ -138,6 +140,8 @@ Removed
 
 - SOAP-BPNN no longer exposes last-layer features for its spherical and Cartesian
   targets, so LLPR is not available for them (#1317).
+- ``python-hostlist`` (GPL-licensed) is no longer a dependency. SLURM node lists are
+  now parsed by metatrain itself (#1362).
 
 Version 2026.4.1 - 2026-09-25
 -----------------------------
