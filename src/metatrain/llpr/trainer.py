@@ -713,6 +713,7 @@ def compute_covariance(
                 llpr_target.accumulate(
                     features[llpr_target.features_name],
                     n_atoms if sample_kinds[name] == "system" else None,
+                    systems,
                 )
 
     if is_distributed:

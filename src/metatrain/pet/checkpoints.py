@@ -439,6 +439,22 @@ def model_update_v18_v19(checkpoint: dict) -> None:
         model_hypers["smooth_attention_cutoff"] = False
 
 
+def model_update_v19_v20(checkpoint: dict) -> None:
+    """
+    Update a v19 checkpoint to v20.
+
+    It adds the ``head_type``, ``num_head_layers`` and ``readout_type``
+    hyperparameters, with the values reproducing the previous architecture. The
+    ``state_dict`` is unchanged.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    hypers = checkpoint["model_data"]["model_hypers"]
+    hypers["head_type"] = "per_target"
+    hypers["num_head_layers"] = 2
+    hypers["readout_type"] = None
+
+
 ###########################
 # TRAINER #################
 ###########################

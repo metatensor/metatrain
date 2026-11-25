@@ -30,11 +30,16 @@ produces multiple targets, the corresponding representations might be different.
 
 The last-layer features come in one of two forms:
 
-- invariant or non-symmetrized features are a single block, used for all the blocks
-  of the target;
+- invariant or non-symmetrized features are a single block, of which each block of
+  the target reads all the features, or those labelled with its key;
 - equivariant features have one block for each block of the target, with the same
   keys and components. The last layer maps each block of features to the block of
   the target with the same key, with the same weights for all the components.
+
+When the last layer of a per-atom target has different weights for each atomic
+type, the layout of its last-layer features has the info
+``"last_layer_per_atomic_type"`` set to ``"true"`` (see
+:py:meth:`metatensor.torch.TensorMap.set_info`).
 
 .. list-table:: Metadata for last-layer features
   :widths: 2 3 7
@@ -67,10 +72,17 @@ The last-layer features come in one of two forms:
       equivariant.
 
   * - properties
-    - ``"feature"``
-    - the last-layer features have a single property dimension named
-      ``"feature"``, with entries ranging from 0 to the number of features
-      in the last layer.
+    - ``"feature"``, or key names of the target followed by ``"feature"``
+    - usually a single dimension named ``"feature"``, with entries ranging from 0
+      to the number of features in the last layer.
+
+      Some models predict each block of a target from its own set of features
+      (for example PET with ``head_type: per_block``). The features of all the
+      blocks are then stored one after the other, and the properties have
+      additional dimensions, named after the keys of the target, saying which block
+      each feature belongs to. With the dimensions
+      ``["o3_lambda", "o3_sigma", "feature"]``, the entry ``[2, 1, 5]`` is
+      feature 5 of the block with ``o3_lambda=2`` and ``o3_sigma=1``.
 
 Last-layer features are supported by the following architectures:
 

@@ -5,13 +5,21 @@ import metatensor.torch as mts
 import pytest
 import torch
 from metatensor.torch import Labels, LabelsEntry, TensorBlock, TensorMap
-from metatomic.torch import ModelEvaluationOptions, ModelOutput, load_atomistic_model
+from metatomic.torch import (
+    ModelEvaluationOptions,
+    ModelOutput,
+    System,
+    load_atomistic_model,
+)
 from metatomic.torch.o3 import random_transformations
 
 from metatrain.llpr.model import LLPRUncertaintyModel
 from metatrain.llpr.trainer import calibrate, compute_covariance
+from metatrain.pet import PET
 from metatrain.utils import io
-from metatrain.utils.data import Dataset, DatasetInfo
+from metatrain.utils.architectures import get_default_hypers
+from metatrain.utils.data import Dataset, DatasetInfo, TargetInfo
+from metatrain.utils.neighbor_lists import get_system_with_neighbor_lists
 
 from .helpers import (
     ENSEMBLE,
@@ -19,11 +27,13 @@ from .helpers import (
     TARGET,
     UNCERTAINTY,
     atomic_basis_dataset_info,
+    backbone,
     dummy_backbone,
     fit_llpr,
     make_systems,
     spherical_dataset_info,
     target_dataset_info,
+    two_types_dataset_info,
     wrap_backbone,
 )
 
@@ -201,6 +211,19 @@ def test_calibration_is_per_property_of_each_block():
         )
 
 
+def _check_ensemble_variance(ensemble, uncertainty, n_ens):
+    """Check the variance of the ensemble members against the uncertainty."""
+    ensemble_var = (
+        ensemble.values.detach()
+        .reshape(uncertainty.shape[:-1] + (n_ens, -1))
+        .var(dim=-2, unbiased=True)
+    )
+    # Monte Carlo error on a variance from n_ens samples is ~sqrt(2 / n_ens)
+    torch.testing.assert_close(
+        ensemble_var, uncertainty**2, rtol=5.0 * (2.0 / n_ens) ** 0.5, atol=0.0
+    )
+
+
 def test_ensemble_variance_matches_analytic_uncertainty():
     """Check the ensemble variance against the analytic uncertainty."""
     torch.manual_seed(0)
@@ -230,15 +253,226 @@ def test_ensemble_variance_matches_analytic_uncertainty():
         },
     )
     uncertainty = outputs[UNCERTAINTY].block().values.detach()
-    ensemble = outputs[ENSEMBLE].block().values.detach()
-    ensemble_var = ensemble.reshape(ensemble.shape[0], 3, n_ens, -1).var(
-        dim=-2, unbiased=True
-    )
+    _check_ensemble_variance(outputs[ENSEMBLE].block(), uncertainty, n_ens)
 
-    # Monte Carlo error on a variance from n_ens samples is ~sqrt(2 / n_ens)
-    torch.testing.assert_close(
-        ensemble_var, uncertainty**2, rtol=5.0 * (2.0 / n_ens) ** 0.5, atol=0.0
+
+def test_features_labelled_by_block():
+    """Check the uncertainty and ensemble of blocks reading labelled features."""
+    torch.manual_seed(0)
+    n_ens = 20000
+    dataset_info = spherical_dataset_info("atom")
+    model = LLPRUncertaintyModel(
+        {"num_ensemble_members": {TARGET: n_ens}}, dataset_info
     )
+    model.set_wrapped_model(dummy_backbone(dataset_info, shared=True, labelled=True))
+    model = model.to(torch.float64)
+    systems = make_systems(model.model, 8)
+    fit_llpr(model, systems)
+    model.generate_ensemble()
+
+    names = (UNCERTAINTY, ENSEMBLE, LLF)
+    outputs = model(
+        systems[:1], {name: ModelOutput(sample_kind="atom") for name in names}
+    )
+    features = outputs[LLF].block()
+    for index, (key, block) in enumerate(outputs[UNCERTAINTY].items()):
+        selection = features.properties.select(
+            Labels(key.names, key.values.unsqueeze(0))
+        )
+        block_features = features.values[:, selection]
+        cholesky = model.targets[TARGET].covariances[index].cholesky
+        one_over_pr = torch.einsum(
+            "sf,fg,sg->s",
+            block_features,
+            torch.linalg.inv(cholesky @ cholesky.T),
+            block_features,
+        )
+        uncertainty = block.values.detach()
+        torch.testing.assert_close(
+            uncertainty,
+            torch.sqrt(one_over_pr).reshape(-1, 1, 1).expand_as(uncertainty),
+        )
+
+        _check_ensemble_variance(outputs[ENSEMBLE].block(key), uncertainty, n_ens)
+
+
+def test_last_layer_depending_on_atomic_type():
+    """Check the uncertainty and ensemble of a last layer with different weights for
+    each atomic type."""
+    torch.manual_seed(0)
+    n_ens = 20000
+    dataset_info = two_types_dataset_info()
+    model = LLPRUncertaintyModel(
+        {"num_ensemble_members": {TARGET: n_ens}}, dataset_info
+    )
+    model.set_wrapped_model(dummy_backbone(dataset_info, shared=True, per_type=True))
+    model = model.to(torch.float64)
+    systems = make_systems(model.model, 8)
+    fit_llpr(model, systems)
+    model.generate_ensemble()
+
+    target = model.targets[TARGET]
+    names = (UNCERTAINTY, ENSEMBLE, LLF)
+    outputs = model(
+        systems[:1], {name: ModelOutput(sample_kind="atom") for name in names}
+    )
+    features = outputs[LLF].block().values
+    choleskys = torch.stack(
+        [
+            target.covariances[[1, 6].index(t)].cholesky
+            for t in systems[0].types.tolist()
+        ]
+    )
+    inverses = torch.linalg.inv(choleskys @ choleskys.transpose(1, 2))
+    one_over_pr = torch.einsum("sf,sfg,sg->s", features, inverses, features)
+    for key, block in outputs[UNCERTAINTY].items():
+        uncertainty = block.values.detach()
+        torch.testing.assert_close(
+            uncertainty,
+            torch.sqrt(one_over_pr).reshape(-1, 1, 1).expand_as(uncertainty),
+        )
+
+        _check_ensemble_variance(outputs[ENSEMBLE].block(key), uncertainty, n_ens)
+
+
+def test_ensemble_of_atomic_basis_with_last_layer_depending_on_atomic_type():
+    """Check the ensemble layers of an atomic-basis target, with a last layer
+    depending on the atomic type, only give the properties of their atomic type, and
+    the variance of the ensemble against the uncertainty."""
+    torch.manual_seed(0)
+    n_ens = 20000
+    dataset_info = atomic_basis_dataset_info()
+    model = LLPRUncertaintyModel(
+        {"num_ensemble_members": {TARGET: n_ens}}, dataset_info
+    )
+    model.set_wrapped_model(dummy_backbone(dataset_info, shared=True, per_type=True))
+    model = model.to(torch.float64)
+    systems = make_systems(model.model, 8)
+    fit_llpr(model, systems)
+    model.generate_ensemble()
+
+    # hydrogen has one lambda=0 property, carbon two and one lambda=1 property
+    layers = model.targets[TARGET].ensemble_layers
+    assert [layer.out_features for layer in layers] == [n_ens, 0, 2 * n_ens, 3 * n_ens]
+
+    names = (UNCERTAINTY, ENSEMBLE)
+    outputs = model(
+        systems[:1], {name: ModelOutput(sample_kind="atom") for name in names}
+    )
+    for key, block in outputs[UNCERTAINTY].items():
+        _check_ensemble_variance(
+            outputs[ENSEMBLE].block(key), block.values.detach(), n_ens
+        )
+
+
+def test_last_layer_depending_on_atomic_type_with_a_type_missing():
+    """Check the ensemble and the uncertainty of a system without one of the atomic
+    types, with a last layer depending on the atomic type."""
+    torch.manual_seed(0)
+    n_ens = 20000
+    dataset_info = atomic_basis_dataset_info()
+    model = LLPRUncertaintyModel(
+        {"num_ensemble_members": {TARGET: n_ens}}, dataset_info
+    )
+    model.set_wrapped_model(dummy_backbone(dataset_info, shared=True, per_type=True))
+    model = model.to(torch.float64)
+    systems = make_systems(model.model, 8)
+    fit_llpr(model, systems)
+    model.generate_ensemble()
+
+    hydrogens = systems[0].types == 1
+    system = System(
+        types=systems[0].types[hydrogens],
+        positions=systems[0].positions[hydrogens],
+        cell=systems[0].cell,
+        pbc=systems[0].pbc,
+    )
+    names = (UNCERTAINTY, ENSEMBLE)
+    outputs = model([system], {name: ModelOutput(sample_kind="atom") for name in names})
+    for key, block in outputs[UNCERTAINTY].items():
+        _check_ensemble_variance(
+            outputs[ENSEMBLE].block(key), block.values.detach(), n_ens
+        )
+
+
+@pytest.mark.usefixtures("dummy_architecture")
+def test_ensemble_only(tmp_path: Path) -> None:
+    """Check the model without covariances gives the same predictions and ensembles,
+    as do its export and its checkpoint, which have no covariances."""
+    dataset_info = atomic_basis_dataset_info()
+    model = wrap_backbone(
+        dummy_backbone(dataset_info, shared=True, per_type=True),
+        dataset_info,
+        ensembles=True,
+    )
+    systems = make_systems(model.model, 8)
+    fit_llpr(model, systems)
+    model.generate_ensemble()
+    outputs = {name: ModelOutput(sample_kind="atom") for name in (TARGET, ENSEMBLE)}
+    expected = model(systems[:1], outputs)
+
+    model.remove_covariances()
+    assert UNCERTAINTY not in model.capabilities.outputs
+    assert UNCERTAINTY not in model.supported_outputs()
+    state_dict = model.get_checkpoint()["model_state_dict"]
+    assert not any(key.endswith((".covariance", ".cholesky")) for key in state_dict)
+
+    path = str(tmp_path / "model.pt")
+    model.export().save(path)
+    results = [
+        model(systems[:1], outputs),
+        load_atomistic_model(path)(
+            systems[:1],
+            ModelEvaluationOptions(length_unit="angstrom", outputs=outputs),
+            check_consistency=True,
+        ),
+    ] + [
+        LLPRUncertaintyModel.load_checkpoint(model.get_checkpoint(), context)(
+            systems[:1], outputs
+        )
+        for context in ("restart", "export")
+    ]
+    for actual in results:
+        for name in outputs:
+            for block, expected_block in zip(
+                actual[name].blocks(), expected[name].blocks(), strict=True
+            ):
+                torch.testing.assert_close(block.values, expected_block.values)
+
+
+def test_last_layer_depending_on_atomic_type_needs_per_atom_target():
+    """Check a per-system target with a last layer depending on the type is refused."""
+    dataset_info = spherical_dataset_info("system")
+    message = (
+        f"the last layer of '{TARGET}' depends on the atomic type, which LLPR only "
+        "supports for per-atom targets whose last-layer features have no "
+        "components; use the same last layer for all atomic types to compute the "
+        "uncertainty of this target"
+    )
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
+        wrap_backbone(
+            dummy_backbone(dataset_info, shared=True, per_type=True),
+            dataset_info,
+            ensembles=False,
+        )
+
+
+def test_features_labelled_by_some_keys_are_refused():
+    """Check features labelled by only some of the keys of the target are refused."""
+    dataset_info = spherical_dataset_info("atom")
+    backbone = dummy_backbone(dataset_info, shared=True)
+    properties = Labels(["o3_lambda", "feature"], torch.tensor([[0, 0], [1, 0]]))
+    block = TensorBlock(
+        torch.empty(0, 2), Labels.empty(["system", "atom"]), [], properties
+    )
+    backbone.core.outputs[LLF] = TargetInfo(TensorMap(Labels.single(), [block]))
+    message = (
+        f"the properties of the last-layer features of '{TARGET}' must either be "
+        "'feature', or the keys of the target followed by 'feature', with features "
+        "for each block"
+    )
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
+        wrap_backbone(backbone, dataset_info, ensembles=False)
 
 
 @pytest.mark.parametrize("dataset_info", DATASET_INFOS, ids=["per-system", "per-atom"])
@@ -280,11 +514,24 @@ def test_uncertainty_component_resolved_and_rotation_invariant(
 
 
 @pytest.mark.usefixtures("dummy_architecture")
-@pytest.mark.parametrize("dataset_info", DATASET_INFOS, ids=["per-system", "per-atom"])
-def test_export_and_checkpoint(dataset_info: DatasetInfo, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "dataset_info, backbone_options",
+    [
+        (DATASET_INFOS[0], {}),
+        (DATASET_INFOS[1], {}),
+        (DATASET_INFOS[1], {"shared": True, "labelled": True}),
+        (two_types_dataset_info(), {"shared": True, "per_type": True}),
+    ],
+    ids=["per-system", "per-atom", "labelled", "per-type"],
+)
+def test_export_and_checkpoint(
+    dataset_info: DatasetInfo, backbone_options: dict, tmp_path: Path
+) -> None:
     """Check the exported model, and the model reloaded from its checkpoint, give
     the same predictions, uncertainties and ensembles."""
-    model = wrap_backbone(dummy_backbone(dataset_info), dataset_info, ensembles=True)
+    model = wrap_backbone(
+        dummy_backbone(dataset_info, **backbone_options), dataset_info, ensembles=True
+    )
     systems = make_systems(model.model, 8)
     fit_llpr(model, systems)
     model.generate_ensemble()
@@ -315,3 +562,49 @@ def test_export_and_checkpoint(dataset_info: DatasetInfo, tmp_path: Path) -> Non
                 actual[name].blocks(), expected[name].blocks(), strict=True
             ):
                 torch.testing.assert_close(block.values, expected_block.values)
+
+
+def test_pet_with_per_block_heads_and_one_hot_readouts(tmp_path: Path) -> None:
+    """Check the covariances of PET with per-block heads and one-hot readouts, and its
+    exported uncertainties."""
+    dataset_info = two_types_dataset_info()
+    hypers = get_default_hypers("pet")["model"]
+    hypers.update(head_type="per_block", readout_type="one-hot")
+    core = PET(hypers, dataset_info)
+    model = wrap_backbone(backbone(core, dataset_info), dataset_info, ensembles=False)
+    systems = [
+        get_system_with_neighbor_lists(system, core.requested_neighbor_lists())
+        for system in make_systems(core, 8)
+    ]
+    fit_llpr(model, systems)
+
+    # each block and atomic type reads the features of its key, for its atoms
+    target = model.targets[TARGET]
+    features = model(systems, {LLF: ModelOutput(sample_kind="atom")})[LLF].block()
+    types = torch.cat([system.types for system in systems])
+    for block_index, key in enumerate(target.core_layout.keys):
+        selection = features.properties.select(
+            Labels(key.names, key.values.unsqueeze(0))
+        )
+        for type_index, atomic_type in enumerate([1, 6]):
+            block_features = features.values[types == atomic_type][:, selection]
+            # one covariance for each block, for each atomic type one after the other
+            covariance = target.covariances[
+                type_index * len(target.core_layout) + block_index
+            ]
+            torch.testing.assert_close(
+                covariance.covariance,
+                block_features.T @ block_features,
+            )
+
+    path = str(tmp_path / "model.pt")
+    model.export().save(path)
+    outputs = {UNCERTAINTY: ModelOutput(sample_kind="atom")}
+    expected = model(systems[:1], outputs)[UNCERTAINTY]
+    exported = load_atomistic_model(path)(
+        systems[:1],
+        ModelEvaluationOptions(length_unit="angstrom", outputs=outputs),
+        check_consistency=True,
+    )[UNCERTAINTY]
+    for block, expected_block in zip(exported.blocks(), expected.blocks(), strict=True):
+        torch.testing.assert_close(block.values, expected_block.values)
