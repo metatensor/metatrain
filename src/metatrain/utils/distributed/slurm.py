@@ -2,9 +2,10 @@ import logging
 import os
 from typing import Optional
 
-import hostlist
 import torch
 import torch.distributed
+
+from . import hostlist
 
 
 def is_slurm() -> bool:

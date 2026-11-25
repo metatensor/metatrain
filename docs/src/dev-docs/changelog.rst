@@ -121,6 +121,8 @@ Added
   (#1308).
 - LLPR models can drop their covariances and keep only the ensembles, with
   ``LLPRUncertaintyModel.remove_covariances()`` (#1308).
+- ``tox -e lint`` checks that all dependencies, including extras, have licenses
+  compatible with BSD-3-Clause (#1362).
 
 Changed
 #######
@@ -139,6 +141,8 @@ Removed
 
 - SOAP-BPNN no longer exposes last-layer features for its spherical and Cartesian
   targets, so LLPR is not available for them (#1317).
+- ``python-hostlist`` (GPL-licensed) is no longer a dependency. SLURM node lists are
+  now parsed by metatrain itself (#1362).
 
 Version 2026.4.1 - 2026-09-25
 -----------------------------
