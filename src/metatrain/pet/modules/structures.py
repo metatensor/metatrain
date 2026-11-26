@@ -133,7 +133,7 @@ def compute_batch_tensors(
     cutoff: float,
     cutoff_function: str,
     cutoff_width: float,
-    num_neighbors_adaptive: Optional[float] = None,
+    num_neighbors_adaptive: Optional[torch.Tensor] = None,
     adaptive_cutoff_method: str = "solver",
     cutoff_width_adaptive: float = 1.0,
     nl_is_strict: bool = True,
@@ -173,9 +173,9 @@ def compute_batch_tensors(
     :param cutoff: Neighbor list cutoff radius.
     :param cutoff_function: Type of the smoothing function at the cutoff.
     :param cutoff_width: Width of the cutoff function for a cutoff mask.
-    :param num_neighbors_adaptive: Optional maximum number of neighbors per atom.
-        If provided, the adaptive cutoff scheme will be used for each atom to
-        approximately select this number of neighbors.
+    :param num_neighbors_adaptive: Optional target number of neighbors for each
+        atom, shape ``(num_nodes,)``. If provided, the adaptive cutoff scheme will be
+        used for each atom to approximately select this number of neighbors.
     :param adaptive_cutoff_method: Algorithm used to compute the per-atom adaptive
         cutoffs when ``num_neighbors_adaptive`` is set. ``"grid"`` uses the legacy
         probe-grid + Gaussian-weighted average; ``"solver"`` uses a bisection

@@ -455,6 +455,20 @@ def model_update_v19_v20(checkpoint: dict) -> None:
     hypers["readout_type"] = None
 
 
+def model_update_v20_v21(checkpoint: dict) -> None:
+    """
+    Update model checkpoint from version 20 to version 21.
+
+    Adds the ``variable_num_neighbors_adaptive`` hyperparameter,
+    and sets it to ``None`` for checkpoints that don't have it.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    model_hypers = checkpoint["model_data"]["model_hypers"]
+    if "variable_num_neighbors_adaptive" not in model_hypers:
+        model_hypers["variable_num_neighbors_adaptive"] = None
+
+
 ###########################
 # TRAINER #################
 ###########################

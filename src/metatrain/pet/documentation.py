@@ -140,9 +140,10 @@ important** (in decreasing order of importance):
       :no-index:
 """
 
-from typing import Literal, Optional, Union
+from typing import Literal, Optional, Tuple, Union
 
-from typing_extensions import NotRequired, TypedDict
+from pydantic import Strict
+from typing_extensions import Annotated, NotRequired, TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.scaler.documentation import FixedScalerWeights
@@ -182,6 +183,22 @@ class ModelHypers(TypedDict):
     value. This can be useful to have a more uniform number of neighbors
     per atom, especially in sparse systems. Setting it to None disables
     this feature and uses all neighbors within the fixed cutoff radius.
+
+    This is the number of neighbors used for validation, evaluation and in exported
+    models, and also during training unless ``variable_num_neighbors_adaptive`` is
+    set.
+    """
+    variable_num_neighbors_adaptive: Optional[
+        Annotated[Tuple[int, int], Strict(False)]
+    ] = None
+    """Range ``[low, high]`` of target numbers of neighbors sampled during training.
+
+    If set, at each training step the target number of neighbors of the adaptive
+    cutoff of each structure in the batch is an integer sampled independently from
+    ``[low, high]`` with a log-uniform distribution (smaller values are sampled more
+    often), so that the model learns to work with different numbers of neighbors.
+    Validation, evaluation and exported models still use ``num_neighbors_adaptive``,
+    which must be set as well.
     """
     adaptive_cutoff_method: Literal["grid", "solver"] = "solver"
     """Algorithm used to compute the per-atom adaptive cutoffs.

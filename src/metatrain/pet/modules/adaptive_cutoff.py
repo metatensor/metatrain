@@ -4,11 +4,89 @@ from typing import Optional, Tuple
 import torch
 
 from .utilities import cutoff_func_bump as cutoff_func
+from .utilities import loguniform
 
 
 # minimum value for the probe cutoff. this avoids getting too close
 # to the central atom. in practice it could be also set to a larger value
 DEFAULT_MIN_PROBE_CUTOFF = 0.5
+
+
+def check_num_neighbors_adaptive(
+    num_neighbors_adaptive: Optional[int],
+    variable_num_neighbors_adaptive: Optional[Tuple[int, int]],
+    adaptive_cutoff: bool,
+) -> None:
+    """Check the target numbers of neighbors of the adaptive cutoff.
+
+    :param num_neighbors_adaptive: The ``num_neighbors_adaptive`` hyperparameter:
+        ``None``, or the (positive) target number of neighbors.
+    :param variable_num_neighbors_adaptive: The ``variable_num_neighbors_adaptive``
+        hyperparameter: ``None``, or a ``(low, high)`` range with ``0 < low <= high``,
+        which requires ``num_neighbors_adaptive``.
+    :param adaptive_cutoff: Whether the model uses the adaptive cutoff, which can not
+        be switched on or off for an existing model.
+    :raises ValueError: If the values are not valid.
+    """
+    if (num_neighbors_adaptive is not None) != adaptive_cutoff:
+        raise ValueError(
+            "The adaptive cutoff can not be switched on or off for an existing model"
+        )
+    if num_neighbors_adaptive is not None and num_neighbors_adaptive <= 0:
+        raise ValueError(
+            f"`num_neighbors_adaptive` must be positive, got {num_neighbors_adaptive}"
+        )
+    if variable_num_neighbors_adaptive is not None:
+        if num_neighbors_adaptive is None:
+            raise ValueError(
+                "`variable_num_neighbors_adaptive` requires the adaptive cutoff: "
+                "please also set `num_neighbors_adaptive`, which is the target "
+                "number of neighbors used outside of training"
+            )
+        if (
+            len(variable_num_neighbors_adaptive) != 2
+            or not 0
+            < variable_num_neighbors_adaptive[0]
+            <= variable_num_neighbors_adaptive[1]
+        ):
+            raise ValueError(
+                "`variable_num_neighbors_adaptive` must be a pair (low, high) with "
+                f"0 < low <= high, got {variable_num_neighbors_adaptive}"
+            )
+
+
+def sample_num_neighbors_adaptive(
+    low: int,
+    high: int,
+    num_samples: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    """Sample target numbers of neighbors used by the adaptive cutoff.
+
+    During training, when ``variable_num_neighbors_adaptive`` is set, this is called
+    at every forward pass to draw one target per structure in the batch.
+    The current strategy draws integers from the closed interval ``[low, high]``
+    with a log-uniform distribution: ``floor(x)`` with ``x`` log-uniform on
+    ``[low, high + 1)``, so that the integer ``k`` has probability
+    ``log((k + 1) / k) / log((high + 1) / low)``. Smaller targets are therefore
+    sampled more often.
+
+    :param low: Lower bound (inclusive) of the range.
+    :param high: Upper bound (inclusive) of the range.
+    :param num_samples: Number of targets to draw (one per structure).
+    :param device: Device of the returned tensor.
+    :param dtype: Floating point dtype of the returned tensor.
+    :return: The sampled target numbers of neighbors, of shape ``(num_samples,)``.
+    """
+    if low == high:
+        # don't consume random numbers when there is nothing to sample
+        return torch.full((num_samples,), float(low), device=device, dtype=dtype)
+    samples = torch.floor(
+        loguniform(float(low), float(high + 1), num_samples, device, dtype)
+    )
+    # guard against floating point round-off at the edges
+    return samples.clamp(float(low), float(high))
 
 
 def _n_total(
@@ -18,7 +96,7 @@ def _n_total(
     num_nodes: int,
     cutoff_width: float,
     inv_max_cutoff: float,
-    num_neighbors_adaptive: float,
+    num_neighbors_adaptive: torch.Tensor,
 ) -> torch.Tensor:
     """Smoothed neighbor count plus cubic baseline used by the adaptive-cutoff
     root finder. Module-level (not a closure) so the surrounding function is
@@ -30,8 +108,8 @@ def _n_total(
     :param num_nodes: Total number of center atoms.
     :param cutoff_width: Width of the smooth cutoff taper region.
     :param inv_max_cutoff: ``1 / max_cutoff``, precomputed for the baseline.
-    :param num_neighbors_adaptive: Target neighbor count; sets the baseline
-        amplitude.
+    :param num_neighbors_adaptive: Target neighbor count, either a scalar or a
+        per-atom tensor of shape ``(num_nodes,)``; sets the baseline amplitude.
     :return: Per-atom ``n_total(r) = sum_j cutoff_func(d_j, r, w) +
         num_neighbors_adaptive * (r / max_cutoff)**3``.
     """
@@ -49,7 +127,7 @@ def _n_total_and_dn_dr(
     num_nodes: int,
     cutoff_width: float,
     inv_max_cutoff: float,
-    num_neighbors_adaptive: float,
+    num_neighbors_adaptive: torch.Tensor,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Compute n_total and its analytical r-derivative in a single pass.
 
@@ -66,8 +144,8 @@ def _n_total_and_dn_dr(
     :param num_nodes: Total number of center atoms.
     :param cutoff_width: Width of the smooth cutoff taper region.
     :param inv_max_cutoff: ``1 / max_cutoff``, precomputed for the baseline.
-    :param num_neighbors_adaptive: Target neighbor count; sets the baseline
-        amplitude.
+    :param num_neighbors_adaptive: Target neighbor count, either a scalar or a
+        per-atom tensor of shape ``(num_nodes,)``; sets the baseline amplitude.
     :return: Tuple ``(n_total, dn_total/dr)``, both of shape ``(num_nodes,)``.
     """
     r_per_edge = r_per_atom[centers]
@@ -110,7 +188,7 @@ def _n_total_and_dn_dr(
 def get_adaptive_cutoffs_solver(
     centers: torch.Tensor,
     edge_distances: torch.Tensor,
-    num_neighbors_adaptive: float,
+    num_neighbors_adaptive: torch.Tensor,
     num_nodes: int,
     max_cutoff: float,
     cutoff_width: float,
@@ -141,7 +219,8 @@ def get_adaptive_cutoffs_solver(
 
     :param centers: Indices of the center atoms.
     :param edge_distances: Distances between centers and their neighbors.
-    :param num_neighbors_adaptive: Target number of neighbors per atom.
+    :param num_neighbors_adaptive: Target number of neighbors, either a scalar or
+        a per-atom tensor of shape ``(num_nodes,)``.
     :param num_nodes: Total number of center atoms.
     :param max_cutoff: Maximum cutoff distance to consider.
     :param cutoff_width: Width of the smooth cutoff taper region.
@@ -231,7 +310,7 @@ def get_adaptive_cutoffs_solver(
 def get_adaptive_cutoffs_grid(
     centers: torch.Tensor,
     edge_distances: torch.Tensor,
-    num_neighbors_adaptive: float,
+    num_neighbors_adaptive: torch.Tensor,
     num_nodes: int,
     max_cutoff: float,
     cutoff_width: float,
@@ -250,7 +329,8 @@ def get_adaptive_cutoffs_grid(
 
     :param centers: Indices of the center atoms.
     :param edge_distances: Distances between centers and their neighbors.
-    :param num_neighbors_adaptive: Target number of neighbors per atom.
+    :param num_neighbors_adaptive: Target number of neighbors, either a scalar or
+        a per-atom tensor of shape ``(num_nodes,)``.
     :param num_nodes: Total number of center atoms.
     :param max_cutoff: Maximum cutoff distance to consider.
     :param cutoff_width: Width of the smooth cutoff taper region.
@@ -329,7 +409,7 @@ def get_effective_num_neighbors(
 
 def get_gaussian_cutoff_weights(
     effective_num_neighbors: torch.Tensor,
-    num_neighbors_adaptive: float,
+    num_neighbors_adaptive: torch.Tensor,
     width: Optional[float] = None,
 ) -> torch.Tensor:
     """
@@ -339,7 +419,8 @@ def get_gaussian_cutoff_weights(
 
     :param effective_num_neighbors: Effective number of neighbors for each center atom
         and probe cutoff.
-    :param num_neighbors_adaptive: Target maximum number of neighbors per atom.
+    :param num_neighbors_adaptive: Target number of neighbors, either a scalar or
+        a per-atom tensor of shape ``(num_nodes,)``.
     :param width: Width of the Gaussian cutoff selection function.
     :return: Weights for each probe cutoff.
     """
@@ -347,7 +428,13 @@ def get_gaussian_cutoff_weights(
     if effective_num_neighbors.numel() == 0:
         return torch.empty_like(effective_num_neighbors)
 
-    diff = effective_num_neighbors - num_neighbors_adaptive
+    # shape (num_nodes, 1) or (1, 1), to broadcast along the probe axis
+    target = torch.as_tensor(
+        num_neighbors_adaptive,
+        dtype=effective_num_neighbors.dtype,
+        device=effective_num_neighbors.device,
+    ).reshape(-1, 1)
+    diff = effective_num_neighbors - target
 
     # adds a "baseline" corresponding to uniformly-distributed atoms
     # this has multiple "good" effects: it pushes the cutoff "out" when
@@ -362,9 +449,9 @@ def get_gaussian_cutoff_weights(
         device=effective_num_neighbors.device,
         dtype=effective_num_neighbors.dtype,
     )
-    baseline = num_neighbors_adaptive * x**3
+    baseline = target * x.unsqueeze(0) ** 3
 
-    diff = diff + baseline.unsqueeze(0)
+    diff = diff + baseline
     if width is None:
         # adaptive width from neighbor-count slope along probe axis (last dim)
         eps = 1e-12

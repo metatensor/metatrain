@@ -35,6 +35,7 @@ from metatrain.utils.sum_over_atoms import sum_over_atoms
 
 from . import checkpoints
 from .documentation import ModelHypers
+from .modules.adaptive_cutoff import check_num_neighbors_adaptive
 from .modules.backend import PER_TARGET_HYPERS, PETBackend, resolve_per_target
 from .modules.diagnostic import (
     DIAGNOSTIC_PREFIX,
@@ -62,7 +63,7 @@ class PET(ModelInterface[ModelHypers]):
         targets.
     """
 
-    __checkpoint_version__ = 20
+    __checkpoint_version__ = 21
     __supported_devices__ = ["cuda", "cpu"]
     __supported_dtypes__ = [torch.float32, torch.float64]
     __default_metadata__ = ModelMetadata(
@@ -81,16 +82,6 @@ class PET(ModelInterface[ModelHypers]):
         # Cache the hyperparameters that PET itself (as opposed to the pure-PyTorch
         # backend) needs. The remaining hyperparameters are cached on ``self.backend``.
         self.cutoff = float(self.hypers["cutoff"])
-        self.cutoff_function = self.hypers["cutoff_function"]
-        self.cutoff_width = float(self.hypers["cutoff_width"])
-        self.cutoff_width_adaptive = float(self.hypers["cutoff_width_adaptive"])
-        self.num_neighbors_adaptive = (
-            float(self.hypers["num_neighbors_adaptive"])
-            if self.hypers["num_neighbors_adaptive"] is not None
-            else None
-        )
-        self.adaptive_cutoff_method = self.hypers["adaptive_cutoff_method"]
-        self.d_pet = self.hypers["d_pet"]
         self.d_node = self.hypers["d_node"]
         self.num_gnn_layers = self.hypers["num_gnn_layers"]
         self.featurizer_type = self.hypers["featurizer_type"]
@@ -113,6 +104,11 @@ class PET(ModelInterface[ModelHypers]):
         # registered first so that ``backend.species_to_species_index`` remains the
         # first entry of the ``state_dict`` (relied upon by ``load_checkpoint``).
         self.backend = PETBackend(self.hypers, self.atomic_types)
+        # check the targets of the adaptive cutoff, and set them in the backend
+        self._set_num_neighbors_adaptive(
+            self.hypers["num_neighbors_adaptive"],
+            self.hypers["variable_num_neighbors_adaptive"],
+        )
         self.num_readout_layers = self.backend.num_readout_layers
         self.system_conditioning = self.backend.system_conditioning
 
@@ -178,12 +174,45 @@ class PET(ModelInterface[ModelHypers]):
     def supported_outputs(self) -> Dict[str, TargetInfo]:
         return self.outputs
 
+    def _set_num_neighbors_adaptive(
+        self,
+        num_neighbors_adaptive: Optional[int],
+        variable_num_neighbors_adaptive: Optional[Tuple[int, int]] = None,
+    ) -> None:
+        """Check and set the target numbers of neighbors of the adaptive cutoff.
+
+        They do not affect the model parameters, so they can also be changed after
+        training, e.g. to evaluate a model at a different number of neighbors. The
+        values are cached by the backend and stored in the hyperparameters, and so in
+        the checkpoints and exported models. The adaptive cutoff itself can not be
+        switched on or off.
+
+        :param num_neighbors_adaptive: The target number of neighbors used outside of
+            training (validation, evaluation, exported models), and during training
+            when ``variable_num_neighbors_adaptive`` is ``None``. ``None`` if the model
+            does not use the adaptive cutoff.
+        :param variable_num_neighbors_adaptive: The ``(low, high)`` range from which
+            the target is sampled during training, or ``None``.
+        """
+        check_num_neighbors_adaptive(
+            num_neighbors_adaptive,
+            variable_num_neighbors_adaptive,
+            adaptive_cutoff=self.hypers["num_neighbors_adaptive"] is not None,
+        )
+        self.backend._set_num_neighbors_adaptive(
+            num_neighbors_adaptive, variable_num_neighbors_adaptive
+        )
+        self.hypers["num_neighbors_adaptive"] = num_neighbors_adaptive
+        # stored as the ``(low, high)`` tuple of the backend, even if given as a list
+        self.hypers["variable_num_neighbors_adaptive"] = (
+            self.backend.variable_num_neighbors
+        )
+
     def restart(
         self,
         dataset_info: DatasetInfo,
         model_hypers: Optional[Mapping[str, Any]] = None,
     ) -> "PET":
-
         if model_hypers is not None:
             default_hypers = get_default_hypers("pet")["model"]
             model_hypers = dict(model_hypers)
@@ -390,7 +419,8 @@ class PET(ModelInterface[ModelHypers]):
                 species,
                 cell_contributions,
                 cell_shifts,
-                self.cutoff_width_adaptive,
+                system_indices,
+                len(systems),
             )
 
         # ===== BEGIN DIAGNOSTIC-RELATED BLOCK

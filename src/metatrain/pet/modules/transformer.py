@@ -688,7 +688,10 @@ def manual_attention(
 
 
 def smooth_cutoff_attention(
-    logits: torch.Tensor, factors: torch.Tensor, established_power: float = 8.0
+    logits: torch.Tensor,
+    factors: torch.Tensor,
+    established_power: float = 8.0,
+    logit_cap: float = 5.0,
 ) -> torch.Tensor:
     """
     Attention weights that grow smoothly with the cutoff factors of the keys.
@@ -700,33 +703,95 @@ def smooth_cutoff_attention(
 
     .. code-block:: text
 
-        f * exp(logit) / (1 + (1 - f) * exp(logit) / established)
+        f * exp(logit) / (1 + (1 - f) * exp(logit) / others)
 
-    where ``established`` is the total weight of the *other* keys, each counted with
-    a factor ``f**established_power``, i.e. only once they are well inside the cutoff.
-    For a single key in the cutoff tail, the attention it receives is then exactly
-    ``f`` times what it would receive with ``f = 1``. Keys with ``f = 1`` are not
-    affected.
+    where ``others`` is the sum of ``f**established_power * exp(logit)`` over the
+    *other* keys, i.e. the keys that are well inside the cutoff. A single key in the
+    cutoff tail then receives exactly ``f`` times the attention it would receive with
+    ``f = 1``, however strongly the query prefers it. Keys with ``f = 1`` are not
+    affected. In log space, this is a softmax over ``logit + bias``, with
+
+    .. code-block:: text
+
+        bias = log(f) - softplus(log(1 - f) + logit - log(others))
+
+    With several keys in the tail, counting the competitors with
+    ``f**established_power`` is only an approximation. A key that the query prefers
+    by a huge margin then counts as a huge competitor for the other keys, while its
+    own attention is limited by its cutoff factor, and a second preferred key can
+    take most of the attention at the very edge of the cutoff. The logits are
+    therefore soft-capped to ``logit_cap * tanh(logit / logit_cap)``, so that no key
+    can be preferred over another by more than ``exp(2 * logit_cap)``.
 
     :param logits: The attention logits, of shape (..., num_queries, num_keys).
     :param factors: The cutoff factors of the keys. Broadcastable to the logits.
     :param established_power: Power of the cutoff factor with which a key counts as
         an established competitor for the attention received by the other keys.
+    :param logit_cap: Bound on the absolute value of the logits.
     :return: The attention weights, normalized over the keys.
     """
-    weights = torch.softmax(logits.masked_fill(factors <= 0.0, float("-inf")), dim=-1)
+    logits = logit_cap * torch.tanh(logits / logit_cap)
+    excluded = factors <= 0.0
+    inside = factors >= 1.0
 
-    # Established weight of the keys other than each one. Subtracting each term from
-    # the total would be inaccurate for a key that dominates it, so we start from the
-    # sum of all the terms but the largest.
-    counted = weights * factors**established_power
-    largest, index = counted.max(dim=-1, keepdim=True)
-    rest = counted.scatter(-1, index, 0.0).sum(dim=-1, keepdim=True)
-    # the clamp only acts when there are no other keys, or when a key outweighs all
-    # the others by more than twelve orders of magnitude
-    established = (rest + (largest - counted)).clamp(min=1e-12)
+    log_f = _log_with_bounded_gradient(factors)
+    # f is replaced by 0 for the keys inside, whose bias is zero anyway, so that the
+    # gradient of log(1 - f) stays finite
+    log_1mf = torch.log1p(-factors.masked_fill(inside, 0.0))
 
-    weights = (
-        factors * weights * established / (established + (1.0 - factors) * weights)
+    log_others = _logsumexp_of_others(logits + established_power * log_f, excluded)
+
+    bias = log_f - F.softplus(log_1mf + logits - log_others)
+    return torch.softmax(logits + bias.masked_fill(inside, 0.0), dim=-1)
+
+
+def _log_with_bounded_gradient(
+    x: torch.Tensor, threshold: float = 1e-15
+) -> torch.Tensor:
+    """
+    ``log(x)``, with the gradient only propagated for ``x > threshold``.
+
+    The value is exact (with ``log(0) = -inf``), but the gradient ``1/x`` (and
+    ``-1/x**2`` for the second derivative) would overflow for tiny ``x``.
+
+    :param x: A non-negative tensor.
+    :param threshold: Values below which no gradient is propagated.
+    :return: The logarithm of ``x``.
+    """
+    return torch.where(
+        x > threshold,
+        torch.log(x.clamp(min=threshold)),
+        torch.log(x.clamp(min=0.0)).detach(),
     )
-    return weights / weights.sum(dim=-1, keepdim=True)
+
+
+def _logsumexp_of_others(
+    x: torch.Tensor, excluded: torch.Tensor, log_zero: float = -1e30
+) -> torch.Tensor:
+    """
+    ``log(sum_{j != i} exp(x_j))`` for every ``i`` along the last dimension, where
+    the sum runs over the entries that are not excluded.
+
+    Subtracting ``exp(x_i)`` from the total loses all precision for the largest
+    entry, whose sum of others can be many orders of magnitude below it. The largest
+    entry instead gets the log-sum of the rest, and every other entry the largest
+    one plus the rest, minus itself. That sum is always at least ``exp(x_max)``, so
+    the subtraction is accurate.
+
+    :param x: The input tensor.
+    :param excluded: Entries left out of all the sums. Broadcastable to ``x``.
+    :param log_zero: Finite stand-in for ``log(0)``, which keeps the gradients free
+        of ``inf - inf``.
+    :return: A tensor of the same shape as ``x``.
+    """
+    x = x.masked_fill(excluded, log_zero)
+    index = x.detach().argmax(dim=-1, keepdim=True)
+    is_max = torch.arange(x.shape[-1], device=x.device) == index
+    x_max = x.gather(-1, index)
+    # the largest entry is masked in both branches, so that neither takes a log(0)
+    rest = x.masked_fill(is_max, log_zero)
+    log_rest = torch.logsumexp(rest, dim=-1, keepdim=True)
+    log_others = x_max + torch.log1p(
+        torch.exp(log_rest - x_max) - torch.exp(rest - x_max)
+    )
+    return torch.where(is_max, log_rest, log_others)

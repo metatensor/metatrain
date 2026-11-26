@@ -27,6 +27,9 @@ Unreleased
 Fixed
 #####
 
+- PET with smooth attention weights are now computed in log space with soft-capping,
+  and it no longer yields NaN forces, stresses and parameter gradients in float32 when
+  the neighbor that the central atom attends to most sits deep in the cutoff tail (#1356).
 - Restarting FlashMD, FlashMD-symplectic, MACE, DPA3, SPACE and LLPR trainings now
   stops at ``num_epochs`` instead of running ``num_epochs`` more epochs, as in PET.
 - Datasets from XYZ files containing at least one missing stress/virial
@@ -91,15 +94,11 @@ Fixed
 Added
 #####
 
+- PET can now randomly vary the number of neighbors of the adaptive cutoff during training. (#1356)
 - Extenders as a new concept in metatrain. They can be used to augment the capabilities
   of architectures (#1209).
-- PET has a smoother attention cutoff. The attention that the central atom pays to a
-  neighbor in the tail of the cutoff function is now proportional to its cutoff
-  function, instead of switching on abruptly when the neighbor has few competitors,
-  and the cutoff function no longer damps the attention of a neighbor to itself. This removes sharp features of the
-  potential energy surface when atoms enter or leave the cutoff (#1330). The previous
-  behavior is available with ``smooth_attention_cutoff: false``, and is kept for
-  existing checkpoints.
+- PET has a smoother attention cutoff for central tokens, that makes the attention weights
+  proportional to the cutoff weights. (#1330)
 - The experimental DPA3 architecture can now be used with LLPR (#1335).
 - SPACE models can now be fine-tuned on targets they were not trained on, optionally
   initializing the new heads from existing ones with ``inherit_heads``.
