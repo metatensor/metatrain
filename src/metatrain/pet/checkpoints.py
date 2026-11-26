@@ -456,6 +456,20 @@ def model_update_v19_v20(checkpoint: dict) -> None:
     hypers["readout_type"] = None
 
 
+def model_update_v20_v21(checkpoint: dict) -> None:
+    """
+    Update a v20 checkpoint to v21.
+
+    Rename the legacy ``non_conservative_forces`` property label (and target key,
+    when still plural) to ``non_conservative_force``. Checkpoints saved before the
+    rename keep the plural name, which no longer matches the layouts built for
+    fine-tuning.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    upgrade_legacy_non_conservative_force(checkpoint)
+
+
 ###########################
 # TRAINER #################
 ###########################

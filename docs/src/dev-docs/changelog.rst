@@ -27,6 +27,10 @@ Unreleased
 Fixed
 #####
 
+- Fine-tuning checkpoints saved before ``non_conservative_forces`` was renamed to
+  ``non_conservative_force`` works again: the old name is renamed when the
+  checkpoint is loaded, and training options that still use it give a deprecation
+  warning (#1291).
 - Restarting FlashMD, FlashMD-symplectic, MACE, DPA3, SPACE and LLPR trainings now
   stops at ``num_epochs`` instead of running ``num_epochs`` more epochs, as in PET.
 - Datasets from XYZ files containing at least one missing stress/virial
