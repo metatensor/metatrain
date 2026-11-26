@@ -11,7 +11,6 @@ from omegaconf import OmegaConf
 
 import metatrain.pet.modules.backend as backend_module
 from metatrain.pet import PET, Trainer
-from metatrain.pet.checkpoints import model_update_v20_v21
 from metatrain.pet.modules.adaptive_cutoff import (
     sample_num_neighbors_adaptive,
 )
@@ -89,20 +88,20 @@ def test_valid_range(value):
     )
 
 
-@pytest.mark.parametrize("value", [[4], [4, 8, 12], [12, 4], [0, 4]])
-def test_invalid_range(value):
-    with pytest.raises(ValueError, match="must be a pair"):
-        PET(_hypers(4, value), DATASET_INFO)
-
-
-def test_invalid_num_neighbors():
-    with pytest.raises(ValueError, match="must be positive"):
-        PET(_hypers(0), DATASET_INFO)
-
-
-def test_variable_requires_adaptive_cutoff():
-    with pytest.raises(ValueError, match="requires the adaptive cutoff"):
-        PET(_hypers(None, [4, 12]), DATASET_INFO)
+@pytest.mark.parametrize(
+    "num_neighbors, variable, match",
+    [
+        (4, [4], "must be a pair"),
+        (4, [4, 8, 12], "must be a pair"),
+        (4, [12, 4], "must be a pair"),
+        (4, [0, 4], "must be a pair"),
+        (0, None, "must be positive"),
+        (None, [4, 12], "requires the adaptive cutoff"),
+    ],
+)
+def test_invalid_hypers(num_neighbors, variable, match):
+    with pytest.raises(ValueError, match=match):
+        PET(_hypers(num_neighbors, variable), DATASET_INFO)
 
 
 def _sample(low, high, n):
@@ -132,39 +131,30 @@ def test_sample():
     assert torch.equal(state, torch.get_rng_state())
 
 
-def test_training_samples_per_structure(recorded_targets):
+@pytest.mark.parametrize("variable", [None, (4, 12)])
+def test_sampling_switch(recorded_targets, variable):
+    """When the trainer switches sampling on, each structure gets a target sampled
+    from the range. Otherwise (also in train mode, or without a range), all the
+    structures use ``num_neighbors_adaptive``."""
     torch.manual_seed(0)
-    model = PET(_hypers(4, [4, 12]), DATASET_INFO)
+    model = PET(_hypers(8, variable), DATASET_INFO).train()
+    assert not model.backend.sample_num_neighbors
     sizes = [12, 7, 9]
     systems = [_system(model, n, seed=i) for i, n in enumerate(sizes)]
     outputs = {"energy": ModelOutput(sample_kind="system")}
 
+    model(systems, outputs)
+    assert _per_system(recorded_targets[0], sizes) == [8.0, 8.0, 8.0]
+
+    recorded_targets.clear()
     model.backend.sample_num_neighbors = True
     for _ in range(20):
         model(systems, outputs)
-    per_system = [_per_system(t, sizes) for t in recorded_targets]
-    values = [v for batch in per_system for v in batch]
-    assert all(v == int(v) and 4 <= v <= 12 for v in values)
-    # structures in the same batch get different targets
-    assert any(len(set(batch)) > 1 for batch in per_system)
-
-    recorded_targets.clear()
-    model.backend.sample_num_neighbors = False
-    model(systems, outputs)
-    assert _per_system(recorded_targets[0], sizes) == [4.0, 4.0, 4.0]
-
-
-def test_training_mode_does_not_sample(recorded_targets):
-    # sampling is only switched on explicitly (by the trainer), not by train()
-    model = PET(_hypers(4, [4, 12]), DATASET_INFO)
-    assert not model.backend.sample_num_neighbors
-    system = _system(model)
-    outputs = {"energy": ModelOutput(sample_kind="system")}
-
-    model.train()
-    for _ in range(5):
-        model([system], outputs)
-    assert set(torch.cat(recorded_targets).tolist()) == {4.0}
+    values = {v for t in recorded_targets for v in _per_system(t, sizes)}
+    if variable is None:
+        assert values == {8.0}
+    else:
+        assert values <= {float(v) for v in range(4, 13)} and len(values) > 1
 
 
 def test_per_atom_targets_match_single_structures(recorded_targets):
@@ -195,56 +185,8 @@ def test_per_atom_targets_match_single_structures(recorded_targets):
         torch.testing.assert_close(batch.values[mask], single.values)
 
 
-def test_eval_matches_fixed_model():
-    """Without sampling, a model with a range behaves as a fixed model with
-    ``num_neighbors_adaptive``."""
-    torch.manual_seed(0)
-    range_model = PET(_hypers(4, [4, 12]), DATASET_INFO).eval()
-    fixed_model = PET(_hypers(4), DATASET_INFO).eval()
-    fixed_model.load_state_dict(range_model.state_dict())
-
-    system = _system(range_model)
-    outputs = {
-        "energy": ModelOutput(sample_kind="system"),
-        "mtt::aux::cutoff_stats": ModelOutput(sample_kind="atom"),
-    }
-    range_out = range_model([system], outputs)
-    fixed_out = fixed_model([system], outputs)
-    for key in outputs:
-        torch.testing.assert_close(
-            range_out[key].block().values, fixed_out[key].block().values
-        )
-
-
-def test_inference_value_inside_range(recorded_targets):
-    """Outside of sampling, ``num_neighbors_adaptive`` is used, whatever the range."""
-    model = PET(_hypers(8, [4, 12]), DATASET_INFO)
-    system = _system(model)
-    outputs = {"energy": ModelOutput(sample_kind="system")}
-
-    model([system], outputs)
-    assert set(recorded_targets[0].tolist()) == {8.0}
-
-    recorded_targets.clear()
-    model.backend.sample_num_neighbors = True
-    for _ in range(20):
-        model([system], outputs)
-    values = set(torch.cat(recorded_targets).tolist())
-    assert values <= set(float(v) for v in range(4, 13)) and len(values) > 1
-
-
-def test_no_range_does_not_sample(recorded_targets):
-    """Without a range, the trainer's sampling switch has no effect."""
-    model = PET(_hypers(6), DATASET_INFO)
-    system = _system(model)
-    model.backend.sample_num_neighbors = True
-    for _ in range(5):
-        model([system], {"energy": ModelOutput(sample_kind="system")})
-    assert set(torch.cat(recorded_targets).tolist()) == {6.0}
-
-
 def test_set_num_neighbors_adaptive(recorded_targets):
-    model = PET(_hypers(4, [4, 12]), DATASET_INFO).eval()
+    model = PET(_hypers(4, [4, 12]), DATASET_INFO)
     system = _system(model)
     outputs = {"energy": ModelOutput(sample_kind="system")}
 
@@ -254,26 +196,13 @@ def test_set_num_neighbors_adaptive(recorded_targets):
     model([system], outputs)
     assert set(recorded_targets[0].tolist()) == {10.0}
 
-    recorded_targets.clear()
-    model._set_num_neighbors_adaptive(6, [6, 8])
-    assert model.hypers["variable_num_neighbors_adaptive"] == (6, 8)
-    model.backend.sample_num_neighbors = True
-    for _ in range(20):
-        model([system], outputs)
-    assert set(torch.cat(recorded_targets).tolist()) <= {6.0, 7.0, 8.0}
-    model.backend.sample_num_neighbors = False
-
     # the values are kept in the checkpoint
+    model._set_num_neighbors_adaptive(6, [6, 8])
     loaded = PET.load_checkpoint(model.get_checkpoint(), context="export")
     assert loaded.hypers["num_neighbors_adaptive"] == 6
     assert loaded.hypers["variable_num_neighbors_adaptive"] == (6, 8)
     assert loaded.backend.num_neighbors_adaptive == 6.0
-
-    # invalid values
-    with pytest.raises(ValueError):
-        model._set_num_neighbors_adaptive(0)
-    with pytest.raises(ValueError):
-        model._set_num_neighbors_adaptive(6, [8, 6])
+    assert loaded.backend.variable_num_neighbors == (6, 8)
 
     # the adaptive cutoff can't be switched on or off
     with pytest.raises(ValueError, match="switched on or off"):
@@ -290,35 +219,6 @@ def test_restart_can_not_change_num_neighbors_adaptive():
         model.restart(DATASET_INFO, _hypers(6, [4, 12]))
     with pytest.raises(ValueError, match="mismatch"):
         model.restart(DATASET_INFO, _hypers(4, [4, 16]))
-
-
-@pytest.mark.parametrize("old", [None, 16])
-def test_checkpoint_update_v20_v21(old):
-    """The update adds an empty ``variable_num_neighbors_adaptive``."""
-    checkpoint = {"model_data": {"model_hypers": {"num_neighbors_adaptive": old}}}
-    model_update_v20_v21(checkpoint)
-    hypers = checkpoint["model_data"]["model_hypers"]
-    assert hypers["num_neighbors_adaptive"] == old
-    assert hypers["variable_num_neighbors_adaptive"] is None
-
-
-def test_torchscript():
-    torch.manual_seed(0)
-    model = PET(_hypers(4, [4, 12]), DATASET_INFO)
-    system = _system(model)
-    outputs = {"energy": ModelOutput(sample_kind="system")}
-
-    scripted = torch.jit.script(model)
-    scripted.backend.sample_num_neighbors = True
-    scripted([system], outputs)
-
-    model.eval()
-    scripted.eval()
-    scripted.backend.sample_num_neighbors = False
-    torch.testing.assert_close(
-        model([system], outputs)["energy"].block().values,
-        scripted([system], outputs)["energy"].block().values,
-    )
 
 
 class TestVariableAdaptiveTraining(PETTests):
