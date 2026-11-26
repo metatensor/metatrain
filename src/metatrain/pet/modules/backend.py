@@ -94,11 +94,7 @@ class PETBackend(torch.nn.Module):
         self.normalization = hypers["normalization"]
         self.activation = hypers["activation"]
         self.attention_temperature = hypers["attention_temperature"]
-        # Hypers from checkpoints older than this option do not have it, and such
-        # models were trained without it.
-        self.smooth_attention_cutoff = bool(
-            hypers.get("smooth_attention_cutoff", False)
-        )
+        self.smooth_attention_cutoff = hypers["smooth_attention_cutoff"]
         self.transformer_type = hypers["transformer_type"]
         self.featurizer_type = hypers["featurizer_type"]
 

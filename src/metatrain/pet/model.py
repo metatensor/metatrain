@@ -216,10 +216,6 @@ class PET(ModelInterface[ModelHypers]):
         if model_hypers is not None:
             default_hypers = get_default_hypers("pet")["model"]
             model_hypers = dict(model_hypers)
-            # the range is stored as a tuple, but can be given as a list (e.g. YAML)
-            variable = model_hypers.get("variable_num_neighbors_adaptive")
-            if variable is not None:
-                model_hypers["variable_num_neighbors_adaptive"] = tuple(variable)
             hypers = cast(Dict[str, Any], self.hypers)
             for name, default in PER_TARGET_HYPERS.items():
                 if name not in model_hypers:

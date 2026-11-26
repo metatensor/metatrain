@@ -214,7 +214,7 @@ def test_set_num_neighbors_adaptive(recorded_targets):
 
 def test_restart_can_not_change_num_neighbors_adaptive():
     model = PET(_hypers(4, [4, 12]), DATASET_INFO)
-    model.restart(DATASET_INFO, _hypers(4, [4, 12]))
+    model.restart(DATASET_INFO, _hypers(4, (4, 12)))
     with pytest.raises(ValueError, match="mismatch"):
         model.restart(DATASET_INFO, _hypers(6, [4, 12]))
     with pytest.raises(ValueError, match="mismatch"):
