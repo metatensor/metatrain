@@ -28,8 +28,8 @@ Fixed
 #####
 
 - PET with smooth attention weights are now computed in log space with soft-capping,
-  and no longer yield NaN forces, stresses and parameter gradients in float32 when
-  the neighbor that the central atom attends to most sits deep in the cutoff tail.
+  and it no longer yields NaN forces, stresses and parameter gradients in float32 when
+  the neighbor that the central atom attends to most sits deep in the cutoff tail (#1356).
 - Restarting FlashMD, FlashMD-symplectic, MACE, DPA3, SPACE and LLPR trainings now
   stops at ``num_epochs`` instead of running ``num_epochs`` more epochs, as in PET.
 - Datasets from XYZ files containing at least one missing stress/virial
@@ -94,7 +94,7 @@ Fixed
 Added
 #####
 
-- PET can now randomly vary the ``num_neighbors_adaptive`` parameter during training. (#1356)
+- PET can now randomly vary the number of neighbors of the adaptive cutoff during training. (#1356)
 - Extenders as a new concept in metatrain. They can be used to augment the capabilities
   of architectures (#1209).
 - PET has a smoother attention cutoff for central tokens, that makes the attention weights
