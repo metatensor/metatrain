@@ -1,4 +1,6 @@
 """
+.. _mixed-stress-tutorial:
+
 Training with Mixed Stress Structures
 ======================================
 
@@ -112,15 +114,16 @@ subprocess.run(["mtt", "train", "options-mixed-stress.yaml"], check=True)
 # ----------
 #
 # 1. **Use NaN for undefined stress**: When stress is not defined for a structure,
-#    set the stress tensor to ``np.full((3, 3), np.nan, dtype=np.float64)``.
+#    set the stress tensor to ``np.full((3, 3), np.nan, dtype=np.float64)``, or
+#    simply leave the stress out of this structure.
 #
 # 2. **Mixed training is automatic**: ``metatrain`` automatically handles the mixed
 #    dataset during training, only computing stress loss for structures where stress
 #    is defined (not NaN).
 #
-# 3. **All structures need stress field**: Even if stress is not defined for some
-#    structures, the stress field must be present in the dataset. Use NaN values
-#    for structures where stress is undefined.
+# 3. **Missing stresses are NaN**: When reading with ASE (e.g. from ``.xyz`` files),
+#    structures without the stress (or virial) key automatically get a NaN stress.
+#    If none of the structures has a stress, training proceeds without it.
 #
 # 4. **Force training works normally**: Forces can be trained for all structure types
 #    (bulk, molecules, and slabs) without any special handling.

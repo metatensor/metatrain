@@ -99,9 +99,13 @@ directory of NumPy and raw binary arrays. It uses the following files:
   are stored as ``float32``.
 
 Forces and stresses of an energy target use the same convention, with file names taken
-from their own ``key`` options. Extra data, for example ``charge.bin`` or
-``spin_multiplicity.bin``, must contain per-structure scalar values with shape ``(ns,
-1)``.
+from their own ``key`` options. In datasets where only some structures have a stress
+(e.g. bulk structures together with molecules), the structures without a stress must
+have NaN values in the stress array: they are then ignored during training. Since the
+stress is enabled by default for energy targets, set ``stress: off`` for datasets
+without any stress (i.e. without a stress file). Extra data, for example
+``charge.bin`` or ``spin_multiplicity.bin``, must contain per-structure scalar values
+with shape ``(ns, 1)``.
 
 Spherical targets and virials are not supported in this format. A complete walkthrough,
 including forces and stresses, is available in :ref:`create-memmap-dataset`.
