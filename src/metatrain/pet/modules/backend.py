@@ -285,7 +285,7 @@ class PETBackend(torch.nn.Module):
         :param num_neighbors_adaptive: ``None`` to disable the adaptive cutoff, or the
             target number of neighbors used outside of training (and during training
             when no range is set).
-        :param variable_num_neighbors_adaptive: ``None``, or a ``[low, high]`` range
+        :param variable_num_neighbors_adaptive: ``None``, or a ``(low, high)`` range
             from which the target is sampled with :func:`sample_num_neighbors_adaptive`
             when ``sample_num_neighbors`` is set.
         """

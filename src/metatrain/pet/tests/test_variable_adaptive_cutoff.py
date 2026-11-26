@@ -81,7 +81,9 @@ def recorded_targets(monkeypatch):
 @pytest.mark.parametrize("value", [[4, 12], (4, 12), [7, 7], None])
 def test_valid_range(value):
     model = PET(_hypers(4, value), DATASET_INFO)
-    assert model.hypers["variable_num_neighbors_adaptive"] == value
+    assert model.hypers["variable_num_neighbors_adaptive"] == (
+        None if value is None else tuple(value)
+    )
     assert model.backend.variable_num_neighbors == (
         None if value is None else tuple(value)
     )
@@ -89,7 +91,7 @@ def test_valid_range(value):
 
 @pytest.mark.parametrize("value", [[4], [4, 8, 12], [12, 4], [0, 4]])
 def test_invalid_range(value):
-    with pytest.raises(ValueError, match="must be a list"):
+    with pytest.raises(ValueError, match="must be a pair"):
         PET(_hypers(4, value), DATASET_INFO)
 
 
@@ -254,7 +256,7 @@ def test_set_num_neighbors_adaptive(recorded_targets):
 
     recorded_targets.clear()
     model._set_num_neighbors_adaptive(6, [6, 8])
-    assert model.hypers["variable_num_neighbors_adaptive"] == [6, 8]
+    assert model.hypers["variable_num_neighbors_adaptive"] == (6, 8)
     model.backend.sample_num_neighbors = True
     for _ in range(20):
         model([system], outputs)
@@ -264,7 +266,7 @@ def test_set_num_neighbors_adaptive(recorded_targets):
     # the values are kept in the checkpoint
     loaded = PET.load_checkpoint(model.get_checkpoint(), context="export")
     assert loaded.hypers["num_neighbors_adaptive"] == 6
-    assert loaded.hypers["variable_num_neighbors_adaptive"] == [6, 8]
+    assert loaded.hypers["variable_num_neighbors_adaptive"] == (6, 8)
     assert loaded.backend.num_neighbors_adaptive == 6.0
 
     # invalid values

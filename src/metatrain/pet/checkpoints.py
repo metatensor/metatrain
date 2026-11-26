@@ -459,11 +459,8 @@ def model_update_v20_v21(checkpoint: dict) -> None:
     """
     Update model checkpoint from version 20 to version 21.
 
-    Adds the ``variable_num_neighbors_adaptive`` hyperparameter. Development versions
-    of the code gave the range of sampled numbers of neighbors as
-    ``num_neighbors_adaptive: [low, high]``, and used ``low`` outside of training:
-    this becomes ``num_neighbors_adaptive: low`` and
-    ``variable_num_neighbors_adaptive: [low, high]``.
+    Adds the ``variable_num_neighbors_adaptive`` hyperparameter,
+    and sets it to ``None`` for checkpoints that don't have it.
 
     :param checkpoint: The checkpoint to update.
     """

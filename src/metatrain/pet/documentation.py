@@ -142,7 +142,8 @@ important** (in decreasing order of importance):
 
 from typing import Literal, Optional, Tuple, Union
 
-from typing_extensions import NotRequired, TypedDict
+from pydantic import Field
+from typing_extensions import Annotated, NotRequired, TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.scaler.documentation import FixedScalerWeights
@@ -187,7 +188,9 @@ class ModelHypers(TypedDict):
     models, and also during training unless ``variable_num_neighbors_adaptive`` is
     set.
     """
-    variable_num_neighbors_adaptive: Optional[Tuple[int, int]] = None
+    variable_num_neighbors_adaptive: Optional[
+        Annotated[Tuple[int, int], Field(strict=False)]
+    ] = None
     """Range ``[low, high]`` of target numbers of neighbors sampled during training.
 
     If set, at each training step the target number of neighbors of the adaptive

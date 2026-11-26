@@ -22,7 +22,7 @@ def check_num_neighbors_adaptive(
     :param num_neighbors_adaptive: The ``num_neighbors_adaptive`` hyperparameter:
         ``None``, or the (positive) target number of neighbors.
     :param variable_num_neighbors_adaptive: The ``variable_num_neighbors_adaptive``
-        hyperparameter: ``None``, or a ``[low, high]`` range with ``0 < low <= high``,
+        hyperparameter: ``None``, or a ``(low, high)`` range with ``0 < low <= high``,
         which requires ``num_neighbors_adaptive``.
     :param adaptive_cutoff: Whether the model uses the adaptive cutoff, which can not
         be switched on or off for an existing model.
@@ -50,7 +50,7 @@ def check_num_neighbors_adaptive(
             <= variable_num_neighbors_adaptive[1]
         ):
             raise ValueError(
-                "`variable_num_neighbors_adaptive` must be a list [low, high] with "
+                "`variable_num_neighbors_adaptive` must be a pair (low, high) with "
                 f"0 < low <= high, got {variable_num_neighbors_adaptive}"
             )
 

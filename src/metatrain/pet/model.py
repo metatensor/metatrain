@@ -191,7 +191,7 @@ class PET(ModelInterface[ModelHypers]):
             training (validation, evaluation, exported models), and during training
             when ``variable_num_neighbors_adaptive`` is ``None``. ``None`` if the model
             does not use the adaptive cutoff.
-        :param variable_num_neighbors_adaptive: The ``[low, high]`` range from which
+        :param variable_num_neighbors_adaptive: The ``(low, high)`` range from which
             the target is sampled during training, or ``None``.
         """
         check_num_neighbors_adaptive(
@@ -203,7 +203,10 @@ class PET(ModelInterface[ModelHypers]):
             num_neighbors_adaptive, variable_num_neighbors_adaptive
         )
         self.hypers["num_neighbors_adaptive"] = num_neighbors_adaptive
-        self.hypers["variable_num_neighbors_adaptive"] = variable_num_neighbors_adaptive
+        # stored as the ``(low, high)`` tuple of the backend, even if given as a list
+        self.hypers["variable_num_neighbors_adaptive"] = (
+            self.backend.variable_num_neighbors
+        )
 
     def restart(
         self,
@@ -213,6 +216,10 @@ class PET(ModelInterface[ModelHypers]):
         if model_hypers is not None:
             default_hypers = get_default_hypers("pet")["model"]
             model_hypers = dict(model_hypers)
+            # the range is stored as a tuple, but can be given as a list (e.g. YAML)
+            variable = model_hypers.get("variable_num_neighbors_adaptive")
+            if variable is not None:
+                model_hypers["variable_num_neighbors_adaptive"] = tuple(variable)
             hypers = cast(Dict[str, Any], self.hypers)
             for name, default in PER_TARGET_HYPERS.items():
                 if name not in model_hypers:
