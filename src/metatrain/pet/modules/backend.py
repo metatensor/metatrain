@@ -277,7 +277,7 @@ class PETBackend(torch.nn.Module):
     def _set_num_neighbors_adaptive(
         self,
         num_neighbors_adaptive: Optional[int],
-        variable_num_neighbors_adaptive: Optional[List[int]] = None,
+        variable_num_neighbors_adaptive: Optional[Tuple[int, int]] = None,
     ) -> None:
         """Set the target numbers of neighbors of the adaptive cutoff.
 

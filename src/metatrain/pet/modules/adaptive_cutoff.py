@@ -1,5 +1,5 @@
 import math
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import torch
 
@@ -13,7 +13,7 @@ DEFAULT_MIN_PROBE_CUTOFF = 0.5
 
 def check_num_neighbors_adaptive(
     num_neighbors_adaptive: Optional[int],
-    variable_num_neighbors_adaptive: Optional[List[int]],
+    variable_num_neighbors_adaptive: Optional[Tuple[int, int]],
     adaptive_cutoff: bool,
 ) -> None:
     """Check the target numbers of neighbors of the adaptive cutoff.

@@ -28,8 +28,8 @@ Fixed
 #####
 
 - PET with smooth attention weights are now computed in log space with soft-capping,
-  and no longer yield NaN forces, stresses and parameter gradients in float32 when 
-  the neighbor that the central atom attends to most sits deep in the cutoff tail. 
+  and no longer yield NaN forces, stresses and parameter gradients in float32 when
+  the neighbor that the central atom attends to most sits deep in the cutoff tail.
 - Restarting FlashMD, FlashMD-symplectic, MACE, DPA3, SPACE and LLPR trainings now
   stops at ``num_epochs`` instead of running ``num_epochs`` more epochs, as in PET.
 - Datasets from XYZ files containing at least one missing stress/virial
