@@ -72,6 +72,8 @@ def build_train_dataloaders(
                     collate_fn=collate_fn_train,
                     num_workers=num_workers,
                     multiprocessing_context=mp_context,
+                    # only pinned batches transfer asynchronously
+                    pin_memory=torch.cuda.is_available(),
                 )
             )
         else:
@@ -94,6 +96,8 @@ def build_train_dataloaders(
                     collate_fn=collate_fn_train,
                     num_workers=num_workers,
                     multiprocessing_context=mp_context,
+                    # only pinned batches transfer asynchronously
+                    pin_memory=torch.cuda.is_available(),
                 )
             )
     return dataloaders, epoch_samplers
@@ -153,6 +157,8 @@ def build_val_dataloaders(
                     collate_fn=collate_fn_val,
                     num_workers=num_workers,
                     multiprocessing_context=mp_context,
+                    # only pinned batches transfer asynchronously
+                    pin_memory=torch.cuda.is_available(),
                 )
             )
         else:
@@ -166,6 +172,8 @@ def build_val_dataloaders(
                     collate_fn=collate_fn_val,
                     num_workers=num_workers,
                     multiprocessing_context=mp_context,
+                    # only pinned batches transfer asynchronously
+                    pin_memory=torch.cuda.is_available(),
                 )
             )
     return dataloaders
