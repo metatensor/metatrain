@@ -9,7 +9,22 @@ from metatrain.utils.data.target_info import (
     get_energy_target_info,
     get_generic_target_info,
     is_auxiliary_output,
+    property_label_name,
 )
+
+
+@pytest.mark.parametrize(
+    ("name", "label"),
+    [
+        ("charge", "charge"),
+        ("mtt::charge", "charge"),
+        ("charge/dft", "charge"),
+        ("mtt::charge/dft", "charge"),
+        ("non_conservative_stress/variant", "non_conservative_stress"),
+    ],
+)
+def test_property_label_name(name, label):
+    assert property_label_name(name) == label
 
 
 @pytest.fixture

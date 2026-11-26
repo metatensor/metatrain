@@ -45,7 +45,7 @@ class LLPRUncertaintyModel(ModelInterface[ModelHypers]):
     :param dataset_info: The dataset info of the targets to wrap.
     """
 
-    __checkpoint_version__ = 7
+    __checkpoint_version__ = 8
 
     ensemble_gradient_outputs: List[str]
     llpr_outputs: List[str]
