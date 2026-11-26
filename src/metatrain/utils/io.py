@@ -1,3 +1,4 @@
+import copy
 import re
 import warnings
 from importlib import import_module
@@ -18,6 +19,7 @@ from .architectures import (
     import_architecture,
 )
 from .data.legacy_names import upgrade_legacy_non_conservative_force
+from .extenders.helpers import load_extender
 from .wrapper import MetatrainModel
 
 
@@ -252,6 +254,10 @@ def model_from_checkpoint(
         if checkpoint["scaler"] is not None
         else None,
         dataset_info=checkpoint["dataset_info"],
+        extenders=[
+            extender_from_checkpoint(extender_checkpoint, context=context)
+            for extender_checkpoint in checkpoint.get("extenders", [])
+        ],
         metadata=checkpoint.get("metadata", None),
     )
 
@@ -293,6 +299,25 @@ def arch_model_from_checkpoint(
     checkpoint = upgrade_checkpoint(checkpoint)
     architecture_name = checkpoint["architecture_name"]
     model_cls = _find_model_class(architecture_name)
+
+    return model_cls.load_checkpoint(checkpoint, context=context)
+
+
+def extender_from_checkpoint(
+    checkpoint: Dict[str, Any], context: Literal["restart", "finetune", "export"]
+) -> ModelInterface:
+    """
+    Load an extender from a checkpoint.
+
+    :param checkpoint: checkpoint dictionary to load the model
+    :param context: context in which the model is loaded
+
+    :return: the loaded model instance
+    """
+
+    # checkpoint = upgrade_checkpoint(checkpoint)
+    extender_name = checkpoint["extender_name"]
+    model_cls = load_extender(extender_name)
 
     return model_cls.load_checkpoint(checkpoint, context=context)
 
@@ -339,6 +364,13 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
                 checkpoint, version=target_version
             )
     model_data = checkpoint["model_data"]
+    # the current model class needs the hypers of the current version
+    upgraded_model_data = model_cls.upgrade_checkpoint(copy.deepcopy(checkpoint))[
+        "model_data"
+    ]
+    model_hypers = upgraded_model_data.get(
+        "hypers", upgraded_model_data.get("model_hypers")
+    )
 
     # Three different ways of trying to get a MetatrainModel to get the
     # new checkpoint structure.
@@ -359,7 +391,7 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
         trainer = architecture.__trainer__(checkpoint["train_hypers"])
 
         mtt_model = trainer.setup(
-            model_hypers=model_data.get("hypers", model_data.get("model_hypers")),
+            model_hypers=model_hypers,
             dataset_info=model_data["dataset_info"],
         )
     except Exception:
@@ -370,7 +402,7 @@ def _ckpt_from_arch_ckpt(checkpoint: dict) -> dict:
             trainer = architecture.__trainer__(hypers=default_hypers)
 
             mtt_model = trainer.setup(
-                model_hypers=model_data.get("hypers", model_data.get("model_hypers")),
+                model_hypers=model_hypers,
                 dataset_info=model_data["dataset_info"],
             )
         except Exception:

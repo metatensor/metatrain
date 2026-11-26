@@ -1,0 +1,157 @@
+from typing import Any, Optional
+
+from metatensor.torch import Labels, TensorMap
+from metatomic.torch import ModelOutput, System
+
+from metatrain.utils.data import DatasetInfo, TargetInfo
+
+from ..abc import ExtenderInterface
+from .documentation import Hypers
+
+
+class Rename(ExtenderInterface[Hypers]):
+    """
+    Passes the inputs to the outputs without any modification.
+
+    It is used to rename targets.
+
+    :param hypers: A dictionary with the extender's hyper-parameters.
+    :param dataset_info: Information containing details about the dataset, such as
+        target quantities and atomic types.
+    """
+
+    __checkpoint_version__ = 1
+
+    def __init__(self, hypers: Hypers, dataset_info: DatasetInfo):
+        super().__init__(hypers, dataset_info)
+
+        # Get the information about the output targets from the dataset info
+        out_names = hypers["outputs"]
+        if isinstance(out_names, str):
+            out_names = [out_names]
+        if out_names is None:
+            raise ValueError("Rename extender requires at least one output target")
+
+        # Get the information for the input targets.
+        input_names = hypers["inputs"]
+        if isinstance(input_names, str):
+            input_names = [input_names]
+        elif input_names is None:
+            input_names = [
+                f"mtt::extender_aux::rename::{out_name.replace('mtt::', '')}"
+                for out_name in out_names
+            ]
+
+        if len(input_names) != len(out_names):
+            raise ValueError(
+                f"Rename extender expects the same number of input and output "
+                f"targets, but got {len(input_names)} inputs and "
+                f"{len(out_names)} outputs"
+            )
+
+        # Build the target infos that the extender will request.
+        self.out_targets = {}
+        self._input_target_infos = {}
+        all_targets = {**dataset_info.targets, **dataset_info.extra_data}
+        for in_name, out_name in zip(input_names, out_names, strict=True):
+            if in_name in all_targets and out_name in all_targets:
+                if all_targets[in_name] != all_targets[out_name]:
+                    raise ValueError(
+                        f"Rename extender found both the input '{in_name}' "
+                        f"and the output '{out_name}' in the dataset, "
+                        "but they have different layouts. To be able to apply "
+                        "the rename extender, the input and output must have the "
+                        "same layout."
+                    )
+                else:
+                    target = all_targets[in_name]
+            elif out_name not in all_targets and in_name not in all_targets:
+                raise ValueError(
+                    f"Rename extender expects the output '{out_name}' or the input "
+                    f"'{in_name}' to be present in the dataset targets, but neither "
+                    f"was found."
+                )
+            elif out_name in all_targets:
+                target = all_targets[out_name]
+            else:
+                target = all_targets[in_name]
+
+            self._input_target_infos[in_name] = target
+            self.out_targets[out_name] = target
+
+    def requested_extender_inputs(
+        self, outputs: Optional[dict[str, ModelOutput]] = None
+    ) -> dict[str, TargetInfo]:
+        """
+        Returns the inputs that the extender requires to produce some outputs.
+
+        :param outputs: Dictionary of the outputs that will be
+            requested to the extender. If ``None``, the extender
+            should return the inputs that it needs to produce all
+            the outputs.
+        :return: A dictionary with all the required inputs.
+        """
+        if outputs is None:
+            return self._input_target_infos
+
+        requested_inputs: dict[str, TargetInfo] = {}
+        for out_name, (in_name, target_info) in zip(
+            self.out_targets, self._input_target_infos.items(), strict=True
+        ):
+            if out_name in outputs:
+                requested_inputs[in_name] = target_info
+
+        return requested_inputs
+
+    def supported_outputs(self) -> dict[str, TargetInfo]:
+        """
+        Returns the supported outputs for the extender.
+
+        :return: A dictionary with the target infos of the supported outputs.
+        """
+        return self.out_targets
+
+    def forward(
+        self,
+        systems: list[System],
+        outputs: dict[str, ModelOutput],
+        inputs: dict[str, TensorMap],
+        selected_atoms: Optional[Labels] = None,
+    ) -> dict[str, TensorMap]:
+        return_dict: dict[str, TensorMap] = {}
+        for in_name, out_name in zip(
+            self._input_target_infos, self.out_targets, strict=True
+        ):
+            if out_name in outputs:
+                return_dict[out_name] = inputs[in_name]
+
+        return return_dict
+
+    def get_checkpoint(self, best_state_dict: Optional[dict[str, Any]] = None) -> dict:
+        state_dict = self.state_dict()
+        return {
+            "extender_name": "rename",
+            "extender_ckpt_version": self.__checkpoint_version__,
+            "extender_data": {
+                "hypers": self.hypers,
+                "dataset_info": self.dataset_info,
+            },
+            "model_state_dict": state_dict,
+        }
+
+    @classmethod
+    def load_checkpoint(cls, checkpoint: dict[str, Any], context: str) -> "Rename":
+        if checkpoint["extender_ckpt_version"] != cls.__checkpoint_version__:
+            raise ValueError(
+                f"Invalid checkpoint version for the extender: "
+                f"expected {cls.__checkpoint_version__}, got "
+                f"{checkpoint['extender_ckpt_version']}"
+            )
+
+        extender = cls(
+            hypers=checkpoint["extender_data"]["hypers"],
+            dataset_info=checkpoint["extender_data"]["dataset_info"],
+        )
+
+        extender.load_state_dict(checkpoint["model_state_dict"])
+        return extender

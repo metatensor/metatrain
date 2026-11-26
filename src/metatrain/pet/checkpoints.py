@@ -444,14 +444,16 @@ def model_update_v19_v20(checkpoint: dict) -> None:
     """
     Update a v19 checkpoint to v20.
 
-    Rename the legacy ``non_conservative_forces`` property label (and target key,
-    when still plural) to ``non_conservative_force``. Checkpoints saved before the
-    rename keep the plural name, which no longer matches the layouts built for
-    fine-tuning.
+    It adds the ``head_type``, ``num_head_layers`` and ``readout_type``
+    hyperparameters, with the values reproducing the previous architecture. The
+    ``state_dict`` is unchanged.
 
     :param checkpoint: The checkpoint to update.
     """
-    upgrade_legacy_non_conservative_force(checkpoint)
+    hypers = checkpoint["model_data"]["model_hypers"]
+    hypers["head_type"] = "per_target"
+    hypers["num_head_layers"] = 2
+    hypers["readout_type"] = None
 
 
 ###########################
@@ -655,3 +657,13 @@ def trainer_update_v14_v15(checkpoint: dict) -> None:
     train_hypers = checkpoint["train_hypers"]
     if "distributed" in train_hypers and train_hypers["distributed"] is None:
         train_hypers.pop("distributed")
+
+
+def trainer_update_v15_v16(checkpoint: dict) -> None:
+    """
+    Adds the extenders hyperparameter to the trainer hypers.
+
+    :param checkpoint: The checkpoint to update.
+    """
+    train_hypers = checkpoint["train_hypers"]
+    train_hypers["extenders"] = {}

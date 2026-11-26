@@ -21,6 +21,7 @@ from metatrain.utils.data import DatasetInfo, TargetInfo
 from metatrain.utils.data.match_tmaps import match_layout
 from metatrain.utils.data.target_info import DEPRECATED_METATOMIC_OUTPUT_NAMES
 from metatrain.utils.dtype import dtype_to_str
+from metatrain.utils.extenders.abc import ExtenderInterface
 from metatrain.utils.metadata import merge_metadata
 
 
@@ -40,6 +41,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         additive_models: list[ModelInterface],
         scaler: ScalerClass,  # Scaler,
         dataset_info: DatasetInfo,
+        extenders: Optional[list[ExtenderInterface]] = None,
         metadata: Optional[ModelMetadata] = None,
     ):
         super().__init__()
@@ -47,10 +49,12 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         self.additive_models = torch.nn.ModuleList(additive_models)
         self.scaler = scaler
         self.dataset_info = dataset_info
+        self.extenders = torch.nn.ModuleList(extenders or [])
         self.metadata = metadata if metadata is not None else ModelMetadata()
 
         # Compute transformations needed at evaluation time.
         self._eval_transforms = self._get_eval_transforms()
+        self._extenders_was_None = extenders is None
 
     def _get_eval_transforms(self) -> dict[str, list[str]]:
         """Finds out which targets need to be transformed at evaluation time to
@@ -64,7 +68,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         eval_transforms: dict[str, list[str]] = {}
 
         # Get targets of each model.
-        core_targets = self.core.dataset_info.targets
+        core_targets = self.internal_dataset_info().targets
         scaler_targets = (
             self.scaler.dataset_info.targets if self.scaler is not None else {}
         )
@@ -111,8 +115,59 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         outputs: Dict[str, ModelOutput],
         selected_atoms: Optional[Labels] = None,
     ) -> Dict[str, TensorMap]:
-        return_dict = self.core(systems, outputs, selected_atoms=selected_atoms)
+        # -----------------------------------
+        #     Add outputs needed by extenders
+        # -----------------------------------
+        extender_inputs: dict[str, ModelOutput] = {}
+        core_outputs = outputs
+        all_outputs = outputs
+        if len(self.extenders) > 0:
+            all_outputs = all_outputs.copy()
+            extender_inputs = self._get_requested_extender_inputs(outputs)
+            all_outputs.update(extender_inputs)
 
+            # Core outputs are all outputs except the ones that
+            # the extenders produce.
+            core_outputs = all_outputs.copy()
+            for extender in self.extenders:
+                for out_name in extender.supported_outputs():
+                    if out_name in core_outputs:
+                        core_outputs.pop(out_name)
+
+        # -----------------------------------
+        #         Run the core model
+        # -----------------------------------
+        with torch.profiler.record_function("MTT_WRAPPER::forward_core"):
+            return_dict = self.core(
+                systems, core_outputs, selected_atoms=selected_atoms
+            )
+
+        # -----------------------------------
+        #            Apply extenders
+        # -----------------------------------
+        with torch.profiler.record_function("MTT_WRAPPER::apply_extenders"):
+            for extender in self.extenders:
+                extender_outs = _filter_outputs(
+                    all_outputs, extender.supported_outputs()
+                )
+
+                # Run extender
+                return_dict.update(
+                    extender(
+                        systems,
+                        extender_outs,
+                        return_dict,
+                        selected_atoms,
+                    )
+                )
+
+            # Remove intermediate outputs that were not requested by the user.
+            # (they were needed by other extenders)
+            return_dict = {k: return_dict[k] for k in outputs}
+
+        # ----------------------------------------------------------------
+        #     Add post-processing contributions (scaler, additive models)
+        # ----------------------------------------------------------------
         with torch.profiler.record_function("MTT_WRAPPER::post-processing"):
             if not self.training:
                 # at evaluation, we also introduce the scaler and additive contributions
@@ -212,6 +267,24 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
 
         return return_dict
 
+    def internal_dataset_info(self) -> DatasetInfo:
+        """
+        Returns the dataset_info that the internal part of the model
+        (core + extenders) sees.
+
+        :return: The dataset_info for the internal part of the model.
+        """
+        targets = self.core.dataset_info.targets.copy()
+        for extender in self.extenders:
+            targets.update(extender.supported_outputs())
+
+        return DatasetInfo(
+            atomic_types=self.core.dataset_info.atomic_types,
+            length_unit=self.core.dataset_info.length_unit,
+            targets=targets,
+            extra_data=self.core.dataset_info.extra_data,
+        )
+
     def requested_inputs(self) -> Dict[str, ModelOutput]:
         requested_inputs = {}
 
@@ -228,6 +301,9 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
         if self.scaler is not None:
             _add_model_requested_inputs(self.scaler)
         _add_model_requested_inputs(self.core)
+
+        for extender in self.extenders:
+            _add_model_requested_inputs(extender)
 
         return requested_inputs
 
@@ -248,15 +324,25 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             _add_model_requested_neighbor_lists(self.scaler)
         _add_model_requested_neighbor_lists(self.core)
 
+        for extender in self.extenders:
+            _add_model_requested_neighbor_lists(extender)
+
         return requested_neighbor_lists
 
     def supported_outputs(self) -> Dict[str, TargetInfo]:
         # the targets are in the layout of this model, not the one of the core
         targets = self.dataset_info.targets
-        return {
+
+        supported_outputs = {
             name: targets.get(name, info)
             for name, info in self.core.supported_outputs().items()
         }
+
+        for extender in self.extenders:
+            for name, output in extender.supported_outputs().items():
+                supported_outputs[name] = targets.get(name, output)
+
+        return supported_outputs
 
     def export(
         self,
@@ -317,6 +403,7 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             core=core.module,
             additive_models=[model.module for model in additive_models],
             scaler=scaler.module if scaler is not None else None,  # type: ignore[arg-type]
+            extenders=[extender.to(dtype) for extender in self.extenders],
             dataset_info=self.dataset_info,
         )
         # Some architectures have attributes that downstream code reads from the
@@ -337,6 +424,11 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             name: core.capabilities().outputs[name]
             for name in self.core.supported_outputs()
         }
+        # Outputs produced by the forward extenders, which the core does not know about
+        for extender in self.extenders:
+            for name, info in extender.supported_outputs().items():
+                target_info = self.dataset_info.targets.get(name, info)
+                outputs[name] = target_info.to_model_output()
         # Clean deprecated names that ModelCapabilities add automatically for
         # compatibility, to avoid warnings.
         for k, v in DEPRECATED_METATOMIC_OUTPUT_NAMES.items():
@@ -373,6 +465,9 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             self.additive_models
         )
         scaler_best_state_dict: dict[str, Any] | None = None
+        extender_best_state_dicts: list[dict[str, Any] | None] = [None] * len(
+            self.extenders
+        )
 
         # Split the best_model_state_dict into the corresponding sub-models' state dicts
         if best_model_state_dict is not None:
@@ -394,7 +489,14 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
                 for k, v in best_model_state_dict.items()
                 if k.startswith("scaler.")
             }
-
+            extender_best_state_dicts = [
+                {
+                    k.removeprefix(f"extenders.{i}."): v
+                    for k, v in best_model_state_dict.items()
+                    if k.startswith(f"extenders.{i}.")
+                }
+                for i in range(len(self.extenders))
+            ]
         checkpoint = {
             "model_ckpt_version": self.__checkpoint_version__,
             "dataset_info": self.dataset_info,
@@ -408,8 +510,24 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             "scaler": self.scaler.get_checkpoint(scaler_best_state_dict)
             if self.scaler is not None
             else None,
+            "extenders": [
+                h.get_checkpoint(best_state)
+                for h, best_state in zip(
+                    self.extenders, extender_best_state_dicts, strict=True
+                )
+            ],
             "metadata": self.metadata,
         }
+
+        # If forward extenders was None, the checkpoint should not contain the
+        # extenders key. This is to avoid breaking compatibility for
+        # architectures that don't support extenders.
+        if self._extenders_was_None:
+            assert len(checkpoint["extenders"]) == 0, (
+                "Internal assertion error, please report this bug."
+            )
+            del checkpoint["extenders"]
+
         return checkpoint
 
     @staticmethod
@@ -444,6 +562,19 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             if (scaler_state_dict := scaler_checkpoint.get(key)) is not None:
                 state_dict.update(
                     {f"scaler.{k}": v for k, v in scaler_state_dict.items()}
+                )
+
+        for i, forward_extender_checkpoint in enumerate(
+            checkpoint.get("extenders", [])
+        ):
+            if (
+                forward_extender_state_dict := forward_extender_checkpoint.get(key)
+            ) is not None:
+                state_dict.update(
+                    {
+                        f"extenders.{i}.{k}": v
+                        for k, v in forward_extender_state_dict.items()
+                    }
                 )
 
         if len(state_dict) == 0:
@@ -520,3 +651,54 @@ class MetatrainModel(torch.nn.Module, Generic[CoreModelClass, ScalerClass]):
             self.scaler.remove_output(target_name)
 
         self.dataset_info.targets.pop(target_name, None)
+
+    def _get_requested_extender_inputs(
+        self,
+        outputs: dict[str, ModelOutput],
+    ) -> dict[str, ModelOutput]:
+        """
+        Get the requested inputs for the list of extenders.
+
+        :param outputs: Dictionary of outputs that are requested.
+        :return: A dictionary with the requested inputs.
+        """
+        aux_outputs = outputs.copy()
+        req_inputs: dict[str, ModelOutput] = {}
+        prev_aux_outputs: dict[str, ModelOutput] = {}
+
+        while list(prev_aux_outputs) != list(aux_outputs):
+            prev_aux_outputs = aux_outputs.copy()
+            for extender in self.extenders:
+                extender_outs = _filter_outputs(
+                    aux_outputs, extender.supported_outputs()
+                )
+
+                requested_inputs = extender.requested_extender_inputs(extender_outs)
+                for name, target_info in requested_inputs.items():
+                    model_output = target_info.to_model_output()
+                    aux_outputs[name] = model_output
+                    req_inputs[name] = model_output
+
+        return req_inputs
+
+
+def _filter_outputs(
+    outputs: dict[str, ModelOutput], supported_outputs: dict[str, TargetInfo]
+) -> dict[str, ModelOutput]:
+    """
+    Filter the outputs to only include those that are supported.
+
+    This is just for torchscript, because dict comprehensions ifs are not
+    supported and having this written everywhere is not nice.
+
+    :param outputs: Dictionary of requested outputs.
+    :param supported_outputs: Outputs supported.
+    :return: A dictionary of outputs that are supported.
+    """
+    # Filter the outputs to only include those that are
+    # supported
+    extender_outs: dict[str, ModelOutput] = {}
+    for name in supported_outputs:
+        if name in outputs:
+            extender_outs[name] = outputs[name]
+    return extender_outs

@@ -27,6 +27,8 @@ Unreleased
 Fixed
 #####
 
+- Restarting FlashMD, FlashMD-symplectic, MACE, DPA3, SPACE and LLPR trainings now
+  stops at ``num_epochs`` instead of running ``num_epochs`` more epochs, as in PET.
 - Datasets from XYZ files containing at least one missing stress/virial
   would silently disable stress/virial training. Now partially missing data
   is  accepted and the trainings run on the available data (#1344).
@@ -89,6 +91,8 @@ Fixed
 Added
 #####
 
+- Extenders as a new concept in metatrain. They can be used to augment the capabilities
+  of architectures (#1209).
 - PET has a smoother attention cutoff. The attention that the central atom pays to a
   neighbor in the tail of the cutoff function is now proportional to its cutoff
   function, instead of switching on abruptly when the neighbor has few competitors,
@@ -110,6 +114,15 @@ Added
 - LLPR uncertainties and ensembles for targets with several blocks, such as spherical
   targets and targets in an atomic basis, and for SPACE and MACE (#1286).
 - Ensemble losses for targets with several blocks (#1286).
+- PET heads/readouts can be configured with the ``d_head`` (now optionally separate
+  for node and edge heads), ``head_type``, ``num_head_layers`` and
+  ``readout_type`` hyperparameters, globally or per target (#1308).
+- LLPR supports PET with ``head_type: per_block`` and ``readout_type: one-hot``
+  (#1308).
+- LLPR models can drop their covariances and keep only the ensembles, with
+  ``LLPRUncertaintyModel.remove_covariances()`` (#1308).
+- ``tox -e lint`` checks that all dependencies, including extras, have licenses
+  compatible with BSD-3-Clause (#1362).
 
 Changed
 #######
@@ -128,6 +141,8 @@ Removed
 
 - SOAP-BPNN no longer exposes last-layer features for its spherical and Cartesian
   targets, so LLPR is not available for them (#1317).
+- ``python-hostlist`` (GPL-licensed) is no longer a dependency. SLURM node lists are
+  now parsed by metatrain itself (#1362).
 
 Version 2026.4.1 - 2026-09-25
 -----------------------------

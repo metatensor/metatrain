@@ -378,7 +378,7 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
         assert self.hypers["num_epochs"] is not None
         epoch = start_epoch
-        for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
+        for epoch in range(start_epoch, self.hypers["num_epochs"]):
             for sampler in epoch_samplers:
                 sampler.set_epoch(epoch)
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
@@ -713,6 +713,7 @@ def compute_covariance(
                 llpr_target.accumulate(
                     features[llpr_target.features_name],
                     n_atoms if sample_kinds[name] == "system" else None,
+                    systems,
                 )
 
     if is_distributed:

@@ -93,5 +93,8 @@ ignore:
   - "src/metatrain/utils/distributed/.*"
   # auto-generated
   - "src/metatrain/_version.py"
+  # Folders in extenders, which implement particular extenders
+  # that are tested separately.
+  - "src/metatrain/utils/extenders/.*/.*"
 
 comment: false
