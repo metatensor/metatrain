@@ -101,9 +101,35 @@ def spherical_product(request) -> Literal[None, "cartesian", "coupled"]:
     return request.param
 
 
+@pytest.fixture(params=[False, True], ids=["one_irrep", "two_irreps"])
+def spherical_has_two_irreps(request) -> bool:
+    """Whether the target has one set of irreps for rows and one for columns."""
+    return request.param
+
+
 @pytest.fixture
-def spherical_target_config(spherical_product) -> DictConfig:
-    return DictConfig(
+def spherical_target_config(spherical_product, spherical_has_two_irreps) -> DictConfig:
+    irreps: list[list[dict[str, int]]] | list[dict[str, int]]
+    if spherical_has_two_irreps:
+        irreps = [
+            [
+                {"o3_lambda": 0, "o3_sigma": 1},
+                {"o3_lambda": 1, "o3_sigma": 1},
+                {"o3_lambda": 2, "o3_sigma": 1},
+            ],
+            [
+                {"o3_lambda": 0, "o3_sigma": 1},
+                {"o3_lambda": 1, "o3_sigma": 1},
+            ],
+        ]
+    else:
+        irreps = [
+            {"o3_lambda": 0, "o3_sigma": 1},
+            {"o3_lambda": 1, "o3_sigma": 1},
+            {"o3_lambda": 2, "o3_sigma": 1},
+        ]
+
+    target_config = DictConfig(
         {
             "quantity": "spherical",
             "unit": "",
@@ -112,20 +138,55 @@ def spherical_target_config(spherical_product) -> DictConfig:
             "type": {
                 "spherical": {
                     "product": spherical_product,
-                    "irreps": [
-                        {"o3_lambda": 0, "o3_sigma": 1},
-                        {"o3_lambda": 1, "o3_sigma": 1},
-                        {"o3_lambda": 2, "o3_sigma": 1},
-                    ],
+                    "irreps": irreps,
                 },
             },
         }
     )
 
+    if spherical_has_two_irreps and spherical_product is None:
+        with pytest.raises(ValueError, match="Two sets of irreps were provided"):
+            get_generic_target_info("spherical", target_config)
+        pytest.skip("Two sets of irreps without product is not valid.")
+    return target_config
+
 
 @pytest.fixture
-def spherical_atomicbasis_target_config(spherical_product) -> DictConfig:
-    return DictConfig(
+def spherical_atomicbasis_target_config(
+    spherical_product, spherical_has_two_irreps
+) -> DictConfig:
+    irreps: dict[int, list[list[dict[str, int]]]] | dict[int, list[dict[str, int]]]
+    if spherical_has_two_irreps:
+        irreps = {
+            1: [
+                [{"o3_lambda": 0, "o3_sigma": 1}],
+                [
+                    {"o3_lambda": 0, "o3_sigma": 1},
+                ],
+            ],
+            6: [
+                [
+                    {"o3_lambda": 0, "o3_sigma": 1},
+                    {"o3_lambda": 1, "o3_sigma": 1},
+                    {"o3_lambda": 2, "o3_sigma": 1},
+                ],
+                [
+                    {"o3_lambda": 0, "o3_sigma": 1},
+                    {"o3_lambda": 1, "o3_sigma": 1},
+                ],
+            ],
+        }
+    else:
+        irreps = {
+            1: [{"o3_lambda": 0, "o3_sigma": 1}],
+            6: [
+                {"o3_lambda": 0, "o3_sigma": 1},
+                {"o3_lambda": 1, "o3_sigma": 1},
+                {"o3_lambda": 2, "o3_sigma": 1},
+            ],
+        }
+
+    target_config = DictConfig(
         {
             "quantity": "spherical_atomicbasis",
             "unit": "",
@@ -134,18 +195,17 @@ def spherical_atomicbasis_target_config(spherical_product) -> DictConfig:
             "type": {
                 "spherical": {
                     "product": spherical_product,
-                    "irreps": {
-                        1: [{"o3_lambda": 0, "o3_sigma": 1}],
-                        6: [
-                            {"o3_lambda": 0, "o3_sigma": 1},
-                            {"o3_lambda": 1, "o3_sigma": 1},
-                            {"o3_lambda": 2, "o3_sigma": 1},
-                        ],
-                    },
+                    "irreps": irreps,
                 },
             },
         }
     )
+
+    if spherical_has_two_irreps and spherical_product is None:
+        with pytest.raises(ValueError, match="Two sets of irreps were provided"):
+            get_generic_target_info("spherical_atomicbasis", target_config)
+        pytest.skip("Two sets of irreps without product is not valid.")
+    return target_config
 
 
 def test_layout_energy(energy_target_config):
@@ -256,7 +316,9 @@ def test_layout_cartesian_atom_pair(cartesian_atom_pair_target_config):
     assert not target_info.is_atomic_basis
 
 
-def test_layout_spherical(spherical_target_config, spherical_product):
+def test_layout_spherical(
+    spherical_target_config, spherical_product, spherical_has_two_irreps
+):
     target_info = get_generic_target_info("spherical", spherical_target_config)
     assert target_info.quantity == "spherical"
     assert target_info.unit == ""
@@ -271,15 +333,17 @@ def test_layout_spherical(spherical_target_config, spherical_product):
     assert not target_info.is_atomic_basis
 
     if spherical_product is None:
-        assert len(target_info.layout.blocks()) == 3
+        num_blocks = 3
     elif spherical_product == "cartesian":
-        assert len(target_info.layout.blocks()) == 9
+        num_blocks = 6 if spherical_has_two_irreps else 9
     elif spherical_product == "coupled":
-        assert len(target_info.layout.blocks()) == 5
+        num_blocks = 4 if spherical_has_two_irreps else 5
+
+    assert len(target_info.layout.blocks()) == num_blocks
 
 
 def test_layout_spherical_atomicbasis(
-    spherical_atomicbasis_target_config, spherical_product
+    spherical_atomicbasis_target_config, spherical_product, spherical_has_two_irreps
 ):
     target_info = get_generic_target_info(
         "spherical_atomicbasis", spherical_atomicbasis_target_config
@@ -297,11 +361,13 @@ def test_layout_spherical_atomicbasis(
     assert target_info.is_atomic_basis
 
     if spherical_product is None:
-        assert len(target_info.layout.blocks()) == 4
+        num_blocks = 4
     elif spherical_product == "cartesian":
-        assert len(target_info.layout.blocks()) == 10
+        num_blocks = 7 if spherical_has_two_irreps else 10
     elif spherical_product == "coupled":
-        assert len(target_info.layout.blocks()) == 6
+        num_blocks = 5 if spherical_has_two_irreps else 6
+
+    assert len(target_info.layout.blocks()) == num_blocks
 
 
 def test_is_auxiliary_output():

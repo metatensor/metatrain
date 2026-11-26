@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap, equal_metadata
 from metatomic.torch import ModelOutput
-from omegaconf import DictConfig
+from omegaconf import DictConfig, ListConfig, OmegaConf
 
 # We explicitly import device because otherwise torch.jit.script doesn't
 # recognize the torch.device type
@@ -626,12 +626,14 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
         )
 
     irreps = target["type"]["spherical"]["irreps"]
+    if isinstance(irreps, (ListConfig, DictConfig)):
+        irreps = OmegaConf.to_container(irreps)
     product = target["type"]["spherical"].get("product", None)
 
     keys = []
     blocks = []
 
-    is_atomic_basis = isinstance(irreps, (dict, DictConfig))
+    is_atomic_basis = isinstance(irreps, dict)
 
     # Define the names of the keys in the tensormap
     if product in [None, "coupled"]:
@@ -650,16 +652,51 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
         elif target["sample_kind"] == "atom_pair":
             keys_names.extend(["first_atom_type", "second_atom_type"])
 
+    # Find out if we have two sets of irreps for each atom type (if it is an
+    # atomic basis) or globally (if it is not an atomic basis).
+    has_two_irreps = False
+    if is_atomic_basis:
+        irreps_2 = irreps.copy()
+        for atom_type, atom_irreps in irreps.items():
+            if len(atom_irreps) > 0 and isinstance(atom_irreps[0], (list, ListConfig)):
+                if product is None:
+                    raise ValueError(
+                        f"Two sets of irreps were provided for atom type "
+                        f"{atom_type}, but no 'product' is specified."
+                    )
+                has_two_irreps = True
+                irreps_2[atom_type] = atom_irreps[1]
+                irreps[atom_type] = atom_irreps[0]
+    else:
+        irreps_2 = irreps.copy()
+        if len(irreps) > 0 and isinstance(irreps[0], (list, ListConfig)):
+            if product is None:
+                raise ValueError(
+                    "Two sets of irreps were provided, but no 'product' is specified."
+                )
+            has_two_irreps = True
+            irreps_2 = irreps[1]
+            irreps = irreps[0]
+
+    if product is None:
+        irreps_2 = None
+
     # Self-coupling products (the irreps are coupled with themselves) drop the
     # o3_sigma == -1 blocks, which vanish by antisymmetry. This holds for both
-    # "system" and "atom" sample kinds, which always self-couple a single set of
-    # irreps; only "atom_pair" targets couple two (potentially different) sets of
-    # irreps and so keep every sigma.
-    symmetric_product = target["sample_kind"] != "atom_pair"
+    # "system" and "atom" sample kinds when there is only one set of irreps,
+    # which will self-couple. If there are two sets of irreps, we cannot
+    # assume that the o3_sigma == -1 blocks vanish. Atom pairs bring one irrep
+    # from each atom, so we cannot assume that the o3_sigma == -1 blocks
+    # vanish either.
+    symmetric_product = has_two_irreps or target["sample_kind"] != "atom_pair"
     # Build the tensormap blocks, and store their corresponding keys.
     if not is_atomic_basis:
         irreps_iter, properties = _get_spherical_irreps_iter(
-            irreps, target, product, symmetric_product=symmetric_product
+            irreps,
+            target,
+            product,
+            symmetric_product=symmetric_product,
+            irreps_2=irreps_2,
         )
 
         for irrep, props in zip(irreps_iter, properties, strict=True):
@@ -683,6 +720,7 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
                 target,
                 product=product,
                 symmetric_product=symmetric_product,
+                irreps_2=irreps_2[atom_type] if irreps_2 is not None else None,
             )
 
             for irrep, props in zip(irreps_iter, properties, strict=True):
@@ -700,7 +738,10 @@ def _get_spherical_target_info(target_name: str, target: DictConfig) -> TargetIn
         atom_type_pairs = list(itertools.product(irreps.keys(), repeat=2))
         for first_atom_type, second_atom_type in atom_type_pairs:
             first_irreps = irreps[first_atom_type]
-            second_irreps = irreps[second_atom_type]
+            if irreps_2 is None:
+                second_irreps = irreps[first_atom_type]
+            else:
+                second_irreps = irreps_2[second_atom_type]
             irreps_iter, properties = _get_spherical_irreps_iter(
                 first_irreps,
                 target,

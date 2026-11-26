@@ -21,7 +21,6 @@ dependencies = [
     "pydantic >= 2.12", # Because of passing arguments to validator functions
     "typing_extensions", # For python < 3.12 typing.TypedDict has limited functionality
     "omegaconf >= 2.4.0",
-    "python-hostlist",
     "tqdm",
     "vesin >=0.6.1,<0.7",
 ]
@@ -91,12 +90,22 @@ mace = [
 flashmd = []
 flashmd-symplectic = []
 dpa3 = [
-    "deepmd-kit[torch]>=3.1.0",
+    "deepmd-kit[torch]>=3.2.0",
     "torch>=2.7",
 ]
 lorem = [
     "torch-pme>=0.3.2",
     "sphericart-torch>=2.0.3",
+    "wigners",
+]
+
+# Extras for extenders.
+extender-rename = []
+extender-global-multipoles = []
+extender-intensive-gap = []
+extender-tensor-basis = [
+    "torch-spex>=0.1,<0.2",
+    'sphericart-torch >=2.0.3',
     "wigners",
 ]
 

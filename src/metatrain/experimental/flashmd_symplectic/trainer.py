@@ -465,7 +465,7 @@ class Trainer(TrainerInterface):
         logging.info("Starting training")
         epoch = start_epoch
 
-        for epoch in range(start_epoch, start_epoch + self.hypers["num_epochs"]):
+        for epoch in range(start_epoch, self.hypers["num_epochs"]):
             for sampler in epoch_samplers:
                 sampler.set_epoch(epoch)
             train_rmse_calculator = RMSEAccumulator(self.hypers["log_separate_blocks"])
@@ -761,7 +761,11 @@ class Trainer(TrainerInterface):
         trainer = cls(hypers)
         trainer.optimizer_state_dict = checkpoint["optimizer_state_dict"]
         trainer.scheduler_state_dict = checkpoint["scheduler_state_dict"]
-        trainer.epoch = checkpoint["epoch"]
+        if context == "restart":
+            trainer.epoch = checkpoint["epoch"]
+        else:
+            assert context == "finetune"
+            trainer.epoch = None  # interpreted as zero in the training loop
         trainer.best_epoch = checkpoint["best_epoch"]
         trainer.best_metric = checkpoint["best_metric"]
         trainer.best_model_state_dict = MetatrainModel.get_state_dict_from_checkpoint(

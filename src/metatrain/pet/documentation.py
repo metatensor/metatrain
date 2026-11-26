@@ -140,17 +140,27 @@ important** (in decreasing order of importance):
       :no-index:
 """
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 from typing_extensions import NotRequired, TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
 from metatrain.scaler.documentation import FixedScalerWeights
+from metatrain.utils.extenders import ExtendersHypers
 from metatrain.utils.hypers import init_with_defaults
 from metatrain.utils.long_range import LongRangeHypers
 from metatrain.utils.loss import LossSpecification
 
 from .modules.finetuning import FinetuneHypers, NoFinetuneHypers
+
+
+class HeadDimensions(TypedDict):
+    """Output dimensions of the node and edge heads, set independently."""
+
+    node: int
+    """Output dimension of the node heads."""
+    edge: int
+    """Output dimension of the edge heads."""
 
 
 class ModelHypers(TypedDict):
@@ -179,7 +189,7 @@ class ModelHypers(TypedDict):
     ``"grid"`` evaluates the smoothed neighbor count on a discrete probe-cutoff
     grid and returns a Gaussian-weighted average of the probes (legacy
     behaviour). ``"solver"`` solves ``n_total(r) = num_neighbors_adaptive`` via
-    a Newton-bisection root finder (default; faster and more accurate). Only
+    a bisection root finder (default; faster and more accurate). Only
     has effect when ``num_neighbors_adaptive`` is set.
     """
     cutoff_function: Literal["Cosine", "Bump"] = "Bump"
@@ -200,8 +210,48 @@ class ModelHypers(TypedDict):
     increasing it might lead to better accuracy, especially on larger datasets, at the
     cost of increased training and evaluation time.
     """
-    d_head: int = 128
-    """Dimension of the attention heads."""
+    d_head: Union[int, HeadDimensions] = 128
+    """Output dimension of the node and edge heads.
+
+    Either a single ``int``, shared by the node and the edge heads, or a dict
+    ``{node: int, edge: int}`` setting them independently.
+    """
+    head_type: Union[
+        Literal["per_target", "per_block"],
+        dict[str, Literal["per_target", "per_block"]],
+    ] = "per_target"
+    """How the node and edge heads are shared across the blocks of a target.
+
+    With ``"per_target"``, all the blocks of a target share one node head and one
+    edge head. With ``"per_block"``, each block of a target has its own heads, so
+    that the head features can specialize to each block (e.g. to each ``o3_lambda``
+    of a spherical target). This multiplies the cost of the heads by the number of
+    blocks.
+
+    Either a single value for all targets, or a dict keyed by target name, e.g.
+    ``{"mtt::foo": "per_block"}``, in which case the targets that are not listed use
+    ``"per_target"``.
+    """
+    num_head_layers: int = 2
+    """Number of Linear+SiLU layers in each node and edge head. Must be ``>= 1``."""
+    readout_type: Union[
+        Optional[Literal["one-hot"]], dict[str, Optional[Literal["one-hot"]]]
+    ] = None
+    """Conditioning of the readout layers, i.e. the linear maps from the head
+    features to the predictions of each block, on the type of the central atom.
+
+    With ``None``, each block has a single readout layer shared by all atomic types.
+    With ``"one-hot"``, each block has an independent readout layer per atomic type.
+    This is useful for targets where the properties of a block have a different
+    meaning for each atomic type, such as the coefficients of an atom-centered basis
+    expansion.
+
+    Either a single value for all targets, or a dict keyed by target name, e.g.
+    ``{"mtt::foo": "one-hot"}``, in which case the targets that are not listed use
+    ``None``.
+
+    LLPR supports ``"one-hot"`` only for per-atom targets.
+    """
     d_node: int = 256
     """Dimension of the node features.
 
@@ -230,6 +280,15 @@ class ModelHypers(TypedDict):
     """Activation function."""
     attention_temperature: float = 1.0
     """The temperature scaling factor for attention scores."""
+    smooth_attention_cutoff: bool = True
+    """Whether the attention that the central atom pays to a neighbor grows in
+    proportion to its cutoff function, while the attention of a neighbor to itself is
+    not affected by it.
+
+    This was ``False`` in early PET models, which simply added the logarithm of the
+    cutoff function to the attention scores. It is usually best to set it to ``True``,
+    as this avoids introducing sharp features in the potential energy surface when an
+    atom leaves the cutoff."""
     transformer_type: Literal["PreLN", "PostLN"] = "PreLN"
     """The order in which the layer normalization and attention
     are applied in a transformer block. Available options are ``PreLN``
@@ -389,4 +448,9 @@ class TrainerHypers(TypedDict):
     """Parameters for fine-tuning trained PET models.
 
     See :ref:`label_fine_tuning_concept` for more details.
+    """
+    extenders: ExtendersHypers = {}
+    """Extenders to be used for training the model.
+
+    See :ref:`concept-extenders` for more details.
     """
