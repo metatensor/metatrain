@@ -142,7 +142,7 @@ important** (in decreasing order of importance):
 
 from typing import Literal, Optional, Tuple, Union
 
-from pydantic import Field
+from pydantic import Strict
 from typing_extensions import Annotated, NotRequired, TypedDict
 
 from metatrain.composition.documentation import FixedCompositionWeights
@@ -189,7 +189,7 @@ class ModelHypers(TypedDict):
     set.
     """
     variable_num_neighbors_adaptive: Optional[
-        Annotated[Tuple[int, int], Field(strict=False)]
+        Annotated[Tuple[int, int], Strict(False)]
     ] = None
     """Range ``[low, high]`` of target numbers of neighbors sampled during training.
 
