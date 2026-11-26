@@ -391,6 +391,41 @@ def test_read_extra_data(monkeypatch, tmp_path):
         assert extra_data_info.sample_kind == "system"
 
 
+@pytest.mark.parametrize("sample_kind", ["system", "atom"])
+def test_read_targets_generic_missing_is_nan(sample_kind, monkeypatch, tmp_path):
+    """Systems without a generic target get NaN values."""
+    monkeypatch.chdir(tmp_path)
+
+    filename = "systems.xyz"
+    systems = ase_systems()
+    if sample_kind == "atom":
+        del systems[1].arrays["true_forces"]
+    else:
+        del systems[1].info["true_energy"]
+    ase.io.write(filename, systems)
+
+    section = {
+        "quantity": "",
+        "read_from": filename,
+        "reader": "ase",
+        "key": "true_forces" if sample_kind == "atom" else "true_energy",
+        "unit": "",
+        "type": "scalar",
+        "sample_kind": sample_kind,
+        "num_subtargets": 3 if sample_kind == "atom" else 1,
+    }
+    result, _ = read_targets(OmegaConf.create({"mtt::foo": section}))
+
+    values = [tensor_map.block().values for tensor_map in result["mtt::foo"]]
+    assert not torch.any(torch.isnan(values[0]))
+    assert values[1].shape == values[0].shape
+    assert torch.all(torch.isnan(values[1]))
+
+    # extra data is an input and can not be missing
+    with pytest.raises(ValueError, match="Extra data 'foo' is missing for system 1"):
+        read_extra_data(OmegaConf.create({"foo": section}))
+
+
 def test_read_systems_not_double_precision(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 

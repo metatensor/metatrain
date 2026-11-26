@@ -103,14 +103,13 @@ def _read_energy_ase(filename: str, key: str) -> List[TensorBlock]:
     properties = Labels("energy", torch.tensor([[0]]))
 
     blocks = []
+    missing_systems = []
     for i_system, atoms in enumerate(frames):
         if key not in atoms.info:
-            raise ValueError(
-                f"energy key {key!r} was not found in system {filename!r} at index "
-                f"{i_system}"
-            )
-
-        values = torch.tensor([[atoms.info[key]]], dtype=torch.float64)
+            missing_systems.append(i_system)
+            values = torch.full((1, 1), torch.nan, dtype=torch.float64)
+        else:
+            values = torch.tensor([[atoms.info[key]]], dtype=torch.float64)
         samples = Labels(["system"], torch.tensor([[i_system]]))
 
         block = TensorBlock(
@@ -120,6 +119,8 @@ def _read_energy_ase(filename: str, key: str) -> List[TensorBlock]:
             properties=properties,
         )
         blocks.append(block)
+
+    _check_missing_systems(missing_systems, len(frames), "energy", key, filename)
 
     return blocks
 
@@ -138,16 +139,15 @@ def _read_forces_ase(filename: str, key: str = "forces") -> List[TensorBlock]:
     properties = Labels("energy", torch.tensor([[0]]))
 
     blocks = []
+    missing_systems = []
     for i_system, atoms in enumerate(frames):
         if key not in atoms.arrays:
-            raise ValueError(
-                f"forces key {key!r} was not found in system {filename!r} at index "
-                f"{i_system}"
-            )
-
-        # We store forces as positions gradients which means we invert the sign
-        values = -torch.tensor(atoms.arrays[key], dtype=torch.float64)
-        values = values.reshape(-1, 3, 1)
+            missing_systems.append(i_system)
+            values = torch.full((len(atoms), 3, 1), torch.nan, dtype=torch.float64)
+        else:
+            # We store forces as positions gradients which means we invert the sign
+            values = -torch.tensor(atoms.arrays[key], dtype=torch.float64)
+            values = values.reshape(-1, 3, 1)
 
         samples = Labels(
             ["sample", "system", "atom"],
@@ -163,6 +163,8 @@ def _read_forces_ase(filename: str, key: str = "forces") -> List[TensorBlock]:
         )
 
         blocks.append(block)
+
+    _check_missing_systems(missing_systems, len(frames), "forces", key, filename)
 
     return blocks
 
@@ -207,9 +209,6 @@ def _read_virial_stress_ase(
     missing_systems = []
     for i_system, atoms in enumerate(frames):
         if key not in atoms.info:
-            # Systems without stress/virial are filled with NaN, which are ignored by
-            # the losses and metrics. This allows mixing systems with and without
-            # stress/virial in the same dataset.
             missing_systems.append(i_system)
             values = torch.full((3, 3), torch.nan, dtype=torch.float64)
         else:
@@ -248,18 +247,30 @@ def _read_virial_stress_ase(
         )
         blocks.append(block)
 
-    if len(missing_systems) == len(frames):
+    _check_missing_systems(missing_systems, len(frames), target_name, key, filename)
+
+    return blocks
+
+
+def _check_missing_systems(
+    missing_systems: List[int], n_systems: int, name: str, key: str, filename: str
+) -> None:
+    """Raise if ``key`` is missing from all systems, warn if it is missing from some.
+
+    Systems without the key are filled with NaN, which are ignored by the losses and
+    metrics. This allows mixing systems with and without a given target in the same
+    dataset.
+    """
+    if len(missing_systems) == n_systems:
         raise ValueError(
-            f"{target_name} key {key!r} was not found in any system of {filename!r}"
+            f"{name} key {key!r} was not found in any system of {filename!r}"
         )
     elif len(missing_systems) > 0:
         logging.warning(
-            f"{target_name} key {key!r} was not found in {len(missing_systems)} out "
-            f"of {len(frames)} systems of {filename!r}. The {target_name} of these "
-            "systems is set to NaN and will be ignored during training."
+            f"{name} key {key!r} was not found in {len(missing_systems)} out "
+            f"of {n_systems} systems of {filename!r}. Their {name} values are set "
+            "to NaN and will be ignored during training."
         )
-
-    return blocks
 
 
 def read_energy(
@@ -399,25 +410,27 @@ def read_generic(
     target_key = target["key"]
 
     tensor_maps = []
+    missing_systems = []
     for i_system, atoms in enumerate(frames):
         if (per_atom and target_key not in atoms.arrays) or (
             not per_atom and target_key not in atoms.info
         ):
-            raise ValueError(
-                f"Target key {target_key!r} was not found in system {filename!r} at "
-                f"index {i_system}"
+            missing_systems.append(i_system)
+            n_samples = len(atoms) if per_atom else 1
+            values = torch.full(
+                [n_samples] + shape_after_samples, torch.nan, dtype=torch.float64
             )
-
-        if per_atom:
-            data = atoms.arrays[target_key]
         else:
-            data = atoms.info[target_key]
+            if per_atom:
+                data = atoms.arrays[target_key]
+            else:
+                data = atoms.info[target_key]
 
-        # here we reshape to allow for more flexibility; this is actually
-        # necessary for the `arrays`, which are stored in a 2D array
-        values = torch.tensor(data, dtype=torch.float64).reshape(
-            [-1] + shape_after_samples
-        )
+            # here we reshape to allow for more flexibility; this is actually
+            # necessary for the `arrays`, which are stored in a 2D array
+            values = torch.tensor(data, dtype=torch.float64).reshape(
+                [-1] + shape_after_samples
+            )
 
         samples = (
             Labels(
@@ -443,5 +456,7 @@ def read_generic(
             blocks=[block],
         )
         tensor_maps.append(tensor_map)
+
+    _check_missing_systems(missing_systems, len(frames), "target", target_key, filename)
 
     return tensor_maps, target_info
