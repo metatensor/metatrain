@@ -494,9 +494,15 @@ class PET(ModelInterface[ModelHypers]):
         # **Stages 3 & 4: Last Layer Features and Atomic Predictions**
         with torch.profiler.record_function("PET::predict"):
             requested_target_names: List[str] = []
+            head_target_names: List[str] = []
             for name in self.target_names:
                 if name in outputs:
                     requested_target_names.append(name)
+                # diagnostic hooks may target any head, so keep them all in that case
+                if _diagnostic_pair_labels is not None or (
+                    should_compute_last_layer_features(name, outputs)
+                ):
+                    head_target_names.append(name)
             (
                 atomic_predictions,
                 node_last_layer_features_dict,
@@ -509,6 +515,7 @@ class PET(ModelInterface[ModelHypers]):
                 system_indices,
                 requested_target_names,
                 _per_edge_last_layers,
+                head_target_names,
             )
 
         # **Stage 2: Intermediate Feature Output (Optional)**
