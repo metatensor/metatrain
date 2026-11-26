@@ -104,7 +104,7 @@ Added
 - ASE-readable files can contain energies, forces and generic targets that are
   missing for some structures, which are set to NaN. Before, a missing energy or
   generic target raised an error, and forces missing from one structure disabled the
-  forces for the whole dataset.
+  forces for the whole dataset (#1363).
 - SPACE models can now be fine-tuned on targets they were not trained on, optionally
   initializing the new heads from existing ones with ``inherit_heads``.
 - Added ``experimental.lorem`` architecture (*Learning Long-Range
