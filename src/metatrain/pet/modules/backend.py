@@ -63,9 +63,8 @@ class PETBackend(torch.nn.Module):
         # Targets of the adaptive cutoff (disabled until set): ``PET`` checks and sets
         # them with ``_set_num_neighbors_adaptive`` right after creating the backend.
         self.num_neighbors_adaptive: Optional[float] = None
-        self.variable_num_neighbors: bool = False
-        self.variable_num_neighbors_low: int = 0
-        self.variable_num_neighbors_high: int = 0
+        # ``(low, high)`` range of ``variable_num_neighbors_adaptive``, if set
+        self.variable_num_neighbors: Optional[Tuple[int, int]] = None
         # Whether to sample the target number of neighbors of each structure from the
         # ``variable_num_neighbors_adaptive`` range. The trainer enables it for the
         # training batches only; otherwise ``num_neighbors_adaptive`` is used.
@@ -293,13 +292,13 @@ class PETBackend(torch.nn.Module):
         self.num_neighbors_adaptive = (
             None if num_neighbors_adaptive is None else float(num_neighbors_adaptive)
         )
-        self.variable_num_neighbors = variable_num_neighbors_adaptive is not None
         if variable_num_neighbors_adaptive is None:
-            self.variable_num_neighbors_low = 0
-            self.variable_num_neighbors_high = 0
+            self.variable_num_neighbors = None
         else:
-            self.variable_num_neighbors_low = int(variable_num_neighbors_adaptive[0])
-            self.variable_num_neighbors_high = int(variable_num_neighbors_adaptive[1])
+            self.variable_num_neighbors = (
+                int(variable_num_neighbors_adaptive[0]),
+                int(variable_num_neighbors_adaptive[1]),
+            )
 
     def _make_heads(
         self, d_in: int, d_out: int, heads_per_readout_layer: int
@@ -421,20 +420,22 @@ class PETBackend(torch.nn.Module):
         fixed_num_neighbors_adaptive = self.num_neighbors_adaptive
         if fixed_num_neighbors_adaptive is not None:
             num_nodes = positions.shape[0]
-            if self.sample_num_neighbors and self.variable_num_neighbors:
+            # local copy, for TorchScript to refine the Optional type
+            variable_num_neighbors = self.variable_num_neighbors
+            if self.sample_num_neighbors and variable_num_neighbors is not None:
                 # one target per structure, shared by all its atoms
                 if system_indices is None:
                     num_neighbors_adaptive = sample_num_neighbors_adaptive(
-                        self.variable_num_neighbors_low,
-                        self.variable_num_neighbors_high,
+                        variable_num_neighbors[0],
+                        variable_num_neighbors[1],
                         1,
                         positions.device,
                         positions.dtype,
                     ).expand(num_nodes)
                 else:
                     num_neighbors_adaptive = sample_num_neighbors_adaptive(
-                        self.variable_num_neighbors_low,
-                        self.variable_num_neighbors_high,
+                        variable_num_neighbors[0],
+                        variable_num_neighbors[1],
                         num_systems,
                         positions.device,
                         positions.dtype,

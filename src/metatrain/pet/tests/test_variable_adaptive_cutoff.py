@@ -11,7 +11,7 @@ from omegaconf import OmegaConf
 
 import metatrain.pet.modules.backend as backend_module
 from metatrain.pet import PET, Trainer
-from metatrain.pet.checkpoints import model_update_v19_v20
+from metatrain.pet.checkpoints import model_update_v20_v21
 from metatrain.pet.modules.adaptive_cutoff import (
     sample_num_neighbors_adaptive,
 )
@@ -82,7 +82,9 @@ def recorded_targets(monkeypatch):
 def test_valid_range(value):
     model = PET(_hypers(4, value), DATASET_INFO)
     assert model.hypers["variable_num_neighbors_adaptive"] == value
-    assert model.backend.variable_num_neighbors == (value is not None)
+    assert model.backend.variable_num_neighbors == (
+        None if value is None else tuple(value)
+    )
 
 
 @pytest.mark.parametrize("value", [[4], [4, 8, 12], [12, 4], [0, 4]])
@@ -289,10 +291,10 @@ def test_restart_can_not_change_num_neighbors_adaptive():
 
 
 @pytest.mark.parametrize("old", [None, 16])
-def test_checkpoint_update_v19_v20(old):
+def test_checkpoint_update_v20_v21(old):
     """The update adds an empty ``variable_num_neighbors_adaptive``."""
     checkpoint = {"model_data": {"model_hypers": {"num_neighbors_adaptive": old}}}
-    model_update_v19_v20(checkpoint)
+    model_update_v20_v21(checkpoint)
     hypers = checkpoint["model_data"]["model_hypers"]
     assert hypers["num_neighbors_adaptive"] == old
     assert hypers["variable_num_neighbors_adaptive"] is None

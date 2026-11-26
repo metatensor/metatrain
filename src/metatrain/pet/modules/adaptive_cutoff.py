@@ -4,6 +4,7 @@ from typing import Optional, Tuple
 import torch
 
 from .utilities import cutoff_func_bump as cutoff_func
+from .utilities import loguniform
 
 
 # minimum value for the probe cutoff. this avoids getting too close
@@ -52,29 +53,6 @@ def check_num_neighbors_adaptive(
                 "`variable_num_neighbors_adaptive` must be a list [low, high] with "
                 f"0 < low <= high, got {variable_num_neighbors_adaptive}"
             )
-
-
-def loguniform(
-    low: float,
-    high: float,
-    num_samples: int,
-    device: torch.device,
-    dtype: torch.dtype,
-) -> torch.Tensor:
-    """Sample from a log-uniform distribution on ``[low, high)``.
-
-    :param low: Lower bound of the distribution, must be positive.
-    :param high: Upper bound of the distribution.
-    :param num_samples: Number of samples to draw.
-    :param device: Device of the returned tensor.
-    :param dtype: Floating point dtype of the returned tensor.
-    :return: Samples ``exp(u)`` with ``u`` uniform in ``[log(low), log(high))``, of
-        shape ``(num_samples,)``.
-    """
-    log_low = math.log(low)
-    log_high = math.log(high)
-    u = torch.rand(num_samples, device=device, dtype=dtype)
-    return torch.exp(log_low + u * (log_high - log_low))
 
 
 def sample_num_neighbors_adaptive(
