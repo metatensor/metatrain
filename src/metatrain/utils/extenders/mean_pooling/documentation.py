@@ -23,8 +23,9 @@ explicit gradient blocks are unsupported.
 Training
 --------
 
-For PET or SOAP-BPNN, the following training options configure a bulk
-modulus target:
+For an architecture that supports extenders and predicts per-atom scalars,
+configure mean pooling for a bulk modulus target as shown below. Include
+``atomic_baseline`` and ``per_structure_targets`` when the trainer supports them.
 
 .. code-block:: yaml
 
