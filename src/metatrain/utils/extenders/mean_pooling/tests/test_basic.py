@@ -4,7 +4,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput
 
 from metatrain.utils.data import DatasetInfo
-from metatrain.utils.data.target_info import get_features_info
+from metatrain.utils.data.target_info import get_generic_target_info
 from metatrain.utils.extenders import get_extender_hypers_sanitizer
 from metatrain.utils.extenders.helpers import UnavailableOutputError, setup_extenders
 from metatrain.utils.extenders.testing.extender import ExtenderTests
@@ -13,8 +13,22 @@ from metatrain.utils.extenders.testing.output import OutputTests
 from metatrain.utils.extenders.testing.torchscript import TorchscriptTests
 
 
-TARGET = "mtt::energy"
-INPUT = "mtt::extender_aux::mean_pooling::energy"
+TARGET = "mtt::bulk_modulus"
+INPUT = "mtt::extender_aux::mean_pooling::bulk_modulus"
+
+
+def bulk_modulus_info(sample_kind, num_subtargets=1, description=""):
+    return get_generic_target_info(
+        TARGET,
+        {
+            "type": "scalar",
+            "quantity": "pressure",
+            "unit": "GPa",
+            "sample_kind": sample_kind,
+            "num_subtargets": num_subtargets,
+            "description": description,
+        },
+    )
 
 
 class MeanPoolingTests(ExtenderTests):
@@ -24,10 +38,18 @@ class MeanPoolingTests(ExtenderTests):
     def hypers(self):
         return get_extender_hypers_sanitizer(self.extender)(TARGET)
 
+    @pytest.fixture
+    def dataset_info(self):
+        return DatasetInfo("angstrom", [1], {TARGET: bulk_modulus_info("system")})
+
+    @pytest.fixture
+    def targets(self):
+        return {"bulk_modulus": TARGET}
+
     def build_hypers(self, input, output):
         # The single configurable name is the system output.
         assert input is None
-        name = output["energy"]
+        name = output["bulk_modulus"]
         return {"outputs": name}, [INPUT], [name]
 
 
@@ -65,25 +87,30 @@ class TestInputs(InputTests, MeanPoolingTests):
         assert atomic.layout.block().properties == target.layout.block().properties
 
     def test_output_and_specific_input(self, hypers):
-        atomic = get_features_info(1, description="Learned atomic contribution")
-        targets = {TARGET: get_features_info(1, sample_kind="system"), INPUT: atomic}
+        atomic = bulk_modulus_info("atom", description="Learned atomic contribution")
+        targets = {TARGET: bulk_modulus_info("system"), INPUT: atomic}
         pool = self.extender_cls(hypers, DatasetInfo("angstrom", [1], targets))
         assert pool.requested_extender_inputs()[INPUT] is atomic
 
-        targets[INPUT] = get_features_info(2)
+        targets[INPUT] = bulk_modulus_info("atom", num_subtargets=2)
         with pytest.raises(ValueError, match="Incompatible layout"):
             self.extender_cls(hypers, DatasetInfo("angstrom", [1], targets))
 
     def test_output_and_extradata_input(self, hypers):
-        targets = {TARGET: get_features_info(1, sample_kind="system")}
-        dataset = DatasetInfo("angstrom", [1], targets, {INPUT: get_features_info(1)})
+        targets = {TARGET: bulk_modulus_info("system")}
+        dataset = DatasetInfo(
+            "angstrom", [1], targets, {INPUT: bulk_modulus_info("atom")}
+        )
         with pytest.raises(ValueError, match="present only in extra_data"):
             setup_extenders(dataset, {self.extender: hypers})
 
     def test_target_layout(self, hypers):
         with pytest.raises(UnavailableOutputError, match="Missing"):
             self.extender_cls(hypers, DatasetInfo("angstrom", [1], {}))
-        for info in (get_features_info(1), get_features_info(2, sample_kind="system")):
+        for info in (
+            bulk_modulus_info("atom"),
+            bulk_modulus_info("system", num_subtargets=2),
+        ):
             with pytest.raises(ValueError, match="single scalar"):
                 self.extender_cls(hypers, DatasetInfo("angstrom", [1], {TARGET: info}))
 
