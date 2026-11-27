@@ -4,17 +4,40 @@
 import math
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Type
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    Union,
+)
 
 import metatensor.torch as mts
 import torch
 import torch.nn.functional as F
+from metatensor.learn.data import group_and_join
 from metatensor.torch import TensorBlock, TensorMap
 from pydantic import ConfigDict, with_config
 from torch.nn.modules.loss import _Loss
+from torch.utils.data import DataLoader, Subset
 from typing_extensions import NotRequired, TypedDict
 
 from metatrain.utils.data import TargetInfo
+from metatrain.utils.data.dataset import (
+    CollateFn,
+    CollateTransform,
+    Dataset,
+    unpack_batch,
+)
+
+
+MissingValuesNormalization = Literal["dataset_fraction", "batch"]
+ValidFractions = Dict[Tuple[str, Optional[str]], float]
 
 
 @with_config(ConfigDict(extra="allow"))
@@ -22,6 +45,8 @@ class LossParams(TypedDict):
     type: NotRequired[str] = "mse"
     weight: NotRequired[float] = 1.0
     reduction: NotRequired[Literal["none", "mean", "sum"]] = "mean"
+    missing_values: NotRequired[MissingValuesNormalization] = "dataset_fraction"
+    min_valid_fraction: NotRequired[float] = 0.05
 
 
 @with_config(ConfigDict(extra="allow"))
@@ -29,6 +54,8 @@ class LossSpecification(TypedDict):
     type: NotRequired[str] = "mse"
     weight: NotRequired[float] = 1.0
     reduction: NotRequired[Literal["none", "mean", "sum"]] = "mean"
+    missing_values: NotRequired[MissingValuesNormalization] = "dataset_fraction"
+    min_valid_fraction: NotRequired[float] = 0.05
     gradients: NotRequired[dict[str, LossParams]] = {}
 
 
@@ -127,6 +154,13 @@ class BaseTensorMapLoss(LossInterface):
     :param weight: dummy here; real weighting in ScheduledLoss.
     :param reduction: reduction mode for torch loss.
     :param loss_fn: pre-instantiated torch.nn loss (e.g. MSELoss).
+    :param valid_fraction: optional fraction of non-NaN target entries over the
+        training set. If provided and ``reduction == "mean"``, the loss is divided
+        by ``max(valid_fraction, min_valid_fraction)`` so that it estimates the mean
+        error over labeled entries independently of batching. If ``None``, NaN
+        entries simply count as zero-error entries (batch-level averaging).
+    :param min_valid_fraction: lower clamp applied to ``valid_fraction`` when
+        rescaling, preventing very sparse targets from being amplified without bound.
     """
 
     def __init__(
@@ -137,9 +171,19 @@ class BaseTensorMapLoss(LossInterface):
         reduction: str,
         *,
         loss_fn: _Loss,
+        valid_fraction: Optional[float] = None,
+        min_valid_fraction: float = 0.05,
     ):
         super().__init__(name, gradient, weight, reduction)
+        if valid_fraction is not None and not (0.0 <= valid_fraction <= 1.0):
+            raise ValueError(f"valid_fraction must be in [0, 1], got {valid_fraction}.")
+        if not (0.0 < min_valid_fraction <= 1.0):
+            raise ValueError(
+                f"min_valid_fraction must be in (0, 1], got {min_valid_fraction}."
+            )
         self.torch_loss = loss_fn
+        self.valid_fraction = valid_fraction
+        self.min_valid_fraction = min_valid_fraction
 
     def compute_flattened(
         self,
@@ -211,14 +255,23 @@ class BaseTensorMapLoss(LossInterface):
         )
 
         if len(all_targets_flattened) == 0:
-            # No valid data points to compute the loss
+            # No valid data points to compute the loss (e.g. empty target or
+            # all-False explicit mask)
             return torch.zeros(
                 (),
                 dtype=all_predictions_flattened.dtype,
                 device=all_predictions_flattened.device,
             )
 
-        return self.torch_loss(all_predictions_flattened, all_targets_flattened)
+        loss = self.torch_loss(all_predictions_flattened, all_targets_flattened)
+        if (
+            self.reduction == "mean"
+            and self.valid_fraction is not None
+            and self.valid_fraction < 1.0
+        ):
+            # Clamp so that very sparse targets are not amplified without bound
+            loss = loss / max(self.valid_fraction, self.min_valid_fraction)
+        return loss
 
     def compute(
         self,
@@ -296,6 +349,9 @@ class TensorMapMSELoss(BaseTensorMapLoss):
     :param gradient: optional gradient field name.
     :param weight: weight of the loss contribution in the final aggregation.
     :param reduction: reduction mode for torch loss.
+    :param valid_fraction: optional fraction of non-NaN target entries over the
+        training set.
+    :param min_valid_fraction: lower clamp applied to ``valid_fraction``.
     """
 
     def __init__(
@@ -304,6 +360,8 @@ class TensorMapMSELoss(BaseTensorMapLoss):
         gradient: Optional[str],
         weight: float,
         reduction: str,
+        valid_fraction: Optional[float] = None,
+        min_valid_fraction: float = 0.05,
     ):
         super().__init__(
             name,
@@ -311,6 +369,8 @@ class TensorMapMSELoss(BaseTensorMapLoss):
             weight,
             reduction,
             loss_fn=torch.nn.MSELoss(reduction=reduction),
+            valid_fraction=valid_fraction,
+            min_valid_fraction=min_valid_fraction,
         )
 
 
@@ -322,6 +382,9 @@ class TensorMapMAELoss(BaseTensorMapLoss):
     :param gradient: optional gradient field name.
     :param weight: weight of the loss contribution in the final aggregation.
     :param reduction: reduction mode for torch loss.
+    :param valid_fraction: optional fraction of non-NaN target entries over the
+        training set.
+    :param min_valid_fraction: lower clamp applied to ``valid_fraction``.
     """
 
     def __init__(
@@ -330,6 +393,8 @@ class TensorMapMAELoss(BaseTensorMapLoss):
         gradient: Optional[str],
         weight: float,
         reduction: str,
+        valid_fraction: Optional[float] = None,
+        min_valid_fraction: float = 0.05,
     ):
         super().__init__(
             name,
@@ -337,6 +402,8 @@ class TensorMapMAELoss(BaseTensorMapLoss):
             weight,
             reduction,
             loss_fn=torch.nn.L1Loss(reduction=reduction),
+            valid_fraction=valid_fraction,
+            min_valid_fraction=min_valid_fraction,
         )
 
 
@@ -349,6 +416,9 @@ class TensorMapHuberLoss(BaseTensorMapLoss):
     :param weight: weight of the loss contribution in the final aggregation.
     :param reduction: reduction mode for torch loss.
     :param delta: threshold parameter for HuberLoss.
+    :param valid_fraction: optional fraction of non-NaN target entries over the
+        training set.
+    :param min_valid_fraction: lower clamp applied to ``valid_fraction``.
     """
 
     def __init__(
@@ -358,6 +428,8 @@ class TensorMapHuberLoss(BaseTensorMapLoss):
         weight: float,
         reduction: str,
         delta: float,
+        valid_fraction: Optional[float] = None,
+        min_valid_fraction: float = 0.05,
     ):
         super().__init__(
             name,
@@ -365,6 +437,8 @@ class TensorMapHuberLoss(BaseTensorMapLoss):
             weight,
             reduction,
             loss_fn=torch.nn.HuberLoss(reduction=reduction, delta=delta),
+            valid_fraction=valid_fraction,
+            min_valid_fraction=min_valid_fraction,
         )
 
 
@@ -376,6 +450,9 @@ class TensorMapMaskedMSELoss(MaskedTensorMapLoss):
     :param gradient: optional gradient field name.
     :param weight: weight of the loss contribution in the final aggregation.
     :param reduction: reduction mode for torch loss.
+    :param valid_fraction: optional fraction of non-NaN target entries over the
+        training set.
+    :param min_valid_fraction: lower clamp applied to ``valid_fraction``.
     """
 
     def __init__(
@@ -384,6 +461,8 @@ class TensorMapMaskedMSELoss(MaskedTensorMapLoss):
         gradient: Optional[str],
         weight: float,
         reduction: str,
+        valid_fraction: Optional[float] = None,
+        min_valid_fraction: float = 0.05,
     ):
         super().__init__(
             name,
@@ -391,6 +470,8 @@ class TensorMapMaskedMSELoss(MaskedTensorMapLoss):
             weight,
             reduction,
             loss_fn=torch.nn.MSELoss(reduction=reduction),
+            valid_fraction=valid_fraction,
+            min_valid_fraction=min_valid_fraction,
         )
 
 
@@ -402,6 +483,9 @@ class TensorMapMaskedMAELoss(MaskedTensorMapLoss):
     :param gradient: optional gradient field name.
     :param weight: weight of the loss contribution in the final aggregation.
     :param reduction: reduction mode for torch loss.
+    :param valid_fraction: optional fraction of non-NaN target entries over the
+        training set.
+    :param min_valid_fraction: lower clamp applied to ``valid_fraction``.
     """
 
     def __init__(
@@ -410,6 +494,8 @@ class TensorMapMaskedMAELoss(MaskedTensorMapLoss):
         gradient: Optional[str],
         weight: float,
         reduction: str,
+        valid_fraction: Optional[float] = None,
+        min_valid_fraction: float = 0.05,
     ):
         super().__init__(
             name,
@@ -417,6 +503,8 @@ class TensorMapMaskedMAELoss(MaskedTensorMapLoss):
             weight,
             reduction,
             loss_fn=torch.nn.L1Loss(reduction=reduction),
+            valid_fraction=valid_fraction,
+            min_valid_fraction=min_valid_fraction,
         )
 
 
@@ -429,6 +517,9 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
     :param weight: weight of the loss contribution in the final aggregation.
     :param reduction: reduction mode for torch loss.
     :param delta: threshold parameter for HuberLoss.
+    :param valid_fraction: optional fraction of non-NaN target entries over the
+        training set.
+    :param min_valid_fraction: lower clamp applied to ``valid_fraction``.
     """
 
     def __init__(
@@ -438,6 +529,8 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
         weight: float,
         reduction: str,
         delta: float,
+        valid_fraction: Optional[float] = None,
+        min_valid_fraction: float = 0.05,
     ):
         super().__init__(
             name,
@@ -445,6 +538,8 @@ class TensorMapMaskedHuberLoss(MaskedTensorMapLoss):
             weight,
             reduction,
             loss_fn=torch.nn.HuberLoss(reduction=reduction, delta=delta),
+            valid_fraction=valid_fraction,
+            min_valid_fraction=min_valid_fraction,
         )
 
 
@@ -1033,6 +1128,72 @@ class TensorMapEmpiricalCRPSLoss(TensorMapEnsembleLoss):
 # --- aggregator -----------------------------------------------------------------------
 
 
+_RESERVED_LOSS_KEYS = (
+    "type",
+    "weight",
+    "reduction",
+    "gradients",
+    "missing_values",
+    "min_valid_fraction",
+)
+
+
+def _supports_valid_fraction(loss_type: str) -> bool:
+    """Return True if ``loss_type`` uses :py:class:`BaseTensorMapLoss` NaN handling.
+
+    :param loss_type: string key identifying the loss type.
+    :return: True if the loss class accepts ``valid_fraction`` and
+        ``min_valid_fraction``.
+    """
+    loss_cls = LossType.from_key(loss_type).cls
+    return issubclass(loss_cls, BaseTensorMapLoss) and not issubclass(
+        loss_cls, TensorMapEnsembleLoss
+    )
+
+
+def _resolve_missing_values_options(
+    term_config: Mapping[str, Any],
+    loss_type: str,
+    target_name: str,
+    gradient_name: Optional[str],
+    valid_fractions: Optional[Mapping[Tuple[str, Optional[str]], Optional[float]]],
+) -> Tuple[str, float, Optional[float], Dict[str, Any]]:
+    """Validate and resolve missing-value normalization options for a loss term.
+
+    :param term_config: configuration mapping for the target or gradient term.
+    :param loss_type: string key identifying the loss type.
+    :param target_name: name of the target.
+    :param gradient_name: gradient name, or ``None`` for the base target.
+    :param valid_fractions: optional mapping from ``(target_name, gradient_name)``
+        to the fraction of valid (non-NaN) entries in the training set.
+    :return: tuple ``(missing_values, min_valid_fraction, valid_fraction, kwargs)``
+        where ``kwargs`` are extra keyword arguments to forward to
+        :py:func:`create_loss`.
+    """
+    missing_values = str(term_config.get("missing_values", "dataset_fraction"))
+    if missing_values not in ("dataset_fraction", "batch"):
+        raise ValueError(
+            f"Unknown missing_values mode '{missing_values}'. "
+            "Valid modes: 'dataset_fraction', 'batch'."
+        )
+    min_valid_fraction = float(term_config.get("min_valid_fraction", 0.05))
+    if not (0.0 < min_valid_fraction <= 1.0):
+        raise ValueError(
+            f"min_valid_fraction must be in (0, 1], got {min_valid_fraction}."
+        )
+
+    valid_fraction: Optional[float] = None
+    if missing_values == "dataset_fraction" and valid_fractions is not None:
+        valid_fraction = valid_fractions.get((target_name, gradient_name))
+
+    kwargs: Dict[str, Any] = {}
+    if _supports_valid_fraction(loss_type):
+        kwargs["valid_fraction"] = valid_fraction
+        kwargs["min_valid_fraction"] = min_valid_fraction
+
+    return missing_values, min_valid_fraction, valid_fraction, kwargs
+
+
 class LossAggregator(LossInterface):
     """
     Aggregate multiple :py:class:`LossInterface` terms with scheduled weights and
@@ -1040,10 +1201,19 @@ class LossAggregator(LossInterface):
 
     :param targets: mapping from target names to :py:class:`TargetInfo`.
     :param config: per-target configuration dict.
+    :param valid_fractions: optional mapping from ``(target_name, gradient_name)``
+        (with ``gradient_name=None`` for values) to the fraction of non-NaN entries
+        over the training set. When omitted, missing values fall back to batch-level
+        (``1/B``) normalization.
     """
 
     def __init__(
-        self, targets: Dict[str, TargetInfo], config: Dict[str, LossSpecification]
+        self,
+        targets: Dict[str, TargetInfo],
+        config: Dict[str, LossSpecification],
+        valid_fractions: Optional[
+            Mapping[Tuple[str, Optional[str]], Optional[float]]
+        ] = None,
     ):
         super().__init__(name="", gradient=None, weight=0.0, reduction="mean")
         self.losses: Dict[str, LossInterface] = {}
@@ -1057,9 +1227,21 @@ class LossAggregator(LossInterface):
                         "type": "mse",
                         "weight": 1.0,
                         "reduction": "mean",
+                        "missing_values": "dataset_fraction",
+                        "min_valid_fraction": 0.05,
                         "gradients": {},
                     }
                 ),
+            )
+
+            missing_values, min_valid_fraction, valid_fraction, mv_kwargs = (
+                _resolve_missing_values_options(
+                    target_config,
+                    target_config["type"],
+                    target_name,
+                    None,
+                    valid_fractions,
+                )
             )
 
             # Create main loss and its scheduler
@@ -1069,16 +1251,11 @@ class LossAggregator(LossInterface):
                 gradient=None,
                 weight=target_config["weight"],
                 reduction=target_config["reduction"],
+                **mv_kwargs,
                 **{
                     pname: pval
                     for pname, pval in target_config.items()
-                    if pname
-                    not in (
-                        "type",
-                        "weight",
-                        "reduction",
-                        "gradients",
-                    )
+                    if pname not in _RESERVED_LOSS_KEYS
                 },
             )
             self.losses[target_name] = base_loss
@@ -1088,13 +1265,13 @@ class LossAggregator(LossInterface):
                 "reduction": base_loss.reduction,
                 "gradients": {},
             }
+            if mv_kwargs:
+                self.metadata[target_name]["missing_values"] = missing_values
+                self.metadata[target_name]["min_valid_fraction"] = min_valid_fraction
+                if valid_fraction is not None:
+                    self.metadata[target_name]["valid_fraction"] = valid_fraction
             for pname, pval in target_config.items():
-                if pname not in (
-                    "type",
-                    "weight",
-                    "reduction",
-                    "gradients",
-                ):
+                if pname not in _RESERVED_LOSS_KEYS:
                     self.metadata[target_name][pname] = pval
 
             # Create gradient-based losses
@@ -1104,13 +1281,28 @@ class LossAggregator(LossInterface):
 
                 gradient_specific_config = gradient_config.get(
                     gradient_name,
-                    LossSpecification(
+                    LossParams(
                         {
                             "type": "mse",
                             "weight": 1.0,
                             "reduction": "mean",
+                            "missing_values": "dataset_fraction",
+                            "min_valid_fraction": 0.05,
                         }
                     ),
+                )
+
+                (
+                    grad_missing_values,
+                    grad_min_valid_fraction,
+                    grad_valid_fraction,
+                    grad_mv_kwargs,
+                ) = _resolve_missing_values_options(
+                    gradient_specific_config,
+                    gradient_specific_config["type"],
+                    target_name,
+                    gradient_name,
+                    valid_fractions,
                 )
 
                 grad_loss = create_loss(
@@ -1119,16 +1311,11 @@ class LossAggregator(LossInterface):
                     gradient=gradient_name,
                     weight=gradient_specific_config["weight"],
                     reduction=gradient_specific_config["reduction"],
+                    **grad_mv_kwargs,
                     **{
                         pname: pval
                         for pname, pval in gradient_specific_config.items()
-                        if pname
-                        not in (
-                            "type",
-                            "weight",
-                            "reduction",
-                            "gradients",
-                        )
+                        if pname not in _RESERVED_LOSS_KEYS
                     },
                 )
                 self.losses[gradient_key] = grad_loss
@@ -1137,13 +1324,19 @@ class LossAggregator(LossInterface):
                     "weight": grad_loss.weight,
                     "reduction": grad_loss.reduction,
                 }
+                if grad_mv_kwargs:
+                    self.metadata[target_name]["gradients"][gradient_name][
+                        "missing_values"
+                    ] = grad_missing_values
+                    self.metadata[target_name]["gradients"][gradient_name][
+                        "min_valid_fraction"
+                    ] = grad_min_valid_fraction
+                    if grad_valid_fraction is not None:
+                        self.metadata[target_name]["gradients"][gradient_name][
+                            "valid_fraction"
+                        ] = grad_valid_fraction
                 for pname, pval in gradient_specific_config.items():
-                    if pname not in (
-                        "type",
-                        "weight",
-                        "reduction",
-                        "gradients",
-                    ):
+                    if pname not in _RESERVED_LOSS_KEYS:
                         self.metadata[target_name]["gradients"][gradient_name][
                             pname
                         ] = pval
@@ -1262,3 +1455,184 @@ def create_loss(
         )
     except TypeError as e:
         raise TypeError(f"Error constructing loss '{loss_type}': {e}") from e
+
+
+def _loss_needs_valid_fractions(
+    targets: Dict[str, TargetInfo],
+    config: Dict[str, LossSpecification],
+) -> bool:
+    """Return True if any configured loss term needs dataset valid fractions.
+
+    :param targets: mapping from target names to :py:class:`TargetInfo`.
+    :param config: per-target loss configuration dict.
+    :return: True if at least one pointwise loss term uses ``reduction == "mean"``
+        and ``missing_values == "dataset_fraction"``.
+    """
+    for target_name, target_info in targets.items():
+        target_config: Mapping[str, Any] = config.get(target_name, {})
+        loss_type = str(target_config.get("type", "mse"))
+        if (
+            _supports_valid_fraction(loss_type)
+            and target_config.get("reduction", "mean") == "mean"
+            and target_config.get("missing_values", "dataset_fraction")
+            == "dataset_fraction"
+        ):
+            return True
+
+        gradient_config: Mapping[str, Any] = target_config.get("gradients", {})
+        for gradient_name in target_info.layout[0].gradients_list():
+            grad_cfg: Mapping[str, Any] = gradient_config.get(gradient_name, {})
+            grad_loss_type = str(grad_cfg.get("type", "mse"))
+            if (
+                _supports_valid_fraction(grad_loss_type)
+                and grad_cfg.get("reduction", "mean") == "mean"
+                and grad_cfg.get("missing_values", "dataset_fraction")
+                == "dataset_fraction"
+            ):
+                return True
+
+    return False
+
+
+def compute_valid_fractions(
+    datasets: Sequence[Union[Dataset, Subset]],
+    targets: Dict[str, TargetInfo],
+    transforms: Optional[Sequence[CollateTransform]] = None,
+    config: Optional[Dict[str, LossSpecification]] = None,
+    batch_size: int = 64,
+    num_workers: int = 0,
+    is_distributed: bool = False,
+    device: Optional[torch.device] = None,
+) -> ValidFractions:
+    """Compute the fraction of non-NaN entries for each target and gradient.
+
+    Counts are aggregated over tensor entries (matching how pointwise mean losses
+    average over entries) across all provided training datasets.
+
+    :param datasets: training datasets to scan.
+    :param targets: mapping from target names to :py:class:`TargetInfo`.
+    :param transforms: optional sequence of collate transforms (such as
+        ``atomic_basis_transform``) applied to each batch before counting, so that
+        NaN padding introduced by transforms is reflected in the fractions.
+    :param config: optional per-target loss configuration. When provided and no
+        loss term requires ``dataset_fraction`` normalization, the dataset scan is
+        skipped and an empty dict is returned.
+    :param batch_size: batch size used when applying transforms or loading with
+        multiple workers.
+    :param num_workers: number of :py:class:`~torch.utils.data.DataLoader` workers.
+    :param is_distributed: whether training is distributed across multiple ranks.
+        When True, each dataset is sharded across ranks without duplication and the
+        counts are summed with ``torch.distributed.all_reduce``.
+    :param device: device used for the distributed ``all_reduce`` tensor when
+        ``is_distributed`` is True.
+    :return: mapping from ``(target_name, gradient_name)`` (with
+        ``gradient_name=None`` for values) to the fraction of non-NaN entries in
+        ``[0.0, 1.0]``. Entries with zero total elements are omitted.
+    """
+    if config is not None and not _loss_needs_valid_fractions(targets, config):
+        return {}
+
+    keys: List[Tuple[str, Optional[str]]] = []
+    for target_name, target_info in targets.items():
+        keys.append((target_name, None))
+        for gradient_name in target_info.layout[0].gradients_list():
+            keys.append((target_name, gradient_name))
+
+    if len(keys) == 0 or len(datasets) == 0:
+        return {}
+
+    n_valid: Dict[Tuple[str, Optional[str]], int] = dict.fromkeys(keys, 0)
+    n_total: Dict[Tuple[str, Optional[str]], int] = dict.fromkeys(keys, 0)
+
+    def _accumulate_target_counts(target_name: str, tmap: TensorMap) -> None:
+        key = (target_name, None)
+        if key in n_total:
+            for block in tmap.blocks():
+                values = block.values
+                n_valid[key] += int((~torch.isnan(values)).sum().item())
+                n_total[key] += values.numel()
+        for block in tmap.blocks():
+            for gradient_name in block.gradients_list():
+                gkey = (target_name, gradient_name)
+                if gkey in n_total:
+                    gvalues = block.gradient(gradient_name).values
+                    n_valid[gkey] += int((~torch.isnan(gvalues)).sum().item())
+                    n_total[gkey] += gvalues.numel()
+
+    active_transforms = list(transforms) if transforms else []
+    target_key_set = set(targets.keys())
+
+    rank = torch.distributed.get_rank() if is_distributed else 0
+    world_size = torch.distributed.get_world_size() if is_distributed else 1
+
+    for dataset in datasets:
+        ds: Union[Dataset, Subset] = (
+            Subset(dataset, range(rank, len(dataset), world_size))
+            if is_distributed
+            else dataset
+        )
+        if len(ds) == 0:
+            continue
+
+        if num_workers > 0:
+            collate_fn = CollateFn(
+                target_keys=list(targets.keys()),
+                callables=active_transforms,
+            )
+            loader = DataLoader(
+                dataset=ds,
+                batch_size=batch_size,
+                shuffle=False,
+                drop_last=False,
+                collate_fn=collate_fn,
+                num_workers=num_workers,
+                multiprocessing_context="fork",
+            )
+            for batch in loader:
+                _, batch_targets, _ = unpack_batch(batch)
+                for target_name, tmap in batch_targets.items():
+                    _accumulate_target_counts(target_name, tmap)
+        elif active_transforms:
+            for start in range(0, len(ds), batch_size):
+                batch_samples = [
+                    ds[i] for i in range(start, min(start + batch_size, len(ds)))
+                ]
+                collated = group_and_join(
+                    batch_samples, join_kwargs={"different_keys": "union"}
+                )
+                data = collated._asdict()
+                systems = data.pop("system")
+                batch_targets = {}
+                batch_extra: Dict[str, TensorMap] = {}
+                for field_name, value in data.items():
+                    if field_name in target_key_set:
+                        batch_targets[field_name] = value
+                    else:
+                        batch_extra[field_name] = value
+                for transform in active_transforms:
+                    systems, batch_targets, batch_extra = transform(
+                        systems, batch_targets, batch_extra
+                    )
+                for target_name, tmap in batch_targets.items():
+                    _accumulate_target_counts(target_name, tmap)
+        else:
+            for i in range(len(ds)):
+                sample = ds[i]
+                sample_dict = sample._asdict() if hasattr(sample, "_asdict") else sample
+                for target_name in targets:
+                    if target_name in sample_dict:
+                        _accumulate_target_counts(target_name, sample_dict[target_name])
+
+    if is_distributed:
+        reduce_device = device if device is not None else torch.device("cpu")
+        counts = torch.tensor(
+            [[n_valid[k], n_total[k]] for k in keys],
+            dtype=torch.int64,
+            device=reduce_device,
+        )
+        torch.distributed.all_reduce(counts)
+        for idx, k in enumerate(keys):
+            n_valid[k] = int(counts[idx, 0].item())
+            n_total[k] = int(counts[idx, 1].item())
+
+    return {k: n_valid[k] / n_total[k] for k in keys if n_total[k] > 0}

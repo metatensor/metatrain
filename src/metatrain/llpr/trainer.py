@@ -37,7 +37,11 @@ from metatrain.utils.distributed.slurm import (
 from metatrain.utils.evaluate_model import evaluate_model
 from metatrain.utils.io import check_file_extension, model_from_checkpoint
 from metatrain.utils.logging import ROOT_LOGGER, MetricLogger
-from metatrain.utils.loss import LossAggregator, LossSpecification
+from metatrain.utils.loss import (
+    LossAggregator,
+    LossSpecification,
+    compute_valid_fractions,
+)
 from metatrain.utils.metrics import MAEAccumulator, RMSEAccumulator, get_selected_metric
 from metatrain.utils.neighbor_lists import (
     get_requested_neighbor_lists,
@@ -322,7 +326,20 @@ class Trainer(TrainerInterface[TrainerHypers, ModelHypers]):
 
         loss_hypers = self.hypers["loss"]
         loss_hypers = cast(Dict[str, LossSpecification], loss_hypers)  # mypy
-        loss_fn = LossAggregator(targets=train_targets, config=loss_hypers)
+        valid_fractions = compute_valid_fractions(
+            datasets=train_datasets,
+            targets=train_targets,
+            config=loss_hypers,
+            batch_size=self.hypers["batch_size"],
+            num_workers=num_workers,
+            is_distributed=is_distributed,
+            device=device,
+        )
+        loss_fn = LossAggregator(
+            targets=train_targets,
+            config=loss_hypers,
+            valid_fractions=valid_fractions,
+        )
 
         logging.info("Using the following loss functions:")
         for name, info in loss_fn.metadata.items():

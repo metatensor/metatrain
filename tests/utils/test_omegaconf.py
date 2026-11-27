@@ -754,6 +754,47 @@ def test_expand_loss_config_invalid_top_level_keys_raise(bad_key):
         expand_loss_config(conf)
 
 
+def test_expand_loss_config_missing_values_defaults_and_overrides():
+    """expand_loss_config populates default missing_values and min_valid_fraction
+    fields and preserves per-target / per-gradient overrides."""
+    conf = OmegaConf.create(
+        {
+            "training_set": {
+                "targets": {
+                    "energy": {"forces": {}, "stress": {}, "virial": False},
+                    "dipole": {},
+                }
+            },
+            "architecture": {
+                "training": {
+                    "loss": {
+                        "energy": {
+                            "stress": {
+                                "missing_values": "batch",
+                                "min_valid_fraction": 0.1,
+                            }
+                        }
+                    }
+                }
+            },
+        }
+    )
+    expanded = expand_loss_config(conf)
+    loss = expanded["architecture"]["training"]["loss"]
+
+    assert loss["energy"]["missing_values"] == "dataset_fraction"
+    assert loss["energy"]["min_valid_fraction"] == pytest.approx(0.05)
+    assert loss["dipole"]["missing_values"] == "dataset_fraction"
+    assert loss["dipole"]["min_valid_fraction"] == pytest.approx(0.05)
+    assert (
+        loss["energy"]["gradients"]["positions"]["missing_values"] == "dataset_fraction"
+    )
+    assert loss["energy"]["gradients"]["strain"]["missing_values"] == "batch"
+    assert loss["energy"]["gradients"]["strain"]["min_valid_fraction"] == pytest.approx(
+        0.1
+    )
+
+
 def test_check_units():
     file_name = "foo.xyz"
     system_section = {"read_from": file_name, "length_unit": "angstrom"}
