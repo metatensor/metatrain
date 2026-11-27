@@ -2,11 +2,11 @@ r"""
 Mean pooling
 ============
 
-Predicts an intensive scalar property by averaging learned atomic contributions.
-
-A crystal has the same bulk modulus whether it is represented by a primitive
-cell or a supercell. Doubling the cell repeats every local atomic environment,
-so a sum of local predictions doubles as well. Their mean stays the same.
+Mean pooling is a readout for intensive scalar targets. Repeating a periodic
+cell describes the same crystal, so its intensive properties should stay the
+same. If each copy of an atom receives the same local prediction, doubling the
+cell doubles both the sum of the predictions and the atom count, leaving their
+mean unchanged.
 
 The extender requests one scalar :math:`a_i` per atom from the architecture.
 For a system with :math:`N` contributing atoms, the prediction is
@@ -24,7 +24,10 @@ Training
 --------
 
 For an architecture that supports extenders and predicts per-atom scalars,
-configure mean pooling for a bulk modulus target as shown below. Include
+the example below configures a model trained on crystal bulk moduli. The
+per-atom scalars are fitted to reproduce the crystal-level labels. Whether this
+readout captures the elastic response of a particular material is a modeling
+question. Include
 ``atomic_baseline`` and ``per_structure_targets`` when the trainer supports them.
 
 .. code-block:: yaml
