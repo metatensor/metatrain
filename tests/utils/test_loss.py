@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 import torch
+from metatensor.learn.data import Dataset
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatomic.torch import System
+from torch.utils.data import Subset
 
 from metatrain.utils.data import TargetInfo
 from metatrain.utils.loss import (
@@ -21,6 +24,7 @@ from metatrain.utils.loss import (
     TensorMapMaskedMAELoss,
     TensorMapMaskedMSELoss,
     TensorMapMSELoss,
+    compute_valid_fractions,
     create_loss,
 )
 
@@ -838,3 +842,477 @@ def test_tensormap_gaussian_crps_loss(ensemble_tensor_maps):
     result = loss_fn.compute(predictions, targets)
     assert torch.isfinite(result)
     assert result.item() >= 0.0  # CRPS should be non-negative
+
+
+# ===== Tests for missing (NaN) value normalization =====
+
+
+def _make_scalar_tmap(
+    values: torch.Tensor,
+    strain: torch.Tensor | None = None,
+    sample_name: str = "sample",
+):
+    block = TensorBlock(
+        values=values,
+        samples=Labels(
+            names=[sample_name],
+            values=torch.arange(values.shape[0], dtype=torch.int32).reshape(-1, 1),
+        ),
+        components=[],
+        properties=Labels("energy", torch.tensor([[0]])),
+    )
+    if strain is not None:
+        block.add_gradient(
+            "strain",
+            TensorBlock(
+                values=strain,
+                samples=Labels(
+                    names=["sample"],
+                    values=torch.arange(strain.shape[0], dtype=torch.int32).reshape(
+                        -1, 1
+                    ),
+                ),
+                components=[],
+                properties=Labels("energy", torch.tensor([[0]])),
+            ),
+        )
+    return TensorMap(keys=Labels.single(), blocks=[block])
+
+
+def test_nan_loss_batch_split_invariance():
+    """With 1/(B*p) normalization, the average loss over batches is identical whether
+    labeled entries are spread evenly across batches or bunched together, and matches
+    the mean error over labeled entries."""
+    # 8 structures: 2 labeled (p = 0.25), 6 NaN
+    p = 0.25
+    pred_vals = torch.tensor([[0.0]] * 8)
+    targ_vals = torch.tensor(
+        [
+            [2.0],
+            [float("nan")],
+            [float("nan")],
+            [float("nan")],
+            [4.0],
+            [float("nan")],
+            [float("nan")],
+            [float("nan")],
+        ]
+    )
+    # Exact mean squared error over the 2 labeled structures: (4 + 16) / 2 = 10.0
+    expected_mean = 10.0
+
+    loss_fn = TensorMapMSELoss(
+        name="y", gradient=None, weight=1.0, reduction="mean", valid_fraction=p
+    )
+
+    # Split 1: labeled entries spread evenly (1 per batch of 4)
+    even_batches = [[0, 1, 2, 3], [4, 5, 6, 7]]
+    even_loss = sum(
+        loss_fn(
+            {"y": _make_scalar_tmap(pred_vals[idx])},
+            {"y": _make_scalar_tmap(targ_vals[idx])},
+        )
+        for idx in even_batches
+    ) / len(even_batches)
+
+    # Split 2: labeled entries bunched in the first batch, second batch all-NaN
+    bunched_batches = [[0, 4, 1, 2], [3, 5, 6, 7]]
+    bunched_loss = sum(
+        loss_fn(
+            {"y": _make_scalar_tmap(pred_vals[idx])},
+            {"y": _make_scalar_tmap(targ_vals[idx])},
+        )
+        for idx in bunched_batches
+    ) / len(bunched_batches)
+
+    assert even_loss.item() == pytest.approx(expected_mean)
+    assert bunched_loss.item() == pytest.approx(expected_mean)
+
+
+@pytest.mark.parametrize("valid_fraction", [None, 0.25, 0.0])
+def test_nan_loss_all_nan_batch_zero_finite_grad(valid_fraction):
+    """An all-NaN batch produces zero loss with zero, finite gradients."""
+    pred_tensor = torch.tensor([[1.0], [2.0], [3.0]], requires_grad=True)
+    targ_tensor = torch.full((3, 1), float("nan"))
+
+    loss_fn = TensorMapMSELoss(
+        name="y",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+        valid_fraction=valid_fraction,
+    )
+    loss = loss_fn(
+        {"y": _make_scalar_tmap(pred_tensor)},
+        {"y": _make_scalar_tmap(targ_tensor)},
+    )
+    assert loss.item() == 0.0
+    loss.backward()
+    assert pred_tensor.grad is not None
+    assert torch.isfinite(pred_tensor.grad).all()
+    assert torch.equal(pred_tensor.grad, torch.zeros_like(pred_tensor))
+
+
+def test_nan_loss_sum_reduction_unchanged():
+    """reduction='sum' is unaffected by valid_fraction."""
+    pred = _make_scalar_tmap(torch.tensor([[1.0], [2.0], [3.0]]))
+    targ = _make_scalar_tmap(torch.tensor([[3.0], [float("nan")], [6.0]]))
+
+    loss_default = TensorMapMSELoss(
+        name="y", gradient=None, weight=1.0, reduction="sum", valid_fraction=None
+    )
+    loss_rescaled = TensorMapMSELoss(
+        name="y", gradient=None, weight=1.0, reduction="sum", valid_fraction=0.25
+    )
+
+    val_default = loss_default({"y": pred}, {"y": targ})
+    val_rescaled = loss_rescaled({"y": pred}, {"y": targ})
+    # (1-3)^2 + (3-6)^2 = 4 + 9 = 13
+    assert val_default.item() == pytest.approx(13.0)
+    torch.testing.assert_close(val_rescaled, val_default)
+
+
+def test_nan_loss_dense_matches_main():
+    """With valid_fraction=1.0 and no NaNs, the loss matches batch (main) behavior."""
+    pred = _make_scalar_tmap(torch.tensor([[1.0], [2.0], [3.0]]))
+    targ = _make_scalar_tmap(torch.tensor([[1.5], [2.5], [4.0]]))
+
+    loss_batch = TensorMapMSELoss(
+        name="y", gradient=None, weight=1.0, reduction="mean", valid_fraction=None
+    )
+    loss_dense = TensorMapMSELoss(
+        name="y", gradient=None, weight=1.0, reduction="mean", valid_fraction=1.0
+    )
+
+    torch.testing.assert_close(
+        loss_dense({"y": pred}, {"y": targ}),
+        loss_batch({"y": pred}, {"y": targ}),
+    )
+
+
+def test_nan_loss_sparse_clamping():
+    """Very small valid_fraction is clamped continuously to min_valid_fraction."""
+    pred = _make_scalar_tmap(torch.tensor([[0.0], [0.0]]))
+    targ = _make_scalar_tmap(torch.tensor([[2.0], [float("nan")]]))
+
+    # Raw 1/B MSE = (4 + 0) / 2 = 2.0
+    loss_at_cutoff = TensorMapMSELoss(
+        name="y",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+        valid_fraction=0.05,
+        min_valid_fraction=0.05,
+    )
+    loss_below_cutoff = TensorMapMSELoss(
+        name="y",
+        gradient=None,
+        weight=1.0,
+        reduction="mean",
+        valid_fraction=0.01,
+        min_valid_fraction=0.05,
+    )
+
+    assert loss_at_cutoff({"y": pred}, {"y": targ}).item() == pytest.approx(2.0 / 0.05)
+    torch.testing.assert_close(
+        loss_below_cutoff({"y": pred}, {"y": targ}),
+        loss_at_cutoff({"y": pred}, {"y": targ}),
+    )
+
+
+def test_masked_loss_all_false_mask_returns_zero():
+    """len(all_targets_flattened) == 0 is still reachable via an all-False mask."""
+    pred = _make_scalar_tmap(torch.tensor([[1.0], [2.0]]))
+    targ = _make_scalar_tmap(torch.tensor([[3.0], [4.0]]))
+    mask = _make_scalar_tmap(torch.tensor([[False], [False]]))
+
+    loss_fn = TensorMapMaskedMSELoss(
+        name="y", gradient=None, weight=1.0, reduction="mean", valid_fraction=0.5
+    )
+    result = loss_fn({"y": pred}, {"y": targ}, {"y_mask": mask})
+    assert result.item() == 0.0
+
+
+def test_loss_aggregator_missing_values_modes_and_validation():
+    """LossAggregator supports dataset_fraction, batch, clamping, fallback, and
+    non-pointwise losses."""
+    layout = _make_scalar_tmap(
+        torch.empty(0, 1), strain=torch.empty(0, 1), sample_name="system"
+    )
+    target_info = TargetInfo(layout=layout, quantity="energy", unit="eV")
+
+    pred = _make_scalar_tmap(
+        torch.tensor([[0.0], [0.0]]), strain=torch.tensor([[0.0], [0.0]])
+    )
+    targ = _make_scalar_tmap(
+        torch.tensor([[1.0], [1.0]]), strain=torch.tensor([[2.0], [float("nan")]])
+    )
+    valid_fractions = {("energy", None): 1.0, ("energy", "strain"): 0.25}
+
+    # dataset_fraction mode on strain: energy MSE = 1.0, strain MSE = (4/2) / 0.25 = 8.0
+    agg_df = LossAggregator(
+        targets={"energy": target_info},
+        config={
+            "energy": {
+                "type": "mse",
+                "weight": 1.0,
+                "reduction": "mean",
+                "missing_values": "dataset_fraction",
+                "min_valid_fraction": 0.05,
+                "gradients": {
+                    "strain": {
+                        "type": "mse",
+                        "weight": 1.0,
+                        "reduction": "mean",
+                        "missing_values": "dataset_fraction",
+                        "min_valid_fraction": 0.05,
+                    }
+                },
+            }
+        },
+        valid_fractions=valid_fractions,
+    )
+    assert agg_df({"energy": pred}, {"energy": targ}).item() == pytest.approx(9.0)
+
+    # batch mode on strain: energy MSE = 1.0, strain MSE = 4/2 = 2.0
+    agg_batch = LossAggregator(
+        targets={"energy": target_info},
+        config={
+            "energy": {
+                "type": "mse",
+                "weight": 1.0,
+                "reduction": "mean",
+                "gradients": {
+                    "strain": {
+                        "type": "mse",
+                        "weight": 1.0,
+                        "reduction": "mean",
+                        "missing_values": "batch",
+                    }
+                },
+            }
+        },
+        valid_fractions=valid_fractions,
+    )
+    assert agg_batch({"energy": pred}, {"energy": targ}).item() == pytest.approx(3.0)
+
+    # Fallback to 1/B when valid_fractions is not provided
+    agg_fallback = LossAggregator(
+        targets={"energy": target_info},
+        config={
+            "energy": {
+                "type": "mse",
+                "weight": 1.0,
+                "reduction": "mean",
+                "gradients": {
+                    "strain": {
+                        "type": "mse",
+                        "weight": 1.0,
+                        "reduction": "mean",
+                    }
+                },
+            }
+        },
+    )
+    assert agg_fallback({"energy": pred}, {"energy": targ}).item() == pytest.approx(3.0)
+
+    # Non-pointwise loss accepts default missing_values/min_valid_fraction config
+    agg_ens = LossAggregator(
+        targets={"energy": target_info},
+        config={
+            "energy": {
+                "type": "gaussian_nll_ensemble",
+                "weight": 1.0,
+                "reduction": "mean",
+                "missing_values": "dataset_fraction",
+                "min_valid_fraction": 0.05,
+                "gradients": {},
+            }
+        },
+        valid_fractions=valid_fractions,
+    )
+    assert isinstance(agg_ens.losses["energy"], TensorMapGaussianNLLLoss)
+
+    # Validation errors
+    with pytest.raises(ValueError, match="Unknown missing_values"):
+        LossAggregator(
+            targets={"energy": target_info},
+            config={
+                "energy": {
+                    "type": "mse",
+                    "weight": 1.0,
+                    "reduction": "mean",
+                    "missing_values": "invalid",  # type: ignore[typeddict-item]
+                    "gradients": {},
+                }
+            },
+        )
+    with pytest.raises(ValueError, match="min_valid_fraction"):
+        LossAggregator(
+            targets={"energy": target_info},
+            config={
+                "energy": {
+                    "type": "mse",
+                    "weight": 1.0,
+                    "reduction": "mean",
+                    "min_valid_fraction": 0.0,
+                    "gradients": {},
+                }
+            },
+        )
+    with pytest.raises(ValueError, match="valid_fraction"):
+        TensorMapMSELoss(
+            name="y", gradient=None, weight=1.0, reduction="mean", valid_fraction=1.5
+        )
+
+
+def test_compute_valid_fractions_values_gradients_and_transforms():
+    """compute_valid_fractions counts entries for values and gradients across datasets
+    and respects optional collate transforms (e.g. NaN padding)."""
+
+    def _make_system(n_atoms: int) -> System:
+        return System(
+            types=torch.ones(n_atoms, dtype=torch.int32),
+            positions=torch.zeros((n_atoms, 3), dtype=torch.float64),
+            cell=torch.eye(3, dtype=torch.float64),
+            pbc=torch.tensor([True, True, True]),
+        )
+
+    def _make_energy(i: int, n_atoms: int, valid_forces: bool, valid_stress: bool):
+        block = TensorBlock(
+            values=torch.tensor([[float(i)]], dtype=torch.float64),
+            samples=Labels("system", torch.tensor([[i]])),
+            components=[],
+            properties=Labels("energy", torch.tensor([[0]])),
+        )
+        f_vals = (
+            torch.zeros((n_atoms, 3, 1), dtype=torch.float64)
+            if valid_forces
+            else torch.full((n_atoms, 3, 1), float("nan"), dtype=torch.float64)
+        )
+        block.add_gradient(
+            "positions",
+            TensorBlock(
+                values=f_vals,
+                samples=Labels(
+                    ["sample", "atom"],
+                    torch.tensor([[0, a] for a in range(n_atoms)]),
+                ),
+                components=[Labels.range("xyz", 3)],
+                properties=Labels("energy", torch.tensor([[0]])),
+            ),
+        )
+        s_vals = (
+            torch.zeros((1, 3, 3, 1), dtype=torch.float64)
+            if valid_stress
+            else torch.full((1, 3, 3, 1), float("nan"), dtype=torch.float64)
+        )
+        block.add_gradient(
+            "strain",
+            TensorBlock(
+                values=s_vals,
+                samples=Labels("sample", torch.tensor([[0]])),
+                components=[Labels.range("xyz_1", 3), Labels.range("xyz_2", 3)],
+                properties=Labels("energy", torch.tensor([[0]])),
+            ),
+        )
+        return TensorMap(keys=Labels.single(), blocks=[block])
+
+    # Structure 0: 1 atom, valid forces (3 entries), valid stress (9 entries)
+    # Structure 1: 3 atoms, NaN forces (9 entries), NaN stress (9 entries)
+    systems = [_make_system(1), _make_system(3)]
+    energies = [
+        _make_energy(0, 1, valid_forces=True, valid_stress=True),
+        _make_energy(1, 3, valid_forces=False, valid_stress=False),
+    ]
+    dataset = Dataset(system=systems, energy=energies)
+    layout_block = TensorBlock(
+        values=torch.empty((0, 1), dtype=torch.float64),
+        samples=Labels("system", torch.empty((0, 1), dtype=torch.int32)),
+        components=[],
+        properties=Labels("energy", torch.tensor([[0]])),
+    )
+    layout_block.add_gradient(
+        "positions",
+        TensorBlock(
+            values=torch.empty((0, 3, 1), dtype=torch.float64),
+            samples=Labels(["sample", "atom"], torch.empty((0, 2), dtype=torch.int32)),
+            components=[Labels.range("xyz", 3)],
+            properties=Labels("energy", torch.tensor([[0]])),
+        ),
+    )
+    layout_block.add_gradient(
+        "strain",
+        TensorBlock(
+            values=torch.empty((0, 3, 3, 1), dtype=torch.float64),
+            samples=Labels("sample", torch.empty((0, 1), dtype=torch.int32)),
+            components=[Labels.range("xyz_1", 3), Labels.range("xyz_2", 3)],
+            properties=Labels("energy", torch.tensor([[0]])),
+        ),
+    )
+    target_info = TargetInfo(
+        layout=TensorMap(keys=Labels.single(), blocks=[layout_block]),
+        quantity="energy",
+        unit="eV",
+    )
+    targets = {"energy": target_info}
+
+    # Direct (raw dataset, no transforms)
+    fracs = compute_valid_fractions([dataset], targets)
+    assert fracs[("energy", None)] == pytest.approx(1.0)
+    # Forces weighted by atom entries: 3 valid out of 3 + 9 = 12 -> 0.25
+    assert fracs[("energy", "positions")] == pytest.approx(3 / 12)
+    # Stress: 9 valid out of 18 -> 0.5
+    assert fracs[("energy", "strain")] == pytest.approx(0.5)
+
+    # Subset support (only structure 0 -> all 1.0)
+    subset_fracs = compute_valid_fractions([Subset(dataset, [0])], targets)
+    assert subset_fracs[("energy", "strain")] == pytest.approx(1.0)
+
+    # Transform that NaN-pads energy with an extra column -> valid fraction becomes 0.5
+    def nan_pad_transform(sys_list, targ_dict, extra_dict):
+        tmap = targ_dict["energy"]
+        b = tmap.block(0)
+        padded = torch.cat([b.values, torch.full_like(b.values, float("nan"))], dim=-1)
+        new_block = TensorBlock(
+            values=padded,
+            samples=b.samples,
+            components=b.components,
+            properties=Labels.range("energy", 2),
+        )
+        targ_dict = dict(targ_dict)
+        targ_dict["energy"] = TensorMap(keys=tmap.keys, blocks=[new_block])
+        return sys_list, targ_dict, extra_dict
+
+    transformed_fracs = compute_valid_fractions(
+        [dataset], targets, transforms=[nan_pad_transform]
+    )
+    assert transformed_fracs[("energy", None)] == pytest.approx(0.5)
+
+    # Skips scan when config doesn't require dataset_fraction on any term
+    skipped = compute_valid_fractions(
+        [dataset],
+        targets,
+        config={
+            "energy": {
+                "type": "mse",
+                "weight": 1.0,
+                "reduction": "mean",
+                "missing_values": "batch",
+                "gradients": {
+                    "positions": {
+                        "type": "mse",
+                        "weight": 1.0,
+                        "reduction": "sum",
+                    },
+                    "strain": {
+                        "type": "mse",
+                        "weight": 1.0,
+                        "reduction": "mean",
+                        "missing_values": "batch",
+                    },
+                },
+            }
+        },
+    )
+    assert skipped == {}

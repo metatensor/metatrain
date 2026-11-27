@@ -127,6 +127,11 @@ Added
 Changed
 #######
 
+- Targets with missing (NaN) values are now normalized by the fraction of labeled
+  entries in the training set, so the loss estimates the mean error over labeled
+  structures independently of batching. Previously, rare values were strongly
+  up-weighted. Use ``missing_values: batch`` to average over all structures instead
+  (#1347).
 - LLPR calibrates one factor for each property of each block of the targets
   (#1286).
 - The last-layer features of MACE and SPACE have the keys and components of their

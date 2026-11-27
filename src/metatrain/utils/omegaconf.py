@@ -532,7 +532,8 @@ def expand_loss_config(conf: DictConfig) -> DictConfig:
 
     def _add_defaults_in_place(node: DictConfig) -> None:
         """
-        Fill missing fields {type, weight, reduction, delta(if huber)}.
+        Fill missing fields {type, weight, reduction, missing_values,
+        min_valid_fraction, delta(if huber)}.
 
         :param node: The loss config node to fill in place.
         """
@@ -543,6 +544,10 @@ def expand_loss_config(conf: DictConfig) -> DictConfig:
             node["weight"] = d["weight"]
         if "reduction" not in node:
             node["reduction"] = d["reduction"]
+        if "missing_values" not in node:
+            node["missing_values"] = d["missing_values"]
+        if "min_valid_fraction" not in node:
+            node["min_valid_fraction"] = d["min_valid_fraction"]
         if node.get("type") == "huber" and "delta" not in node:
             node["delta"] = default_huber_loss_delta()
         if node.get("type") == "llpr_ensemble" and "scoring_rule" not in node:
