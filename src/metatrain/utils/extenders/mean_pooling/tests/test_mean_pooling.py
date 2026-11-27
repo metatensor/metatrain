@@ -6,7 +6,11 @@ from metatomic.torch import ModelOutput
 from metatrain.utils.data import DatasetInfo
 from metatrain.utils.data.target_info import get_features_info
 from metatrain.utils.extenders import get_extender_hypers_sanitizer
-from metatrain.utils.extenders.helpers import UnavailableOutputError, load_extender
+from metatrain.utils.extenders.helpers import (
+    UnavailableOutputError,
+    load_extender,
+    setup_extenders,
+)
 
 
 TARGET = "mtt::refractive_index"
@@ -52,6 +56,10 @@ def test_mean_by_system(tmp_path):
     with pytest.raises(ValueError, match="system-level"):
         pool([], {TARGET: ModelOutput(sample_kind="atom")}, inputs)
 
+    with pytest.raises(ValueError, match="explicit gradients"):
+        request = ModelOutput(sample_kind="system", explicit_gradients=["positions"])
+        pool([], {TARGET: request}, inputs)
+
 
 def test_target_layout():
     cls = load_extender("mean_pooling")
@@ -60,3 +68,22 @@ def test_target_layout():
     for info in (get_features_info(1), get_features_info(2, sample_kind="system")):
         with pytest.raises(ValueError, match="single scalar"):
             cls({"outputs": TARGET}, DatasetInfo("angstrom", [1], {TARGET: info}))
+
+
+def test_existing_atomic_target():
+    atomic = get_features_info(1, description="Learned atomic contribution")
+    targets = {TARGET: get_features_info(1, sample_kind="system"), INPUT: atomic}
+    cls = load_extender("mean_pooling")
+    pool = cls({"outputs": TARGET}, DatasetInfo("angstrom", [1], targets))
+    assert pool.requested_extender_inputs()[INPUT] is atomic
+
+    targets[INPUT] = get_features_info(2)
+    with pytest.raises(ValueError, match="Incompatible layout"):
+        cls({"outputs": TARGET}, DatasetInfo("angstrom", [1], targets))
+
+
+def test_extra_data_cannot_replace_predicted_input():
+    targets = {TARGET: get_features_info(1, sample_kind="system")}
+    dataset = DatasetInfo("angstrom", [1], targets, {INPUT: get_features_info(1)})
+    with pytest.raises(ValueError, match="present only in extra_data"):
+        setup_extenders(dataset, {"mean_pooling": {"outputs": TARGET}})

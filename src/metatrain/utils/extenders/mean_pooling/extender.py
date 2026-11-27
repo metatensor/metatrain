@@ -5,6 +5,7 @@ from metatensor.torch import Labels, TensorBlock, TensorMap
 from metatomic.torch import ModelOutput, System
 
 from metatrain.utils.data import DatasetInfo, TargetInfo
+from metatrain.utils.units import units_are_equivalent
 
 from ..abc import ExtenderInterface
 from ..helpers import UnavailableOutputError
@@ -46,17 +47,29 @@ class MeanPooling(ExtenderInterface[Hypers]):
             components=[],
             properties=block.properties,
         )
-        self.atomic_input = TargetInfo(
-            TensorMap(target.layout.keys, [atomic_block]),
-            quantity=target.quantity,
-            unit=target.unit,
-        )
-        available = {**dataset_info.targets, **dataset_info.extra_data}
-        if (
-            self.input_name in available
-            and available[self.input_name] != self.atomic_input
-        ):
-            raise ValueError(f"Incompatible layout for atomic input {self.input_name}")
+        layout = TensorMap(target.layout.keys, [atomic_block])
+        if self.input_name in dataset_info.targets:
+            atomic_input = dataset_info.targets[self.input_name]
+            if (
+                atomic_input.quantity != target.quantity
+                or not units_are_equivalent(atomic_input.unit, target.unit)
+                or not mts.equal_metadata(
+                    atomic_input.layout, layout, check_gradients=False
+                )
+            ):
+                raise ValueError(
+                    f"Incompatible layout for atomic input {self.input_name}"
+                )
+            self.atomic_input = atomic_input
+        elif self.input_name in dataset_info.extra_data:
+            raise ValueError(
+                f"{self.input_name} is reserved for predicted atomic values, "
+                "but is present only in extra_data"
+            )
+        else:
+            self.atomic_input = TargetInfo(
+                layout, quantity=target.quantity, unit=target.unit
+            )
         self.target = target
 
     def supported_outputs(self) -> dict[str, TargetInfo]:
@@ -80,6 +93,8 @@ class MeanPooling(ExtenderInterface[Hypers]):
             return {}
         if outputs[self.output_name].sample_kind != "system":
             raise ValueError("mean_pooling only produces system-level outputs")
+        if outputs[self.output_name].explicit_gradients:
+            raise ValueError("mean_pooling does not support explicit gradients")
         return {
             self.output_name: mts.mean_over_samples(inputs[self.input_name], "atom")
         }

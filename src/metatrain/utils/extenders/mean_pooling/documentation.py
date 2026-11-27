@@ -13,7 +13,9 @@ to train on one refractive index per crystal, use the target-name shorthand:
 The architecture supplies one scalar per selected atom. Each system's output
 is the arithmetic mean over its contributing atoms. For an intensive training
 target, set its atomic baseline to zero and include it in
-``per_structure_targets`` in trainers that support these options.
+``per_structure_targets`` in trainers that support these options. Gradients through
+the mean are available via autograd. Requests for explicit gradient blocks are
+unsupported.
 """
 
 from typing_extensions import TypedDict
