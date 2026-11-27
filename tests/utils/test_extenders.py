@@ -50,7 +50,8 @@ def test_find_all_extenders():
     extenders = find_all_extenders()
     assert isinstance(extenders, list)
     assert all(isinstance(extender, str) for extender in extenders)
-    assert len(extenders) == 4
+    assert len(extenders) == 5
+    assert "mean_pooling" in extenders
     assert "rename" in extenders
     assert "global_multipoles" in extenders
     assert "intensive_gap" in extenders
